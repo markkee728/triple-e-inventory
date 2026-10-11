@@ -595,8 +595,16 @@ function validateMovement(b) {
   const quantity = number(e, 'quantity', b.quantity, 'Quantity', { min: 0, max: 1e8, gt: true });
   const note = text(e, 'note', b.note, 'Note', { max: 300, required: false });
   if (!e.reason && NOTE_REQUIRED.includes(reason) && note.length < 3) e.note = 'Please explain this entry in the note';
+  // Deliveries from a supplier: who sent it (required), what each unit cost, and the supplier's invoice / delivery receipt number
+  let supplier = null, unitCost = null, invoiceNo = null;
+  if (type === 'in' && reason === 'supplier_receipt') {
+    supplier = str(b.supplier);
+    if (!supplier) e.supplier = 'Choose the supplier this delivery came from';
+    unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { min: 0, max: 1e7, required: false });
+    invoiceNo = text(e, 'invoiceNo', b.invoiceNo, 'Invoice / delivery no.', { max: 40, required: false }) || null;
+  }
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, type, reason, quantity, note: note || null };
+  return { sku, type, reason, quantity, note: note || null, supplier, unitCost, invoiceNo };
 }
 
 const wrap = fn => (req, res) => fn(req, res).catch(err => {
@@ -1019,14 +1027,16 @@ app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 5000);
   const { rows } = await pool.query(
     `SELECT m.ref, m.reason, p.name AS product, m.movement_type, m.quantity, p.unit, p.department,
-            COALESCE(u.full_name, '—') AS handled_by,
+            COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.unit_cost, m.invoice_no, m.note,
             to_char(m.created_at AT TIME ZONE $2, 'Mon DD, HH12:MI AM') AS dt,
             to_char(m.created_at AT TIME ZONE $2, 'YYYY-MM-DD') AS d
        FROM stock_movements m JOIN products p USING (product_id) LEFT JOIN users u ON u.user_id = m.handled_by
+       LEFT JOIN suppliers s ON s.supplier_id = m.supplier_id
       ORDER BY m.created_at DESC, m.movement_id DESC LIMIT $1`, [limit, TZ]);
   res.json(rows.map(r => ({ ref: r.ref, product: r.product, type: r.movement_type, qty: +r.quantity,
     reason: REASONS.in[r.reason] || REASONS.out[r.reason] || LEGACY_REASON_LABELS[r.reason] || r.reason,
-    unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d })));
+    unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d,
+    supplier: r.supplier || undefined, unitCost: r.unit_cost === null ? undefined : +r.unit_cost, invoiceNo: r.invoice_no || undefined, note: r.note || undefined })));
 }));
 
 app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
@@ -1040,12 +1050,20 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
       throw new ValidationError({ sku: `"${REASONS[m.type][m.reason]}" applies to ${allowedDepts.join(' / ')} products — ${prod.name} is ${prod.department}` });
     if (m.type === 'out' && +prod.on_hand < m.quantity)
       throw new ValidationError({ quantity: `Only ${+prod.on_hand} ${prod.unit} on hand — cannot take out ${m.quantity}` });
+    let supplierId = null, supplierName = null;
+    if (m.supplier) {
+      const sp = await client.query(`SELECT supplier_id, name, status FROM suppliers WHERE code = $1`, [m.supplier]);
+      if (!sp.rowCount) throw new ValidationError({ supplier: 'That supplier does not exist' });
+      if (sp.rows[0].status !== 'active') throw new ValidationError({ supplier: `${sp.rows[0].name} is archived — restore it first or choose another supplier` });
+      supplierId = sp.rows[0].supplier_id; supplierName = sp.rows[0].name;
+    }
     const ins = await client.query(
-      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING ref`,
-      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note]);
+      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,supplier_id,unit_cost,invoice_no)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ref`,
+      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note, supplierId, m.unitCost, m.invoiceNo]);
     await audit(client, req.user, 'Record added',
-      `Stock ${m.type === 'in' ? 'In' : 'Out'} — ${ins.rows[0].ref}, ${prod.name}, ${m.type === 'in' ? '+' : '-'}${m.quantity} ${prod.unit} (${REASONS[m.type][m.reason]})`);
+      `Stock ${m.type === 'in' ? 'In' : 'Out'} — ${ins.rows[0].ref}, ${prod.name}, ${m.type === 'in' ? '+' : '-'}${m.quantity} ${prod.unit} (${REASONS[m.type][m.reason]})` +
+      (supplierName ? `, from ${supplierName}` : '') + (m.unitCost !== null ? `, cost ${m.unitCost}/unit` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : ''));
     return ins.rows[0].ref;
   });
   res.status(201).json({ ref: result });
@@ -1070,6 +1088,8 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
+/* ---------- stock count (physical inventory) ---------- */
+require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');
@@ -1101,6 +1121,20 @@ async function ensureUserColumns() {
   catch (err) { console.warn('[db] could not check the users columns:', err.message); }
 }
 ensureUserColumns();
+// Stock In details (supplier / cost / invoice no.). The ledger already has supplier_id; add the other two.
+// Also lets the ledger accept every reason the form offers (older databases limited it to a short list).
+async function ensureMovementColumns() {
+  try {
+    await pool.query('ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(supplier_id)');
+    await pool.query('ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2) CHECK (unit_cost >= 0)');
+    await pool.query('ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS invoice_no TEXT');
+    await pool.query(`DO $$ DECLARE c record; BEGIN
+      FOR c IN SELECT conname FROM pg_constraint WHERE conrelid = 'stock_movements'::regclass AND contype = 'c'
+                  AND pg_get_constraintdef(oid) ILIKE '%reason%' AND pg_get_constraintdef(oid) NOT ILIKE '%count_correction_up%'
+      LOOP EXECUTE format('ALTER TABLE stock_movements DROP CONSTRAINT %I', c.conname); END LOOP; END $$`);
+  } catch (err) { console.warn('[db] could not check the stock movement columns:', err.message); }
+}
+ensureMovementColumns();
 app.listen(process.env.PORT || 8080, () => {
   console.log('Triple E API on port ' + (process.env.PORT || 8080));
   console.log('[profile] My Profile routes are loaded (GET/PUT /api/auth/profile)');

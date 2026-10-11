@@ -888,6 +888,27 @@
                                 <div class="field-hint" id="movementReasonHint"></div>
                             </div>
 
+<div id="movementReceiptGroup" style="display:none">
+                                <div class="form-group">
+                                    <label class="form-label" for="movementSupplier">
+                                        Supplier <span class="required-mark">*</span>
+                                    </label>
+                                    <select id="movementSupplier" class="form-select"></select>
+                                    <div class="field-hint" id="movementSupplierHint"></div>
+                                </div>
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label" for="movementUnitCost">Unit cost (&#8369; per unit)</label>
+                                        <input type="number" inputmode="decimal" id="movementUnitCost" class="form-input" min="0" step="any" placeholder="e.g. 240.00" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="movementInvoice">Invoice / delivery no.</label>
+                                        <input type="text" id="movementInvoice" class="form-input" maxlength="40" placeholder="Supplier&#8217;s document no." autocomplete="off">
+                                    </div>
+                                </div>
+                                <div class="field-hint" id="movementCostHint"></div>
+                            </div>
+
 <div class="form-group">
                                 <label class="form-label" for="movementRef">
                                     Reference No.
@@ -1031,6 +1052,7 @@
                                         <th>Reason</th>
                                         <th>Qty</th>
                                         <th>Dept.</th>
+                                        <th>Supplier / cost</th>
                                         <th>Handled By</th>
                                         <th>Time</th>
                                     </tr>
@@ -3477,9 +3499,10 @@
 
     <!-- JAVASCRIPT -->
     <script src="script.js"></script>
-    <script src="api-bridge.js?v=5"></script>
+    <script src="api-bridge.js?v=7"></script>
     <script src="sales-orders.js?v=1"></script>
     <script src="refund-admin.js?v=1"></script>
+    <script src="stock-count-admin.js?v=1"></script>
 
 </body>
 

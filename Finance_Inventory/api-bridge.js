@@ -296,6 +296,21 @@
       }
     }
 
+    // supplier delivery details (only for "Received from supplier")
+    const isReceipt = type === 'in' && reason === 'supplier_receipt';
+    const rg = $('movementReceiptGroup');
+    if (rg) {
+      rg.style.display = isReceipt ? '' : 'none';
+      if (isReceipt) fillMovementSuppliers(item);
+      else {
+        ['movementSupplier', 'movementUnitCost', 'movementInvoice'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
+        rg.querySelectorAll('.field-msg').forEach((n) => n.remove());
+      }
+      const ch = $('movementCostHint'), uc = Number($('movementUnitCost').value);
+      if (ch) ch.textContent = isReceipt && uc > 0 && qty > 0 ? 'Delivery value: \u20B1' + (Math.round(uc * qty * 100) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ' (' + formatNumber(qty) + ' \u00D7 \u20B1' + uc.toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ')'
+        : isReceipt ? 'Cost is optional, but it lets you see what each delivery cost.' : '';
+    }
+
     // stock summary
     const cur = $('summaryCurrentStock'), aft = $('summaryAfterStock');
     if (cur) cur.textContent = item ? formatNumber(item.onHand) + ' ' + item.unit : '—';
@@ -309,12 +324,35 @@
     }
   }
 
+  // Supplier dropdown: suppliers that already supply this product come first; any other active supplier can still be chosen
+  function fillMovementSuppliers(item) {
+    const sel = $('movementSupplier');
+    if (!sel) return;
+    const active = supplierData.filter((s) => s.status !== 'archived');
+    const linked = item ? active.filter((s) => (s.products || []).some((p) => p.sku === item.sku)) : [];
+    const others = active.filter((s) => linked.indexOf(s) < 0);
+    const sig = (item ? item.sku : '') + '|' + active.map((s) => s.id + s.name).join(';');
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      const prev = sel.value;
+      const opt = (s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>';
+      sel.innerHTML = '<option value="">' + (active.length ? 'Select the supplier\u2026' : 'No active suppliers yet') + '</option>' +
+        (linked.length ? '<optgroup label="Supplies this product">' + linked.map(opt).join('') + '</optgroup>' : '') +
+        (others.length ? '<optgroup label="' + (linked.length ? 'Other suppliers' : 'All suppliers') + '">' + others.map(opt).join('') + '</optgroup>' : '');
+      if (prev && active.some((s) => s.id === prev)) sel.value = prev;
+      else if (linked.length === 1) sel.value = linked[0].id;
+    }
+    const h = $('movementSupplierHint');
+    if (h) h.textContent = item && !linked.length ? 'No supplier is linked to this product yet \u2014 pick the one that delivered it.' : '';
+  }
+
   function refreshMovementForm() {
     if (!$('movementProduct')) return;
     syncMovementForm();
   }
 
-  const MOVE_FIELDS = { sku: 'movementProduct', quantity: 'movementQuantity', reason: 'movementReason', note: 'movementNote' };
+  const MOVE_FIELDS = { sku: 'movementProduct', quantity: 'movementQuantity', reason: 'movementReason', note: 'movementNote',
+    supplier: 'movementSupplier', unitCost: 'movementUnitCost', invoiceNo: 'movementInvoice' };
 
   function setupMovementForm() {
     const form = $('movementForm');
@@ -329,6 +367,12 @@
       if (wasHidden && NOTE_REQUIRED.indexOf($('movementReason').value) >= 0) $('movementNote').focus();
     });
     $('movementQuantity').addEventListener('input', syncMovementForm);
+    $('movementUnitCost').addEventListener('input', syncMovementForm);
+    ['movementSupplier', 'movementUnitCost', 'movementInvoice'].forEach((id) => {       // clear an old error message as soon as the field is changed
+      const el = $(id); if (!el) return;
+      const clear = () => { el.classList.remove('field-invalid'); const g = el.closest('.form-group'); if (g) g.querySelectorAll('.field-msg').forEach((n) => n.remove()); };
+      el.addEventListener('input', clear); el.addEventListener('change', clear);
+    });
     const toggle = $('movementTypeToggle');
     if (toggle) toggle.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setTimeout(syncMovementForm, 0)));
 
@@ -342,6 +386,14 @@
       if (!reason) errs.movementReason = type === 'out' ? 'Choose why this stock is going out' : 'Choose why this stock is coming in';
       const qty = vNum(errs, 'movementQuantity', 'Quantity', { gt: true });
       const note = vText(errs, 'movementNote', 'Note', { required: false, max: 300 });
+      const isReceipt = type === 'in' && reason === 'supplier_receipt';
+      let supplier = '', unitCost = null, invoiceNo = '';
+      if (isReceipt) {
+        supplier = $('movementSupplier').value;
+        if (!supplier) errs.movementSupplier = 'Choose the supplier this delivery came from';
+        unitCost = vNum(errs, 'movementUnitCost', 'Unit cost', { required: false, max: 1e7 });
+        invoiceNo = vText(errs, 'movementInvoice', 'Invoice / delivery no.', { required: false, max: 40 });
+      }
       if (reason && NOTE_REQUIRED.indexOf(reason) >= 0 && note.length < 3) errs.movementNote = 'Please explain this entry in the note';
       const item = movementItem();
       if (item && reason && !errs.movementReason && reasonKeysFor(type, item.department).indexOf(reason) < 0)
@@ -354,7 +406,7 @@
       try {
         const r = await api('/movements', {
           method: 'POST',
-          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note })
+          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, unitCost: unitCost === null ? undefined : unitCost, invoiceNo: invoiceNo || undefined })
         });
         toast('Saved. Reference no. ' + r.ref);
         form.reset();
@@ -1127,7 +1179,7 @@
     const sub = $('logPanelSub');
     if (sub) sub.textContent = 'Showing ' + rows.length + ' of ' + movementCache.length + ' recorded stock in / out entries';
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="8" class="dim" style="text-align:center;padding:24px">' +
+      body.innerHTML = '<tr><td colspan="9" class="dim" style="text-align:center;padding:24px">' +
         (movementCache.length ? 'No movements match your search.' : 'No stock movements recorded yet.') + '</td></tr>';
       return;
     }
@@ -1140,6 +1192,9 @@
         '<td class="dim">' + esc(m.reason || '') + '</td>' +
         '<td class="dim">' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</td>' +
         '<td class="dim">' + esc(m.department) + '</td>' +
+        '<td class="dim">' + (m.supplier || m.unitCost !== undefined || m.invoiceNo
+          ? (m.supplier ? esc(m.supplier) : '') + (m.unitCost !== undefined ? '<div style="font-size:12.5px">\u20B1' + esc(Number(m.unitCost).toLocaleString('en-PH', { minimumFractionDigits: 2 })) + ' / ' + esc(m.unit) + '</div>' : '') +
+            (m.invoiceNo ? '<div style="font-size:12.5px">Inv. ' + esc(m.invoiceNo) + '</div>' : '') : '\u2014') + '</td>' +
         '<td class="dim">' + esc(m.handledBy) + '</td>' +
         '<td class="dim">' + esc(m.dateTime) + '</td></tr>';
     }).join('');
