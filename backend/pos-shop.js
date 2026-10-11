@@ -1,26 +1,50 @@
-/* pos-shop.js — POS (cashier) and online shop (customer) routes.
-   Mounted from server.js:  require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
-
-   Rules enforced here (not in the browser):
-   - Only products in the "Finished Goods" department, not archived, with a selling price > 0, can be listed or sold.
-   - Prices always come from the database; the browser only sends {sku, qty}.
-   - Stock changes only through stock_movements (the DB trigger updates products.on_hand and blocks overselling).
-   - Cost / margin / supplier data is never sent to cashiers or customers. */
-
 const FG = 'Finished Goods';
 const VAT_RATE = 0.12;
 const DELIVERY_FEE = Number(process.env.DELIVERY_FEE) || 150;
 const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card'];
-// Status path for each order type. Finance moves an order one step at a time; the customer sees the same status.
+// Order life-cycle. An order can only move one step forward; the last step ends it.
 const FLOW = {
   Delivery: ['Pending Confirmation', 'Paid', 'Packed', 'Out for Delivery', 'Delivered'],
   Pickup:   ['Pending Confirmation', 'Paid', 'Packed', 'Ready for Pickup', 'Picked Up']
 };
-const nextStatus = (o) => { const f = FLOW[o.fulfillment] || []; const i = f.indexOf(o.status); return i >= 0 && i < f.length - 1 ? f[i + 1] : null; };
+const FINAL_STATUS = ['Delivered', 'Picked Up'];
+const ADMIN_CANCELLABLE = ['Pending Confirmation', 'Paid', 'Packed'];   // once it is out for delivery / ready for pickup it can no longer be cancelled
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
+
+  // Adds what the Sales Transactions page needs (safe to run every time the server starts).
+  async function ensureSalesSchema() {
+    try {
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_by TEXT');
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ');
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_status_history (
+        history_id  BIGSERIAL PRIMARY KEY,
+        order_id    BIGINT NOT NULL REFERENCES orders(order_id),
+        from_status TEXT,
+        to_status   TEXT NOT NULL,
+        changed_by  INT REFERENCES users(user_id),
+        note        TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_osh_order ON order_status_history (order_id, created_at)');
+      // make sure the status column accepts every step of the flow (an older CHECK may only know a few)
+      await pool.query(`DO $$
+        DECLARE c record;
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'orders'::regclass AND conname = 'orders_status_flow_check') THEN
+            FOR c IN SELECT conname FROM pg_constraint
+                      WHERE conrelid = 'orders'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%status%'
+            LOOP
+              EXECUTE format('ALTER TABLE orders DROP CONSTRAINT %I', c.conname);
+            END LOOP;
+            ALTER TABLE orders ADD CONSTRAINT orders_status_flow_check CHECK (status IN
+              ('Pending Confirmation','Paid','Packed','Out for Delivery','Ready for Pickup','Delivered','Picked Up','Cancelled'));
+          END IF;
+        END $$`);
+    } catch (err) { console.warn('[db] could not prepare the sales tables:', err.message); }
+  }
+  ensureSalesSchema();
 
   /* ---------- shared helpers ---------- */
   const CATALOG_SQL = `
@@ -77,6 +101,25 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     await client.query(
       `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [productId, type, reason, qty, userId, sourceType, sourceId, note || null]);
+  }
+
+  const logStatus = (client, orderId, from, to, userId, note) => client.query(
+    `INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note) VALUES ($1,$2,$3,$4,$5)`,
+    [orderId, from, to, userId, note || null]);
+
+  // Payment confirmed -> take the goods out of stock (checked under a row lock so two admins cannot oversell).
+  async function confirmOrder(client, o, user, note) {
+    const { rows: lines } = await client.query(
+      `SELECT i.product_id, i.qty, p.name, p.unit, p.on_hand
+         FROM order_items i JOIN products p ON p.product_id = i.product_id
+        WHERE i.order_id = $1 ORDER BY i.product_id FOR UPDATE OF p`, [o.order_id]);
+    for (const l of lines)
+      if (+l.on_hand < +l.qty) throw bad('stock', `Not enough stock for ${l.name}: ${+l.on_hand} ${l.unit} on hand, this order needs ${+l.qty}`);
+    for (const l of lines) await postMovement(client, { productId: l.product_id, type: 'out', reason: 'online_order', qty: +l.qty,
+      userId: user.id, sourceType: 'order', sourceId: o.order_id, note: o.order_no });
+    await client.query(`UPDATE orders SET status = 'Paid', stock_deducted = TRUE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+    await logStatus(client, o.order_id, o.status, 'Paid', user.id, ['Payment confirmed — stock deducted', note].filter(Boolean).join(' — '));
+    await audit(client, user, 'Record edited', `Order ${o.order_no} confirmed and paid — stock deducted`);
   }
 
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -266,37 +309,20 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows: items } = ids.length ? await pool.query('SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY item_id', [ids]) : { rows: [] };
     const { rows: cr } = ids.length ? await pool.query(`SELECT DISTINCT order_id FROM order_cancel_requests WHERE order_id = ANY($1) AND status = 'pending'`, [ids]) : { rows: [] };
     const pending = new Set(cr.map(r => r.order_id));
-    res.json(orders.map(o => ({ ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id)), customer: o.customer, next: nextStatus(o) })));
+    res.json(orders.map(o => ({ ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id)), customer: o.customer })));
   }));
 
-  // Move an order to its next status. Pending Confirmation -> Paid means payment was received (online: gateway confirmed /
-  // COD: cash collected) and posts the stock-out. Later steps only change the status the customer sees.
-  const advanceOrder = wrap(async (req, res) => {
-    const result = await tx(async (client) => {
+  // Confirm = payment received (online: gateway confirmed / COD: cash collected). Posts the stock-out.
+  app.post('/api/orders/:no/confirm', auth('finance'), wrap(async (req, res) => {
+    await tx(async (client) => {
       const r = await client.query(`SELECT * FROM orders WHERE order_no = $1 FOR UPDATE`, [req.params.no]);
       if (!r.rowCount) throw bad('id', 'Order not found');
       const o = r.rows[0];
-      const next = nextStatus(o);
-      if (!next) throw bad('id', `Order is already ${o.status}`);
-      const asked = str((req.body || {}).status);
-      if (asked && asked !== next) throw bad('status', `The next step for this order is "${next}"`);
-      const pend = await client.query(`SELECT 1 FROM order_cancel_requests WHERE order_id = $1 AND status = 'pending'`, [o.order_id]);
-      if (pend.rowCount) throw bad('id', 'The customer asked to cancel this order. Approve or reject that request first');
-      if (o.status === 'Pending Confirmation') {
-        const { rows: items } = await client.query('SELECT product_id, qty FROM order_items WHERE order_id = $1 ORDER BY product_id', [o.order_id]);
-        for (const i of items) await postMovement(client, { productId: i.product_id, type: 'out', reason: 'online_order', qty: +i.qty,
-          userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: o.order_no });   // trigger rejects if stock ran out
-        await client.query(`UPDATE orders SET status = $2, stock_deducted = TRUE WHERE order_id = $1`, [o.order_id, next]);
-      } else {
-        await client.query(`UPDATE orders SET status = $2 WHERE order_id = $1`, [o.order_id, next]);
-      }
-      await audit(client, req.user, 'Record edited', `Order ${o.order_no}: ${o.status} → ${next}${o.status === 'Pending Confirmation' ? ' (stock deducted)' : ''}`);
-      return { status: next, next: nextStatus({ ...o, status: next }) };
+      if (o.status !== 'Pending Confirmation') throw bad('id', `Order is already ${o.status}`);
+      await confirmOrder(client, o, req.user);
     });
-    res.json(result);
-  });
-  app.post('/api/orders/:no/advance', auth('finance'), advanceOrder);
-  app.post('/api/orders/:no/confirm', auth('finance'), advanceOrder);   // kept for older callers
+    res.json({ ok: true });
+  }));
 
   app.post('/api/orders/:no/cancel-decision', auth('finance'), wrap(async (req, res) => {
     const approve = (req.body || {}).approve === true;
@@ -313,11 +339,130 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'refund', qty: +i.qty,
             userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: `Cancelled ${o.order_no}` });
         }
-        await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE WHERE order_id = $1`, [o.order_id]);
+        await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+        await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, 'Customer cancellation approved');
       }
       await client.query(`UPDATE order_cancel_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
         [q.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
       await audit(client, req.user, 'Record edited', `Cancellation ${approve ? 'approved' : 'rejected'} for ${o.order_no}${approve && o.stock_deducted ? ' — stock restored, refund to original payment method due' : ''}`);
+    });
+    res.json({ ok: true });
+  }));
+  /* =====================================================
+     SALES TRANSACTIONS (admin) — every POS sale and every online order in one list
+  ===================================================== */
+  const groupBy = (rows, key) => { const m = new Map(); for (const r of rows) { (m.get(r[key]) || m.set(r[key], []).get(r[key])).push(r); } return m; };
+  const lineJson = (i) => ({ sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, price: +i.price, cost: +i.cost });
+  const money = (lines) => {
+    const revenue = round2(lines.reduce((n, i) => n + i.qty * i.price, 0));
+    const cost = round2(lines.reduce((n, i) => n + i.qty * i.cost, 0));
+    return { revenue, cost, profit: round2(revenue - cost) };
+  };
+
+  app.get('/api/sales', auth('finance'), wrap(async (req, res) => {
+    const [pos, ord] = await Promise.all([
+      pool.query('SELECT * FROM pos_sales ORDER BY created_at DESC LIMIT 500'),
+      pool.query(`SELECT o.*, u.full_name AS customer FROM orders o LEFT JOIN users u ON u.user_id = o.customer_id ORDER BY o.created_at DESC LIMIT 500`)]);
+    const posIds = pos.rows.map(s => s.sale_id), ordIds = ord.rows.map(o => o.order_id);
+    const q = (sql, ids) => (ids.length ? pool.query(sql, [ids]) : Promise.resolve({ rows: [] }));
+    const [posItems, ordItems, voids, cancels, hist] = await Promise.all([
+      q(`SELECT i.sale_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
+           FROM pos_sale_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.sale_id = ANY($1) ORDER BY i.item_id`, posIds),
+      q(`SELECT i.order_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
+           FROM order_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.order_id = ANY($1) ORDER BY i.item_id`, ordIds),
+      q(`SELECT request_id, sale_id, reason FROM void_requests WHERE status = 'pending' AND sale_id = ANY($1)`, posIds),
+      q(`SELECT order_id, reason FROM order_cancel_requests WHERE status = 'pending' AND order_id = ANY($1)`, ordIds),
+      q(`SELECT h.order_id, h.from_status, h.to_status, h.note, h.created_at, u.full_name AS changed_by_name
+           FROM order_status_history h LEFT JOIN users u ON u.user_id = h.changed_by
+          WHERE h.order_id = ANY($1) ORDER BY h.created_at, h.history_id`, ordIds)]);
+    const pItems = groupBy(posItems.rows, 'sale_id'), oItems = groupBy(ordItems.rows, 'order_id');
+    const voidBy = new Map(voids.rows.map(v => [v.sale_id, v])), cancelBy = new Map(cancels.rows.map(c => [c.order_id, c]));
+    const histBy = groupBy(hist.rows, 'order_id');
+
+    const out = [];
+    for (const s of pos.rows) {
+      const items = (pItems.get(s.sale_id) || []).map(lineJson), v = voidBy.get(s.sale_id);
+      out.push({
+        source: 'POS', ref: s.receipt_no, createdAt: new Date(s.created_at).getTime(), customer: 'Walk-in customer', fulfillment: 'Walk-in',
+        method: s.method, subtotal: +s.total, deliveryFee: 0, total: +s.total, vat: +s.vat, status: s.status, cashier: s.cashier_name,
+        tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given, cardRef: s.card_ref || undefined,
+        items, ...money(items), next: null, canCancel: false, history: [],
+        voidRequest: v ? { id: v.request_id, reason: v.reason } : null
+      });
+    }
+    for (const o of ord.rows) {
+      const items = (oItems.get(o.order_id) || []).map(lineJson), c = cancelBy.get(o.order_id), flow = FLOW[o.fulfillment] || [];
+      const at = flow.indexOf(o.status);
+      out.push({
+        source: 'Shop', ref: o.order_no, createdAt: new Date(o.created_at).getTime(), customer: o.customer || 'Customer', phone: o.phone,
+        address: o.address || undefined, fulfillment: o.fulfillment, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee,
+        total: +o.total, status: o.status, receivedBy: o.received_by || undefined, items, ...money(items),
+        next: at >= 0 && at < flow.length - 1 ? flow[at + 1] : null,
+        canCancel: ADMIN_CANCELLABLE.includes(o.status),
+        cancelRequest: c ? { reason: c.reason } : null,
+        history: (histBy.get(o.order_id) || []).map(h => ({ from: h.from_status, to: h.to_status, note: h.note || undefined, by: h.changed_by_name || 'System', at: new Date(h.created_at).getTime() }))
+      });
+    }
+    out.sort((a, b) => b.createdAt - a.createdAt);
+    res.json({ flow: FLOW, sales: out });
+  }));
+
+  // Move an online order one step forward: Paid -> Packed -> Out for Delivery / Ready for Pickup -> Delivered / Picked Up.
+  app.post('/api/orders/:no/status', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);
+    if (!target) throw bad('status', 'Choose the new status');
+    if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    await tx(async (client) => {
+      const r = await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [req.params.no]);
+      if (!r.rowCount) throw bad('id', 'Order not found');
+      const o = r.rows[0], flow = FLOW[o.fulfillment];
+      if (!flow) throw bad('id', 'This order has no delivery or pickup type, so its status cannot be changed');
+      if (o.status === 'Cancelled') throw bad('status', 'This order was cancelled and can no longer be changed');
+      if (FINAL_STATUS.includes(o.status)) throw bad('status', `This order is already ${o.status} and is closed`);
+      const at = flow.indexOf(o.status);
+      if (at < 0) throw bad('status', `The current status "${o.status}" is not recognised`);
+      const pend = await client.query(`SELECT 1 FROM order_cancel_requests WHERE order_id = $1 AND status = 'pending'`, [o.order_id]);
+      if (pend.rowCount) throw bad('status', 'The customer asked to cancel this order. Approve or reject that request first');
+      const next = flow[at + 1];
+      if (target !== next) throw bad('status', flow.includes(target)
+        ? `The next step for this order is "${next}". Steps cannot be skipped or moved backwards`
+        : `"${target}" is not a ${o.fulfillment.toLowerCase()} status`);
+      if (FINAL_STATUS.includes(target) && (receivedBy.length < 2 || receivedBy.length > 80))
+        throw bad('receivedBy', `Enter the name of the person who ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'} the order (2–80 characters)`);
+
+      if (target === 'Paid') await confirmOrder(client, o, req.user, note);   // also deducts stock and writes its own history line
+      else {
+        if (!o.stock_deducted) throw bad('status', 'Stock has not been deducted for this order. Contact the system administrator');
+        await client.query('UPDATE orders SET status = $2, status_updated_at = now(), received_by = COALESCE($3, received_by) WHERE order_id = $1',
+          [o.order_id, target, FINAL_STATUS.includes(target) ? receivedBy : null]);
+        await logStatus(client, o.order_id, o.status, target, req.user.id, FINAL_STATUS.includes(target) ? [`Received by ${receivedBy}`, note].filter(Boolean).join(' — ') : note);
+        await audit(client, req.user, 'Record edited', `Order ${o.order_no} moved from ${o.status} to ${target}`);
+      }
+    });
+    res.json({ ok: true });
+  }));
+
+  // Admin cancels an order directly (reason required). Stock goes back if it was already deducted.
+  app.post('/api/orders/:no/cancel', auth('finance'), wrap(async (req, res) => {
+    const reason = str((req.body || {}).reason);
+    if (reason.length < 5 || reason.length > 300) throw bad('reason', 'Please explain why (5 to 300 characters)');
+    await tx(async (client) => {
+      const r = await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [req.params.no]);
+      if (!r.rowCount) throw bad('id', 'Order not found');
+      const o = r.rows[0];
+      if (o.status === 'Cancelled') throw bad('id', 'This order is already cancelled');
+      if (FINAL_STATUS.includes(o.status)) throw bad('id', `This order was already ${o.status.toLowerCase()}, so it cannot be cancelled. Handle it as a return instead`);
+      if (!ADMIN_CANCELLABLE.includes(o.status)) throw bad('id', `An order that is "${o.status}" can no longer be cancelled`);
+      if (o.stock_deducted) {
+        const { rows: items } = await client.query('SELECT product_id, qty FROM order_items WHERE order_id = $1 ORDER BY product_id', [o.order_id]);
+        for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'refund', qty: +i.qty,
+          userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: `Cancelled ${o.order_no}` });
+      }
+      await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+      await client.query(`UPDATE order_cancel_requests SET status = 'approved', decided_by = $2, decided_at = now() WHERE order_id = $1 AND status = 'pending'`, [o.order_id, req.user.id]);
+      await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, reason);
+      await audit(client, req.user, 'Record edited', `Order ${o.order_no} cancelled by admin: ${reason}${o.stock_deducted ? ' — stock restored, refund to original payment method due' : ''}`);
     });
     res.json({ ok: true });
   }));
