@@ -456,6 +456,40 @@ async function assertAddress(s, was) {
   if (Object.keys(e).length) throw new ValidationError(e);
 }
 
+/* ----- Customer delivery address (online shop) -----
+   Street line + Region/Province/City/Barangay (PSGC) + ZIP. Same checks as the supplier form,
+   but delivery is Philippines only. If the PSGC / ZIP services are unreachable the format checks
+   still apply and the order is not blocked (the outage is logged). */
+function formatShipTo(a) {
+  const brgy = a.barangay && (/^(brgy|barangay)/i.test(a.barangay) ? a.barangay : 'Brgy. ' + a.barangay);
+  return [a.addressLine, brgy, a.city, a.province, a.zip].filter(Boolean).join(', ');
+}
+async function validateShipTo(b) {
+  const e = {};
+  const recipient = text(e, 'recipient', b.recipient, 'Recipient name', { min: 2, max: 80 });
+  if (recipient && !e.recipient && !/^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u.test(recipient)) e.recipient = 'Recipient name can only have letters, spaces, . , \' and -';
+  const addressLine = text(e, 'addressLine', b.addressLine, 'House / unit no., street, block, lot', { min: 5, max: 150 });
+  if (addressLine && !e.addressLine && !/[\p{L}]/u.test(addressLine)) e.addressLine = 'Enter the street name, e.g. "Blk 5 Lot 12 Sampaguita St."';
+  const landmark = text(e, 'landmark', b.landmark, 'Landmark', { max: 120, required: false });
+  const region = str(b.region);
+  if (!region) e.region = 'Choose a region';
+  else if (region === OUTSIDE_PH) e.region = 'We only deliver within the Philippines';
+  else if (region.length > 100 || (process.env.ADDRESS_CHECK === 'off' && !REGIONS.includes(region))) e.region = 'Choose a valid region';
+  const province = text(e, 'province', b.province, 'Province', { min: 2, max: 60 });
+  const city = text(e, 'city', b.city, 'City / Municipality', { min: 2, max: 60 });
+  const barangay = text(e, 'barangay', b.barangay, 'Barangay', { min: 2, max: 80 });
+  const zip = text(e, 'zip', b.zip, 'ZIP code', { min: 1, max: 10 });
+  if (zip && !e.zip && !e.region) { const m = zipError(zip, region); if (m) e.zip = m; }
+  if (Object.keys(e).length) throw new ValidationError(e);
+  const s = { recipient, addressLine, landmark, region, province, city, barangay, zip };
+  const geo = await checkAddress({ region, province, city, barangay, zip });
+  const down = Object.values(geo).find((m) => /^Could not load/.test(m));
+  if (down) console.warn('[geo] address service unavailable, order address accepted without the PSGC/ZIP check:', down);
+  else if (Object.keys(geo).length) throw new ValidationError(geo);
+  s.fullAddress = formatShipTo(s);
+  return s;
+}
+
 const str = (v) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '');
 function text(errors, key, v, label, { min = 1, max = 120, required = true } = {}) {
   const s = str(v);
@@ -832,11 +866,26 @@ const geoRoute = (fn) => wrap(async (req, res) => {
     throw err;
   }
 });
-app.get('/api/geo/regions', auth('finance'), geoRoute(() => getRegions()));
-app.get('/api/geo/regions/:code/provinces', auth('finance'), geoRoute((req) => getProvinces(req.params.code)));
-app.get('/api/geo/regions/:code/cities', auth('finance'), geoRoute((req) => getCitiesOfRegion(req.params.code)));
-app.get('/api/geo/cities/:code/barangays', auth('finance'), geoRoute((req) => getBarangaysOfCity(req.params.code)));
-app.get('/api/geo/provinces/:code/cities', auth('finance'), geoRoute((req) => getCitiesOfProvince(req.params.code)));
+app.get('/api/geo/regions', auth('finance', 'customer'), geoRoute(() => getRegions()));
+app.get('/api/geo/regions/:code/provinces', auth('finance', 'customer'), geoRoute((req) => getProvinces(req.params.code)));
+app.get('/api/geo/regions/:code/cities', auth('finance', 'customer'), geoRoute((req) => getCitiesOfRegion(req.params.code)));
+app.get('/api/geo/cities/:code/barangays', auth('finance', 'customer'), geoRoute((req) => getBarangaysOfCity(req.params.code)));
+app.get('/api/geo/provinces/:code/cities', auth('finance', 'customer'), geoRoute((req) => getCitiesOfProvince(req.params.code)));
+// ZIP codes that belong to a city / municipality (used to pre-fill the ZIP box in the shop checkout)
+app.get('/api/geo/zip-suggest', auth('finance', 'customer'), wrap(async (req, res) => {
+  const city = str(req.query.city), province = str(req.query.province), barangay = str(req.query.barangay);
+  if (!city) return res.json({ zips: [] });
+  let rows = null;
+  try { rows = await loadZipRows(); } catch { rows = null; }
+  if (!rows) return res.json({ zips: [] });
+  const isNcr = /metro manila|national capital|^ncr$/.test(norm(province));
+  const inProv = (x) => !province || sameName(x.admin2, province) || sameName(x.admin1, province) || sameName(x.admin3, province)
+    || (isNcr && /metro manila|national capital|capital district|manila/i.test([x.admin1, x.admin2].join(' ')));
+  const exact = rows.filter((x) => inProv(x) && (sameName(x.place, city) || sameName(x.admin3, city)));
+  const byBgy = barangay ? exact.filter((x) => sameName(x.place, barangay)) : [];
+  const pick = byBgy.length ? byBgy : exact;
+  res.json({ zips: [...new Set(pick.map((x) => x.zip))].sort().slice(0, 12) });
+}));
 app.get('/api/geo/status', auth('finance'), wrap(async (req, res) => {
   const out = { psgcBase: PSGC_BASE, node: process.version };
   try { out.regions = (await psgc('/regions')).length; out.psgc = 'ok'; } catch (err) { out.psgc = 'FAILED'; out.reason = lastGeoError || err.message; }
@@ -844,7 +893,7 @@ app.get('/api/geo/status', auth('finance'), wrap(async (req, res) => {
   out.zipList = z ? z.length + ' rows' : 'not loaded';
   res.json(out);
 }));
-app.get('/api/geo/check-zip', auth('finance'), wrap(async (req, res) => {
+app.get('/api/geo/check-zip', auth('finance', 'customer'), wrap(async (req, res) => {
   const zip = str(req.query.zip), city = str(req.query.city), province = str(req.query.province), region = str(req.query.region), barangay = str(req.query.barangay);
   if (region === OUTSIDE_PH || process.env.ADDRESS_CHECK === 'off') return res.json({ ok: true });
   if (!/^\d{4}$/.test(zip)) return res.json({ ok: false, message: 'ZIP code must be 4 digits, e.g. 1000' });
@@ -1020,7 +1069,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 }));
 
 /* ---------- POS + online shop (finished goods only) ---------- */
-require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');

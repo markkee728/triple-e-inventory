@@ -83,7 +83,7 @@
       <div class="hero">
         <div><h1>Quality metal, delivered.</h1><p>Browse sheets, pipes, bars and fasteners. Live stock, clear prices, and delivery or pickup — your choice.</p></div>
         <div class="hero-perks">
-          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery ₱150</span>
+          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery <span data-fee>₱150</span></span>
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
         </div>
       </div>
@@ -121,17 +121,20 @@
         <div class="card" style="padding:20px">
           <div class="sec-title">Fulfilment</div>
           <div class="opt-grid">
-            <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small>₱150 fee · to your address</small></span></label>
+            <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small><span data-fee>₱150</span> fee · to your address</small></span></label>
             <label class="opt" data-f="Pickup"><input type="radio" name="f"><span>Pickup at our yard<small>Free · we’ll text you when ready</small></span></label>
           </div>
-          <div id="addrBox"><label for="addr">Delivery address</label><textarea id="addr" rows="2" placeholder="House no., street, barangay, city"></textarea></div>
-          <div class="sec-title">Contact</div>
-          <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" placeholder="0917 123 4567">
+          <div class="sec-title" id="addrTitle">Delivery address</div>
+          <div id="addrBox"></div>
+          <div id="contactBox">
+            <div class="sec-title">Contact</div>
+            <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" placeholder="0917 123 4567">
+          </div>
           <div class="sec-title">Payment</div>
           <div class="opt-stack" id="payOpts"></div>
           <div class="err-text" id="coErr" role="alert"></div>
         </div>
-        <aside class="card sum-card sticky-side"><h3>Order summary</h3><div id="sumLines"></div>
+        <aside class="card sum-card sticky-side"><h3>Order summary</h3><div id="sumLines"></div><div class="sum-ship" id="sumShip" hidden></div>
           <div class="row" style="margin-top:6px"><span class="dim">Subtotal</span><span class="mono" id="s1"></span></div>
           <div class="row"><span class="dim">Delivery</span><span class="mono" id="s2"></span></div>
           <div class="row total"><span>Total</span><span class="mono" id="s3"></span></div>
@@ -166,6 +169,7 @@
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
 <script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type' };</script>
 <script src="account-menu.js"></script>
+<script src="shop-address.js"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -205,13 +209,16 @@ async function loadProducts() {            // GET /api/shop/products — finishe
 async function loadOrders() { try { return await api('/api/shop/orders'); } catch (e) { return []; } }
 async function submitOrder(o) {            // server re-prices from the database; stock is deducted when Finance confirms the order
   return api('/api/shop/orders', { method: 'POST', body: JSON.stringify({
-    items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, address: o.address, phone: o.phone, method: o.method }) });
+    items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, phone: o.phone, method: o.method,
+    shipTo: o.shipTo, saveAddress: o.saveAddress, addressLabel: o.addressLabel, makeDefault: o.makeDefault }) });
 }
+async function loadConfig() { try { return await api('/api/shop/config'); } catch (e) { return {}; } }     // delivery fee comes from the server so it can never disagree with the order total
 async function requestRefund(id, reason, details) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/refund-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
 
 /* ===== App ===== */
-const DELIVERY_FEE = 150, ONLINE = ['Online Banking', 'E-Wallet', 'Card'];
+let DELIVERY_FEE = 150;
+const ONLINE = ['Online Banking', 'E-Wallet', 'Card'];
 const $ = id => document.getElementById(id);
 const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
@@ -271,6 +278,11 @@ function show(v) {
   setNav(false); $('userDropdown').classList.remove('open');
   if (v === 'cart') renderCart(); if (v === 'checkout') renderCheckout(); if (v === 'orders') renderOrders();
   updateFab(); window.scrollTo(0, 0);
+  if (v === 'cart' || v === 'checkout') refreshStock().then(() => {            // prices / stock may have changed since the cart was filled
+    if (view === 'cart') renderCart();
+    if (view === 'checkout') { if (!cart.length) show('cart'); else renderCheckout(); }
+  });
+  if (v === 'checkout') ShopAddress.open().then(updateShipSummary);
 }
 function updateFab() {
   const n = units();
@@ -281,7 +293,30 @@ function syncCounts() {
   const n = units();
   ['count', 'navCartCount'].forEach(id => $(id).textContent = n);
   const pip = $('count'); pip.classList.remove('bump'); void pip.offsetWidth; pip.classList.add('bump');
-  $('navOrderCount').textContent = orders.length; updateFab();
+  $('navOrderCount').textContent = orders.length; updateFab(); saveCart();
+}
+/* ----- cart memory: survives a refresh / closing the tab, and is checked against live stock ----- */
+const cartKey = () => 'tripleE.cart.' + (USER && USER.id != null ? USER.id : 'preview');
+function saveCart() { try { localStorage.setItem(cartKey(), JSON.stringify(cart)); } catch (e) {} }
+function restoreCart() {
+  try { const c = JSON.parse(localStorage.getItem(cartKey()) || '[]'); if (Array.isArray(c)) cart = c.filter(l => l && typeof l.sku === 'string' && Number.isInteger(l.qty) && l.qty > 0); } catch (e) { cart = []; }
+}
+// drops products that are gone / sold out and trims quantities to what is in stock; returns a message for each change
+function reconcileCart() {
+  const notes = [];
+  cart = cart.filter(l => {
+    const p = prod(l.sku);
+    if (!p || p.available <= 0) { notes.push((p ? p.name : l.sku) + ' is no longer available and was removed.'); return false; }
+    if (l.qty > p.available) { notes.push('Only ' + p.available + ' ' + p.unit + ' of ' + p.name + ' left — quantity updated.'); l.qty = p.available; }
+    return true;
+  });
+  return notes;
+}
+async function refreshStock() {          // re-reads prices and stock, then fixes the cart to match
+  const fresh = await loadProducts(); if (fresh.length) PRODUCTS = fresh;
+  const notes = reconcileCart();
+  if (notes.length) toast(notes[0] + (notes.length > 1 ? ' (+' + (notes.length - 1) + ' more change' + (notes.length > 2 ? 's' : '') + ')' : ''), true);
+  syncCounts(); renderCatalog(); return notes.length > 0;
 }
 
 /* ----- catalog ----- */
@@ -337,11 +372,17 @@ function addToCart(sku) {
 /* ----- checkout ----- */
 function renderCheckout() {
   document.querySelectorAll('[data-f]').forEach(o => { o.classList.toggle('on', o.dataset.f === fulfil); o.querySelector('input').checked = o.dataset.f === fulfil; });
-  $('addrBox').hidden = fulfil !== 'Delivery';
+  $('addrBox').hidden = $('addrTitle').hidden = fulfil !== 'Delivery'; $('contactBox').hidden = fulfil === 'Delivery';    // delivery: the mobile number is part of the address
+  updateShipSummary();
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${m}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
   $('s1').textContent = peso(subtotal()); $('s2').textContent = fee() ? peso(fee()) : 'Free'; $('s3').textContent = peso(subtotal() + fee());
+}
+
+function updateShipSummary() {
+  const box = $('sumShip'), a = fulfil === 'Delivery' && window.ShopAddress && ShopAddress.usingSaved() ? ShopAddress.summary() : null;
+  box.hidden = !a; if (a) box.innerHTML = '<b>Deliver to</b>' + esc(a.recipient) + ' · ' + esc(a.phone) + '<br>' + esc(a.full);
 }
 
 /* ----- orders ----- */
@@ -367,7 +408,9 @@ function renderOrders() {
     <div class="order-head"><span class="id">${o.id}</span><span class="chip-pill ${o.status === 'Cancelled' ? 'bad' : done ? 'ok' : o.status === 'Pending Confirmation' ? 'warn' : ''}">${o.status}</span></div>
     <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${o.method}</div>
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
+    ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
+    ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${o.cancelRequested ? '<p class="dim" style="margin-top:10px">Cancellation requested — waiting for admin.</p>'
       : !['Delivered', 'Picked Up', 'Cancelled'].includes(o.status) ? `<button class="btn-danger btn-sm" style="margin-top:12px" data-cancel="${o.id}">Request cancellation</button>` : ''}
@@ -375,17 +418,29 @@ function renderOrders() {
     : `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><h3>No orders yet</h3><p>Your orders and their delivery progress will show up here.</p><button class="btn-primary" data-view="catalog">Start shopping</button></div>`;
 }
 async function placeOrder() {
-  const phone = $('phone').value.replace(/[\s().-]/g, ''), addr = $('addr').value.trim();
-  if (!cart.length) return $('coErr').textContent = 'Your cart is empty.';
-  if (fulfil === 'Delivery' && addr.length < 8) return $('coErr').textContent = 'Enter your full delivery address.';
-  if (!/^(\+63|0)9\d{9}$/.test(phone)) return $('coErr').textContent = 'Enter a valid mobile number, e.g. 0917 123 4567.';
-  $('coErr').textContent = '';
+  const fail = m => { $('coErr').textContent = m; };
+  if (!cart.length) return fail('Your cart is empty.');
+  let phone, ship = {};
+  if (fulfil === 'Delivery') {
+    try { ship = ShopAddress.collect(); } catch (e) { return fail(e.message || 'Check your delivery address.'); }
+    phone = ship.phone;
+  } else {
+    phone = $('phone').value.replace(/[\s().-]/g, '');
+    if (!/^(\+63|0)9\d{9}$/.test(phone)) return fail('Enter a valid mobile number, e.g. 0917 123 4567.');
+  }
+  fail('');
   const online = ONLINE.includes(pay);
-  const draft = { fulfillment: fulfil, address: fulfil === 'Delivery' ? addr : undefined, phone, method: pay,
+  const draft = { fulfillment: fulfil, phone, method: pay, shipTo: ship.shipTo, saveAddress: ship.saveAddress, addressLabel: ship.addressLabel, makeDefault: ship.makeDefault,
     items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, qty: l.qty }; }) };
   $('place').disabled = true;
   let order;
-  try { order = await submitOrder(draft); } catch (e) { $('place').disabled = false; return toast(e.message || 'Could not place the order.', true); }
+  try { order = await submitOrder(draft); }
+  catch (e) {
+    $('place').disabled = false;
+    if (ShopAddress.showServerErrors(e)) return fail('Please fix the highlighted address fields.');
+    if (e.fields && e.fields.items) await refreshStock().then(() => { if (view === 'checkout') { if (!cart.length) show('cart'); else renderCheckout(); } });   // stock changed: show the real numbers
+    return toast(e.message || 'Could not place the order.', true);
+  }
   $('place').disabled = false; orders.unshift(order); cart = []; renderCart();
   try { PRODUCTS = await loadProducts(); } catch (e) {}
   renderCatalog(); show('orders');
@@ -443,8 +498,16 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   const ini = (USER.name || 'C').trim().charAt(0).toUpperCase();
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
   if (window.AccountMenu) AccountMenu.setUser(USER);       // fills the name / email / photo and powers My Profile + Change Password
+  const [cfgShop, profile] = await Promise.all([loadConfig(), api('/api/auth/profile').catch(() => ({}))]);
+  if (cfgShop.deliveryFee >= 0) { DELIVERY_FEE = cfgShop.deliveryFee; document.querySelectorAll('[data-fee]').forEach(el => el.textContent = '₱' + DELIVERY_FEE.toLocaleString('en-PH')); }
+  if (profile.phone) $('phone').value = profile.phone;
+  ShopAddress.init({ api, esc, toast, onChange: updateShipSummary });
+  ['input', 'change', 'click'].forEach(ev => $('addrBox').addEventListener(ev, () => { $('coErr').textContent = ''; }));
+  ShopAddress.setDefaults({ name: USER.name || '', phone: profile.phone || '' });
   PRODUCTS = await loadProducts(); orders = await loadOrders();
+  restoreCart(); const cartNotes = reconcileCart();
   renderChips(); renderCatalog(); renderCart(); renderOrders();
+  if (cartNotes.length) toast(cartNotes[0], true);
   // pick up status changes made by Finance (every 15 s, and whenever the tab is shown again)
   const refreshOrders = async () => { try { const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
   setInterval(refreshOrders, 15000);

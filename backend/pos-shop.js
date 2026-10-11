@@ -20,7 +20,7 @@ const REFUND_REASONS = {
   other: 'Other'
 };
 
-module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ }) {
+module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
 
   // Adds what the Sales Transactions page needs (safe to run every time the server starts).
@@ -76,6 +76,31 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     } catch (err) { console.warn('[db] could not prepare the refund table:', err.message); }
   }
   ensureRefundSchema();
+
+  // Structured delivery address on orders + each customer's saved addresses (safe to run every time the server starts).
+  async function ensureAddressSchema() {
+    try {
+      for (const col of ['recipient_name', 'address_line', 'landmark', 'barangay', 'city', 'province', 'region', 'zip_code'])
+        await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col} TEXT`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS customer_addresses (
+        address_id     BIGSERIAL PRIMARY KEY,
+        user_id        INT NOT NULL REFERENCES users(user_id),
+        label          TEXT NOT NULL DEFAULT 'Home',
+        recipient_name TEXT NOT NULL,
+        phone          TEXT NOT NULL,
+        address_line   TEXT NOT NULL,
+        landmark       TEXT,
+        barangay       TEXT NOT NULL,
+        city           TEXT NOT NULL,
+        province       TEXT NOT NULL,
+        region         TEXT NOT NULL,
+        zip_code       TEXT NOT NULL,
+        is_default     BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_cust_addr_user ON customer_addresses (user_id)');
+    } catch (err) { console.warn('[db] could not prepare the address tables:', err.message); }
+  }
+  const addressSchemaReady = ensureAddressSchema();
 
   /* ---------- shared helpers ---------- */
   const CATALOG_SQL = `
@@ -266,6 +291,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
      SHOP — customer
   ===================================================== */
   app.get('/api/shop/products', auth('customer'), wrap(async (req, res) => res.json(await catalog())));
+  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS }));
 
   /* ---------- refunds (shared by the customer and finance routes) ---------- */
   // (request_id is BIGSERIAL, which pg returns as text, hence Number())
@@ -284,6 +310,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   const orderJson = (o, items, cancelPending, refund) => ({
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
+    shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
+      barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
     phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status,
     cancelRequested: !!cancelPending,
     refund: refundJson(refund),
@@ -304,7 +332,91 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.json(orders.map(o => orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id)))));
   }));
 
+  /* ---------- address book (max 5 saved addresses per customer) ---------- */
+  const MAX_ADDRESSES = 5;
+  const LABELS = ['Home', 'Work', 'Other'];
+  const mobileOf = (v) => str(v).replace(/[\s().-]/g, '');
+  const MOBILE_RE = /^(\+63|0)9\d{9}$/;
+  const addrJson = (r) => ({
+    id: Number(r.address_id), label: r.label, recipient: r.recipient_name, phone: r.phone, addressLine: r.address_line,
+    landmark: r.landmark || '', barangay: r.barangay, city: r.city, province: r.province, region: r.region, zip: r.zip_code,
+    isDefault: !!r.is_default,
+    fullAddress: formatShipTo({ addressLine: r.address_line, barangay: r.barangay, city: r.city, province: r.province, zip: r.zip_code })
+  });
+  const readLabel = (v) => { const l = str(v) || 'Home'; if (!LABELS.includes(l)) throw bad('label', 'Choose Home, Work or Other'); return l; };
+  const readMobile = (v) => { const p = mobileOf(v); if (!MOBILE_RE.test(p)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567'); return p; };
+
+  async function insertAddress(client, userId, ship, phone, label, makeDefault) {
+    await client.query('SELECT 1 FROM users WHERE user_id = $1 FOR UPDATE', [userId]);     // serialises concurrent saves by the same customer
+    const n = (await client.query('SELECT count(*)::int AS n FROM customer_addresses WHERE user_id = $1', [userId])).rows[0].n;
+    if (n >= MAX_ADDRESSES) throw bad('address', `You can save up to ${MAX_ADDRESSES} addresses. Delete one first`);
+    const isDefault = makeDefault || n === 0;
+    if (isDefault) await client.query('UPDATE customer_addresses SET is_default = FALSE WHERE user_id = $1', [userId]);
+    const r = await client.query(
+      `INSERT INTO customer_addresses (user_id, label, recipient_name, phone, address_line, landmark, barangay, city, province, region, zip_code, is_default)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [userId, label, ship.recipient, phone, ship.addressLine, ship.landmark || null, ship.barangay, ship.city, ship.province, ship.region, ship.zip, isDefault]);
+    return r.rows[0];
+  }
+
+  app.get('/api/shop/addresses', auth('customer'), wrap(async (req, res) => {
+    await addressSchemaReady;
+    const { rows } = await pool.query('SELECT * FROM customer_addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC', [req.user.id]);
+    res.json(rows.map(addrJson));
+  }));
+
+  app.post('/api/shop/addresses', auth('customer'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const label = readLabel(b.label), phone = readMobile(b.phone);
+    const ship = await validateShipTo(b);
+    const row = await tx(async (client) => insertAddress(client, req.user.id, ship, phone, label, b.isDefault === true));
+    res.status(201).json(addrJson(row));
+  }));
+
+  app.put('/api/shop/addresses/:id', auth('customer'), wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) throw bad('id', 'Address not found');
+    const b = req.body || {};
+    const label = readLabel(b.label), phone = readMobile(b.phone);
+    const ship = await validateShipTo(b);
+    const row = await tx(async (client) => {
+      const cur = await client.query('SELECT * FROM customer_addresses WHERE address_id = $1 AND user_id = $2 FOR UPDATE', [id, req.user.id]);
+      if (!cur.rowCount) throw bad('id', 'Address not found');
+      const makeDefault = b.isDefault === true || (cur.rows[0].is_default && b.isDefault !== false);
+      if (makeDefault) await client.query('UPDATE customer_addresses SET is_default = FALSE WHERE user_id = $1', [req.user.id]);
+      const r = await client.query(
+        `UPDATE customer_addresses SET label=$3, recipient_name=$4, phone=$5, address_line=$6, landmark=$7, barangay=$8, city=$9,
+                province=$10, region=$11, zip_code=$12, is_default=$13 WHERE address_id=$1 AND user_id=$2 RETURNING *`,
+        [id, req.user.id, label, ship.recipient, phone, ship.addressLine, ship.landmark || null, ship.barangay, ship.city, ship.province, ship.region, ship.zip, makeDefault]);
+      return r.rows[0];
+    });
+    res.json(addrJson(row));
+  }));
+
+  app.post('/api/shop/addresses/:id/default', auth('customer'), wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    await tx(async (client) => {
+      const cur = await client.query('SELECT 1 FROM customer_addresses WHERE address_id = $1 AND user_id = $2 FOR UPDATE', [id, req.user.id]);
+      if (!cur.rowCount) throw bad('id', 'Address not found');
+      await client.query('UPDATE customer_addresses SET is_default = (address_id = $1) WHERE user_id = $2', [id, req.user.id]);
+    });
+    res.json({ ok: true });
+  }));
+
+  app.delete('/api/shop/addresses/:id', auth('customer'), wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    await tx(async (client) => {
+      const del = await client.query('DELETE FROM customer_addresses WHERE address_id = $1 AND user_id = $2 RETURNING is_default', [id, req.user.id]);
+      if (!del.rowCount) throw bad('id', 'Address not found');
+      if (del.rows[0].is_default)       // keep one default: promote the newest remaining address
+        await client.query(`UPDATE customer_addresses SET is_default = TRUE WHERE address_id =
+          (SELECT address_id FROM customer_addresses WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1)`, [req.user.id]);
+    });
+    res.json({ ok: true });
+  }));
+
   app.post('/api/shop/orders', auth('customer'), wrap(async (req, res) => {
+    await addressSchemaReady;
     const b = req.body || {};
     const lines = readLines(b.items);
     const fulfillment = str(b.fulfillment);
@@ -312,10 +424,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const cashMethod = fulfillment === 'Delivery' ? 'Cash on Delivery' : 'Cash on Pickup';
     const method = str(b.method);
     if (![...ONLINE_METHODS, cashMethod].includes(method)) throw bad('method', 'Choose a valid payment method');
-    const phone = str(b.phone).replace(/[\s().-]/g, '');
-    if (!/^(\+63|0)9\d{9}$/.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
-    const address = fulfillment === 'Delivery' ? str(b.address) : null;
-    if (fulfillment === 'Delivery' && (address.length < 8 || address.length > 300)) throw bad('address', 'Enter your full delivery address');
+    const phone = readMobile(b.phone);
+    // Delivery needs a full structured address (street line + region / province / city / barangay / ZIP, checked against PSGC + the ZIP list)
+    const ship = fulfillment === 'Delivery' ? await validateShipTo(b.shipTo || {}) : null;
+    const saveLabel = ship && b.saveAddress === true ? readLabel(b.addressLabel) : null;
 
     const order = await tx(async (client) => {
       // No stock lock here: stock is only deducted when Finance confirms the order. This just refuses what is clearly unavailable.
@@ -323,13 +435,20 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const subtotal = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
       const fee = fulfillment === 'Delivery' ? DELIVERY_FEE : 0;
       const ins = await client.query(
-        `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [req.user.id, fulfillment, address, phone, method, subtotal, fee, round2(subtotal + fee)]);
+        `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
+                             recipient_name, address_line, landmark, barangay, city, province, region, zip_code)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+        [req.user.id, fulfillment, ship ? ship.fullAddress + (ship.landmark ? ` (Landmark: ${ship.landmark})` : '') : null, phone, method, subtotal, fee, round2(subtotal + fee),
+         ship && ship.recipient, ship && ship.addressLine, ship && ship.landmark || null, ship && ship.barangay, ship && ship.city, ship && ship.province, ship && ship.region, ship && ship.zip]);
       const o = ins.rows[0];
       for (const i of items) await client.query(
         `INSERT INTO order_items (order_id, product_id, sku, name, unit, qty, price) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [o.order_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price]);
+      // optional: remember this address for next time (skipped silently when the address book is full)
+      if (saveLabel) {
+        try { await client.query('SAVEPOINT save_addr'); await insertAddress(client, req.user.id, ship, phone, saveLabel, b.makeDefault === true); }
+        catch (err) { if (!(err instanceof ValidationError)) throw err; await client.query('ROLLBACK TO SAVEPOINT save_addr'); }
+      }
       await audit(client, req.user, 'Record added', `Online order ${o.order_no} — ${peso(o.total)} (${method}, ${fulfillment})`);
       return orderJson(o, items, false, null);
     });
