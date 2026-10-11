@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Triple E Metal — Online Shop</title>
+<!-- shared theme with the inventory app (same localStorage key) -->
+<script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="app-ui.css">
+<link rel="stylesheet" href="store.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<!-- ================= SIDEBAR ================= -->
+<div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+<aside class="sidebar" id="sidebar" aria-label="Main navigation">
+  <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close menu">&times;</button>
+  <div class="brand">
+    <div class="mark-wrap"><div class="mark">3<span class="cursive-e">E</span></div></div>
+    <div class="brand-text"><div class="name">Triple E Metal</div><div class="role">Product Co</div></div>
+  </div>
+  <nav>
+    <div class="nav-group">
+      <div class="nav-label">Shop</div>
+      <button class="nav-item active" data-view="catalog"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>Catalog</button>
+      <button class="nav-item" data-view="cart"><svg class="nav-ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>My Cart<span class="count" id="navCartCount">0</span></button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Account</div>
+      <button class="nav-item" data-view="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>My Orders<span class="count" id="navOrderCount">0</span></button>
+    </div>
+  </nav>
+  <div class="sidebar-foot"><span class="live"></span><div><strong>Online Shop</strong>Triple E Metal Products</div></div>
+</aside>
+
+<!-- ================= MAIN ================= -->
+<main class="main" id="main">
+  <header class="topbar">
+    <button type="button" class="burger" id="burgerBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+      <span class="burger-bar"></span><span class="burger-bar"></span><span class="burger-bar"></span>
+    </button>
+    <div class="topbar-titlewrap"><span class="topbar-crumb" id="crumb">Shop</span><div class="topbar-title" id="topbarTitle">Catalog</div></div>
+    <div class="topbar-right">
+      <button type="button" class="icon-pill" data-view="cart" aria-label="Open cart">
+        <svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>
+        <span class="lbl">Cart</span><span class="pip" id="count">0</span>
+      </button>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Switch colour theme"><span id="themeIcon"></span><span id="themeLabel" class="tt-label">Light mode</span></button>
+      <div class="badge">Customer</div>
+      <div class="user-menu-wrap" id="userMenuWrap">
+        <button type="button" class="user-chip" id="userChipBtn" aria-haspopup="true" aria-expanded="false">
+          <div class="avatar" id="avatar">C</div>
+          <div class="user-meta"><div class="uname" id="uname">Customer</div><div class="urole">Customer</div></div>
+          <span class="chip-chevron"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+        </button>
+        <div class="user-dropdown" id="userDropdown">
+          <div class="user-dropdown-head">
+            <div class="dropdown-avatar" id="dAvatar">C</div>
+            <div><div class="dropdown-name" id="dName">Customer</div><div class="dropdown-sub">Online shop account</div><span class="badge">Customer</span></div>
+          </div>
+          <div class="user-dropdown-divider"></div>
+          <button type="button" class="user-dropdown-item" data-view="orders"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>My Orders</button>
+          <button type="button" class="user-dropdown-item logout" id="logout"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Log Out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="content">
+
+    <!-- ===== CATALOG ===== -->
+    <section class="page active-page" id="catalog">
+      <div class="hero">
+        <div><h1>Quality metal, delivered.</h1><p>Browse sheets, pipes, bars and fasteners. Live stock, clear prices, and delivery or pickup — your choice.</p></div>
+        <div class="hero-perks">
+          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery ₱150</span>
+          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
+        </div>
+      </div>
+      <div class="shop-tools">
+        <div class="search-wrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="q" placeholder="Search name or SKU…" autocomplete="off" aria-label="Search products"><kbd>/</kbd></div>
+        <select id="sort" aria-label="Sort products"><option value="name">Sort: Name A–Z</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="stock">Most in stock</option></select>
+        <label class="switch"><input type="checkbox" id="inStock"> In stock only</label>
+      </div>
+      <div class="chips" id="chips"></div>
+      <div class="result-line" id="resultLine"></div>
+      <div class="shop-grid" id="grid"></div>
+    </section>
+
+    <!-- ===== CART ===== -->
+    <section class="page" id="cart">
+      <div class="page-head"><div><h1>Your cart</h1><p id="cartSub">Review your items before checkout.</p></div><button class="btn-ghost" data-view="catalog">← Continue shopping</button></div>
+      <div class="flow"><span class="f on"><span class="n">1</span>Cart</span><span class="bar"></span><span class="f"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
+      <div class="cart-layout">
+        <div class="card" id="cartCard"><div id="cartRows"></div></div>
+        <aside class="card sum-card sticky-side">
+          <h3>Summary</h3>
+          <div class="row"><span class="dim">Items</span><span class="mono" id="cItems">0</span></div>
+          <div class="row total"><span>Subtotal</span><span class="mono" id="sub">₱0.00</span></div>
+          <button class="btn-primary btn-lg" id="toCheckout" style="margin-top:14px">Checkout</button>
+          <div class="perk-list"><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Delivery fee shown at checkout</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Pay online or in cash</div></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===== CHECKOUT ===== -->
+    <section class="page" id="checkout">
+      <div class="page-head"><div><h1>Checkout</h1><p>Tell us how you want to receive your order.</p></div><button class="btn-ghost" data-view="cart">← Back to cart</button></div>
+      <div class="flow"><span class="f done"><span class="n">✓</span>Cart</span><span class="bar"></span><span class="f on"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
+      <div class="checkout-layout">
+        <div class="card" style="padding:20px">
+          <div class="sec-title">Fulfilment</div>
+          <div class="opt-grid">
+            <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small>₱150 fee · to your address</small></span></label>
+            <label class="opt" data-f="Pickup"><input type="radio" name="f"><span>Pickup at our yard<small>Free · we’ll text you when ready</small></span></label>
+          </div>
+          <div id="addrBox"><label for="addr">Delivery address</label><textarea id="addr" rows="2" placeholder="House no., street, barangay, city"></textarea></div>
+          <div class="sec-title">Contact</div>
+          <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" placeholder="0917 123 4567">
+          <div class="sec-title">Payment</div>
+          <div class="opt-stack" id="payOpts"></div>
+          <div class="err-text" id="coErr" role="alert"></div>
+        </div>
+        <aside class="card sum-card sticky-side"><h3>Order summary</h3><div id="sumLines"></div>
+          <div class="row" style="margin-top:6px"><span class="dim">Subtotal</span><span class="mono" id="s1"></span></div>
+          <div class="row"><span class="dim">Delivery</span><span class="mono" id="s2"></span></div>
+          <div class="row total"><span>Total</span><span class="mono" id="s3"></span></div>
+          <button class="btn-primary btn-lg" id="place" style="margin-top:14px">Place order</button>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ===== ORDERS ===== -->
+    <section class="page" id="orders">
+      <div class="page-head"><div><h1>My orders</h1><p>Track deliveries and request cancellations.</p></div></div>
+      <div id="orderList"></div>
+    </section>
+
+  </div>
+</main>
+
+<button class="cart-fab" id="cartFab" hidden><span id="fabText">View cart</span><span class="mono" id="fabTotal">₱0.00</span></button>
+
+<div class="modal-overlay" id="cancelBg"><div class="modal"><h3>Request cancellation</h3><p class="dim" id="cancelFor"></p>
+  <label for="cancelReason">Reason (required)</label><textarea id="cancelReason" rows="3"></textarea><div class="err-text" id="cancelErr"></div>
+  <div class="modal-actions"><button class="btn-primary" id="cancelSend">Send request</button><button class="btn-secondary" onclick="closeModal('cancelBg')">Keep order</button></div></div></div>
+<div id="toast" role="status"></div>
+
+<script>
+/* ===== Role check: customers belong here; staff are sent to their own page ===== */
+const HOME = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
+let USER = { name: 'Demo Customer', role: 'customer' };          // used when the API is not reachable (preview mode)
+async function guard() {
+  try {
+    const r = await fetch('/api/auth/me', { credentials: 'same-origin' });
+    if (r.status === 401) { location.href = 'Login_Inventory.html'; return false; }
+    if (r.ok) { USER = await r.json(); if (USER.role !== 'customer') { location.href = HOME[USER.role] || 'Login_Inventory.html'; return false; } }
+  } catch (e) { /* preview mode */ }
+  return true;
+}
+
+/* ===== BACKEND HOOKS — replace the bodies of these functions with your real API calls ===== */
+const DEMO = [
+  {sku:'GIS-0412',name:'G.I. Sheet, Plain',category:'Sheets & Plates',unit:'sheet',spec:'4 × 8 ft · Ga. 24',price:845,available:140,low:40},
+  {sku:'MSP-1016',name:'Mild Steel Plate',category:'Sheets & Plates',unit:'sheet',spec:'4 × 8 ft · 6 mm',price:6480,available:18,low:12},
+  {sku:'SSS-0304',name:'Stainless Sheet 304',category:'Sheets & Plates',unit:'sheet',spec:'4 × 8 ft · 1.0 mm',price:4950,available:9,low:10},
+  {sku:'BIP-0150',name:'Black Iron Pipe',category:'Pipes & Tubes',unit:'length',spec:'1-1/2" · Sch 40 · 6 m',price:1290,available:64,low:20},
+  {sku:'GIP-0100',name:'G.I. Pipe',category:'Pipes & Tubes',unit:'length',spec:'1" · Sch 20 · 6 m',price:720,available:0,low:25},
+  {sku:'DRB-1012',name:'Deformed Rebar',category:'Bars & Rods',unit:'length',spec:'12 mm · Grade 40 · 6 m',price:248,available:420,low:150},
+  {sku:'ANG-0203',name:'Angle Bar',category:'Angles & Channels',unit:'length',spec:'2 × 2 in · 3 mm · 6 m',price:710,available:88,low:30},
+  {sku:'RFR-0026',name:'Rib-Type Roofing',category:'Roofing',unit:'linear m',spec:'0.4 mm · Pre-painted',price:425,available:260,low:80},
+  {sku:'FBT-0012',name:'Hex Bolt & Nut Set',category:'Fasteners',unit:'box',spec:'M12 × 50 · 50 pcs',price:580,available:32,low:15}];
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
+  if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || 'Request failed');
+  return d;
+}
+async function loadProducts() {            // GET /api/shop/products — finished goods only, with price > 0
+  try { return await api('/api/shop/products'); }
+  catch (e) { if (e instanceof TypeError) return DEMO; toast(e.message, true); return []; }   // DEMO only when no server is reachable (file preview)
+}
+async function loadOrders() { try { return await api('/api/shop/orders'); } catch (e) { return []; } }
+async function submitOrder(o) {            // server re-prices from the database; stock is deducted when Finance confirms the order
+  return api('/api/shop/orders', { method: 'POST', body: JSON.stringify({
+    items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, address: o.address, phone: o.phone, method: o.method }) });
+}
+async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
+
+/* ===== App ===== */
+const DELIVERY_FEE = 150, ONLINE = ['Online Banking', 'E-Wallet', 'Card'];
+const $ = id => document.getElementById(id);
+const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+let PRODUCTS = [], cart = [], orders = [], cat = '', fulfil = 'Delivery', pay = 'Online Banking', view = 'catalog', cancelId = null;
+const prod = sku => PRODUCTS.find(p => p.sku === sku);
+const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
+const units = () => cart.reduce((n, l) => n + l.qty, 0);
+const subtotal = () => cart.reduce((s, l) => s + prod(l.sku).price * l.qty, 0);
+const fee = () => fulfil === 'Delivery' ? DELIVERY_FEE : 0;
+const cashMethod = () => fulfil === 'Delivery' ? 'Cash on Delivery' : 'Cash on Pickup';
+const TITLES = { catalog: ['Shop', 'Catalog'], cart: ['Shop', 'My Cart'], checkout: ['Shop', 'Checkout'], orders: ['Account', 'My Orders'] };
+const CAT_ICON = {
+  'Sheets & Plates': '<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M3 10h18"/>',
+  'Pipes & Tubes': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
+  'Bars & Rods': '<path d="M4 20 20 4M7 21 21 7M3 17 17 3"/>',
+  'Angles & Channels': '<path d="M4 4v16h16"/><path d="M4 4h5v11h11v5"/>',
+  'Roofing': '<path d="M2 12c3-4 5-4 8 0s5 4 8 0 3-2 4-2M2 18c3-4 5-4 8 0s5 4 8 0 3-2 4-2"/>',
+  'Fasteners': '<path d="M12 2 20 7v10l-8 5-8-5V7z"/><circle cx="12" cy="12" r="3"/>' };
+const catIcon = c => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${CAT_ICON[c] || '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>'}</svg>`;
+const EMPTY_CART_ICO = '<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>';
+
+function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
+function closeModal(id) { $(id).classList.remove('show'); }
+
+/* ----- theme (same behaviour + storage key as the inventory app) ----- */
+function applyTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  const light = t === 'light';
+  $('themeIcon').innerHTML = light
+    ? '<svg class="ico" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>'
+    : '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  $('themeLabel').textContent = light ? 'Dark mode' : 'Light mode';
+  $('themeToggle').title = light ? 'Switch to dark mode' : 'Switch to light mode';
+}
+applyTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
+$('themeToggle').onclick = () => {
+  const next = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  applyTheme(next); try { localStorage.setItem('tripleE.theme', next); } catch (e) {}
+};
+
+/* ----- sidebar drawer, views, user menu ----- */
+function setNav(open) { $('sidebar').classList.toggle('open', open); document.body.classList.toggle('nav-open', open); $('burgerBtn').setAttribute('aria-expanded', open); }
+$('burgerBtn').onclick = () => {
+  if (window.matchMedia('(max-width:1024px)').matches) setNav(!$('sidebar').classList.contains('open'));
+  else document.body.classList.toggle('sidebar-collapsed');
+};
+$('sidebarClose').onclick = $('sidebarBackdrop').onclick = () => setNav(false);
+$('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
+document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });
+addEventListener('scroll', () => document.querySelector('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
+
+function show(v) {
+  view = v;
+  ['catalog', 'cart', 'checkout', 'orders'].forEach(id => $(id).classList.toggle('active-page', id === v));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === (v === 'checkout' ? 'cart' : v)));
+  $('crumb').textContent = TITLES[v][0]; $('topbarTitle').textContent = TITLES[v][1];
+  setNav(false); $('userDropdown').classList.remove('open');
+  if (v === 'cart') renderCart(); if (v === 'checkout') renderCheckout(); if (v === 'orders') renderOrders();
+  updateFab(); window.scrollTo(0, 0);
+}
+function updateFab() {
+  const n = units();
+  $('cartFab').hidden = !(n && view === 'catalog');
+  $('fabText').textContent = `View cart · ${n} item${n === 1 ? '' : 's'}`; $('fabTotal').textContent = peso(subtotal());
+}
+function syncCounts() {
+  const n = units();
+  ['count', 'navCartCount'].forEach(id => $(id).textContent = n);
+  const pip = $('count'); pip.classList.remove('bump'); void pip.offsetWidth; pip.classList.add('bump');
+  $('navOrderCount').textContent = orders.length; updateFab();
+}
+
+/* ----- catalog ----- */
+function stockChip(p) {
+  const out = p.available <= 0, low = !out && p.available <= p.low;
+  return `<span class="chip-pill ${out ? 'bad' : low ? 'warn' : 'ok'}">${out ? 'Out of stock' : low ? 'Low · ' + p.available + ' left' : 'In stock'}</span>`;
+}
+function renderChips() {
+  const counts = {}; PRODUCTS.forEach(p => counts[p.category] = (counts[p.category] || 0) + 1);
+  $('chips').innerHTML = [['', 'All', PRODUCTS.length], ...Object.keys(counts).map(c => [c, c, counts[c]])]
+    .map(([v, l, n]) => `<button class="pill-btn ${cat === v ? 'active' : ''}" data-cat="${esc(v)}">${esc(l)} <span class="faint" style="font-size:12px">${n}</span></button>`).join('');
+}
+function filtered() {
+  const q = $('q').value.trim().toLowerCase(), sort = $('sort').value;
+  const rows = PRODUCTS.filter(p => (!cat || p.category === cat) && (!$('inStock').checked || p.available > 0) && (!q || (p.name + ' ' + p.sku + ' ' + (p.spec || '')).toLowerCase().includes(q)));
+  const by = { name: (a, b) => a.name.localeCompare(b.name), low: (a, b) => a.price - b.price, high: (a, b) => b.price - a.price, stock: (a, b) => b.available - a.available };
+  return rows.sort(by[sort]);
+}
+function renderCatalog() {
+  const rows = filtered();
+  $('resultLine').textContent = `${rows.length} of ${PRODUCTS.length} products`;
+  $('grid').innerHTML = rows.map(p => { const out = p.available <= 0, n = inCart(p.sku); return `<article class="card prod">
+    <div class="prod-art">${catIcon(p.category)}${stockChip(p)}</div>
+    <div class="prod-body">
+      <div class="sku">${esc(p.sku)}</div><div class="name">${esc(p.name)}</div><div class="spec">${esc(p.spec || p.category)}</div>
+      <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
+      <div class="buy"><button class="btn-primary" data-add="${esc(p.sku)}" ${out ? 'disabled' : ''}>${out ? 'Unavailable' : 'Add to cart'}</button></div>
+      <div class="in-cart-note">${n ? n + ' in your cart' : ''}</div>
+    </div></article>`; }).join('')
+    || '<div class="card empty-card" style="grid-column:1/-1"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>No products match</h3><p>Try a different search or clear the filters.</p></div>';
+}
+
+/* ----- cart ----- */
+function renderCart() {
+  const n = units(); $('cItems').textContent = n; $('sub').textContent = peso(subtotal()); $('toCheckout').disabled = !cart.length;
+  $('cartSub').textContent = n ? `${n} item${n === 1 ? '' : 's'} in your cart` : 'Review your items before checkout.';
+  $('cartRows').innerHTML = cart.length ? cart.map(l => { const p = prod(l.sku); return `<div class="cart-line">
+    <div class="thumb">${catIcon(p.category)}</div>
+    <div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.spec || '')}</div><div class="s mono">${peso(p.price)} / ${esc(p.unit)}</div></div>
+    <div class="ctl"><span class="lt">${peso(p.price * l.qty)}</span>
+      <div style="display:flex;gap:8px;align-items:center"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><span class="mono">${l.qty}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
+      <button class="icon-btn" data-rm="${esc(l.sku)}" aria-label="Remove ${esc(p.name)}" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button></div></div></div>`; }).join('')
+    : `<div class="empty-card">${EMPTY_CART_ICO}<h3>Your cart is empty</h3><p>Find something in the catalog and add it here.</p><button class="btn-primary" data-view="catalog">Browse catalog</button></div>`;
+  syncCounts();
+}
+function addToCart(sku) {
+  const p = prod(sku), l = cart.find(x => x.sku === sku);
+  if ((l ? l.qty : 0) + 1 > p.available) return toast('Only ' + p.available + ' ' + p.unit + ' available.', true);
+  l ? l.qty++ : cart.push({ sku, qty: 1 });
+  toast(p.name + ' added to cart.'); syncCounts(); if (view === 'catalog') renderCatalog(); else renderCart();
+}
+
+/* ----- checkout ----- */
+function renderCheckout() {
+  document.querySelectorAll('[data-f]').forEach(o => { o.classList.toggle('on', o.dataset.f === fulfil); o.querySelector('input').checked = o.dataset.f === fulfil; });
+  $('addrBox').hidden = fulfil !== 'Delivery';
+  const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
+  $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${m}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
+  $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
+  $('s1').textContent = peso(subtotal()); $('s2').textContent = fee() ? peso(fee()) : 'Free'; $('s3').textContent = peso(subtotal() + fee());
+}
+
+/* ----- orders ----- */
+const FLOW = { Delivery: ['Paid', 'Packed', 'Out for Delivery', 'Delivered'], Pickup: ['Paid', 'Packed', 'Ready for Pickup', 'Picked Up'] };
+function renderOrders() {
+  $('navOrderCount').textContent = orders.length;
+  $('orderList').innerHTML = orders.length ? orders.map(o => { const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
+    return `<div class="card order">
+    <div class="order-head"><span class="id">${o.id}</span><span class="chip-pill ${o.status === 'Cancelled' ? 'bad' : done ? 'ok' : o.status === 'Pending Confirmation' ? 'warn' : ''}">${o.status}</span></div>
+    <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${o.method}</div>
+    ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
+    <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
+    ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
+    ${o.cancelRequested ? '<p class="dim" style="margin-top:10px">Cancellation requested — waiting for admin.</p>'
+      : !['Delivered', 'Picked Up', 'Cancelled'].includes(o.status) ? `<button class="btn-danger btn-sm" style="margin-top:12px" data-cancel="${o.id}">Request cancellation</button>` : ''}</div>`; }).join('')
+    : `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><h3>No orders yet</h3><p>Your orders and their delivery progress will show up here.</p><button class="btn-primary" data-view="catalog">Start shopping</button></div>`;
+}
+async function placeOrder() {
+  const phone = $('phone').value.replace(/[\s().-]/g, ''), addr = $('addr').value.trim();
+  if (!cart.length) return $('coErr').textContent = 'Your cart is empty.';
+  if (fulfil === 'Delivery' && addr.length < 8) return $('coErr').textContent = 'Enter your full delivery address.';
+  if (!/^(\+63|0)9\d{9}$/.test(phone)) return $('coErr').textContent = 'Enter a valid mobile number, e.g. 0917 123 4567.';
+  $('coErr').textContent = '';
+  const online = ONLINE.includes(pay);
+  const draft = { fulfillment: fulfil, address: fulfil === 'Delivery' ? addr : undefined, phone, method: pay,
+    items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, qty: l.qty }; }) };
+  $('place').disabled = true;
+  let order;
+  try { order = await submitOrder(draft); } catch (e) { $('place').disabled = false; return toast(e.message || 'Could not place the order.', true); }
+  $('place').disabled = false; orders.unshift(order); cart = []; renderCart();
+  try { PRODUCTS = await loadProducts(); } catch (e) {}
+  renderCatalog(); show('orders');
+  toast(online ? 'Order placed. We will confirm it once your payment is verified.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
+}
+
+/* ----- events ----- */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-view],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel]'); if (!el) return; const d = el.dataset;
+  if (d.view) show(d.view);
+  if (d.add || d.inc) addToCart(d.add || d.inc);
+  if (d.dec) { const l = cart.find(x => x.sku === d.dec); if (--l.qty < 1) cart = cart.filter(x => x !== l); renderCart(); }
+  if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
+  if (d.cat !== undefined && el.classList.contains('pill-btn')) { cat = d.cat; renderChips(); renderCatalog(); }
+  if (d.f) { fulfil = d.f; renderCheckout(); e.preventDefault(); }
+  if (d.pay) { pay = d.pay; renderCheckout(); e.preventDefault(); }
+  if (d.cancel) { cancelId = d.cancel; $('cancelFor').textContent = 'Order ' + cancelId; $('cancelReason').value = ''; $('cancelErr').textContent = ''; $('cancelBg').classList.add('show'); $('cancelReason').focus(); }
+});
+$('cancelSend').onclick = async () => {
+  const why = $('cancelReason').value.trim(); if (why.length < 5) return $('cancelErr').textContent = 'Please explain why (at least 5 characters).';
+  try { await requestCancel(cancelId, why); } catch (er) { return $('cancelErr').textContent = er.message; }
+  orders.find(o => o.id === cancelId).cancelRequested = true; closeModal('cancelBg'); renderOrders(); toast('Cancellation request sent.');
+};
+$('q').oninput = $('sort').onchange = $('inStock').onchange = renderCatalog;
+$('q').onkeydown = e => { if (e.key === 'Escape') { $('q').value = ''; renderCatalog(); } };
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); show('catalog'); $('q').focus(); }
+  if (e.key === 'Escape') { setNav(false); closeModal('cancelBg'); $('userDropdown').classList.remove('open'); }
+});
+$('toCheckout').onclick = () => show('checkout');
+$('place').onclick = placeOrder;
+$('cartFab').onclick = () => show('cart');
+$('logout').onclick = async () => { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = 'Login_Inventory.html'; };
+
+$('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.repeat(6);
+(async () => {
+  if (!(await guard())) return;
+  const ini = (USER.name || 'C').trim().charAt(0).toUpperCase();
+  $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
+  PRODUCTS = await loadProducts(); orders = await loadOrders();
+  renderChips(); renderCatalog(); renderCart(); renderOrders();
+  // pick up status changes made by Finance (every 15 s, and whenever the tab is shown again)
+  const refreshOrders = async () => { try { const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
+  setInterval(refreshOrders, 15000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOrders(); });
+})();
+</script>
+</body>
+</html>

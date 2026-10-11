@@ -1,0 +1,38 @@
+// Usage: node scripts/create-user.js "Full Name" username email password finance|cashier|customer
+require('dotenv').config();
+const bcrypt = require('bcryptjs');
+const { Pool } = require('pg');
+const [name, username, email, password, roleKey = 'finance'] = process.argv.slice(2);
+if (!password) { console.error('Usage: node scripts/create-user.js "Full Name" username email password [finance|cashier|customer]'); process.exit(1); }
+
+const problems = [];
+if (!name || name.trim().length < 2 || name.length > 100) problems.push('Name must be 2–100 characters');
+if (!/^[A-Za-z0-9._-]{3,30}$/.test(username || '')) problems.push('Username must be 3–30 characters (letters, numbers, . _ -)');
+if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email || '')) problems.push('Email address is not valid');
+if (password.length < 8) problems.push('Password must be at least 8 characters');
+if (!/[A-Za-z]/.test(password) || !/\d/.test(password) || !/[^A-Za-z0-9]/.test(password))
+  problems.push('Password needs a letter, a number and a symbol');
+if (!['finance', 'cashier', 'customer'].includes(roleKey)) problems.push('Role must be finance, cashier or customer');
+if (problems.length) { console.error('Cannot create user:\n - ' + problems.join('\n - ')); process.exit(1); }
+
+(async () => {
+  const pool = new Pool(process.env.DATABASE_URL
+    ? { connectionString: process.env.DATABASE_URL }
+    : {
+        host: process.env.DB_HOST || 'localhost',
+        port: Number(process.env.DB_PORT) || 5432,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME
+      });
+  const hash = await bcrypt.hash(password, 12);
+  const r = await pool.query(
+    `INSERT INTO users (full_name, username, email, password_hash, role_id)
+     VALUES ($1,$2,lower($3),$4,(SELECT role_id FROM roles WHERE role_key=$5)) RETURNING user_id`,
+    [name.trim(), username, email, hash, roleKey]);
+  console.log('Created user', r.rows[0].user_id);
+  await pool.end();
+})().catch(e => {
+  console.error(e.code === '23505' ? 'That username or email already exists' : e.message);
+  process.exit(1);
+});

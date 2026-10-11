@@ -1,0 +1,3485 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Triple E Metal Products</title>
+
+    <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+    <link rel="stylesheet" href="style.css">
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=Oswald:wght@500;600;700&display=swap"
+        rel="stylesheet"
+    >
+</head>
+
+<body>
+
+    <!-- =====================================================
+         SIDEBAR
+    ====================================================== -->
+
+    <div class="sidebar-backdrop" id="sidebarBackdrop" aria-hidden="true"></div>
+
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+
+        <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close menu">&times;</button>
+
+        <!-- BRAND -->
+        <div class="brand">
+
+            <div class="mark-wrap">
+                <div class="mark">3<span class="cursive-e">E</span></div>
+                <div class="mark-shadow"></div>
+            </div>
+
+            <div class="brand-text">
+                <div class="name">Triple E Metal</div>
+                <div class="role">Finance Admin</div>
+            </div>
+
+        </div>
+
+
+        <!-- =================================================
+             NAVIGATION
+        ================================================== -->
+
+        <nav>
+
+            <!-- DASHBOARD -->
+            <div class="nav-group">
+
+                <button class="nav-item active" data-page="dashboard">
+                    <span class="dot"></span>
+                    Dashboard
+                </button>
+
+            </div>
+
+
+            <!-- INVENTORY -->
+            <div class="nav-group">
+
+                <div class="nav-label">Inventory</div>
+
+                <button class="nav-item" data-page="inventory">
+                    <span class="dot"></span>
+                    Inventory Monitoring
+                </button>
+
+                <button class="nav-item" data-page="stockflow">
+                    <span class="dot"></span>
+                    Stock In / Out
+                </button>
+
+            </div>
+
+
+            <!-- CATALOG -->
+            <div class="nav-group">
+
+                <div class="nav-label">Catalog</div>
+
+                <button class="nav-item" data-page="products">
+                    <span class="dot"></span>
+                    Products
+                </button>
+
+                <button class="nav-item" data-page="suppliers">
+                    <span class="dot"></span>
+                    Suppliers
+                </button>
+
+            </div>
+
+
+            <!-- SALES -->
+            <div class="nav-group">
+
+                <div class="nav-label">Sales</div>
+
+                <button class="nav-item" data-page="sales">
+                    <span class="dot"></span>
+                    Sales Transactions
+                </button>
+
+            </div>
+
+
+            <!-- ADMINISTRATION -->
+            <div class="nav-group">
+
+                <div class="nav-label">Administration</div>
+
+                <button class="nav-item" data-page="usermgmt">
+                    <span class="dot"></span>
+                    User Management
+                </button>
+
+                <button class="nav-item" data-page="auditlog">
+                    <span class="dot"></span>
+                    Audit Log
+                </button>
+
+                <button class="nav-item" data-page="reports">
+                    <span class="dot"></span>
+                    Reports
+                </button>
+
+            </div>
+
+        </nav>
+
+        <div class="sidebar-foot">
+            <strong>Inventory Management System</strong>
+            Triple E Metal Products
+        </div>
+
+    </aside>
+
+
+    <!-- =====================================================
+         MAIN
+    ====================================================== -->
+
+    <main class="main">
+
+        <!-- TOP BAR -->
+        <header class="topbar">
+
+            <button type="button" class="burger" id="burgerBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+                <span class="burger-bar"></span><span class="burger-bar"></span><span class="burger-bar"></span>
+            </button>
+            <div class="topbar-title" id="topbarTitle">Dashboard</div>
+
+            <div class="topbar-right">
+
+                <button type="button" class="theme-toggle" id="themeToggle" aria-label="Switch colour theme">
+                    <span class="tt-icon" id="themeIcon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span>
+                    <span id="themeLabel" class="tt-label">Light mode</span>
+                </button>
+
+                <div class="badge">
+                    Finance Admin
+                </div>
+
+                <div class="user-menu-wrap" id="userMenuWrap">
+
+                    <button type="button" class="user-chip" id="userChipBtn">
+
+                        <div class="avatar">
+                            A
+                        </div>
+
+                        <div class="user-meta">
+
+                            <div class="uname">
+                                ADMIN
+                            </div>
+
+                            <div class="urole">
+                                Administrator
+                            </div>
+
+                        </div>
+
+                        <span class="chip-chevron"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></span>
+
+                    </button>
+
+
+                    <div class="user-dropdown" id="userDropdown">
+
+                        <div class="user-dropdown-head">
+
+                            <div class="dropdown-avatar">A</div>
+
+                            <div class="dropdown-user-meta">
+                                <div class="dropdown-name">ADMIN</div>
+                                <div class="dropdown-email">
+                                    admin@triplee-metal.com
+                                </div>
+                                <span class="badge dropdown-badge">
+                                    Finance Admin
+                                </span>
+                            </div>
+
+                        </div>
+
+
+                        <div class="user-dropdown-divider"></div>
+
+
+                        <button
+                            type="button"
+                            class="user-dropdown-item"
+                            id="myProfileBtn"
+                        >
+                            <span class="dropdown-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg></span>
+                            My Profile
+                        </button>
+
+
+                        <button
+                            type="button"
+                            class="user-dropdown-item"
+                            id="changePasswordBtn"
+                        >
+                            <span class="dropdown-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg></span>
+                            Change Password
+                        </button>
+
+
+                        <div class="user-dropdown-divider"></div>
+
+
+                        <button
+                            type="button"
+                            class="user-dropdown-item logout"
+                            id="logoutBtn"
+                        >
+                            <span class="dropdown-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></span>
+                            Log Out
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+        </header>
+
+
+        <!-- =====================================================
+             CONTENT
+        ====================================================== -->
+
+        <div class="content">
+
+
+            <!-- =================================================
+                 DASHBOARD
+            ================================================== -->
+
+            <section id="dashboard" class="page active-page">
+
+                <div class="welcome">
+
+                    <h1 id="welcomeName">Welcome back</h1>
+
+                    <p>
+                        Here's what's happening across Triple E Metal Products right now.
+                    </p>
+
+                </div>
+
+
+                <!-- DASHBOARD STATS -->
+
+                <div class="stats">
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Total SKUs
+                        </div>
+
+                        <div class="stat-value" id="totalSkus">
+                            —
+                        </div>
+
+                        <div class="stat-foot" id="skuFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Low Stock Alerts
+                        </div>
+
+                        <div class="stat-value" id="lowStockAlerts">
+                            —
+                        </div>
+
+                        <div class="stat-foot warn" id="lowStockFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Movements (7d)
+                        </div>
+
+                        <div class="stat-value" id="dashMovements">
+                            —
+                        </div>
+
+                        <div class="stat-foot up" id="dashMovementsFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Total Orders
+                        </div>
+
+                        <div class="stat-value" id="totalOrders">
+                            —
+                        </div>
+
+                        <div class="stat-foot up" id="totalOrdersFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- QUICK ACTIONS + STOCK HEALTH -->
+
+                <div class="panels dash-top-panels">
+
+                    <div class="panel">
+
+                        <div class="panel-title">
+                            Quick Actions
+                        </div>
+
+                        <div class="panel-sub">
+                            Jump straight to a common task
+                        </div>
+
+                        <div
+                            class="quick-actions-list"
+                            id="quickActionsList"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="panel">
+
+                        <div class="panel-title">
+                            Stock Health By Department
+                        </div>
+
+                        <div class="panel-sub">
+                            Share of SKUs above reorder level
+                        </div>
+
+                        <div
+                            class="health-ring-row"
+                            id="stockHealthRings"
+                        ></div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- LOW STOCK -->
+
+                <div class="panel dash-section-panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Low Stock — needs action now
+                            </div>
+
+                            <div class="panel-sub">
+                                Products at or below their reorder level
+                            </div>
+
+                        </div>
+
+                        <button
+                            class="btn-secondary"
+                            id="viewFullInventoryBtn"
+                        >
+                            View Full Inventory
+                        </button>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Product</th>
+                                    <th>SKU</th>
+                                    <th>Department</th>
+                                    <th>On Hand</th>
+                                    <th>Reorder LVL</th>
+                                    <th>Status</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="lowStockTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+
+                <!-- RECENT STOCK MOVEMENTS -->
+
+                <div class="panel dash-section-panel movements-panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Recent Stock Movements
+                            </div>
+
+                            <div class="panel-sub">
+                                Latest stock in / stock out activity
+                            </div>
+
+                        </div>
+
+                        <button
+                            class="btn-primary"
+                            id="recordMovementBtn"
+                        >
+                            + Record Movement
+                        </button>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Ref</th>
+                                    <th>Product</th>
+                                    <th>Type</th>
+                                    <th>Qty</th>
+                                    <th>Department</th>
+                                    <th>Handled By</th>
+                                    <th>Time</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="recentMovementsTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 INVENTORY MONITORING
+            ================================================== -->
+
+            <section id="inventory" class="page">
+
+                <div class="welcome">
+
+                    <h1>
+                        Inventory Monitoring
+                    </h1>
+
+                    <p>
+                        Real-time stock levels across Raw Materials, Work in Progress, and Finished Goods, with low-stock alerts.
+                    </p>
+
+                </div>
+
+
+                <div class="stats">
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Total SKUs
+                        </div>
+
+                        <div class="stat-value" id="invTotalSkus">
+                            —
+                        </div>
+
+                        <div class="stat-foot" id="invTotalSkusFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Below Reorder
+                        </div>
+
+                        <div class="stat-value" id="invBelowReorder">
+                            —
+                        </div>
+
+                        <div class="stat-foot low-foot" id="invBelowReorderFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Near Reorder
+                        </div>
+
+                        <div class="stat-value" id="invNearReorder">
+                            —
+                        </div>
+
+                        <div class="stat-foot warn" id="invNearReorderFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card">
+
+                        <div class="stat-label">
+                            Healthy Stock
+                        </div>
+
+                        <div class="stat-value" id="invHealthyStock">
+                            —
+                        </div>
+
+                        <div class="stat-foot up" id="invHealthyStockFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Stock levels
+                            </div>
+
+                            <div class="panel-sub" id="invPanelSub">
+                                14 SKUs · Sorted by stock status
+                            </div>
+
+                        </div>
+
+
+                        <div class="inv-filters">
+
+                            <input
+                                type="text"
+                                id="invSearch"
+                                class="inv-search"
+                                placeholder="Search product or SKU..." autocomplete="off">
+
+                            <select
+                                id="invDeptFilter"
+                                class="inv-select"
+                            >
+                                <option value="all">
+                                    All departments
+                                </option>
+
+                                <option value="Raw Materials">
+                                    Raw Materials
+                                </option>
+
+                                <option value="Work In Progress">
+                                    Work In Progress
+                                </option>
+
+                                <option value="Finished Goods">
+                                    Finished Goods
+                                </option>
+                            </select>
+
+
+                            <select
+                                id="invStatusFilter"
+                                class="inv-select"
+                            >
+                                <option value="all">
+                                    All statuses
+                                </option>
+
+                                <option value="low">
+                                    Low
+                                </option>
+
+                                <option value="watch">
+                                    Watch
+                                </option>
+
+                                <option value="ok">
+                                    OK
+                                </option>
+                            </select>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Product</th>
+                                    <th>SKU</th>
+                                    <th>Department</th>
+                                    <th>Stock Level</th>
+                                    <th>Reorder LVL</th>
+                                    <th>Unit Cost</th>
+                                    <th>Location</th>
+                                    <th>Status</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="stockLevelsTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+
+                    <div class="inv-legend">
+
+                        <span class="legend-item">
+                            <span class="legend-dot low"></span>
+                            Low — at or below reorder level
+                        </span>
+
+                        <span class="legend-item">
+                            <span class="legend-dot watch"></span>
+                            Watch — within 20% of reorder level
+                        </span>
+
+                        <span class="legend-item">
+                            <span class="legend-dot ok"></span>
+                            OK — healthy buffer
+                        </span>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 STOCK IN / OUT
+            ================================================== -->
+
+            <section id="stockflow" class="page">
+
+                <div class="welcome">
+
+                    <h1>
+                        Stock In / Out
+                    </h1>
+
+                    <p>
+                        Record stock coming in (from a supplier, or produced in-house) and stock going out (damage, scrap, returns and corrections). Goods produced in-house go straight into Finished Goods.
+                    </p>
+
+                </div>
+
+
+                <div class="stockflow-grid">
+
+                    <!-- RECORD MOVEMENT -->
+
+                    <div class="record-card">
+
+                        <span class="corner-dot tl"></span>
+                        <span class="corner-dot tr"></span>
+                        <span class="corner-dot bl"></span>
+                        <span class="corner-dot br"></span>
+
+                        <div class="record-eyebrow">
+                            Record Movement
+                        </div>
+
+                        <h3
+                            class="record-product-name"
+                            id="recordProductName"
+                        >
+                            Select a product
+                        </h3>
+
+
+                        <div
+                            class="segmented"
+                            id="movementTypeToggle"
+                        >
+
+                            <button
+                                type="button"
+                                class="seg-btn seg-in active"
+                                data-type="in"
+                            >
+                                Stock In
+                            </button>
+
+                            <button
+                                type="button"
+                                class="seg-btn seg-out"
+                                data-type="out"
+                            >
+                                Stock Out
+                            </button>
+
+                        </div>
+
+
+                        <form id="movementForm" novalidate autocomplete="off">
+
+                            <div class="form-group">
+
+                                <label
+                                    class="form-label"
+                                    for="movementDept"
+                                >
+                                    Department
+                                </label>
+
+                                <select
+                                    id="movementDept"
+                                    class="form-select"
+                                >
+                                    <option value="">All departments</option>
+                                    <option value="Raw Materials">Raw Materials</option>
+                                    <option value="Work In Progress">Work In Progress</option>
+                                    <option value="Finished Goods">Finished Goods</option>
+                                    <option value="Finishing Supplies">Finishing Supplies</option>
+                                </select>
+                                <div class="field-hint" id="movementDeptHint"></div>
+
+                            </div>
+
+
+                            <div class="form-group">
+
+                                <label
+                                    class="form-label"
+                                    for="movementProduct"
+                                >
+                                    Product
+<span class="required-mark">*</span>
+</label>
+
+                                <select
+                                    id="movementProduct"
+                                    class="form-select"
+                                    required
+                                ></select>
+
+                            </div>
+
+
+                            <div class="form-row">
+
+                                <div class="form-group">
+
+                                    <label
+                                        class="form-label"
+                                        for="movementQuantity"
+                                    >
+                                        Quantity
+<span class="required-mark">*</span>
+</label>
+
+                                    <input
+                                        type="number" inputmode="decimal"
+                                        id="movementQuantity"
+                                        class="form-input"
+                                        placeholder="e.g. 500"
+                                        min="0"
+                                        step="any"
+                                        required autocomplete="off">
+
+                                </div>
+
+
+                                <div class="form-group">
+
+                                    <label
+                                        class="form-label"
+                                        for="movementUnit"
+                                    >
+                                        Unit
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        id="movementUnit"
+                                        class="form-input"
+                                        placeholder="kg"
+                                        readonly autocomplete="off">
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="form-group">
+                                <label class="form-label" for="movementReason">
+                                    Reason <span class="required-mark">*</span>
+                                </label>
+                                <select id="movementReason" class="form-select" required></select>
+                                <div class="field-hint" id="movementReasonHint"></div>
+                            </div>
+
+<div class="form-group">
+                                <label class="form-label" for="movementRef">
+                                    Reference No.
+                                </label>
+                                <input type="text" id="movementRef" class="form-input" value=""
+                                    placeholder="Generated automatically when saved" readonly tabindex="-1" autocomplete="off">
+                            </div>
+
+
+<div class="form-group" id="movementNoteGroup" style="display:none">
+
+                                <label class="form-label">
+                                    Note <span class="required-mark">*</span>
+                                </label>
+
+                                <textarea
+                                    id="movementNote"
+                                    class="form-textarea"
+                                    placeholder="Explain what happened (required)…"
+                                    rows="2"
+                                 autocomplete="off"></textarea>
+
+                            </div>
+
+
+                            <div class="stock-summary">
+
+                                <div class="stock-summary-row">
+
+                                    <span>
+                                        Current stock
+                                    </span>
+
+                                    <span id="summaryCurrentStock">
+                                        —
+                                    </span>
+
+                                </div>
+
+
+                                <div class="stock-summary-row highlight">
+
+                                    <span>
+                                        After this entry
+                                    </span>
+
+                                    <span id="summaryAfterStock">
+                                        —
+                                    </span>
+
+                                </div>
+
+                            </div>
+
+
+                            <p
+                                class="form-error"
+                                id="movementFormError"
+                            >
+                                Enter a valid quantity to continue.
+                            </p>
+
+
+                            <button
+                                type="submit"
+                                class="btn-primary btn-full"
+                            >
+                                Save Movement
+                            </button>
+
+                        </form>
+
+                    </div>
+
+
+                    <!-- MOVEMENT LOG -->
+
+                    <div class="panel movement-log-panel">
+
+                        <div class="panel-head">
+
+                            <div>
+
+                                <div class="panel-title">
+                                    Movement log
+                                </div>
+
+                                <div
+                                    class="panel-sub"
+                                    id="logPanelSub"
+                                >
+                                    All recorded stock in / out activity
+                                </div>
+
+                            </div>
+
+
+                            <div class="inv-filters">
+
+                                <input
+                                    type="text"
+                                    id="logSearch"
+                                    class="inv-search"
+                                    placeholder="Search product or ref..." autocomplete="off">
+
+
+                                <select
+                                    id="logTypeFilter"
+                                    class="inv-select"
+                                >
+
+                                    <option value="all">
+                                        All types
+                                    </option>
+
+                                    <option value="in">
+                                        In
+                                    </option>
+
+                                    <option value="out">
+                                        Out
+                                    </option>
+
+                                </select>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="table-wrapper">
+
+                            <table>
+
+                                <thead>
+
+                                    <tr>
+                                        <th>Ref</th>
+                                        <th>Product</th>
+                                        <th>Type</th>
+                                        <th>Reason</th>
+                                        <th>Qty</th>
+                                        <th>Dept.</th>
+                                        <th>Handled By</th>
+                                        <th>Time</th>
+                                    </tr>
+
+                                </thead>
+
+                                <tbody id="movementLogTableBody"></tbody>
+
+                            </table>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 PRODUCTS
+            ================================================== -->
+
+            <section id="products" class="page">
+
+                <div class="catalog-header">
+
+                    <div>
+
+                        <div class="catalog-eyebrow">
+                            Catalog
+                        </div>
+
+                        <h1 class="catalog-title">
+                            Products
+                        </h1>
+
+                        <p class="catalog-sub">
+                            Add, edit and archive product records — name, department, category, unit, price and reorder level all feed inventory and reporting.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="catalog-toolbar">
+
+                    <div
+                        class="category-pills"
+                        id="categoryPills"
+                    ></div>
+
+
+                    <div class="catalog-toolbar-right">
+
+                        <input
+                            type="text"
+                            id="catalogSearch"
+                            class="inv-search"
+                            placeholder="Search catalog..." autocomplete="off">
+
+                        <button
+                            class="btn-primary"
+                            id="newProductBtn"
+                        >
+                            + New product
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Product Catalog
+                            </div>
+
+                            <div
+                                class="panel-sub"
+                                id="productListSub"
+                            >
+                                8 products
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Product</th>
+                                    <th>SKU</th>
+                                    <th>Category</th>
+                                    <th>Department</th>
+                                    <th>Available</th>
+                                    <th>Std Cost</th>
+                                    <th>List Price</th>
+                                    <th>Margin</th>
+                                    <th>Source</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="productTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 SUPPLIERS
+            ================================================== -->
+
+            <section id="suppliers" class="page">
+
+                <div class="catalog-header">
+
+                    <div>
+
+                        <div class="catalog-eyebrow">
+                            Catalog
+                        </div>
+
+                        <h1 class="catalog-title">
+                            Suppliers
+                        </h1>
+
+                        <p class="catalog-sub">
+                            Contact details and the raw materials each supplier provides — feeds Stock In records and reorder decisions. 
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    class="catalog-toolbar"
+                    style="margin-top: 24px;"
+                >
+
+                    <div
+                        class="category-pills"
+                        id="warehousePills"
+                    ></div>
+
+
+                    <div class="catalog-toolbar-right">
+
+                        <input
+                            type="text"
+                            id="supplierSearch"
+                            class="inv-search"
+                            placeholder="Search suppliers..." autocomplete="off">
+
+                        <button
+                            class="btn-primary"
+                            id="onboardSupplierBtn"
+                        >
+                            + Add New Supplier
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Supplier List
+                            </div>
+
+                            <div
+                                class="panel-sub"
+                                id="supplierCount"
+                            >
+                                7 suppliers
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Supplier</th>
+                                    <th>Location</th>
+                                    <th>Contact</th>
+                                    <th>Supplies</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="supplierTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 SALES TRANSACTIONS
+            ================================================== -->
+
+            <section id="sales" class="page">
+
+                <div class="catalog-header">
+                    <div>
+                        <div class="catalog-eyebrow">Sales</div>
+                        <h1 class="catalog-title">Sales Transactions</h1>
+                        <p class="catalog-sub">
+                            Online orders from the shop and walk-in sales from the POS. Update an order&rsquo;s status here and the customer sees it on their orders page.
+                        </p>
+                    </div>
+                    <button class="btn-secondary btn-sm" id="soRefresh" type="button">Refresh</button>
+                </div>
+
+                <div class="panel sales-log-panel">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title" id="soTitle">Online Orders</div>
+                            <div class="panel-sub" id="soSub">Loading&hellip;</div>
+                        </div>
+                        <div class="inv-filters">
+                            <select id="soView" class="inv-select">
+                                <option value="orders">Online orders</option>
+                                <option value="pos">POS walk-in sales</option>
+                            </select>
+                            <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
+                            <select id="soStatus" class="inv-select">
+                                <option value="all">All statuses</option>
+                                <option value="Pending Confirmation">Pending Confirmation</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Packed">Packed</option>
+                                <option value="Out for Delivery">Out for Delivery</option>
+                                <option value="Ready for Pickup">Ready for Pickup</option>
+                                <option value="Delivered">Delivered</option>
+                                <option value="Picked Up">Picked Up</option>
+                                <option value="Cancelled">Cancelled</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead id="soHead"></thead>
+                            <tbody id="soBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </section>
+            <!-- =================================================
+                 USER MANAGEMENT
+            ================================================== -->
+
+            <section id="usermgmt" class="page">
+
+                <div class="catalog-header">
+
+                    <div>
+
+                        <div class="catalog-eyebrow">
+                            Administration
+                        </div>
+
+                        <h1 class="catalog-title">
+                            User Account Management
+                        </h1>
+
+                        <p class="catalog-sub">
+                            View system accounts, their roles and status, and invite new users.
+                        </p>
+
+                    </div>
+
+                    <div class="catalog-actions">
+
+                        <button
+                            class="btn-primary"
+                            id="inviteUserBtn"
+                        >
+                            + Invite User
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel um-panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Accounts
+                            </div>
+
+                            <div
+                                class="panel-sub"
+                                id="accountCount"
+                            >
+                                2 accounts
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username / Email</th>
+                                    <th>Role</th>
+                                    <th>Status</th>
+                                    <th>Last Login</th>
+                                    <th>Actions</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="accountsTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel um-panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Pending invitations
+                            </div>
+
+                            <div class="panel-sub">
+                                Awaiting signup
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Email</th>
+                                    <th>Role</th>
+                                    <th>Code Sent</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="pendingInvitesTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 AUDIT LOG
+            ================================================== -->
+
+            <section id="auditlog" class="page">
+
+                <div class="catalog-header">
+
+                    <div>
+
+                        <div class="catalog-eyebrow">
+                            Administration
+                        </div>
+
+                        <h1 class="catalog-title">
+                            Audit Log
+                        </h1>
+
+                        <p class="catalog-sub">
+                            A read-only record of logins, record changes and account activity across the system.
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="panel um-panel">
+
+                    <div class="panel-head">
+
+                        <div>
+
+                            <div class="panel-title">
+                                Activity log
+                            </div>
+
+                            <div
+                                class="panel-sub"
+                                id="auditCount"
+                            >
+                                7 of 7 entries
+                            </div>
+
+                        </div>
+
+
+                        <div class="inv-filters">
+
+                            <select
+                                id="auditRoleFilter"
+                                class="inv-select"
+                            >
+
+                                <option value="all">
+                                    All roles
+                                </option>
+
+                                <option value="Finance-Admin">
+                                    Finance-Admin
+                                </option>
+
+                                <option value="Cashier">
+                                    Cashier
+                                </option>
+
+                            </select>
+
+
+                            <select
+                                id="auditActionFilter"
+                                class="inv-select"
+                            >
+
+                                <option value="all">
+                                    All actions
+                                </option>
+
+                                <option value="Login">
+                                    Login
+                                </option>
+
+                                <option value="Record added">
+                                    Record added
+                                </option>
+
+                                <option value="Record edited">
+                                    Record edited
+                                </option>
+
+                                <option value="Account created">
+                                    Account created
+                                </option>
+
+                            </select>
+
+
+                            <input
+                                type="text"
+                                id="auditSearch"
+                                class="inv-search"
+                                placeholder="Search user or action..." autocomplete="off">
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Timestamp</th>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Action</th>
+                                    <th>Detail</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="auditTableBody"></tbody>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+
+            <!-- =================================================
+                 REPORTS
+            ================================================== -->
+
+            <section id="reports" class="page">
+
+                <div class="catalog-header">
+
+                    <div>
+
+                        <h1 class="catalog-title">
+                            Inventory & Sales Reports
+                        </h1>
+
+                        <p class="catalog-sub">
+                            Stock value, movement and sales transaction reporting across the full product catalog.
+                        </p>
+
+                    </div>
+
+
+                    <div class="catalog-actions">
+
+                        <button
+                            class="btn-secondary report-print-btn"
+                            id="printReportBtn"
+                        >
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></svg> Print / Save PDF
+                        </button>
+
+                        <button
+                            class="btn-primary"
+                            id="exportCsvBtn"
+                        >
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></svg> Export CSV
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <!-- REPORT PERIOD -->
+
+                <div class="panel report-period-panel">
+
+                    <div class="panel-title">
+                        Report Period
+                    </div>
+
+                    <div class="panel-sub report-period-sub">
+                        Choose a timeframe or set your own date range
+                    </div>
+
+
+                    <div
+                        class="report-period-toggle"
+                        id="reportPeriodToggle"
+                    >
+
+                        <button
+                            type="button"
+                            class="period-btn active"
+                            data-period="daily"
+                        >
+                            Daily
+                        </button>
+
+                        <button
+                            type="button"
+                            class="period-btn"
+                            data-period="weekly"
+                        >
+                            Weekly
+                        </button>
+
+                        <button
+                            type="button"
+                            class="period-btn"
+                            data-period="monthly"
+                        >
+                            Monthly
+                        </button>
+
+                        <button
+                            type="button"
+                            class="period-btn"
+                            data-period="yearly"
+                        >
+                            Yearly
+                        </button>
+
+                        <button
+                            type="button"
+                            class="period-btn"
+                            data-period="custom"
+                        >
+                            Custom Range
+                        </button>
+
+                    </div>
+
+
+                    <div
+                        class="date-nav-row"
+                        id="dateNavRow"
+                    >
+
+                        <div class="date-nav-arrows">
+
+                            <button
+                                type="button"
+                                class="date-nav-btn"
+                                id="datePrevBtn"
+                                aria-label="Previous"
+                            >
+                                ‹
+                            </button>
+
+                            <button
+                                type="button"
+                                class="date-nav-btn"
+                                id="dateNextBtn"
+                                aria-label="Next"
+                            >
+                                ›
+                            </button>
+
+                        </div>
+
+
+                        <div class="date-nav-info">
+
+                            <span
+                                class="date-showing-pill"
+                                id="dateShowingPill"
+                            >
+                                Showing —
+                            </span>
+
+                            <a
+                                href="#"
+                                class="jump-latest-link"
+                                id="jumpLatestLink"
+                            >
+                                Jump to latest activity
+                            </a>
+
+                        </div>
+
+                    </div>
+
+
+                    <div
+                        class="custom-range-row"
+                        id="customRangeRow"
+                    >
+
+                        <div class="form-group">
+
+                            <label class="form-label">
+                                From
+                            </label>
+
+                            <input
+                                type="date"
+                                id="reportFromDate"
+                                class="form-input" autocomplete="off">
+
+                        </div>
+
+
+                        <div class="form-group">
+
+                            <label class="form-label">
+                                To
+                            </label>
+
+                            <input
+                                type="date"
+                                id="reportToDate"
+                                class="form-input" autocomplete="off">
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- REPORT STATS -->
+
+                <div class="stats report-stat-cards">
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon neutral">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                SKUs in report
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repSkusInReport"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon green">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Stock value
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repStockValue"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon blue">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Movements in period
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repMovementsInPeriod"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon blue">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Sales in period
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repSalesInPeriod"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon green">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Sales revenue
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repSalesRevenue"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon green">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Sales profit
+                            </div>
+
+                            <div
+                                class="stat-value"
+                                id="repSalesProfit"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="stat-card icon-stat">
+
+                        <div class="stat-icon red">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
+                        </div>
+
+                        <div>
+
+                            <div class="stat-label">
+                                Low-stock alerts
+                            </div>
+
+                            <div
+                                class="stat-value alert-value"
+                                id="repLowStockAlerts"
+                            >
+                                —
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- REPORT CHARTS -->
+
+                <div class="panels report-charts-grid">
+
+                    <div class="panel">
+
+                        <div class="panel-title">
+                            Stock value by department
+                        </div>
+
+                        <div class="panel-sub">
+                            Share of ₱ value · live snapshot
+                        </div>
+
+                        <div class="donut-chart-row">
+
+                            <div
+                                class="donut-chart-container"
+                                id="donutChartContainer"
+                            ></div>
+
+                            <div
+                                class="donut-legend"
+                                id="donutLegend"
+                            ></div>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="panel">
+
+                        <div class="panel-title">
+                            Stock movement trend
+                        </div>
+
+                        <div
+                            class="panel-sub"
+                            id="scatterChartSub"
+                        >
+                            Stock in vs stock out
+                        </div>
+
+
+                        <div
+                            id="scatterChartContainer"
+                            class="trend-chart-container"
+                        ></div>
+
+
+                        <div class="trend-legend">
+
+                            <div class="trend-legend-item">
+
+                                <span
+                                    class="trend-legend-dot"
+                                    style="background:#43c47a"
+                                ></span>
+
+                                Stock In (qty)
+
+                            </div>
+
+
+                            <div class="trend-legend-item">
+
+                                <span
+                                    class="trend-legend-dot"
+                                    style="background:#e35b5b"
+                                ></span>
+
+                                Stock Out (qty)
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <!-- STOCK VALUE DETAIL -->
+
+                <div class="panel report-detail-panel">
+
+                    <div class="panel-title">
+                        Stock Value Detail
+                    </div>
+
+                    <div
+                        class="panel-sub"
+                        id="stockDetailSub"
+                    >
+                        14 SKUs · ₱995,722.20 total
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>SKU</th>
+                                    <th>Product</th>
+                                    <th>Category</th>
+                                    <th>Quantity On Hand</th>
+                                    <th>Reorder Level</th>
+                                    <th>Unit Cost</th>
+                                    <th>Value</th>
+                                </tr>
+
+                            </thead>
+
+                            <tbody id="stockValueDetailBody"></tbody>
+
+                            <tfoot id="stockValueDetailFoot"></tfoot>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+
+                <!-- STOCK MOVEMENT REPORT -->
+
+                <div class="panel report-detail-panel">
+
+                    <div class="panel-title">
+                        Stock Movement Report
+                    </div>
+
+                    <div
+                        class="panel-sub report-period-sub"
+                        id="reportMovementSub"
+                    >
+                        Stock in / stock out
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Ref</th>
+                                    <th>Date</th>
+                                    <th>Product</th>
+                                    <th>Type</th>
+                                        <th>Reason</th>
+                                    <th>Quantity</th>
+                                    <th>Department</th>
+                                    <th>Handled by</th>
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="reportMovementBody"></tbody>
+
+                            <tfoot id="reportMovementFoot"></tfoot>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+
+                <!-- =================================================
+                     SALES REPORT
+                ================================================== -->
+
+                <div class="panel report-detail-panel">
+
+                    <div class="panel-title">
+                        Sales Transaction Report
+                    </div>
+
+                    <div
+                        class="panel-sub report-period-sub"
+                        id="reportSalesSub"
+                    >
+                        Sales transactions, revenue and profit
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Sales Ref</th>
+                                    <th>Date</th>
+                                    <th>Product</th>
+                                    <th>Quantity Sold</th>
+                                    <th>Unit Price</th>
+                                    <th>Revenue</th>
+                                    <th>Profit</th>
+                                    <th>Customer</th>
+                                    <th>Payment</th>
+                                    <th>Handled by</th>
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="reportSalesBody"></tbody>
+
+                            <tfoot id="reportSalesFoot"></tfoot>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+            </section>
+
+        </div>
+
+    </main>
+
+
+    <!-- =====================================================
+         MY ACCOUNT MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="accountModalOverlay"
+    >
+
+        <div class="account-modal">
+
+            <button
+                type="button"
+                class="modal-close"
+                id="modalCloseBtn"
+                aria-label="Close"
+            >
+                ×
+            </button>
+
+
+            <div
+                class="modal-view active"
+                id="modalMainView"
+            >
+
+                <div class="modal-eyebrow">
+                    Account · Finance Admin
+                </div>
+
+                <h2 class="modal-title">
+                    My Account
+                </h2>
+
+
+                <div class="modal-tabs">
+
+                    <button
+                        type="button"
+                        class="modal-tab active"
+                        data-tab="profile"
+                    >
+                        My Profile
+                    </button>
+
+                    <button
+                        type="button"
+                        class="modal-tab"
+                        data-tab="password"
+                    >
+                        Change Password
+                    </button>
+
+                </div>
+
+
+                <!-- MY PROFILE -->
+
+                <div
+                    class="modal-tab-panel active"
+                    id="profileTabPanel"
+                >
+
+                    <div class="profile-photo-row">
+
+                        <div class="avatar profile-avatar" id="profileAvatar">
+                            A
+                        </div>
+
+                        <div class="profile-photo-actions">
+
+                            <button
+                                type="button"
+                                class="btn-secondary btn-sm"
+                                id="profileUploadBtn"
+                            >
+                                Upload photo
+                            </button>
+
+                            <button
+                                type="button"
+                                class="btn-secondary btn-sm"
+                                id="profileRemoveBtn"
+                            >
+                                Remove
+                            </button>
+
+                        </div>
+
+                        <div class="profile-photo-hint">
+                            JPG or PNG, up to 2MB
+                        </div>
+
+                    </div>
+
+
+                    <div class="modal-divider"></div>
+
+
+                    <div class="form-row">
+
+                        <div class="form-group">
+
+                            <label class="form-label" for="profileName">
+                                Full Name <span class="req-star" aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                type="text"
+                                class="form-input"
+                                id="profileName"
+                                maxlength="100"
+                                required
+                                value="ADMIN" autocomplete="off">
+
+                        </div>
+
+
+                        <div class="form-group">
+
+                            <label class="form-label">
+                                Employee ID
+                            </label>
+
+                            <input
+                                type="text"
+                                class="form-input"
+                                id="profileEmployeeId"
+                                value="TEM-0001"
+                                readonly autocomplete="off">
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-row">
+
+                        <div class="form-group">
+
+                            <label class="form-label" for="profileEmail">
+                                Email <span class="req-star" aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                type="email"
+                                class="form-input"
+                                id="profileEmail"
+                                maxlength="254"
+                                required
+                                value="admin@triplee-metal.com" autocomplete="off">
+
+                        </div>
+
+
+                        <div class="form-group">
+
+                            <label class="form-label" for="profilePhone">
+                                Phone <span class="req-star" aria-hidden="true">*</span>
+                            </label>
+
+                            <input
+                                type="tel"
+                                class="form-input"
+                                id="profilePhone"
+                                maxlength="30"
+                                required
+                                placeholder="+63 917 123 4567"
+                                value="+63 917 555 4090" autocomplete="off">
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-row">
+
+                        <div class="form-group">
+
+                            <label class="form-label">
+                                Department
+                            </label>
+
+                            <input
+                                type="text"
+                                class="form-input"
+                                id="profileDepartment"
+                                value="Finance"
+                                readonly autocomplete="off">
+
+                        </div>
+
+
+                        <div class="form-group">
+
+                            <label class="form-label">
+                                Date Joined
+                            </label>
+
+                            <input
+                                type="text"
+                                class="form-input"
+                                id="profileJoined"
+                                value="Mar 18, 2025"
+                                readonly autocomplete="off">
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label class="form-label">
+                            Role
+                        </label>
+
+                        <div class="role-readonly-row">
+
+                            <span class="badge" id="profileRoleBadge">
+                                Finance Admin
+                            </span>
+
+                            <span class="role-readonly-note">
+                                Assigned by system — contact your Admin to change roles
+                            </span>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-error" id="profileFormError">
+                        Please fix the highlighted fields.
+                    </div>
+
+                    <div class="modal-footer">
+
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="profileCancelBtn"
+                        >
+                            Cancel
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            id="profileSaveBtn"
+                        >
+                            Save Changes
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <!-- CHANGE PASSWORD -->
+
+                <div
+                    class="modal-tab-panel"
+                    id="passwordTabPanel"
+                >
+
+                    <div class="form-group">
+
+                        <label class="form-label">
+                            Current Password
+                        </label>
+
+                        <input
+                            type="password"
+                            class="form-input"
+                            id="currentPasswordInput"
+                            placeholder="Enter current password" autocomplete="new-password">
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label class="form-label">
+                            New Password
+                        </label>
+
+                        <input
+                            type="password"
+                            class="form-input"
+                            id="newPasswordInput"
+                            placeholder="Enter new password" autocomplete="new-password">
+
+                        <div class="strength-track">
+
+                            <div
+                                class="strength-fill"
+                                id="strengthFill"
+                            ></div>
+
+                        </div>
+
+                        <div
+                            class="strength-label"
+                            id="strengthLabel"
+                        >
+                            Strength: —
+                        </div>
+
+                    </div>
+
+
+                    <div class="form-group">
+
+                        <label class="form-label">
+                            Confirm New Password
+                        </label>
+
+                        <input
+                            type="password"
+                            class="form-input"
+                            id="confirmPasswordInput"
+                            placeholder="Re-enter new password" autocomplete="new-password">
+
+                    </div>
+
+
+                    <div
+                        class="password-checklist"
+                        id="passwordChecklist"
+                    >
+
+                        <div
+                            class="checklist-item"
+                            data-rule="length"
+                        >
+                            <span class="checklist-dot"></span>
+                            At least 8 characters
+                        </div>
+
+                        <div
+                            class="checklist-item"
+                            data-rule="upper"
+                        >
+                            <span class="checklist-dot"></span>
+                            One uppercase letter (A–Z)
+                        </div>
+
+                        <div
+                            class="checklist-item"
+                            data-rule="lower"
+                        >
+                            <span class="checklist-dot"></span>
+                            One lowercase letter (a–z)
+                        </div>
+
+                        <div
+                            class="checklist-item"
+                            data-rule="number"
+                        >
+                            <span class="checklist-dot"></span>
+                            One number (0–9)
+                        </div>
+
+                        <div
+                            class="checklist-item"
+                            data-rule="special"
+                        >
+                            <span class="checklist-dot"></span>
+                            One special character (!@#$%^&amp;* etc.)
+                        </div>
+
+                        <div
+                            class="checklist-item"
+                            data-rule="match"
+                        >
+                            <span class="checklist-dot"></span>
+                            Passwords match
+                        </div>
+
+                    </div>
+
+
+                    <p
+                        class="password-error"
+                        id="passwordFormError"
+                    >
+                        Check the fields above — passwords must match and meet all requirements.
+                    </p>
+
+
+                    <div class="last-changed-note">
+                        Last changed: <b>18 days ago</b> · Jul 25, 2026
+                    </div>
+
+
+                    <div class="modal-footer">
+
+                        <button
+                            type="button"
+                            class="btn-secondary"
+                            id="passwordCancelBtn"
+                        >
+                            Cancel
+                        </button>
+
+                        <button
+                            type="button"
+                            class="btn-primary"
+                            id="updatePasswordBtn"
+                        >
+                            Update Password
+                        </button>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <!-- OTP CONFIRMATION -->
+
+            <div
+                class="modal-view"
+                id="modalOtpView"
+            >
+
+                <div class="otp-shield-icon">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+                </div>
+
+                <div class="modal-eyebrow center">
+                    Account · Finance Admin
+                </div>
+
+                <h2 class="modal-title center">
+                    Verify It's You
+                </h2>
+
+                <p class="otp-modal-sub">
+                    We sent a 6-digit code to
+                    <b id="otpModalEmail">
+                        a.•••••@triplee-metal.com
+                    </b>
+                    to confirm your password change.
+                </p>
+
+
+                <div
+                    class="otp-row"
+                    id="accountOtpRow"
+                >
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="0" autocomplete="off">
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="1" autocomplete="off">
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="2" autocomplete="off">
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="3" autocomplete="off">
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="4" autocomplete="off">
+
+                    <input
+                        class="otp-digit"
+                        type="text"
+                        inputmode="numeric"
+                        pattern="[0-9]*"
+                        maxlength="1"
+                        data-idx="5" autocomplete="off">
+
+                </div>
+
+
+                <div class="otp-modal-meta">
+
+                    <span>
+                        Code expires in
+                        <b id="accountOtpTimer">
+                            04:52
+                        </b>
+                    </span>
+
+                    <a
+                        href="#"
+                        id="accountResendLink"
+                    >
+                        Resend code
+                    </a>
+
+                </div>
+
+
+                <div class="modal-footer stacked">
+
+                    <button
+                        type="button"
+                        class="btn-primary btn-full otp-verify-btn"
+                        id="verifyPasswordOtpBtn"
+                    >
+                        Verify &amp; Update Password
+                    </button>
+
+                    <button
+                        type="button"
+                        class="btn-secondary btn-full"
+                        id="otpCancelBtn"
+                    >
+                        Cancel
+                    </button>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         NEW SUPPLIER MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="newSupplierModalOverlay"
+    >
+
+        <div class="account-modal supplier-modal supplier-form-modal">
+
+            <button type="button" class="modal-close" id="newSupplierCloseBtn" aria-label="Close">×</button>
+
+            <div class="supplier-modal-head">
+                <div class="supplier-modal-icon">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></svg>
+                </div>
+                <div>
+                    <div class="modal-eyebrow">Catalog</div>
+                    <h2 class="modal-title" id="newSupplierModalTitle" style="margin-bottom:0;">New Supplier</h2>
+                </div>
+            </div>
+
+            <form id="newSupplierForm" class="supplier-form" novalidate autocomplete="off">
+
+                <div class="supplier-form-body">
+
+                    <div class="form-group">
+                        <label class="form-label" for="newSupplierName">
+                            Supplier Name <span class="required-mark">*</span>
+                        </label>
+                        <input type="text" id="newSupplierName" class="form-input" autocapitalize="words"
+                            required autocomplete="off">
+                    </div>
+
+                    <div class="form-section" role="group" aria-labelledby="supSecContact">
+                        <div class="form-section-title" id="supSecContact">Contact</div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="newSupplierContactPerson">Contact Person</label>
+                            <input type="text" id="newSupplierContactPerson" class="form-input" autocapitalize="words"
+                                placeholder="Optional, e.g. Marisol Tan" autocomplete="off">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierPhone">Phone Number</label>
+                                <input type="tel" inputmode="tel" id="newSupplierPhone" class="form-input"
+                                    placeholder="0917 123 4567" autocomplete="off">
+                                <div class="field-hint">Must start with +63 or 09</div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierEmail">Email</label>
+                                <input type="text" inputmode="email" id="newSupplierEmail" class="form-input"
+                                    placeholder="name@company.com" autocomplete="off" autocapitalize="off" spellcheck="false">
+                                <div class="field-hint" id="newSupplierEmailStatus">Domain is checked automatically</div>
+                            </div>
+                        </div>
+                        <div class="field-hint section-note">Enter at least a phone number or an email.</div>
+                    </div>
+
+                    <div class="form-section" role="group" aria-labelledby="supSecLocation">
+                        <div class="form-section-title" id="supSecLocation">Location</div>
+
+                        <div class="form-group">
+                            <label class="form-label" for="newSupplierAddress">
+                                Warehouse Address <span class="required-mark">*</span>
+                            </label>
+                            <input type="text" id="newSupplierAddress" class="form-input" autocapitalize="words"
+                                placeholder="Building / street, e.g. Unit 5, Mabini St." autocomplete="off">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierRegion">
+                                    Region <span class="required-mark">*</span>
+                                </label>
+                                <div class="geo-combo">
+                                    <input type="text" id="newSupplierRegion" class="form-input geo-input" autocomplete="off"
+                                        placeholder="Loading regions…" role="combobox" aria-autocomplete="list" aria-expanded="false">
+                                    <div class="geo-list" hidden></div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierProvince">
+                                    Province / State <span class="required-mark">*</span>
+                                </label>
+                                <div class="geo-combo">
+                                    <input type="text" id="newSupplierProvince" class="form-input geo-input" autocomplete="off"
+                                        placeholder="Choose a region first" role="combobox" aria-autocomplete="list" aria-expanded="false" disabled>
+                                    <div class="geo-list" hidden></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierCity">
+                                    City / Municipality <span class="required-mark">*</span>
+                                </label>
+                                <div class="geo-combo">
+                                    <input type="text" id="newSupplierCity" class="form-input geo-input" autocomplete="off"
+                                        placeholder="Choose a province first" role="combobox" aria-autocomplete="list" aria-expanded="false" disabled>
+                                    <div class="geo-list" hidden></div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierBarangay">
+                                    Barangay <span class="required-mark">*</span>
+                                </label>
+                                <div class="geo-combo">
+                                    <input type="text" id="newSupplierBarangay" class="form-input geo-input" autocomplete="off"
+                                        placeholder="Choose a city first" role="combobox" aria-autocomplete="list" aria-expanded="false" disabled>
+                                    <div class="geo-list" hidden></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="newSupplierZip">
+                                    ZIP Code <span class="required-mark">*</span>
+                                </label>
+                                <input type="text" inputmode="numeric" id="newSupplierZip" class="form-input" placeholder="Choose a barangay first" autocomplete="off" disabled>
+                                <div class="field-hint" id="newSupplierZipStatus">Checked against the selected city</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-section" role="group" aria-labelledby="supSecProducts">
+                        <div class="form-section-title" id="supSecProducts">Products Supplied <span class="required-mark">*</span></div>
+                        <div class="form-group">
+                            <div id="newSupplierProducts" class="check-list"></div>
+                            <div class="field-hint">Only Raw Materials and Finishing Supplies can be supplied. Tick every product this supplier provides. The same link shows on the product.</div>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="supplier-form-foot">
+                    <p class="form-error" id="newSupplierFormError">All fields are required.</p>
+
+                    <div class="modal-footer">
+                        <button type="button" class="btn-secondary" id="newSupplierCancelBtn">Cancel</button>
+                        <button type="button" class="btn-danger" id="archiveSupplierBtn">ARCHIVE SUPPLIER</button>
+                        <button type="submit" class="btn-primary" id="newSupplierSaveBtn">Save Supplier</button>
+                    </div>
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         INVITE USER MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="inviteUserModalOverlay"
+    >
+
+        <div class="account-modal supplier-modal invite-modal">
+
+            <button
+                type="button"
+                class="modal-close"
+                id="inviteUserCloseBtn"
+                aria-label="Close"
+            >
+                ×
+            </button>
+
+
+            <div class="supplier-modal-head">
+
+                <div class="supplier-modal-icon">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+                </div>
+
+                <div>
+
+                    <div class="modal-eyebrow">
+                        Administration
+                    </div>
+
+                    <h2
+                        class="modal-title"
+                        style="margin-bottom:0;"
+                    >
+                        Invite User
+                    </h2>
+
+                </div>
+
+            </div>
+
+
+            <form
+                id="inviteUserForm"
+                novalidate
+             autocomplete="off">
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Full Name
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <input
+                        type="text"
+                        id="inviteName"
+                        class="form-input"
+                        required autocomplete="off">
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Email
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <input
+                        type="email"
+                        id="inviteEmail"
+                        class="form-input"
+                        required autocomplete="off">
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Role
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <select
+                        id="inviteRole"
+                        class="form-select"
+                    >
+
+                        <option value="Finance-Admin Officer">
+                            Finance-Admin Officer
+                        </option>
+
+                        <option value="Cashier">
+                            Cashier
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <p
+                    class="form-error"
+                    id="inviteUserFormError"
+                >
+                    All fields are required.
+                </p>
+
+
+                <div class="modal-footer">
+
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        id="inviteUserCancelBtn"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="btn-primary"
+                    >
+                        Send Invitation
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         EDIT USER MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="editUserModalOverlay"
+    >
+
+        <div class="account-modal supplier-modal invite-modal">
+
+            <button
+                type="button"
+                class="modal-close"
+                id="editUserCloseBtn"
+                aria-label="Close"
+            >
+                ×
+            </button>
+
+
+            <div class="supplier-modal-head">
+
+                <div class="supplier-modal-icon">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/></svg>
+                </div>
+
+                <div>
+
+                    <div class="modal-eyebrow">
+                        Administration
+                    </div>
+
+                    <h2
+                        class="modal-title"
+                        style="margin-bottom:0;"
+                    >
+                        Edit User
+                    </h2>
+
+                </div>
+
+            </div>
+
+
+            <form
+                id="editUserForm"
+                novalidate
+             autocomplete="off">
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Full Name
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <input
+                        type="text"
+                        id="editUserName"
+                        class="form-input"
+                        required autocomplete="off">
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Email
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <input
+                        type="email"
+                        id="editUserEmail"
+                        class="form-input"
+                        required autocomplete="off">
+
+                </div>
+
+
+                <div class="form-group">
+
+                    <label class="form-label">
+                        Role
+                        <span class="required-mark">*</span>
+                    </label>
+
+                    <select
+                        id="editUserRole"
+                        class="form-select"
+                    >
+
+                        <option value="Finance-Admin Officer">
+                            Finance-Admin Officer
+                        </option>
+
+                        <option value="Cashier">
+                            Cashier
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+                <p
+                    class="form-error"
+                    id="editUserFormError"
+                >
+                    All fields are required.
+                </p>
+
+
+                <div class="modal-footer">
+
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        id="editUserCancelBtn"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="btn-primary"
+                    >
+                        Save Changes
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- =====================================================
+         NEW PRODUCT MODAL
+    ====================================================== -->
+
+    <div
+        class="modal-overlay"
+        id="newProductModalOverlay"
+    >
+
+        <div class="account-modal supplier-modal product-modal">
+
+            <button
+                type="button"
+                class="modal-close"
+                id="newProductCloseBtn"
+                aria-label="Close"
+            >
+                ×
+            </button>
+
+
+            <div class="supplier-modal-head">
+
+                <div class="supplier-modal-icon">
+                    <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.8"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                    >
+                        <path d="M21 8l-9-5-9 5 9 5 9-5z"></path>
+                        <path d="M3 8v8l9 5 9-5V8"></path>
+                        <path d="M12 13v8"></path>
+                    </svg>
+                </div>
+
+                <div>
+
+                    <div class="modal-eyebrow">
+                        Catalog
+                    </div>
+
+                    <h2
+                        class="modal-title"
+                        id="newProductModalTitle"
+                        style="margin-bottom:0;"
+                    >
+                        New product
+                    </h2>
+
+                </div>
+
+            </div>
+
+
+            <form
+                id="newProductForm"
+                novalidate
+             autocomplete="off">
+
+                <div class="form-section-label">
+                    Identification
+                </div>
+
+                <div class="form-row">
+
+                    <div class="form-group">
+
+                        <label class="form-label" for="npSku">
+                            SKU
+                            <span class="required-mark">*</span>
+                        </label>
+
+                        <input
+                            type="text"
+                            id="npSku"
+                            class="form-input"
+                            placeholder="e.g. RM-BRS-C360"
+                            required autocomplete="off">
+
+                    </div>
+
+                    <div class="form-group">
+
+                        <label class="form-label" for="npName">
+                            Product Name
+                            <span class="required-mark">*</span>
+                        </label>
+
+                        <input
+                            type="text"
+                            id="npName"
+                            class="form-input"
+                            placeholder="e.g. Brass Billet C36000 · 25mm"
+                            required autocomplete="off">
+
+                    </div>
+
+                </div>
+
+
+                <div class="form-row">
+
+                    <div class="form-group">
+
+                        <label class="form-label" for="npDept">
+                            Department
+                            <span class="required-mark">*</span>
+                        </label>
+
+                        <select
+                            id="npDept"
+                            class="form-select"
+                        >
+                            <option value="Raw Materials">Raw Materials</option>
+                            <option value="Work In Progress">Work In Progress</option>
+                            <option value="Finished Goods">Finished Goods</option>
+                            <option value="Finishing Supplies">Finishing Supplies</option>
+                        </select>
+
+                    </div>
+
+                    <div class="form-group">
+
+                        <label class="form-label" for="npCategory">
+                            Category
+                            <span class="required-mark">*</span>
+                        </label>
+
+                        <select
+                            id="npCategory"
+                            class="form-select"
+                            required
+                        >
+                            <option value="">Select a category…</option>
+                        </select>
+
+                        <div id="npCategoryNewWrap" style="display:none; margin-top:8px">
+                            <input
+                                type="text"
+                                id="npCategoryNew"
+                                class="form-input"
+                                placeholder="Type the new category name"
+                                maxlength="60" autocomplete="off">
+                        </div>
+
+                    </div>
+
+                </div>
+
+
+                <div class="form-section-label">
+                    Stock &amp; Pricing
+                </div>
+
+                <div class="form-row cols-4">
+
+                    <div class="form-group">
+                        <label class="form-label" for="npUnit">
+                            Unit
+                            <span class="required-mark">*</span>
+                        </label>
+                        <select id="npUnit" class="form-select" required>
+                            <option value="">Select unit</option>
+                            <option value="kg">Kilogram (kg)</option>
+                            <option value="pcs">Pieces (pcs)</option>
+                            <option value="tonne">Metric tonne (t)</option>
+                            <option value="g">Gram (g)</option>
+                            <option value="lb">Pound (lb)</option>
+                            <option value="m">Meter (m)</option>
+                            <option value="ft">Foot (ft)</option>
+                            <option value="sheet">Sheet</option>
+                            <option value="plate">Plate</option>
+                            <option value="bar">Bar</option>
+                            <option value="coil">Coil</option>
+                            <option value="roll">Roll</option>
+                            <option value="bundle">Bundle</option>
+                            <option value="set">Set</option>
+                            <option value="pair">Pair</option>
+                            <option value="box">Box</option>
+                            <option value="bag">Bag</option>
+                            <option value="drum">Drum</option>
+                            <option value="liter">Liter (L)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="npUnitCost">
+                            Unit Cost (&#8369;)
+                            <span class="required-mark">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            id="npUnitCost"
+                            class="form-input"
+                            placeholder="0.00"
+                            inputmode="decimal"
+                            min="0"
+                            step="0.01"
+                            required autocomplete="off">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="npOnHand">
+                            On Hand
+                            <span class="required-mark">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            id="npOnHand"
+                            class="form-input"
+                            placeholder="0"
+                            inputmode="decimal"
+                            min="0"
+                            step="0.01"
+                            required autocomplete="off">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="npReorder">
+                            Reorder Level
+                            <span class="required-mark">*</span>
+                        </label>
+                        <input
+                            type="number"
+                            id="npReorder"
+                            class="form-input"
+                            placeholder="0"
+                            inputmode="decimal"
+                            min="0"
+                            step="0.01"
+                            required autocomplete="off">
+                    </div>
+
+                </div>
+
+                <div class="form-row">
+
+                    <div class="form-group">
+                        <label class="form-label" for="npListPrice">Selling Price (&#8369;)</label>
+                        <input type="number" id="npListPrice" class="form-input" placeholder="Optional" inputmode="decimal" min="0" step="0.01" autocomplete="off">
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label" for="npLocation">Storage Location <span class="required-mark">*</span></label>
+                        <input type="text" id="npLocation" class="form-input" placeholder="e.g. Warehouse C" autocomplete="off">
+                    </div>
+
+                </div>
+
+                <div id="npSupplierSection" style="display:none">
+                    <div class="form-section-label">
+                        Sourcing
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">
+                            Source
+                        </label>
+                        <div id="npSource" class="sup-readonly"></div>
+                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Work In Progress and Finished Goods are made by the company (in-house production).</div>
+                    </div>
+                </div>
+
+                <p
+                    class="form-error"
+                    id="newProductFormError"
+                >
+                    Please fill in all required fields with valid values.
+                </p>
+
+
+                <div class="modal-footer">
+
+                    <button
+                        type="button"
+                        class="btn-secondary"
+                        id="newProductCancelBtn"
+                    >
+                        Cancel
+                    </button>
+
+                    <button
+                        type="submit"
+                        class="btn-primary"
+                        id="newProductSaveBtn"
+                    >
+                        Save Product
+                    </button>
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- JAVASCRIPT -->
+    <script src="script.js"></script>
+    <script src="api-bridge.js?v=5"></script>
+    <script src="sales-orders.js?v=1"></script>
+
+</body>
+
+</html>

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Triple E Metal Products — Inventory Management System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#0a0c0e;
+    --dark-blue:#0f2942;
+    --panel-blue:#122f4d;
+    --blue:#1e5fa8;
+    --blue-bright:#4a90d9;
+    --steel:#3d5166;
+    --steel-light:#5c7086;
+    --text:#dbe6f0;
+    --text-dim:#8fa3b8;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  html,body{height:100%;}
+
+  body{
+    font-family:'Inter', sans-serif;
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(30,95,168,0.25), transparent 55%),
+      radial-gradient(ellipse at 100% 110%, rgba(15,41,66,0.6), transparent 50%),
+      var(--black);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    overflow:hidden;
+    padding:24px;
+  }
+
+  body::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background-image:
+      linear-gradient(rgba(74,144,217,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74,144,217,0.06) 1px, transparent 1px),
+      linear-gradient(rgba(74,144,217,0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74,144,217,0.12) 1px, transparent 1px);
+    background-size:20px 20px, 20px 20px, 100px 100px, 100px 100px;
+    mask-image:radial-gradient(ellipse at center, black 0%, transparent 75%);
+    pointer-events:none;
+  }
+
+  .wrap{
+    position:relative;
+    width:100%;
+    max-width:640px;
+    text-align:center;
+  }
+
+  .ticks{
+    display:flex;
+    justify-content:space-between;
+    padding:0 6px 10px;
+    opacity:0.55;
+  }
+  .ticks span{
+    width:1px;
+    height:6px;
+    background:var(--steel-light);
+  }
+  .ticks span:nth-child(5n+1){ height:10px; background:var(--blue-bright); }
+
+  .card{
+    position:relative;
+    background:linear-gradient(180deg, var(--panel-blue), var(--dark-blue) 60%, #0b1c2e);
+    border:1px solid var(--steel);
+    border-radius:8px;
+    padding:90px 70px 66px;
+    box-shadow:
+      0 30px 60px -20px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .rivet{
+    position:absolute;
+    width:10px; height:10px;
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #a9bccc, #5c7086 55%, #2b3a4a 100%);
+    box-shadow:0 1px 2px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.5);
+  }
+  .rivet.tl{ top:12px; left:12px; }
+  .rivet.tr{ top:12px; right:12px; }
+  .rivet.bl{ bottom:12px; left:12px; }
+  .rivet.br{ bottom:12px; right:12px; }
+
+  .mark-wrap{
+    position:relative;
+    width:110px;
+    height:130px;
+    margin:0 auto 30px;
+  }
+
+  .mark{
+    width:110px; height:110px;
+    border-radius:16px;
+    background:linear-gradient(135deg, var(--blue-bright), var(--blue) 55%, var(--dark-blue));
+    border:1px solid rgba(255,255,255,0.18);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Oswald', sans-serif;
+    font-weight:700;
+    font-size:48px;
+    letter-spacing:0;
+    color:#0a0c0e;
+    line-height:1;
+    box-shadow:
+      0 25px 40px -12px rgba(30,95,168,0.55),
+      0 8px 16px -6px rgba(0,0,0,0.5);
+    animation:floaty 4s ease-in-out infinite;
+  }
+
+  .mark .cursive-e{
+    font-family:'Dancing Script', cursive;
+    font-weight:700;
+    font-size:66px;
+    line-height:1;
+    transform:translateY(3px);
+    margin-left:2px;
+  }
+
+  .mark-shadow{
+    position:absolute;
+    bottom:0;
+    left:50%;
+    width:80px;
+    height:14px;
+    background:radial-gradient(ellipse at center, rgba(0,0,0,0.55), transparent 70%);
+    transform:translateX(-50%);
+    border-radius:50%;
+    animation:shadowpulse 4s ease-in-out infinite;
+  }
+
+  @keyframes floaty{
+    0%, 100%{ transform:translateY(0); }
+    50%{ transform:translateY(-14px); }
+  }
+
+  @keyframes shadowpulse{
+    0%, 100%{ transform:translateX(-50%) scale(1); opacity:0.55; }
+    50%{ transform:translateX(-50%) scale(0.75); opacity:0.3; }
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:2.5px;
+    color:var(--blue-bright);
+    text-transform:uppercase;
+    margin-bottom:10px;
+  }
+
+  h1{
+    font-family:'Oswald', sans-serif;
+    font-weight:600;
+    font-size:34px;
+    letter-spacing:0.5px;
+    color:var(--text);
+    text-transform:uppercase;
+    line-height:1.2;
+  }
+
+  .sub{
+    font-size:15.5px;
+    color:var(--text-dim);
+    margin-top:10px;
+    margin-bottom:44px;
+    letter-spacing:0.3px;
+  }
+
+  .divider{
+    width:60px;
+    height:1px;
+    background:linear-gradient(90deg, transparent, var(--steel-light), transparent);
+    margin:0 auto 36px;
+  }
+
+  a.login-btn{
+    display:inline-block;
+    width:100%;
+    padding:13px;
+    background:linear-gradient(180deg, var(--blue-bright), var(--blue));
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:4px;
+    color:#08131f;
+    font-family:'Oswald', sans-serif;
+    font-weight:600;
+    font-size:14.5px;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    text-decoration:none;
+    cursor:pointer;
+    transition:filter 0.15s, transform 0.05s;
+  }
+  a.login-btn:hover{ filter:brightness(1.08); }
+  a.login-btn:active{ transform:translateY(1px); }
+
+  .footnote{
+    text-align:center;
+    margin-top:22px;
+    font-size:11px;
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:1px;
+    color:var(--steel-light);
+    text-transform:uppercase;
+  }
+</style>
+</head>
+<body>
+
+  <div class="wrap">
+    <div class="ticks">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span>
+    </div>
+
+    <div class="card">
+      <div class="rivet tl"></div>
+      <div class="rivet tr"></div>
+      <div class="rivet bl"></div>
+      <div class="rivet br"></div>
+
+      <div class="mark-wrap">
+        <div class="mark">3<span class="cursive-e">E</span></div>
+        <div class="mark-shadow"></div>
+      </div>
+
+      <h1>Triple E Metal Products</h1>
+      <p class="sub">Inventory Management System</p>
+
+      <div class="divider"></div>
+
+      <a href="Login_Inventory.html" class="login-btn">Welcome!</a>
+    </div>
+
+    <p class="footnote">Authorized Personnel Only</p>
+  </div>
+
+</body>
+</html>

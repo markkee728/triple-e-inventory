@@ -1,0 +1,1167 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Triple E Metal Products — Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --black:#0a0c0e;
+    --dark-blue:#0f2942;
+    --panel-blue:#122f4d;
+    --blue:#1e5fa8;
+    --blue-bright:#4a90d9;
+    --steel:#3d5166;
+    --steel-light:#5c7086;
+    --text:#dbe6f0;
+    --text-dim:#8fa3b8;
+    --green:#4ad991;
+    --red:#e05656;
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  html,body{height:100%;}
+
+  body{
+    font-family:'Inter', sans-serif;
+    background:
+      radial-gradient(ellipse at 20% -10%, rgba(30,95,168,0.25), transparent 55%),
+      radial-gradient(ellipse at 100% 110%, rgba(15,41,66,0.6), transparent 50%),
+      var(--black);
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    position:relative;
+    overflow-x:hidden;
+    overflow-y:auto;
+    padding:24px;
+  }
+
+  body::before{
+    content:"";
+    position:absolute;
+    inset:0;
+    background-image:
+      linear-gradient(rgba(74,144,217,0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74,144,217,0.06) 1px, transparent 1px),
+      linear-gradient(rgba(74,144,217,0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(74,144,217,0.12) 1px, transparent 1px);
+    background-size:20px 20px, 20px 20px, 100px 100px, 100px 100px;
+    mask-image:radial-gradient(ellipse at center, black 0%, transparent 75%);
+    pointer-events:none;
+  }
+
+  .wrap{
+    position:relative;
+    width:100%;
+    max-width:420px;
+  }
+
+  .ticks{
+    display:flex;
+    justify-content:space-between;
+    padding:0 6px 10px;
+    opacity:0.55;
+  }
+  .ticks span{
+    width:1px;
+    height:6px;
+    background:var(--steel-light);
+  }
+  .ticks span:nth-child(5n+1){ height:10px; background:var(--blue-bright); }
+
+  .card{
+    position:relative;
+    background:linear-gradient(180deg, var(--panel-blue), var(--dark-blue) 60%, #0b1c2e);
+    border:1px solid var(--steel);
+    border-radius:6px;
+    padding:34px 40px 30px;
+    box-shadow:
+      0 30px 60px -20px rgba(0,0,0,0.7),
+      inset 0 1px 0 rgba(255,255,255,0.04);
+  }
+
+  .rivet{
+    position:absolute;
+    width:10px; height:10px;
+    border-radius:50%;
+    background:radial-gradient(circle at 35% 30%, #a9bccc, #5c7086 55%, #2b3a4a 100%);
+    box-shadow:0 1px 2px rgba(0,0,0,0.6), inset 0 0 1px rgba(255,255,255,0.5);
+  }
+  .rivet.tl{ top:12px; left:12px; }
+  .rivet.tr{ top:12px; right:12px; }
+  .rivet.bl{ bottom:12px; left:12px; }
+  .rivet.br{ bottom:12px; right:12px; }
+
+  .brand-mark{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:6px;
+  }
+
+  .mark{
+    width:34px; height:34px;
+    flex:none;
+    border-radius:4px;
+    background:linear-gradient(135deg, var(--blue-bright), var(--blue) 55%, var(--dark-blue));
+    border:1px solid rgba(255,255,255,0.15);
+    display:flex; align-items:center; justify-content:center;
+    font-family:'Oswald', sans-serif;
+    font-weight:700;
+    font-size:15px;
+    letter-spacing:0;
+    color:#0a0c0e;
+    line-height:1;
+  }
+
+  .mark .cursive-e{
+    font-family:'Dancing Script', cursive;
+    font-weight:700;
+    font-size:21px;
+    line-height:1;
+    transform:translateY(1px);
+    margin-left:0.5px;
+  }
+
+  .mark.mini{
+    width:32px; height:32px;
+    border-radius:6px;
+    background:linear-gradient(180deg, var(--blue-bright), var(--blue));
+  }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:11px;
+    letter-spacing:2.5px;
+    color:var(--blue-bright);
+    text-transform:uppercase;
+  }
+
+  h1{
+    font-family:'Oswald', sans-serif;
+    font-weight:600;
+    font-size:26px;
+    letter-spacing:0.5px;
+    color:var(--text);
+    text-transform:uppercase;
+    line-height:1.15;
+    margin-top:14px;
+  }
+
+  .sub{
+    font-size:13.5px;
+    color:var(--text-dim);
+    margin-top:6px;
+    margin-bottom:30px;
+  }
+
+  .sub b{ color:var(--text); font-weight:600; }
+
+  .field{
+    margin-bottom:18px;
+  }
+
+  label{
+    display:block;
+    font-size:11.5px;
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    color:var(--text-dim);
+    margin-bottom:7px;
+  }
+
+  .input-shell{
+    position:relative;
+    display:flex;
+    align-items:center;
+  }
+
+  input{
+    width:100%;
+    background:rgba(10,14,18,0.5);
+    border:1px solid var(--steel);
+    border-radius:4px;
+    padding:12px 14px;
+    font-size:14.5px;
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    outline:none;
+    transition:border-color 0.15s, box-shadow 0.15s;
+  }
+
+  input::placeholder{ color:#5c7086; }
+
+  input:focus{
+    border-color:var(--blue-bright);
+    box-shadow:0 0 0 3px rgba(74,144,217,0.15);
+  }
+
+  .field.invalid input{
+    border-color:var(--red);
+  }
+  .field.invalid input:focus{
+    box-shadow:0 0 0 3px rgba(224,86,86,0.15);
+  }
+
+  .error-text{
+    display:none;
+    color:#ef7a7a;
+    font-size:11.5px;
+    margin-top:7px;
+    font-family:'Inter', sans-serif;
+  }
+  .field.invalid .error-text{
+    display:block;
+  }
+
+  input#password{ padding-right:42px; }
+
+  .toggle-vis{
+    position:absolute;
+    right:10px;
+    background:none;
+    border:none;
+    cursor:pointer;
+    color:var(--text-dim);
+    padding:6px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:color 0.15s;
+  }
+  .toggle-vis:hover{ color:var(--blue-bright); }
+  .toggle-vis svg{ width:18px; height:18px; }
+  .toggle-vis .off{ display:none; }
+  .toggle-vis.showing .on{ display:none; }
+  .toggle-vis.showing .off{ display:block; }
+
+  .row-end{
+    display:flex;
+    align-items:center;
+    justify-content:flex-end;
+    margin:2px 0 26px;
+    font-size:12.5px;
+  }
+
+  a.link{
+    color:var(--blue-bright);
+    text-decoration:none;
+  }
+  a.link:hover{ text-decoration:underline; }
+
+  button.submit{
+    width:100%;
+    padding:13px;
+    background:linear-gradient(180deg, var(--blue-bright), var(--blue));
+    border:1px solid rgba(255,255,255,0.15);
+    border-radius:4px;
+    color:#08131f;
+    font-family:'Oswald', sans-serif;
+    font-weight:600;
+    font-size:14.5px;
+    letter-spacing:1.2px;
+    text-transform:uppercase;
+    cursor:pointer;
+    transition:filter 0.15s, transform 0.05s;
+  }
+  button.submit:hover{ filter:brightness(1.08); }
+  button.submit:active{ transform:translateY(1px); }
+  button.submit:disabled{ opacity:0.5; cursor:not-allowed; filter:none; }
+
+  .footnote{
+    text-align:center;
+    margin-top:22px;
+    font-size:11px;
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:1px;
+    color:var(--steel-light);
+    text-transform:uppercase;
+  }
+
+  .screen{ display:none; }
+  .screen.active{ display:block; }
+
+  .otp-row{
+    display:flex;
+    gap:10px;
+    margin:26px 0 10px;
+  }
+
+  .otp-digit{
+    width:100%;
+    aspect-ratio:1/1;
+    text-align:center;
+    font-family:'IBM Plex Mono', monospace;
+    font-size:22px;
+    font-weight:600;
+    padding:0;
+    background:rgba(10,14,18,0.5);
+    border:1px solid var(--steel);
+    border-radius:5px;
+    color:var(--text);
+    caret-color:var(--blue-bright);
+  }
+  .otp-digit:focus{
+    border-color:var(--blue-bright);
+    box-shadow:0 0 0 3px rgba(74,144,217,0.15);
+  }
+  .otp-digit.filled{
+    border-color:var(--blue-bright);
+    background:rgba(74,144,217,0.08);
+  }
+  .otp-row.invalid .otp-digit{
+    border-color:var(--red);
+  }
+
+  .otp-meta{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    font-size:12px;
+    color:var(--text-dim);
+    margin-bottom:26px;
+  }
+  .otp-meta .timer{
+    font-family:'IBM Plex Mono', monospace;
+    color:var(--blue-bright);
+  }
+  .otp-meta .timer.expired{ color:var(--red); }
+
+  .otp-error{
+    display:none;
+    color:#ef7a7a;
+    font-size:11.5px;
+    margin:-14px 0 18px;
+    font-family:'Inter', sans-serif;
+  }
+  .otp-error.show{ display:block; }
+
+  .divider{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin:22px 0;
+    color:var(--steel-light);
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10px;
+    letter-spacing:1.5px;
+    text-transform:uppercase;
+  }
+  .divider::before,
+  .divider::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:var(--steel);
+    opacity:0.6;
+  }
+
+  button.alt{
+    width:100%;
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 14px;
+    background:rgba(10,14,18,0.35);
+    border:1px solid var(--steel);
+    border-radius:4px;
+    color:var(--text);
+    font-family:'Inter', sans-serif;
+    font-size:13.5px;
+    cursor:pointer;
+    transition:border-color 0.15s, background 0.15s;
+  }
+  button.alt:hover{ border-color:var(--blue-bright); background:rgba(74,144,217,0.06); }
+
+  .dot{
+    width:6px; height:6px;
+    border-radius:50%;
+    background:var(--blue-bright);
+    flex:none;
+  }
+
+  .back-row{
+    text-align:center;
+    margin-top:20px;
+    font-size:12.5px;
+    color:var(--text-dim);
+  }
+
+  .signup-row{
+    text-align:center;
+    margin-top:20px;
+    font-size:12.5px;
+    color:var(--text-dim);
+  }
+
+  /* ---------- signup progress bar ---------- */
+  .signup-progress{
+    display:flex;
+    gap:6px;
+    margin:18px 0 26px;
+  }
+  .signup-progress .seg{
+    flex:1;
+    height:3px;
+    border-radius:2px;
+    background:var(--steel);
+    opacity:0.5;
+  }
+  .signup-progress .seg[data-step="1"]{
+    background:var(--blue-bright);
+    opacity:1;
+  }
+  .signup-progress.step-2 .seg[data-step="1"],
+  .signup-progress.step-2 .seg[data-step="2"]{
+    background:var(--blue-bright);
+    opacity:1;
+  }
+  .signup-progress.step-3 .seg{
+    background:var(--blue-bright);
+    opacity:1;
+  }
+
+  /* ---------- two-column field row ---------- */
+  .field-row{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px;
+  }
+
+  input[readonly]{
+    color:var(--text-dim);
+    cursor:default;
+  }
+
+  /* ---------- role readonly box ---------- */
+  .role-box{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background:rgba(10,14,18,0.5);
+    border:1px solid var(--steel);
+    border-radius:4px;
+    padding:12px 14px;
+  }
+  .role-badge{
+    font-family:'IBM Plex Mono', monospace;
+    font-size:10.5px;
+    letter-spacing:1px;
+    text-transform:uppercase;
+    color:var(--blue-bright);
+    border:1px solid rgba(74,144,217,0.4);
+    background:rgba(74,144,217,0.1);
+    padding:5px 10px;
+    border-radius:20px;
+    white-space:nowrap;
+  }
+  .role-note{
+    font-size:12px;
+    color:var(--text-dim);
+  }
+
+  /* ---------- password checklist (circles) ---------- */
+  .checklist-box{
+    background:rgba(10,14,18,0.4);
+    border:1px solid var(--steel);
+    border-radius:6px;
+    padding:16px 16px;
+    margin:6px 0 22px;
+    display:flex;
+    flex-direction:column;
+    gap:11px;
+  }
+  .checklist-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-size:12.5px;
+    color:var(--text-dim);
+  }
+  .check-circle{
+    width:15px; height:15px;
+    flex:none;
+    border-radius:50%;
+    border:1.5px solid var(--steel-light);
+    position:relative;
+  }
+  .checklist-row.met{
+    color:#8fe8b8;
+  }
+  .checklist-row.met .check-circle{
+    border-color:var(--green);
+    background:var(--green);
+  }
+  .checklist-row.met .check-circle::after{
+    content:"";
+    position:absolute;
+    left:4px; top:1px;
+    width:4px; height:8px;
+    border:solid #0a0c0e;
+    border-width:0 2px 2px 0;
+    transform:rotate(45deg);
+  }
+
+  /* ---------- button row (Back / Create Account) ---------- */
+  .button-row{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
+  }
+  button.submit.alt-btn{
+    background:rgba(10,14,18,0.4);
+    color:var(--text);
+    border:1px solid var(--steel);
+  }
+  button.submit.alt-btn:hover{ filter:none; border-color:var(--blue-bright); }
+
+  /* ---------- outer footer for signup screens ---------- */
+  .outer-footer{
+    display:none;
+    text-align:center;
+    margin-top:20px;
+    font-size:11.5px;
+    font-family:'IBM Plex Mono', monospace;
+    letter-spacing:0.5px;
+    color:var(--steel-light);
+  }
+  .outer-footer.show{ display:block; }
+
+  /* ---------- compact spacing for the profile step (has more fields) ---------- */
+  #signupProfileScreen .brand-mark{ margin-bottom:2px; }
+  #signupProfileScreen h1{ margin-top:8px; font-size:22px; }
+  #signupProfileScreen .signup-progress{ margin:10px 0 14px; }
+  #signupProfileScreen .sub{ margin-bottom:16px; font-size:12.5px; }
+  #signupProfileScreen .field{ margin-bottom:10px; }
+  #signupProfileScreen label{ margin-bottom:4px; font-size:10.5px; }
+  #signupProfileScreen input{ padding:8px 12px; font-size:13.5px; }
+  #signupProfileScreen .field-row{ gap:10px; }
+  #signupProfileScreen .role-box{ padding:8px 12px; }
+  #signupProfileScreen .otp-error{ margin:-4px 0 10px; }
+  #signupProfileScreen .submit{ padding:11px; margin-top:2px; }
+  #signupProfileScreen .back-row{ margin-top:10px; }
+</style>
+</head>
+<body>
+
+  <div class="wrap">
+    <div class="ticks">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span>
+    </div>
+
+    <div class="card">
+      <div class="rivet tl"></div>
+      <div class="rivet tr"></div>
+      <div class="rivet bl"></div>
+      <div class="rivet br"></div>
+
+      <div class="screen active" id="loginScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Inventory Access</span>
+        </div>
+        <h1>Triple E Metal Products</h1>
+        <p class="sub">Inventory Management System</p>
+
+        <form id="loginForm" novalidate>
+          <div class="field" id="emailField">
+            <label for="email">Email</label>
+            <div class="input-shell">
+              <input type="email" id="email" name="email" placeholder="Enter your email" autocomplete="username" required>
+            </div>
+            <p class="error-text" id="emailError">We couldn't find an account with that email.</p>
+          </div>
+
+          <div class="field" id="passwordField">
+            <label for="password">Password</label>
+            <div class="input-shell">
+              <input type="password" id="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
+              <button type="button" class="toggle-vis" id="toggleVis" aria-label="Show password">
+                <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-6.06M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.61 3.81M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+              </button>
+            </div>
+            <p class="error-text" id="passwordError">Invalid password. Try again.</p>
+          </div>
+
+          <div class="row-end">
+            <a href="#" class="link">Forgot password?</a>
+          </div>
+
+          <button type="submit" class="submit">Proceed to Inventory</button>
+        </form>
+
+        <p class="signup-row">New team member? <a href="#" class="link" id="goToSignupLink">Sign up with an invitation code</a></p>
+      </div>
+
+      <div class="screen" id="otpScreen">
+        <div class="brand-mark">
+          <div class="mark mini">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#08131f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          </div>
+          <span class="eyebrow">Security Verification</span>
+        </div>
+        <h1>Enter verification code</h1>
+        <p class="sub" id="otpSubtext">We sent a 6-digit code to <b id="otpEmail">your email</b>. Enter it below to finish signing in.</p>
+
+        <form id="otpForm" novalidate>
+          <div class="otp-row" id="otpRow">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="0" autocomplete="one-time-code">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="1">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="2">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="3">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="4">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="5">
+          </div>
+          <p class="otp-error" id="otpError">That code isn't right. Check and try again.</p>
+
+          <div class="otp-meta">
+            <span>Code expires in <span class="timer" id="otpTimer">05:00</span></span>
+            <span>Didn't get it? <a href="#" class="link" id="resendLink">Resend code</a></span>
+          </div>
+
+          <button type="submit" class="submit" id="verifyBtn" disabled>Verify &amp; Continue</button>
+        </form>
+
+        <div class="divider">Or use another method</div>
+
+        <button type="button" class="alt" id="smsAlt">
+          <span class="dot"></span>
+          Send code via SMS instead
+        </button>
+
+        <p class="back-row">Wrong account? <a href="#" class="link" id="backToLogin">Sign in again</a></p>
+      </div>
+
+      <!-- ===== SCREEN 3: SIGNUP — INVITATION CODE ===== -->
+      <div class="screen" id="signupCodeScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Account Signup</span>
+        </div>
+
+        <div class="signup-progress">
+          <span class="seg" data-step="1"></span>
+          <span class="seg" data-step="2"></span>
+          <span class="seg" data-step="3"></span>
+        </div>
+
+        <h1>Enter verification code</h1>
+        <p class="sub">The Admin sent a 6-digit invitation code to your email. Enter it below to start setting up your account.</p>
+
+        <form id="signupCodeForm" novalidate>
+          <div class="otp-row" id="signupCodeRow">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="0" autocomplete="one-time-code">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="1">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="2">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="3">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="4">
+            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="5">
+          </div>
+          <p class="otp-error" id="signupCodeError">That invitation code isn't right. Check and try again.</p>
+
+          <button type="submit" class="submit" id="signupVerifyBtn" style="margin-top:20px;" disabled>Verify &amp; Continue</button>
+        </form>
+
+        <p class="back-row">Already have an account? <a href="#" class="link" id="signupBackToLogin1">Sign in instead</a></p>
+      </div>
+
+      <!-- ===== SCREEN 4: SIGNUP — PROFILE ===== -->
+      <div class="screen" id="signupProfileScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Account Signup</span>
+        </div>
+
+        <div class="signup-progress step-2">
+          <span class="seg" data-step="1"></span>
+          <span class="seg" data-step="2"></span>
+          <span class="seg" data-step="3"></span>
+        </div>
+
+        <h1>Complete your profile</h1>
+        <p class="sub">Your role and department were already assigned by the Admin. Fill in the rest of your details.</p>
+
+        <form id="signupProfileForm" novalidate>
+
+          <div class="field">
+            <label for="signupFullName">Full Name</label>
+            <div class="input-shell">
+              <input type="text" id="signupFullName" placeholder="Enter your full name">
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field">
+              <label for="signupEmployeeId">Employee ID</label>
+              <div class="input-shell">
+                <input type="text" id="signupEmployeeId" readonly>
+              </div>
+            </div>
+            <div class="field">
+              <label for="signupPhone">Phone Number</label>
+              <div class="input-shell">
+                <input type="text" id="signupPhone" placeholder="e.g. +63 917 000 0000">
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="signupEmail">Email</label>
+            <div class="input-shell">
+              <input type="email" id="signupEmail" placeholder="Enter your email">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="signupDept">Department</label>
+            <div class="input-shell">
+              <input type="text" id="signupDept" readonly>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Role</label>
+            <div class="role-box">
+              <span class="role-badge" id="signupRoleBadge">Role</span>
+              <span class="role-note">Assigned by Admin</span>
+            </div>
+          </div>
+
+          <p class="otp-error" id="signupProfileError">Full name and phone number are required.</p>
+
+          <button type="submit" class="submit">Continue</button>
+        </form>
+
+        <p class="back-row"><a href="#" class="link" id="signupBackToCode">Back</a></p>
+      </div>
+
+      <!-- ===== SCREEN 5: SIGNUP — SET PASSWORD ===== -->
+      <div class="screen" id="signupPasswordScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Account Signup</span>
+        </div>
+
+        <div class="signup-progress step-3">
+          <span class="seg" data-step="1"></span>
+          <span class="seg" data-step="2"></span>
+          <span class="seg" data-step="3"></span>
+        </div>
+
+        <h1>Set your password</h1>
+        <p class="sub">Choose a password for <b id="signupPasswordEmail">your email</b>.</p>
+
+        <form id="signupPasswordForm" novalidate>
+
+          <div class="field">
+            <label for="signupPassword">Password</label>
+            <div class="input-shell">
+              <input type="password" id="signupPassword" placeholder="Enter your password">
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="signupConfirmPassword">Confirm Password</label>
+            <div class="input-shell">
+              <input type="password" id="signupConfirmPassword" placeholder="Re-enter your password">
+            </div>
+          </div>
+
+          <div class="checklist-box" id="signupChecklist">
+            <div class="checklist-row" data-rule="length"><span class="check-circle"></span>At least 8 characters</div>
+            <div class="checklist-row" data-rule="upper"><span class="check-circle"></span>One uppercase letter (A–Z)</div>
+            <div class="checklist-row" data-rule="lower"><span class="check-circle"></span>One lowercase letter (a–z)</div>
+            <div class="checklist-row" data-rule="number"><span class="check-circle"></span>One number (0–9)</div>
+            <div class="checklist-row" data-rule="special"><span class="check-circle"></span>One special character (!@#$%^&amp;* etc.)</div>
+            <div class="checklist-row" data-rule="match"><span class="check-circle"></span>Passwords match</div>
+          </div>
+
+          <div class="button-row">
+            <button type="button" class="submit alt-btn" id="signupBackToProfile">Back</button>
+            <button type="submit" class="submit" id="createAccountBtn" disabled>Create Account</button>
+          </div>
+
+        </form>
+      </div>
+
+      <p class="footnote" id="cardFootnote">Authorized Personnel Only</p>
+    </div>
+
+    <p class="outer-footer" id="outerFooter">Triple E Metal Products · Inventory Management System</p>
+  </div>
+
+<script>
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+
+    const signupScreens = ['signupCodeScreen', 'signupProfileScreen', 'signupPasswordScreen'];
+    document.getElementById('outerFooter').classList.toggle('show', signupScreens.includes(id));
+  }
+
+  const toggle = document.getElementById('toggleVis');
+  const pwd = document.getElementById('password');
+  toggle.addEventListener('click', () => {
+    const isText = pwd.type === 'text';
+    pwd.type = isText ? 'password' : 'text';
+    toggle.classList.toggle('showing', !isText);
+    toggle.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
+  });
+
+
+  const emailField = document.getElementById('emailField');
+  const emailInput = document.getElementById('email');
+  const passwordField = document.getElementById('passwordField');
+  const passwordInput = document.getElementById('password');
+
+  const passwordPattern = /^(?=.*[0-9])(?=.*[!@#$%^&*()_\-+=\[\]{};:'",.<>\/?\\|`~]).{8,}$/;
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function clearFieldError(fieldEl){ fieldEl.classList.remove('invalid'); }
+  function setFieldError(fieldEl){ fieldEl.classList.add('invalid'); }
+
+  emailInput.addEventListener('input', () => clearFieldError(emailField));
+  passwordInput.addEventListener('input', () => clearFieldError(passwordField));
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearFieldError(emailField);
+    clearFieldError(passwordField);
+
+    const emailValue = emailInput.value.trim();
+    const passwordValue = passwordInput.value;
+    let valid = true;
+    if (!emailPattern.test(emailValue)) { setFieldError(emailField); valid = false; }
+    if (!passwordValue) { setFieldError(passwordField); valid = false; }
+    if (!valid) return;
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailValue, password: passwordValue })
+      });
+      if (!res.ok) { setFieldError(emailField); setFieldError(passwordField); return; }
+      try { loginRole = (await res.json()).role || 'finance'; } catch (e) {}
+    } catch (err) { setFieldError(emailField); return; }
+
+    document.getElementById('otpEmail').textContent = emailValue.toLowerCase();
+    goToOtpScreen();
+  });
+
+  const otpScreen = document.getElementById('otpScreen');
+  const otpRow = document.getElementById('otpRow');
+  const otpDigits = Array.from(document.querySelectorAll('#otpRow .otp-digit'));
+  const otpError = document.getElementById('otpError');
+  const verifyBtn = document.getElementById('verifyBtn');
+  const timerEl = document.getElementById('otpTimer');
+  const resendLink = document.getElementById('resendLink');
+  const smsAlt = document.getElementById('smsAlt');
+  const backToLogin = document.getElementById('backToLogin');
+
+  let loginRole = 'finance';
+  const HOME_BY_ROLE = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
+  const DEMO_CODE = '000000'.slice(0, 6);
+  let countdownId = null;
+  let secondsLeft = 300;
+
+  function goToOtpScreen(){
+    showScreen('otpScreen');
+    resetOtpInputs();
+    startTimer();
+    setTimeout(() => otpDigits[0].focus(), 50);
+  }
+
+  function resetOtpInputs(){
+    otpDigits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
+    otpRow.classList.remove('invalid');
+    otpError.classList.remove('show');
+    updateVerifyState();
+  }
+
+  function updateVerifyState(){
+    const allFilled = otpDigits.every(d => d.value.length === 1);
+    verifyBtn.disabled = !allFilled;
+  }
+
+  function formatTime(s){
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const ss = (s % 60).toString().padStart(2, '0');
+    return m + ':' + ss;
+  }
+
+  function startTimer(){
+    secondsLeft = 300;
+    timerEl.textContent = formatTime(secondsLeft);
+    timerEl.classList.remove('expired');
+    clearInterval(countdownId);
+    countdownId = setInterval(() => {
+      secondsLeft--;
+      if (secondsLeft <= 0){
+        secondsLeft = 0;
+        timerEl.classList.add('expired');
+        clearInterval(countdownId);
+      }
+      timerEl.textContent = formatTime(secondsLeft);
+    }, 1000);
+  }
+
+  otpDigits.forEach((digit, i) => {
+    digit.addEventListener('input', () => {
+      digit.value = digit.value.replace(/[^0-9]/g, '').slice(0, 1);
+      digit.classList.toggle('filled', digit.value.length === 1);
+      otpRow.classList.remove('invalid');
+      otpError.classList.remove('show');
+      if (digit.value && i < otpDigits.length - 1){
+        otpDigits[i + 1].focus();
+      }
+      updateVerifyState();
+    });
+
+    digit.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !digit.value && i > 0){
+        otpDigits[i - 1].focus();
+      }
+    });
+
+    digit.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, otpDigits.length);
+      pasted.split('').forEach((char, idx) => {
+        if (otpDigits[idx]){
+          otpDigits[idx].value = char;
+          otpDigits[idx].classList.add('filled');
+        }
+      });
+      const next = Math.min(pasted.length, otpDigits.length - 1);
+      otpDigits[next].focus();
+      updateVerifyState();
+    });
+  });
+
+  document.getElementById('otpForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const entered = otpDigits.map(d => d.value).join('');
+
+    if (secondsLeft <= 0 || entered !== DEMO_CODE){
+      otpRow.classList.add('invalid');
+      otpError.classList.add('show');
+      otpDigits[0].focus();
+      return;
+    }
+
+    console.log('OTP verified:', entered);
+    window.location.href = HOME_BY_ROLE[loginRole] || 'Finance_Inventory.html';
+  });
+
+  resendLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    resetOtpInputs();
+    startTimer();
+    otpDigits[0].focus();
+    console.log('Resent OTP code');
+  });
+
+  smsAlt.addEventListener('click', () => {
+    console.log('Switch to SMS delivery');
+  });
+
+  backToLogin.addEventListener('click', (e) => {
+    e.preventDefault();
+    clearInterval(countdownId);
+    showScreen('loginScreen');
+  });
+
+  /* MOCK_INVITATION  */
+
+  const MOCK_INVITATION = {
+    employeeId: 'TEM-0000',
+    department: 'Finance',
+    roleLabel: 'Finance-Admin Officer'
+  };
+
+  const SIGNUP_DEMO_CODE = '000000';
+
+  function getInvitationDetails(code) {
+    // Placeholder for a real API call, e.g.:
+    // return fetch(`/api/invitations/${code}`).then(r => r.json());
+    return MOCK_INVITATION;
+  }
+
+  /* ---------- navigation into*/
+
+  document.getElementById('goToSignupLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    resetSignupCodeInputs();
+    showScreen('signupCodeScreen');
+    setTimeout(() => signupCodeDigits[0].focus(), 50);
+  });
+
+  document.getElementById('signupBackToLogin1').addEventListener('click', (e) => {
+    e.preventDefault();
+    showScreen('loginScreen');
+  });
+
+  document.getElementById('signupBackToCode').addEventListener('click', (e) => {
+    e.preventDefault();
+    showScreen('signupCodeScreen');
+  });
+
+  document.getElementById('signupBackToProfile').addEventListener('click', () => {
+    showScreen('signupProfileScreen');
+  });
+
+  /* ---------- step 1: invitation code ---------- */
+
+  const signupCodeRow = document.getElementById('signupCodeRow');
+  const signupCodeDigits = Array.from(document.querySelectorAll('#signupCodeRow .otp-digit'));
+  const signupCodeError = document.getElementById('signupCodeError');
+  const signupVerifyBtn = document.getElementById('signupVerifyBtn');
+
+  function resetSignupCodeInputs(){
+    signupCodeDigits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
+    signupCodeRow.classList.remove('invalid');
+    signupCodeError.classList.remove('show');
+    updateSignupVerifyState();
+  }
+
+  function updateSignupVerifyState(){
+    signupVerifyBtn.disabled = !signupCodeDigits.every(d => d.value.length === 1);
+  }
+
+  signupCodeDigits.forEach((digit, i) => {
+    digit.addEventListener('input', () => {
+      digit.value = digit.value.replace(/[^0-9]/g, '').slice(0, 1);
+      digit.classList.toggle('filled', digit.value.length === 1);
+      signupCodeRow.classList.remove('invalid');
+      signupCodeError.classList.remove('show');
+      if (digit.value && i < signupCodeDigits.length - 1){
+        signupCodeDigits[i + 1].focus();
+      }
+      updateSignupVerifyState();
+    });
+
+    digit.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !digit.value && i > 0){
+        signupCodeDigits[i - 1].focus();
+      }
+    });
+
+    digit.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, signupCodeDigits.length);
+      pasted.split('').forEach((char, idx) => {
+        if (signupCodeDigits[idx]){
+          signupCodeDigits[idx].value = char;
+          signupCodeDigits[idx].classList.add('filled');
+        }
+      });
+      const next = Math.min(pasted.length, signupCodeDigits.length - 1);
+      signupCodeDigits[next].focus();
+      updateSignupVerifyState();
+    });
+  });
+
+  document.getElementById('signupCodeForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const entered = signupCodeDigits.map(d => d.value).join('');
+
+    if (entered !== SIGNUP_DEMO_CODE) {
+      signupCodeRow.classList.add('invalid');
+      signupCodeError.classList.add('show');
+      signupCodeDigits[0].focus();
+      return;
+    }
+
+    const invitation = getInvitationDetails(entered);
+
+    document.getElementById('signupEmployeeId').value = invitation.employeeId;
+    document.getElementById('signupDept').value = invitation.department;
+    document.getElementById('signupRoleBadge').textContent = invitation.roleLabel;
+
+    showScreen('signupProfileScreen');
+  });
+
+  /* ---------- step 2: profile ---------- */
+
+  document.getElementById('signupProfileForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const fullName = document.getElementById('signupFullName').value.trim();
+    const phone = document.getElementById('signupPhone').value.trim();
+    const email = document.getElementById('signupEmail').value.trim();
+    const profileError = document.getElementById('signupProfileError');
+
+    if (!fullName || !phone) {
+      profileError.classList.add('show');
+      return;
+    }
+
+    profileError.classList.remove('show');
+
+    document.getElementById('signupPasswordEmail').textContent = email || 'your email';
+
+    showScreen('signupPasswordScreen');
+  });
+
+  /* ---------- step 3: set password ---------- */
+
+  const signupPasswordInput = document.getElementById('signupPassword');
+  const signupConfirmInput = document.getElementById('signupConfirmPassword');
+  const createAccountBtn = document.getElementById('createAccountBtn');
+  const signupChecklistRows = Array.from(document.querySelectorAll('#signupChecklist .checklist-row'));
+
+  function evaluateSignupPasswordRules(){
+    const pw = signupPasswordInput.value;
+    const confirm = signupConfirmInput.value;
+
+    return {
+      length: pw.length >= 8,
+      upper: /[A-Z]/.test(pw),
+      lower: /[a-z]/.test(pw),
+      number: /[0-9]/.test(pw),
+      special: /[!@#$%^&*()_\-+=\[\]{};:'",.<>\/?\\|`~]/.test(pw),
+      match: pw.length > 0 && pw === confirm
+    };
+  }
+
+  function updateSignupChecklist(){
+    const rules = evaluateSignupPasswordRules();
+
+    signupChecklistRows.forEach(row => {
+      const rule = row.dataset.rule;
+      row.classList.toggle('met', !!rules[rule]);
+    });
+
+    createAccountBtn.disabled = !Object.values(rules).every(Boolean);
+  }
+
+  signupPasswordInput.addEventListener('input', updateSignupChecklist);
+  signupConfirmInput.addEventListener('input', updateSignupChecklist);
+
+  document.getElementById('signupPasswordForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+
+    const rules = evaluateSignupPasswordRules();
+    if (!Object.values(rules).every(Boolean)) return;
+
+    // Placeholder for a real account-creation 
+    alert('Account created. You can now sign in.');
+    window.location.href = 'LandingPage_Inventory-1.html';
+  });
+</script>
+
+</body>
+</html>

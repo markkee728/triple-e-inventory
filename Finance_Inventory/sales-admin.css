@@ -1,0 +1,108 @@
+/* =========================================================
+   SALES TRANSACTIONS (admin) — POS sales + online shop orders
+   Uses the same colour variables as style.css, so it follows the light/dark theme.
+========================================================= */
+
+/* ---- summary cards (click one to filter the list) ---- */
+.sa-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+.sa-kpi {
+    text-align: left; cursor: pointer; color: var(--text);
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px;
+    transition: border-color .15s, transform .15s;
+}
+.sa-kpi:hover { border-color: var(--blue-bright); transform: translateY(-1px); }
+.sa-kpi.on { border-color: var(--blue-bright); box-shadow: 0 0 0 1px var(--blue-bright) inset; }
+.sa-kpi-label { font-size: 13px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-dim); }
+.sa-kpi-value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+.sa-kpi-sub { font-size: 14px; color: var(--text-dim); margin-top: 2px; }
+.sa-kpi.warn .sa-kpi-value { color: var(--amber); }
+.sa-kpi.bad .sa-kpi-value { color: var(--red); }
+
+/* ---- filters ---- */
+.sa-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.sa-filters .inv-search { min-width: 240px; }
+.sa-date { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-dim); }
+.sa-date input {
+    min-height: 42px; border-radius: 8px; padding: 0 10px; font: inherit; font-size: 15px;
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+}
+.sa-date input.sa-bad, .sa-in.sa-bad { border-color: var(--red); }
+.sa-filter-msg { width: 100%; color: #ef7a7a; font-size: 14px; }
+
+/* ---- table ---- */
+.sa-table td, .sa-table th { white-space: nowrap; }
+.sa-table tbody tr { cursor: pointer; }
+.sa-table tbody tr:hover { background: rgba(74, 144, 217, .07); }
+.sa-ref { font-family: "IBM Plex Mono", monospace; font-weight: 600; }
+.sa-sub { display: block; font-size: 13px; color: var(--text-dim); }
+.sa-num { text-align: right; font-variant-numeric: tabular-nums; }
+.sa-src { display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: .6px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); }
+.sa-src.pos { color: #8fc2f0; border-color: #28527a; }
+.sa-src.shop { color: #c5a6ee; border-color: #55397d; }
+.sa-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+.sa-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.sa-pill.ok { color: #7fe0ab; }
+.sa-pill.warn { color: #f0d18f; }
+.sa-pill.info { color: #8fc2f0; }
+.sa-pill.bad { color: #f0908f; }
+.sa-flag { display: inline-block; margin-left: 8px; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: rgba(217, 164, 65, .16); color: #f0d18f; }
+.sa-row-btn { min-width: 128px; }
+.sa-empty { text-align: center; color: var(--text-dim); padding: 36px 12px !important; white-space: normal !important; cursor: default; }
+.sa-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 4px 2px; color: var(--text-dim); font-size: 14px; }
+
+/* sidebar badge */
+.sa-nav-badge {
+    margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+    background: var(--amber); color: #1b1303; font-size: 12px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+
+/* ---- detail dialog ---- */
+.account-modal.sa-modal { max-width: 880px; overflow-y: auto; padding: 26px 30px 24px; }
+.sa-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.sa-head h2 { font-size: 24px; margin: 0; font-family: "IBM Plex Mono", monospace; }
+.sa-info { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px 22px; margin: 16px 0; }
+.sa-info dt { font-size: 12.5px; letter-spacing: 1px; text-transform: uppercase; color: var(--text-dim); }
+.sa-info dd { margin: 2px 0 0; font-size: 15.5px; overflow-wrap: anywhere; }
+.sa-lines { width: 100%; border-collapse: collapse; margin: 6px 0 0; }
+.sa-lines th, .sa-lines td { padding: 8px 6px; border-bottom: 1px solid var(--border); font-size: 15px; text-align: left; }
+.sa-lines th { color: var(--text-dim); font-size: 12.5px; letter-spacing: 1px; text-transform: uppercase; }
+.sa-lines .sa-num { text-align: right; }
+.sa-totals { margin: 10px 0 0 auto; max-width: 320px; font-size: 15px; }
+.sa-totals div { display: flex; justify-content: space-between; padding: 3px 0; }
+.sa-totals .grand { font-weight: 700; font-size: 17px; border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; }
+.sa-h { font-size: 13px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--blue-bright); margin: 20px 0 8px; font-family: "IBM Plex Mono", monospace; }
+
+.sa-steps { display: flex; gap: 6px; margin: 4px 0 0; padding: 0; list-style: none; }
+.sa-steps li { flex: 1; text-align: center; font-size: 13px; color: var(--text-faint); padding-top: 12px; position: relative; border-top: 4px solid var(--border); border-radius: 2px; }
+.sa-steps li.done { color: #7fe0ab; border-top-color: var(--green); }
+.sa-steps li.now { color: var(--text); font-weight: 700; border-top-color: var(--blue-bright); }
+.sa-banner { border-radius: 8px; padding: 12px 14px; font-size: 15px; margin-top: 12px; }
+.sa-banner.warn { background: rgba(217, 164, 65, .12); border: 1px solid rgba(217, 164, 65, .45); }
+.sa-banner.bad { background: rgba(227, 91, 91, .12); border: 1px solid rgba(227, 91, 91, .45); }
+.sa-banner.ok { background: rgba(67, 196, 122, .1); border: 1px solid rgba(67, 196, 122, .4); }
+.sa-hist { list-style: none; margin: 0; padding: 0; font-size: 14.5px; }
+.sa-hist li { padding: 6px 0; border-bottom: 1px dashed var(--border); }
+.sa-hist small { color: var(--text-dim); display: block; }
+
+.sa-form label { display: block; font-size: 14px; color: var(--text-dim); margin: 10px 0 4px; }
+.sa-in {
+    width: 100%; font: inherit; font-size: 15.5px; padding: 10px 12px; border-radius: 8px;
+    background: var(--card); color: var(--text); border: 1px solid var(--border);
+}
+textarea.sa-in { min-height: 72px; resize: vertical; }
+.sa-count { text-align: right; font-size: 13px; color: var(--text-faint); }
+.sa-err { color: #ef7a7a; font-size: 14px; margin-top: 5px; }
+.sa-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; align-items: center; }
+.sa-link-danger { background: none; border: 0; color: #f0908f; cursor: pointer; font: inherit; font-size: 14.5px; text-decoration: underline; padding: 6px 2px; }
+.sa-modal-err { display: none; margin-top: 12px; }
+.sa-modal-err.show { display: block; }
+
+@media (max-width: 1100px) {
+    .sa-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+    .sa-kpis { grid-template-columns: 1fr; }
+    .account-modal.sa-modal { padding: 20px 16px; }
+    .sa-steps li { font-size: 11.5px; }
+}
