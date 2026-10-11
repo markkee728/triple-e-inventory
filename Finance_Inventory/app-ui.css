@@ -426,3 +426,57 @@ html[data-theme="light"] .mark{box-shadow:0 10px 24px rgba(31,111,184,.3),inset 
 .acct-card .actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap}
 .acct-card .hint{color:var(--text-faint);font-size:12.5px;margin-top:5px}
 @media(max-width:560px){.acct-card .row2{grid-template-columns:1fr}}
+
+/* ---------- My Account window (My Profile / Change Password) — used with account-menu.js ---------- */
+.acct-overlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;background:rgba(3,9,15,.7);backdrop-filter:blur(3px);z-index:1200}
+html[data-theme="light"] .acct-overlay{background:rgba(20,35,50,.45)}
+.acct-overlay.open{display:flex}
+.acct-modal{position:relative;width:100%;max-width:640px;max-height:92vh;overflow-y:auto;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:28px 32px 24px;box-shadow:var(--shadow)}
+.acct-close{position:absolute;top:16px;right:16px;width:30px;height:30px;border-radius:6px;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--text-dim);font-size:19px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+html[data-theme="light"] .acct-close{background:rgba(15,40,60,.054)}
+.acct-close:hover{color:var(--text);border-color:var(--blue-bright)}
+.acct-eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12.5px;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue-bright)}
+.acct-title{font-family:"Oswald",sans-serif;font-weight:600;font-size:26px;letter-spacing:.3px;margin:2px 0 16px}
+.acct-tabs{display:flex;gap:6px;border-bottom:1px solid var(--border);margin-bottom:20px}
+.acct-tab{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:9px 14px;cursor:pointer;font-size:15px;font-weight:600;color:var(--text-dim)}
+.acct-tab:hover{color:var(--text)}
+.acct-tab.active{color:var(--text);border-bottom-color:var(--blue-bright)}
+.acct-panel{display:none}.acct-panel.active{display:block}
+.acct-photo-row{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px}
+.acct-avatar{width:68px;height:68px;font-size:22px;background:linear-gradient(135deg,var(--blue-bright),var(--blue));color:var(--btn-ink);border:0}
+.acct-photo-actions{display:flex;gap:8px}
+.acct-photo-actions .btn-secondary:disabled{opacity:.45;cursor:not-allowed}
+.acct-hint{font-size:12.5px;color:var(--text-faint)}
+.acct-photo-row .acct-photo-msg{flex-basis:100%}
+.acct-divider{height:1px;background:var(--border);margin:18px 0}
+.acct-row{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+.acct-group{margin-bottom:14px;min-width:0}
+.acct-label{display:block;font-family:inherit;text-transform:none;letter-spacing:0;font-size:13.5px;font-weight:600;color:var(--text-dim);margin:0 0 6px}
+.acct-req{color:var(--red)}
+.acct-input{width:100%;padding:10px 12px;border-radius:6px;background:var(--field);border:1px solid var(--border);font-size:15px;outline:none;transition:border-color .12s,box-shadow .12s}
+.acct-input:focus{border-color:var(--blue-bright);box-shadow:0 0 0 3px rgba(74,144,217,.18)}
+.acct-input[readonly]{opacity:.7;cursor:default;background:var(--inset)}
+.acct-input.field-invalid{border-color:var(--red)}
+.acct-msg{font-size:12.5px;color:var(--red);margin-top:5px}
+.acct-role-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.acct-role-note{font-size:12.5px;color:var(--text-faint)}
+.acct-banner{display:none;margin:4px 0 12px;padding:10px 12px;border-radius:6px;font-size:13.5px;color:var(--red);background:rgba(227,91,91,.1);border:1px solid rgba(227,91,91,.35)}
+.acct-banner.show{display:block}
+.acct-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+.acct-footer button{padding:10px 18px}
+.acct-footer button:disabled{opacity:.6;cursor:wait}
+.acct-strength{height:6px;border-radius:99px;background:var(--inset);overflow:hidden;margin-top:8px}
+.acct-strength-fill{height:100%;width:0;border-radius:99px;transition:width .2s,background .2s}
+.acct-strength-label{font-size:12.5px;color:var(--text-dim);margin-top:5px}
+.acct-checklist{display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin:6px 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--inset)}
+.acct-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-faint)}
+.acct-dot{width:9px;height:9px;flex:none;border-radius:50%;border:1.5px solid var(--text-faint)}
+.acct-check.met{color:var(--green)}
+.acct-check.met .acct-dot{background:var(--green);border-color:var(--green)}
+.acct-toast{position:fixed;right:20px;bottom:20px;max-width:380px;padding:12px 16px;border-radius:8px;font-size:15px;color:#fff;background:#1d6b46;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:9999}
+.acct-toast.error{background:#a63d3d}
+@media(max-width:560px){
+  .acct-modal{padding:24px 18px 18px}
+  .acct-row,.acct-checklist{grid-template-columns:1fr}
+  .acct-footer{flex-direction:column-reverse}
+}

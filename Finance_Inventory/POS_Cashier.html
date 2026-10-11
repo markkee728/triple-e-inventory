@@ -57,6 +57,8 @@
             <div><div class="dropdown-name" id="dName">Cashier</div><div class="dropdown-sub">Counter terminal</div><span class="badge">Cashier</span></div>
           </div>
           <div class="user-dropdown-divider"></div>
+          <button type="button" class="user-dropdown-item" id="myProfileBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>My Profile</button>
+          <button type="button" class="user-dropdown-item" id="changePasswordBtn"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>Change Password</button>
           <button type="button" class="user-dropdown-item logout" id="logout">
             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Log Out
           </button>
@@ -143,6 +145,8 @@
   <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
 <div id="toast" role="status"></div>
 
+<script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
+<script src="account-menu.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
 const HOME = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
@@ -376,6 +380,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   if (!(await guard())) return;
   const ini = (USER.name || 'C').trim().charAt(0).toUpperCase();
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
+  if (window.AccountMenu) AccountMenu.setUser(USER);
   PRODUCTS = await loadProducts(); sales = await loadTodaySales();
   renderCats(); renderProducts(); renderCart(); renderSales();
 })();
