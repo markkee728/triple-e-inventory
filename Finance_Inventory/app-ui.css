@@ -76,11 +76,15 @@ html[data-theme="light"] .avatar{background:#e3ebf2}
 .user-meta .uname{font-size:15px;font-weight:600}
 .user-meta .urole{font-size:12.5px;color:var(--text-dim)}
 .chip-chevron .ico{width:15px;height:15px;vertical-align:0;color:var(--text-faint)}
-.user-dropdown{display:none;position:absolute;top:calc(100% + 10px);right:0;width:280px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:var(--shadow);z-index:50}
+.user-dropdown{display:none;position:absolute;top:calc(100% + 10px);right:0;width:300px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;box-shadow:var(--shadow);z-index:50}
 .user-dropdown.open{display:block}
 .user-dropdown-head{display:flex;gap:12px;align-items:flex-start}
 .dropdown-avatar{width:42px;height:42px;flex:none;border-radius:50%;background:linear-gradient(135deg,var(--blue-bright),var(--blue));display:flex;align-items:center;justify-content:center;font-family:"Oswald",sans-serif;font-weight:600;font-size:16px;color:var(--btn-ink)}
-.dropdown-name{font-size:16px;font-weight:600}
+.dropdown-user-meta{display:flex;flex-direction:column;gap:4px;min-width:0}
+.dropdown-name{font-size:16px;font-weight:600;color:var(--text)}
+.dropdown-email{font-size:13.5px;color:var(--text-faint);overflow-wrap:anywhere}
+.dropdown-email:empty{display:none}
+.dropdown-badge{align-self:flex-start;margin-top:4px}
 .dropdown-sub{font-size:13px;color:var(--text-faint);margin:2px 0 6px}
 .user-dropdown-divider{height:1px;background:var(--border);margin:14px 0}
 .user-dropdown-item{width:100%;display:flex;align-items:center;gap:12px;background:none;border:0;text-align:left;padding:10px 6px;border-radius:6px;font-size:15.5px;cursor:pointer;transition:background .12s}

@@ -96,6 +96,16 @@ html[data-theme="light"] .in-cart-note{color:#17794a}
 .track .st.now .pt{border-color:var(--blue-bright);box-shadow:0 0 0 4px rgba(74,144,217,.2)}
 .track .st.now .pt::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--blue-bright)}
 
+/* refunds (customer orders) */
+.refund-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+.refund-box{margin-top:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--inset);font-size:14px;color:var(--text-dim)}
+.refund-box b{display:block;color:var(--text);font-size:14.5px;margin-bottom:2px}
+.refund-box.warn{border-color:rgba(214,158,46,.55)}
+.refund-box.ok{border-color:rgba(46,160,102,.55)}
+.refund-box.bad{border-color:rgba(227,91,91,.5)}
+.refund-why{margin-top:6px;font-size:13px;color:var(--text-faint);overflow-wrap:anywhere}
+.modal select{width:100%}
+
 .empty-card{padding:48px 20px;text-align:center}
 .empty-card .ico{width:42px;height:42px;display:block;margin:0 auto 12px;color:var(--text-faint)}
 .empty-card h3{font-family:Oswald,sans-serif;font-weight:600;font-size:20px;margin-bottom:4px}
