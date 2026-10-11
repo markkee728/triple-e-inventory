@@ -106,12 +106,14 @@
             <div class="row total"><span>Total</span><span class="mono" id="total">₱0.00</span></div>
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
-              <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Card</button>
+              <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Card / Phone</button>
             </div>
             <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" inputmode="decimal" placeholder="0.00">
               <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
               <div class="row" style="margin-top:6px"><span class="dim">Change</span><span class="mono" id="change">₱0.00</span></div></div>
-            <div id="cardBox" hidden><label for="cardRef">Card approval code</label><input id="cardRef" maxlength="20" placeholder="From the card terminal"></div>
+            <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
+              <div class="faint" style="font-size:12.5px;margin-top:6px">The customer pays the total from their own phone (bank / card / e-wallet app). Check that the payment really went through, then type the reference number shown on their confirmation screen.</div>
+              <label class="chk" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="cardOk" style="width:auto"> I saw the payment confirmation for the full amount</label></div>
             <div class="err-text" id="payErr"></div>
             <button class="btn-primary btn-lg" id="complete" disabled>Complete sale</button>
           </div>
@@ -142,8 +144,8 @@
 
 <button class="cart-fab" id="cartFab" hidden><span id="fabText">View sale</span><span class="mono" id="fabTotal">₱0.00</span></button>
 
-<div class="modal-overlay" id="receiptBg"><div class="modal"><div class="paper" id="receipt"></div>
-  <div class="modal-actions"><button class="btn-primary" onclick="window.print()">Print</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
+<div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:380px"><div class="paper" id="receipt" style="padding:0;overflow:hidden"><img id="receiptImg" alt="Receipt" style="display:block;width:100%;height:auto"></div>
+  <div class="modal-actions"><button class="btn-primary" id="rcPrint">Print</button><button class="btn-secondary" id="rcSave">Save PNG</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
 <div class="modal-overlay" id="voidBg"><div class="modal"><h3>Request void</h3><p class="dim" id="voidFor"></p>
   <label for="voidReason">Reason (required)</label><textarea id="voidReason" rows="3"></textarea><div class="err-text" id="voidErr"></div>
   <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
@@ -189,7 +191,7 @@ async function submitSale(sale) {          // server re-prices from the database
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
     items: sale.items.map(i => ({ sku: i.sku, qty: i.qty })), method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef }) });
 }
-async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return []; } }
+async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return null; } }   // null = could not reach the server (keep what is on screen)
 async function requestVoid(id, why) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
 
 /* ===== App ===== */
@@ -205,7 +207,12 @@ const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
 function closeModal(id) { $(id).classList.remove('show'); }
 const prod = sku => PRODUCTS.find(p => p.sku === sku);
-const total = () => cart.reduce((s, l) => s + prod(l.sku).price * l.qty, 0);
+const cents = n => Math.round((Number(n) + Number.EPSILON) * 100);                 // money is compared in whole centavos, never raw floats
+const total = () => cart.reduce((s, l) => s + cents(prod(l.sku).price) * Math.round(l.qty * 100) / 100, 0) / 100;
+const parseMoney = v => { const n = parseFloat(String(v).replace(/[₱,\s]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0; };
+const CARD_RE = /^[A-Z0-9-]{4,30}$/;
+const cardCode = () => $('cardRef').value.trim().toUpperCase();
+let busy = false;
 const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
 
 /* ----- theme (same behaviour + storage key as the inventory app) ----- */
@@ -234,7 +241,7 @@ $('sidebarClose').onclick = $('sidebarBackdrop').onclick = () => setNav(false);
 function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
-  $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' ? 'Counter' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
+  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' ? 'Counter' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
 }
 $('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
 document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });
@@ -290,12 +297,17 @@ function updateFab() {
   $('fabText').textContent = `View sale · ${units} item${units === 1 ? '' : 's'}`; $('fabTotal').textContent = peso(total());
 }
 function updatePay() {
-  const t = total(), tend = parseFloat($('tendered').value) || 0;
-  $('change').textContent = peso(Math.max(0, tend - t));
-  let ok = cart.length > 0, msg = '';
-  if (ok && method === 'Cash' && tend < t) { ok = false; msg = $('tendered').value ? 'Cash received is less than the total.' : ''; }
-  if (ok && method === 'Card' && $('cardRef').value.trim().length < 4) { ok = false; }
+  const t = total(), tend = parseMoney($('tendered').value);
+  $('change').textContent = peso(cents(tend) > cents(t) ? (cents(tend) - cents(t)) / 100 : 0);
+  let ok = cart.length > 0 && !busy, msg = '';
+  if (cart.length && method === 'Cash' && cents(tend) < cents(t)) { ok = false; msg = $('tendered').value.trim() ? 'Cash received is less than the total.' : ''; }
+  if (cart.length && method === 'Card') {
+    const c = cardCode();
+    if (!CARD_RE.test(c)) { ok = false; msg = c ? 'Reference must be 4–30 letters, numbers or dashes.' : ''; }
+    else if (!$('cardOk').checked) ok = false;
+  }
   $('payErr').textContent = msg; $('complete').disabled = !ok;
+  $('complete').textContent = method === 'Card' && cart.length ? 'Complete sale · Paid by phone ' + peso(t) : 'Complete sale';
 }
 function addToCart(sku) {
   const p = prod(sku), l = cart.find(x => x.sku === sku), have = l ? l.qty : 0;
@@ -318,27 +330,100 @@ function renderSales() {
     <td class="r" style="white-space:nowrap"><button class="btn-secondary btn-sm" data-reprint="${s.id}">Reprint</button>
     ${s.status === 'Completed' ? ` <button class="btn-danger btn-sm" data-void="${s.id}">Void…</button>` : ''}</td></tr>`).join('');
 }
-function showReceipt(s) {
-  const hr = '<hr style="margin:8px 0;border:0;border-top:1px dashed #999">';
-  $('receipt').innerHTML = `<div style="text-align:center"><b>TRIPLE E METAL PRODUCTS</b><br>Official Receipt<br>${s.receiptNo} · ${new Date(s.createdAt).toLocaleString('en-PH')}<br>Cashier: ${esc(s.cashierName)}</div>${hr}
-    ${s.items.map(i => `<div class="row"><span>${i.qty} × ${esc(i.name)}</span><span>${peso(i.qty * i.price)}</span></div>`).join('')}${hr}
-    <div class="row"><span>VAT (incl.)</span><span>${peso(s.vat)}</span></div><div class="row total"><span>TOTAL</span><span>${peso(s.total)}</span></div>
-    <div class="row"><span>${s.method}</span><span>${s.method === 'Cash' ? peso(s.tendered) : esc(s.cardRef)}</span></div>
-    ${s.method === 'Cash' ? `<div class="row"><span>Change</span><span>${peso(s.change)}</span></div>` : ''}
-    <p style="text-align:center;margin-top:10px">Thank you!</p>`;
-  $('receiptBg').classList.add('show');
+/* ----- receipt as PNG (prints at 80 mm instead of a full A4 page) ----- */
+let lastReceipt = null;
+async function receiptPng(s, reprint) {
+  const W = 320, SC = 3, PAD = 18, MONO = '"IBM Plex Mono","Courier New",monospace';
+  try { await Promise.race([Promise.all([document.fonts.load('12px "IBM Plex Mono"'), document.fonts.load('700 12px "IBM Plex Mono"')]), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}   // never block the receipt on a slow / offline font
+  const font = (sz, bold) => (bold ? '700 ' : '400 ') + sz + 'px ' + MONO;
+  const layout = (c, draw) => {
+    let y = PAD;
+    const wrap = (txt, maxW, f) => { c.font = f; const out = []; let cur = '';
+      for (const w of String(txt).split(' ')) {
+        let t = cur ? cur + ' ' + w : w;
+        if (c.measureText(t).width <= maxW) { cur = t; continue; }
+        if (cur) out.push(cur);
+        cur = w;
+        while (c.measureText(cur).width > maxW) { let i = cur.length - 1; while (i > 1 && c.measureText(cur.slice(0, i)).width > maxW) i--; out.push(cur.slice(0, i)); cur = cur.slice(i); }
+      } out.push(cur); return out; };
+    const center = (txt, o = {}) => { const sz = o.size || 12, f = font(sz, o.bold); for (const l of wrap(txt, W - PAD * 2, f)) { y += sz + 4; if (draw) { c.font = f; c.textAlign = 'center'; c.fillStyle = o.color || '#111'; c.fillText(l, W / 2, y); } } };
+    const row = (l, r, o = {}) => { const sz = o.size || 12, f = font(sz, o.bold); c.font = f; const rw = c.measureText(r).width;
+      const ls = wrap(l, W - PAD * 2 - rw - 8, f);
+      ls.forEach((t, i) => { y += sz + 4; if (draw) { c.font = f; c.fillStyle = o.color || '#111'; c.textAlign = 'left'; c.fillText(t, PAD, y); if (i === 0) { c.textAlign = 'right'; c.fillText(r, W - PAD, y); } } }); };
+    const sub = txt => { const f = font(10.5, false); for (const l of wrap(txt, W - PAD * 2 - 14, f)) { y += 14; if (draw) { c.font = f; c.fillStyle = '#555'; c.textAlign = 'left'; c.fillText(l, PAD + 14, y); } } };
+    const rule = () => { y += 8; if (draw) { c.strokeStyle = '#888'; c.setLineDash([3, 3]); c.beginPath(); c.moveTo(PAD, y); c.lineTo(W - PAD, y); c.stroke(); c.setLineDash([]); } y += 6; };
+    const gap = n => { y += n; };
+
+    center('TRIPLE E METAL PRODUCTS', { bold: true, size: 15 });
+    center('Official Receipt', { size: 12 });
+    if (s.status === 'Voided') center('*** VOIDED ***', { bold: true, size: 14 });
+    else if (s.status === 'Void Pending') center('*** VOID REQUESTED ***', { bold: true, size: 12 });
+    if (reprint) center('** REPRINT / COPY **', { bold: true, size: 11 });
+    gap(4); center(s.receiptNo, { bold: true, size: 13 });
+    center(new Date(s.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }), { size: 11 });
+    center('Cashier: ' + s.cashierName, { size: 11 });
+    rule();
+    for (const i of s.items) { row(i.qty + ' × ' + i.name, peso(i.qty * i.price)); sub('@ ' + peso(i.price) + ' / ' + i.unit + ' · ' + i.sku); }
+    rule();
+    const net = Math.round((cents(s.total) - cents(s.vat))) / 100;
+    row('VATable sales', peso(net), { size: 11 }); row('VAT 12% (incl.)', peso(s.vat), { size: 11 });
+    gap(4); row('TOTAL', peso(s.total), { bold: true, size: 16 });
+    gap(4);
+    if (s.method === 'Cash') { row('Cash', peso(s.tendered)); row('Change', peso(s.change || 0)); }
+    else { row('Card / Online', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
+    rule(); gap(2); center('Thank you for your purchase!', { size: 11 }); center('Please keep this receipt.', { size: 10.5, color: '#555' });
+    y += PAD; return y;
+  };
+  const probe = document.createElement('canvas').getContext('2d');
+  const H = Math.ceil(layout(probe, false));
+  const cv = document.createElement('canvas'); cv.width = W * SC; cv.height = H * SC;
+  const c = cv.getContext('2d'); c.scale(SC, SC); c.fillStyle = '#fff'; c.fillRect(0, 0, W, H); c.textBaseline = 'alphabetic';
+  layout(c, true);
+  return cv.toDataURL('image/png');
 }
+async function showReceipt(s, reprint) {
+  if (!s) return;
+  try { lastReceipt = { s, url: await receiptPng(s, !!reprint) }; }
+  catch (e) { return toast('Could not draw the receipt.', true); }
+  $('receiptImg').src = lastReceipt.url; $('receiptBg').classList.add('show');
+}
+$('rcSave').onclick = () => {
+  if (!lastReceipt) return; const a = document.createElement('a');
+  a.href = lastReceipt.url; a.download = lastReceipt.s.receiptNo + '.png'; document.body.appendChild(a); a.click(); a.remove();
+};
+$('rcPrint').onclick = () => {                    // prints only the receipt image, 80 mm wide, in a hidden frame (no A4 page of dashboard)
+  if (!lastReceipt) return;
+  const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+  document.body.appendChild(f);
+  const d = f.contentWindow.document; d.open();
+  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"></body></html>');
+  d.close();
+  const img = d.querySelector('img'), go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not open the print dialog.', true); } setTimeout(() => f.remove(), 60000); };
+  img.complete ? go() : (img.onload = go);
+};
+
 async function completeSale() {
-  const t = total(), tend = parseFloat($('tendered').value) || 0;
+  if (busy || !cart.length) return;
+  const t = total(), tend = parseMoney($('tendered').value);
+  if (method === 'Cash' && cents(tend) < cents(t)) return updatePay();
+  if (method === 'Card' && (!CARD_RE.test(cardCode()) || !$('cardOk').checked)) return updatePay();
   const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: p.price }; }),
-    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? $('cardRef').value.trim() : undefined };
-  $('complete').disabled = true;
+    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined };
+  busy = true; $('complete').disabled = true; $('complete').textContent = 'Saving…';
   let sale;
-  try { sale = await submitSale(draft); } catch (e) { updatePay(); return toast(e.message || 'Could not save the sale.', true); }
-  sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale);
-  try { PRODUCTS = await loadProducts(); renderCats(); renderProducts(); } catch (e) {}       // stock shown = what the server now has
+  try { sale = await submitSale(draft); }
+  catch (e) { busy = false; updatePay(); toast(e.message || 'Could not save the sale.', true); try { PRODUCTS = await loadProducts(); syncCart(); } catch (x) {} return; }
+  busy = false; sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale, false);
+  try { PRODUCTS = await loadProducts(); syncCart(); renderCats(); } catch (e) {}       // stock shown = what the server now has
 }
-function resetSale() { cart = []; $('tendered').value = ''; $('cardRef').value = ''; renderCart(); }
+// after stock changes: drop lines whose product is gone and trim quantities to what is really in stock
+function syncCart() {
+  let changed = false;
+  cart = cart.filter(l => { const p = prod(l.sku); if (!p || p.available <= 0) { changed = true; return false; } if (l.qty > p.available) { l.qty = p.available; changed = true; } return true; });
+  if (changed) toast('Cart adjusted to the stock available.', true);
+  renderCart();
+}
+function resetSale() { cart = []; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
@@ -347,12 +432,12 @@ document.addEventListener('click', e => {
   if (d.inc) addToCart(d.inc);
   if (d.dec) { const l = cart.find(x => x.sku === d.dec); if (--l.qty < 1) cart = cart.filter(x => x !== l); renderCart(); }
   if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
-  if (d.m) { method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; updatePay(); }
+  if (d.m) { if (method !== d.m) { $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; } method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; updatePay(); }
   if (d.cash) { $('tendered').value = d.cash === 'exact' ? total().toFixed(2) : d.cash; updatePay(); }
   if (d.page) showPage(d.page);
   if (d.cat !== undefined && b.classList.contains('pill-btn')) { cat = d.cat; renderCats(); renderProducts(); }
   if (d.view) { view = d.view; document.querySelectorAll('.view-btn').forEach(x => x.classList.toggle('active', x === b)); renderProducts(); }
-  if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint));
+  if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
   if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
 });
 $('voidSend').onclick = async () => {
@@ -371,7 +456,7 @@ $('q').onkeydown = e => {                                   // scanner / keyboar
 };
 document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
   if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); $('userDropdown').classList.remove('open'); } });
-$('tendered').oninput = updatePay; $('cardRef').oninput = updatePay;
+$('cardOk').onchange = updatePay; $('tendered').oninput = updatePay; $('cardRef').oninput = () => { $('cardRef').value = $('cardRef').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); updatePay(); };
 $('complete').onclick = completeSale; $('clear').onclick = resetSale;
 $('cartFab').onclick = () => $('cartPane').scrollIntoView({ behavior: 'smooth', block: 'start' });
 $('logout').onclick = async () => { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = 'Login_Inventory.html'; };
@@ -385,7 +470,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   const ini = (USER.name || 'C').trim().charAt(0).toUpperCase();
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
   if (window.AccountMenu) AccountMenu.setUser(USER);
-  PRODUCTS = await loadProducts(); sales = await loadTodaySales();
+  PRODUCTS = await loadProducts(); sales = (await loadTodaySales()) || [];
   renderCats(); renderProducts(); renderCart(); renderSales();
 })();
 </script>

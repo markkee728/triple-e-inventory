@@ -203,12 +203,16 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const total = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
       let tendered = null, change = null, cardRef = null;
       if (method === 'Cash') {
-        tendered = Number(b.tendered);
+        tendered = round2(Number(b.tendered));
         if (!Number.isFinite(tendered) || tendered < total) throw bad('tendered', 'Cash received is less than the total');
+        if (tendered > 10000000) throw bad('tendered', 'Cash received is too large');
         change = round2(tendered - total);
       } else {
-        cardRef = str(b.cardRef);
-        if (cardRef.length < 4 || cardRef.length > 40) throw bad('cardRef', 'Enter the card approval / reference number');
+        // Card / phone payment: the customer pays exactly the total from their own phone, so there is no tendered amount or change; only the payment reference is kept.
+        cardRef = str(b.cardRef).toUpperCase();
+        if (!/^[A-Z0-9-]{4,30}$/.test(cardRef)) throw bad('cardRef', 'Reference number must be 4-30 letters, numbers or dashes');
+        const dup = await client.query(`SELECT receipt_no FROM pos_sales WHERE method = 'Card' AND card_ref = $1 AND status <> 'Voided' LIMIT 1`, [cardRef]);
+        if (dup.rowCount) throw bad('cardRef', `Reference ${cardRef} was already used on receipt ${dup.rows[0].receipt_no}`);
       }
       const vat = round2(total * VAT_RATE / (1 + VAT_RATE));
       const ins = await client.query(
