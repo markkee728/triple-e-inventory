@@ -32,6 +32,8 @@
     <div class="nav-group">
       <div class="nav-label">Account</div>
       <button class="nav-item" data-view="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>My Orders<span class="count" id="navOrderCount">0</span></button>
+      <button class="nav-item" data-view="profile"><svg class="nav-ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>My Profile</button>
+      <button class="nav-item" data-view="password"><svg class="nav-ico" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/></svg>Change Password</button>
     </div>
   </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Online Shop</strong>Triple E Metal Products</div></div>
@@ -64,6 +66,8 @@
           </div>
           <div class="user-dropdown-divider"></div>
           <button type="button" class="user-dropdown-item" data-view="orders"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>My Orders</button>
+          <button type="button" class="user-dropdown-item" data-view="profile"><svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>My Profile</button>
+          <button type="button" class="user-dropdown-item" data-view="password"><svg class="ico" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3"/></svg>Change Password</button>
           <button type="button" class="user-dropdown-item logout" id="logout"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Log Out</button>
         </div>
       </div>
@@ -140,6 +144,29 @@
       <div id="orderList"></div>
     </section>
 
+    <section class="page" id="profile">
+      <div class="page-head"><div><h1>My profile</h1><p>Your contact details for orders and delivery.</p></div></div>
+      <div class="card acct-card">
+        <div class="meta"><span>Username <b id="pfUser">—</b></span><span>Member since <b id="pfJoined">—</b></span></div>
+        <div class="fld"><label for="pfName">Full name</label><input id="pfName" autocomplete="name"><div class="err-text" id="pfNameE"></div></div>
+        <div class="row2">
+          <div class="fld"><label for="pfEmail">Email</label><input id="pfEmail" type="email" autocomplete="email"><div class="err-text" id="pfEmailE"></div></div>
+          <div class="fld"><label for="pfPhone">Mobile number</label><input id="pfPhone" inputmode="tel" autocomplete="tel"><div class="err-text" id="pfPhoneE"></div></div>
+        </div>
+        <div class="actions"><button class="btn-primary" id="pfSave">Save changes</button><button class="btn-secondary" data-view="password">Change password</button></div>
+      </div>
+    </section>
+
+    <section class="page" id="password">
+      <div class="page-head"><div><h1>Change password</h1><p>Use at least 8 characters with a letter, a number and a symbol.</p></div></div>
+      <div class="card acct-card">
+        <div class="fld"><label for="pwCur">Current password</label><input id="pwCur" type="password" autocomplete="current-password"><div class="err-text" id="pwCurE"></div></div>
+        <div class="fld"><label for="pwNew">New password</label><input id="pwNew" type="password" autocomplete="new-password"><div class="err-text" id="pwNewE"></div></div>
+        <div class="fld"><label for="pwNew2">Confirm new password</label><input id="pwNew2" type="password" autocomplete="new-password"><div class="err-text" id="pwNew2E"></div></div>
+        <div class="actions"><button class="btn-primary" id="pwSave">Update password</button></div>
+      </div>
+    </section>
+
   </div>
 </main>
 
@@ -178,7 +205,7 @@ async function api(path, opts) {
   const r = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
   if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Request failed');
+  if (!r.ok) { const er = new Error(d.error || 'Request failed'); er.fields = d.fields; throw er; }
   return d;
 }
 async function loadProducts() {            // GET /api/shop/products — finished goods only, with price > 0
@@ -204,7 +231,7 @@ const units = () => cart.reduce((n, l) => n + l.qty, 0);
 const subtotal = () => cart.reduce((s, l) => s + prod(l.sku).price * l.qty, 0);
 const fee = () => fulfil === 'Delivery' ? DELIVERY_FEE : 0;
 const cashMethod = () => fulfil === 'Delivery' ? 'Cash on Delivery' : 'Cash on Pickup';
-const TITLES = { catalog: ['Shop', 'Catalog'], cart: ['Shop', 'My Cart'], checkout: ['Shop', 'Checkout'], orders: ['Account', 'My Orders'] };
+const TITLES = { catalog: ['Shop', 'Catalog'], cart: ['Shop', 'My Cart'], checkout: ['Shop', 'Checkout'], orders: ['Account', 'My Orders'], profile: ['Account', 'My Profile'], password: ['Account', 'Change Password'] };
 const CAT_ICON = {
   'Sheets & Plates': '<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M3 10h18"/>',
   'Pipes & Tubes': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
@@ -247,11 +274,11 @@ addEventListener('scroll', () => document.querySelector('.topbar').classList.tog
 
 function show(v) {
   view = v;
-  ['catalog', 'cart', 'checkout', 'orders'].forEach(id => $(id).classList.toggle('active-page', id === v));
+  ['catalog', 'cart', 'checkout', 'orders', 'profile', 'password'].forEach(id => $(id).classList.toggle('active-page', id === v));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.view === (v === 'checkout' ? 'cart' : v)));
   $('crumb').textContent = TITLES[v][0]; $('topbarTitle').textContent = TITLES[v][1];
   setNav(false); $('userDropdown').classList.remove('open');
-  if (v === 'cart') renderCart(); if (v === 'checkout') renderCheckout(); if (v === 'orders') renderOrders();
+  if (v === 'cart') renderCart(); if (v === 'checkout') renderCheckout(); if (v === 'orders') renderOrders(); if (v === 'profile') loadProfile(); if (v === 'password') clearPw();
   updateFab(); window.scrollTo(0, 0);
 }
 function updateFab() {
@@ -388,6 +415,48 @@ $('cartFab').onclick = () => show('cart');
 $('logout').onclick = async () => { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = 'Login_Inventory.html'; };
 
 $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.repeat(6);
+
+/* ----- my profile / change password ----- */
+const fieldErr = (id, msg) => { $(id).textContent = msg || ''; };
+async function loadProfile() {
+  ['pfNameE', 'pfEmailE', 'pfPhoneE'].forEach(id => fieldErr(id));
+  try {
+    const p = await api('/api/auth/profile');
+    $('pfName').value = p.name; $('pfEmail').value = p.email; $('pfPhone').value = p.phone;
+    $('pfUser').textContent = p.username; $('pfJoined').textContent = p.joined;
+  } catch (e) { toast(e.message, true); }
+}
+$('pfSave').onclick = async () => {
+  ['pfNameE', 'pfEmailE', 'pfPhoneE'].forEach(id => fieldErr(id));
+  $('pfSave').disabled = true;
+  try {
+    const p = await api('/api/auth/profile', { method: 'PUT', body: JSON.stringify({ name: $('pfName').value, email: $('pfEmail').value, phone: $('pfPhone').value }) });
+    USER.name = p.name; const ini = (p.name || 'C').trim().charAt(0).toUpperCase();
+    $('uname').textContent = $('dName').textContent = p.name; $('avatar').textContent = $('dAvatar').textContent = ini;
+    toast('Profile saved.');
+  } catch (e) {
+    const f = e.fields || {};
+    if (f.name || f.email || f.phone) { fieldErr('pfNameE', f.name); fieldErr('pfEmailE', f.email); fieldErr('pfPhoneE', f.phone); }
+    else toast(e.message, true);
+  }
+  $('pfSave').disabled = false;
+};
+function clearPw() { ['pwCur', 'pwNew', 'pwNew2'].forEach(id => $(id).value = ''); ['pwCurE', 'pwNewE', 'pwNew2E'].forEach(id => fieldErr(id)); }
+$('pwSave').onclick = async () => {
+  ['pwCurE', 'pwNewE', 'pwNew2E'].forEach(id => fieldErr(id));
+  if ($('pwNew').value !== $('pwNew2').value) return fieldErr('pwNew2E', 'The two new passwords do not match');
+  $('pwSave').disabled = true;
+  try {
+    await api('/api/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword: $('pwCur').value, newPassword: $('pwNew').value }) });
+    clearPw(); toast('Password updated.');
+  } catch (e) {
+    const f = e.fields || {};
+    if (f.currentPassword || f.newPassword) { fieldErr('pwCurE', f.currentPassword); fieldErr('pwNewE', f.newPassword); }
+    else toast(e.message, true);
+  }
+  $('pwSave').disabled = false;
+};
+
 (async () => {
   if (!(await guard())) return;
   const ini = (USER.name || 'C').trim().charAt(0).toUpperCase();

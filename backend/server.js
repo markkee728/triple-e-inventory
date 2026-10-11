@@ -674,6 +674,27 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
     httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
   res.json(profileJson(result));
 }));
+// change password: any signed-in user, must prove the current password first
+app.put('/api/auth/password', auth(), wrap(async (req, res) => {
+  const b = req.body || {};
+  const cur = typeof b.currentPassword === 'string' ? b.currentPassword : '';
+  const next = typeof b.newPassword === 'string' ? b.newPassword : '';
+  const e = {};
+  if (!cur) e.currentPassword = 'Enter your current password';
+  if (next.length < 8) e.newPassword = 'New password must be at least 8 characters';
+  else if (next.length > 200) e.newPassword = 'New password is too long';
+  else if (!/[A-Za-z]/.test(next) || !/\d/.test(next) || !/[^A-Za-z0-9]/.test(next)) e.newPassword = 'New password needs a letter, a number and a symbol';
+  else if (next === cur) e.newPassword = 'New password must be different from the current one';
+  if (Object.keys(e).length) throw new ValidationError(e);
+  const row = (await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.id])).rows[0];
+  if (!row || !(await bcrypt.compare(cur, row.password_hash))) throw new ValidationError({ currentPassword: 'Current password is incorrect' });
+  const hash = await bcrypt.hash(next, 12);
+  await tx(async (client) => {
+    await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
+    await audit(client, req.user, 'Profile updated', 'Changed password');
+  });
+  res.json({ ok: true });
+}));
 // profile photo: JPG / PNG up to 2 MB, kept in the users table (avatar BYTEA)
 const looksLikeJpeg = (b) => b.length > 3 && b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF;
 const looksLikePng = (b) => b.length > 8 && b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]));
