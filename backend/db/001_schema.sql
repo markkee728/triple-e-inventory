@@ -22,11 +22,14 @@ CREATE TABLE users (
 
 CREATE TABLE invitations (
   invitation_id SERIAL PRIMARY KEY,
-  code          TEXT UNIQUE NOT NULL,
   email         TEXT NOT NULL,
+  full_name     TEXT,
   role_id       INT NOT NULL REFERENCES roles(role_id),
+  token_hash    TEXT UNIQUE,             -- SHA-256 of the one-time sign-up link token (the token itself is never stored)
+  sent_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   expires_at    TIMESTAMPTZ NOT NULL,
   used_at       TIMESTAMPTZ,
+  revoked_at    TIMESTAMPTZ,
   created_by    INT REFERENCES users(user_id)
 );
 

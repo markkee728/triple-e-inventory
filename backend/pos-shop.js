@@ -27,6 +27,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   async function ensureSalesSchema() {
     try {
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_by TEXT');
+      // cashier alert: a decided void request stays "unseen" until the cashier acknowledges it (old rows default to seen)
+      await pool.query('ALTER TABLE void_requests ADD COLUMN IF NOT EXISTS cashier_seen BOOLEAN NOT NULL DEFAULT TRUE');
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ');
       await pool.query(`CREATE TABLE IF NOT EXISTS order_status_history (
         history_id  BIGSERIAL PRIMARY KEY,
@@ -233,13 +235,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.status(201).json(sale);
   }));
 
-  // Today's sales (Manila time). Finance may pass ?date=YYYY-MM-DD for a daily summary.
+  // Sales list (Manila time). Default = today. ?date=YYYY-MM-DD shows another day, ?receipt=TEXT searches receipt numbers on any day.
+  // Cashiers can look back LOOKBACK_DAYS (so a customer returning with an old receipt can be found); finance has no limit.
+  const LOOKBACK_DAYS = Number(process.env.POS_LOOKBACK_DAYS) || 60;
   app.get('/api/pos/sales', auth('cashier', 'finance'), wrap(async (req, res) => {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') && req.user.role === 'finance' ? req.query.date : null;
-    const { rows: sales } = await pool.query(
-      `SELECT * FROM pos_sales
-        WHERE (created_at AT TIME ZONE $1)::date = COALESCE($2::date, (now() AT TIME ZONE $1)::date)
-        ORDER BY created_at DESC`, [TZ, date]);
+    const isFinance = req.user.role === 'finance';
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
+    const q = String(req.query.receipt || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 30);
+    const params = [TZ], where = [];
+    if (q) { params.push('%' + q + '%'); where.push(`s.receipt_no ILIKE $${params.length}`); }
+    else { params.push(date); where.push(`(s.created_at AT TIME ZONE $1)::date = COALESCE($${params.length}::date, (now() AT TIME ZONE $1)::date)`); }
+    if (!isFinance) where.push(`(s.created_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - ${LOOKBACK_DAYS}`);
+    const { rows: sales } = await pool.query(`SELECT s.* FROM pos_sales s WHERE ${where.join(' AND ')} ORDER BY s.created_at DESC LIMIT 200`, params);
     const { rows: items } = sales.length
       ? await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = ANY($1) ORDER BY item_id', [sales.map(s => s.sale_id)])
       : { rows: [] };
@@ -284,10 +291,28 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           userId: req.user.id, sourceType: 'pos_sale', sourceId: sale_id, note: `Void of ${receipt_no}` });
       }
       await client.query(`UPDATE pos_sales SET status = $2 WHERE sale_id = $1`, [sale_id, approve ? 'Voided' : 'Completed']);
-      await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
+      await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now(), cashier_seen = FALSE WHERE request_id = $1`,
         [r.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
       await audit(client, req.user, 'Record edited', `Void ${approve ? 'approved' : 'rejected'} for ${receipt_no}${approve ? ' — stock restored' : ''}`);
     });
+    res.json({ ok: true });
+  }));
+
+  /* ---------- cashier: alerts for decided void requests ---------- */
+  // Decisions on this cashier's own void requests that they have not acknowledged yet.
+  app.get('/api/pos/void-notices', auth('cashier'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT v.request_id, v.status, v.reason, s.receipt_no, s.total,
+              to_char(v.decided_at AT TIME ZONE $2, 'HH12:MI AM') AS decided_at, u.name AS decided_by_name
+         FROM void_requests v JOIN pos_sales s USING (sale_id) LEFT JOIN users u ON u.user_id = v.decided_by
+        WHERE v.requested_by = $1 AND v.status IN ('approved','rejected') AND v.cashier_seen = FALSE
+        ORDER BY v.decided_at`, [req.user.id, TZ]);
+    res.json(rows.map(r => ({ id: r.request_id, receiptNo: r.receipt_no, total: +r.total, approved: r.status === 'approved',
+      reason: r.reason, decidedAt: r.decided_at, decidedBy: r.decided_by_name || 'Admin' })));
+  }));
+  app.post('/api/pos/void-notices/seen', auth('cashier'), wrap(async (req, res) => {
+    const ids = Array.isArray((req.body || {}).ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
+    if (ids.length) await pool.query('UPDATE void_requests SET cashier_seen = TRUE WHERE requested_by = $1 AND request_id = ANY($2)', [req.user.id, ids]);
     res.json({ ok: true });
   }));
 

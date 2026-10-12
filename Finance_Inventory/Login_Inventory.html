@@ -546,6 +546,21 @@
   #signupProfileScreen .otp-error{ margin:-4px 0 10px; }
   #signupProfileScreen .submit{ padding:11px; margin-top:2px; }
   #signupProfileScreen .back-row{ margin-top:10px; }
+
+  .signup-row.staff-note{ margin-top:6px; font-size:11.5px; color:var(--steel-light); }
+  .notice{
+    display:none;
+    margin:0 0 16px;
+    padding:10px 12px;
+    border:1px solid rgba(74,217,145,0.4);
+    background:rgba(74,217,145,0.08);
+    color:var(--green);
+    border-radius:4px;
+    font-size:12.5px;
+    line-height:1.5;
+  }
+  .notice.show{ display:block; }
+  [hidden]{ display:none !important; }
 </style>
 </head>
 <body>
@@ -572,6 +587,8 @@
         </div>
         <h1>Triple E Metal Products</h1>
         <p class="sub">Inventory Management System</p>
+
+        <p class="notice" id="loginNotice" role="status"></p>
 
         <form id="loginForm" novalidate>
           <div class="field" id="emailField">
@@ -601,7 +618,8 @@
           <button type="submit" class="submit">Proceed to Inventory</button>
         </form>
 
-        <p class="signup-row">New team member? <a href="#" class="link" id="goToSignupLink">Sign up with an invitation code</a></p>
+        <p class="signup-row">New customer? <a href="#" class="link" id="goToSignupLink">Create an account</a></p>
+        <p class="signup-row staff-note">Staff member? Use the sign-up link your administrator emailed you.</p>
       </div>
 
       <div class="screen" id="otpScreen">
@@ -643,98 +661,58 @@
         <p class="back-row">Wrong account? <a href="#" class="link" id="backToLogin">Sign in again</a></p>
       </div>
 
-      <!-- ===== SCREEN 3: SIGNUP — INVITATION CODE ===== -->
-      <div class="screen" id="signupCodeScreen">
+      <!-- ===== SIGNUP — STEP 1: PROFILE (customers sign up directly; staff arrive from the emailed link) ===== -->
+      <div class="screen" id="signupProfileScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Account Signup</span>
+          <span class="eyebrow" id="signupEyebrow">Create Account</span>
         </div>
 
         <div class="signup-progress">
           <span class="seg" data-step="1"></span>
           <span class="seg" data-step="2"></span>
-          <span class="seg" data-step="3"></span>
         </div>
 
-        <h1>Enter verification code</h1>
-        <p class="sub">The Admin sent a 6-digit invitation code to your email. Enter it below to start setting up your account.</p>
-
-        <form id="signupCodeForm" novalidate>
-          <div class="otp-row" id="signupCodeRow">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="0" autocomplete="one-time-code">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="1">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="2">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="3">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="4">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="5">
-          </div>
-          <p class="otp-error" id="signupCodeError">That invitation code isn't right. Check and try again.</p>
-
-          <button type="submit" class="submit" id="signupVerifyBtn" style="margin-top:20px;" disabled>Verify &amp; Continue</button>
-        </form>
-
-        <p class="back-row">Already have an account? <a href="#" class="link" id="signupBackToLogin1">Sign in instead</a></p>
-      </div>
-
-      <!-- ===== SCREEN 4: SIGNUP — PROFILE ===== -->
-      <div class="screen" id="signupProfileScreen">
-        <div class="brand-mark">
-          <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Account Signup</span>
-        </div>
-
-        <div class="signup-progress step-2">
-          <span class="seg" data-step="1"></span>
-          <span class="seg" data-step="2"></span>
-          <span class="seg" data-step="3"></span>
-        </div>
-
-        <h1>Complete your profile</h1>
-        <p class="sub">Your role and department were already assigned by the Admin. Fill in the rest of your details.</p>
+        <h1 id="signupTitle">Create your account</h1>
+        <p class="sub" id="signupSub">Sign up to browse and order from Triple E Metal Products.</p>
 
         <form id="signupProfileForm" novalidate>
 
           <div class="field">
             <label for="signupFullName">Full Name</label>
             <div class="input-shell">
-              <input type="text" id="signupFullName" placeholder="Enter your full name">
-            </div>
-          </div>
-
-          <div class="field-row">
-            <div class="field">
-              <label for="signupEmployeeId">Employee ID</label>
-              <div class="input-shell">
-                <input type="text" id="signupEmployeeId" readonly>
-              </div>
-            </div>
-            <div class="field">
-              <label for="signupPhone">Phone Number</label>
-              <div class="input-shell">
-                <input type="text" id="signupPhone" placeholder="e.g. +63 917 000 0000">
-              </div>
+              <input type="text" id="signupFullName" placeholder="Enter your full name" autocomplete="name">
             </div>
           </div>
 
           <div class="field">
             <label for="signupEmail">Email</label>
             <div class="input-shell">
-              <input type="email" id="signupEmail" placeholder="Enter your email">
+              <input type="email" id="signupEmail" placeholder="Enter your email" autocomplete="email">
             </div>
           </div>
 
           <div class="field">
-            <label for="signupDept">Department</label>
+            <label for="signupPhone">Phone Number</label>
             <div class="input-shell">
-              <input type="text" id="signupDept" readonly>
+              <input type="text" id="signupPhone" placeholder="e.g. +63 917 000 0000" autocomplete="tel">
             </div>
           </div>
 
-          <div class="field">
-            <label>Role</label>
-            <div class="role-box">
-              <span class="role-badge" id="signupRoleBadge">Role</span>
-              <span class="role-note">Assigned by Admin</span>
+          <div id="signupStaffFields" hidden>
+            <div class="field">
+              <label for="signupDept">Department</label>
+              <div class="input-shell">
+                <input type="text" id="signupDept" readonly>
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Role</label>
+              <div class="role-box">
+                <span class="role-badge" id="signupRoleBadge">Role</span>
+                <span class="role-note">Assigned by Admin</span>
+              </div>
             </div>
           </div>
 
@@ -743,20 +721,19 @@
           <button type="submit" class="submit">Continue</button>
         </form>
 
-        <p class="back-row"><a href="#" class="link" id="signupBackToCode">Back</a></p>
+        <p class="back-row" id="signupBackRow">Already have an account? <a href="#" class="link" id="signupBackToLogin1">Sign in instead</a></p>
       </div>
 
-      <!-- ===== SCREEN 5: SIGNUP — SET PASSWORD ===== -->
+      <!-- ===== SIGNUP — STEP 2: SET PASSWORD ===== -->
       <div class="screen" id="signupPasswordScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Account Signup</span>
+          <span class="eyebrow" id="signupEyebrow2">Create Account</span>
         </div>
 
-        <div class="signup-progress step-3">
+        <div class="signup-progress step-2">
           <span class="seg" data-step="1"></span>
           <span class="seg" data-step="2"></span>
-          <span class="seg" data-step="3"></span>
         </div>
 
         <h1>Set your password</h1>
@@ -767,14 +744,14 @@
           <div class="field">
             <label for="signupPassword">Password</label>
             <div class="input-shell">
-              <input type="password" id="signupPassword" placeholder="Enter your password">
+              <input type="password" id="signupPassword" placeholder="Enter your password" autocomplete="new-password">
             </div>
           </div>
 
           <div class="field">
             <label for="signupConfirmPassword">Confirm Password</label>
             <div class="input-shell">
-              <input type="password" id="signupConfirmPassword" placeholder="Re-enter your password">
+              <input type="password" id="signupConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password">
             </div>
           </div>
 
@@ -787,12 +764,25 @@
             <div class="checklist-row" data-rule="match"><span class="check-circle"></span>Passwords match</div>
           </div>
 
+          <p class="otp-error" id="signupPasswordError"></p>
+
           <div class="button-row">
             <button type="button" class="submit alt-btn" id="signupBackToProfile">Back</button>
             <button type="submit" class="submit" id="createAccountBtn" disabled>Create Account</button>
           </div>
 
         </form>
+      </div>
+
+      <!-- ===== INVITE LINK NOT VALID ===== -->
+      <div class="screen" id="inviteBadScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Sign-up Link</span>
+        </div>
+        <h1>This link can&rsquo;t be used</h1>
+        <p class="sub" id="inviteBadText">This sign-up link is invalid or has expired. Ask your administrator to send you a new one.</p>
+        <button type="button" class="submit" id="inviteBadBack">Go to sign in</button>
       </div>
 
       <p class="footnote" id="cardFootnote">Authorized Personnel Only</p>
@@ -806,7 +796,7 @@
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
     document.getElementById(id).classList.add('active');
 
-    const signupScreens = ['signupCodeScreen', 'signupProfileScreen', 'signupPasswordScreen'];
+    const signupScreens = ['signupProfileScreen', 'signupPasswordScreen'];
     document.getElementById('outerFooter').classList.toggle('show', signupScreens.includes(id));
   }
 
@@ -984,183 +974,180 @@
     showScreen('loginScreen');
   });
 
-  /* MOCK_INVITATION  */
+  /* =====================================================
+     SIGN-UP
+       Customers : "Create an account" on this page -> POST /api/signup/customer (no code)
+       Staff     : the administrator emails a one-time link  Login_Inventory.html?invite=<token>
+                   -> GET /api/signup/invite/<token> fills the form, POST /api/signup/invite/<token> creates the account
+  ===================================================== */
 
-  const MOCK_INVITATION = {
-    employeeId: 'TEM-0000',
-    department: 'Finance',
-    roleLabel: 'Finance-Admin Officer'
-  };
+  let signupMode = 'customer';      // 'customer' | 'invite'
+  let inviteToken = '';
+  const $ = (id) => document.getElementById(id);
+  const profileError = $('signupProfileError');
+  const passwordError = $('signupPasswordError');
+  const loginNotice = $('loginNotice');
 
-  const SIGNUP_DEMO_CODE = '000000';
-
-  function getInvitationDetails(code) {
-    // Placeholder for a real API call, e.g.:
-    // return fetch(`/api/invitations/${code}`).then(r => r.json());
-    return MOCK_INVITATION;
+  async function postJson(url, body){
+    const res = await fetch(url, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, status: res.status, data };
   }
 
-  /* ---------- navigation into*/
+  function showProfileError(msg){ profileError.textContent = msg; profileError.classList.add('show'); }
 
-  document.getElementById('goToSignupLink').addEventListener('click', (e) => {
-    e.preventDefault();
-    resetSignupCodeInputs();
-    showScreen('signupCodeScreen');
-    setTimeout(() => signupCodeDigits[0].focus(), 50);
-  });
-
-  document.getElementById('signupBackToLogin1').addEventListener('click', (e) => {
-    e.preventDefault();
-    showScreen('loginScreen');
-  });
-
-  document.getElementById('signupBackToCode').addEventListener('click', (e) => {
-    e.preventDefault();
-    showScreen('signupCodeScreen');
-  });
-
-  document.getElementById('signupBackToProfile').addEventListener('click', () => {
-    showScreen('signupProfileScreen');
-  });
-
-  /* ---------- step 1: invitation code ---------- */
-
-  const signupCodeRow = document.getElementById('signupCodeRow');
-  const signupCodeDigits = Array.from(document.querySelectorAll('#signupCodeRow .otp-digit'));
-  const signupCodeError = document.getElementById('signupCodeError');
-  const signupVerifyBtn = document.getElementById('signupVerifyBtn');
-
-  function resetSignupCodeInputs(){
-    signupCodeDigits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
-    signupCodeRow.classList.remove('invalid');
-    signupCodeError.classList.remove('show');
-    updateSignupVerifyState();
-  }
-
-  function updateSignupVerifyState(){
-    signupVerifyBtn.disabled = !signupCodeDigits.every(d => d.value.length === 1);
-  }
-
-  signupCodeDigits.forEach((digit, i) => {
-    digit.addEventListener('input', () => {
-      digit.value = digit.value.replace(/[^0-9]/g, '').slice(0, 1);
-      digit.classList.toggle('filled', digit.value.length === 1);
-      signupCodeRow.classList.remove('invalid');
-      signupCodeError.classList.remove('show');
-      if (digit.value && i < signupCodeDigits.length - 1){
-        signupCodeDigits[i + 1].focus();
-      }
-      updateSignupVerifyState();
-    });
-
-    digit.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !digit.value && i > 0){
-        signupCodeDigits[i - 1].focus();
-      }
-    });
-
-    digit.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, signupCodeDigits.length);
-      pasted.split('').forEach((char, idx) => {
-        if (signupCodeDigits[idx]){
-          signupCodeDigits[idx].value = char;
-          signupCodeDigits[idx].classList.add('filled');
-        }
-      });
-      const next = Math.min(pasted.length, signupCodeDigits.length - 1);
-      signupCodeDigits[next].focus();
-      updateSignupVerifyState();
-    });
-  });
-
-  document.getElementById('signupCodeForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const entered = signupCodeDigits.map(d => d.value).join('');
-
-    if (entered !== SIGNUP_DEMO_CODE) {
-      signupCodeRow.classList.add('invalid');
-      signupCodeError.classList.add('show');
-      signupCodeDigits[0].focus();
-      return;
+  function startSignup(mode, invitation){
+    signupMode = mode;
+    profileError.classList.remove('show');
+    passwordError.classList.remove('show');
+    $('signupPassword').value = ''; $('signupConfirmPassword').value = '';
+    updateSignupChecklist();
+    const staff = mode === 'invite';
+    $('signupStaffFields').hidden = !staff;
+    $('signupBackRow').hidden = staff;
+    $('signupEmail').readOnly = staff;
+    $('signupEyebrow').textContent = $('signupEyebrow2').textContent = staff ? 'Team Invitation' : 'Create Account';
+    $('signupTitle').textContent = staff ? 'Welcome to the team' : 'Create your account';
+    $('signupSub').textContent = staff
+      ? 'Your administrator set up your role. Confirm your details, then choose a password.'
+      : 'Sign up to browse and order from Triple E Metal Products.';
+    if (staff){
+      $('signupFullName').value = invitation.name || '';
+      $('signupEmail').value = invitation.email || '';
+      $('signupDept').value = invitation.department || '';
+      $('signupRoleBadge').textContent = invitation.roleLabel || '';
+    } else {
+      ['signupFullName', 'signupEmail', 'signupPhone'].forEach(id => { $(id).value = ''; });
     }
-
-    const invitation = getInvitationDetails(entered);
-
-    document.getElementById('signupEmployeeId').value = invitation.employeeId;
-    document.getElementById('signupDept').value = invitation.department;
-    document.getElementById('signupRoleBadge').textContent = invitation.roleLabel;
-
     showScreen('signupProfileScreen');
-  });
+    setTimeout(() => $(staff ? 'signupPhone' : 'signupFullName').focus(), 50);
+  }
 
-  /* ---------- step 2: profile ---------- */
+  /* ---------- navigation ---------- */
+  $('goToSignupLink').addEventListener('click', (e) => { e.preventDefault(); startSignup('customer'); });
+  $('signupBackToLogin1').addEventListener('click', (e) => { e.preventDefault(); showScreen('loginScreen'); });
+  $('signupBackToProfile').addEventListener('click', () => showScreen('signupProfileScreen'));
+  $('inviteBadBack').addEventListener('click', () => showScreen('loginScreen'));
 
-  document.getElementById('signupProfileForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-
-    const fullName = document.getElementById('signupFullName').value.trim();
-    const phone = document.getElementById('signupPhone').value.trim();
-    const email = document.getElementById('signupEmail').value.trim();
-    const profileError = document.getElementById('signupProfileError');
-
-    if (!fullName || !phone) {
-      profileError.classList.add('show');
-      return;
+  /* ---------- the emailed staff link ---------- */
+  (async function openInviteLink(){
+    const token = new URLSearchParams(location.search).get('invite');
+    if (!token) return;
+    history.replaceState(null, '', location.pathname);     // keep the token out of the address bar / history
+    try {
+      const res = await fetch('/api/signup/invite/' + encodeURIComponent(token), { credentials: 'same-origin' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (data.error) $('inviteBadText').textContent = data.error;
+        return showScreen('inviteBadScreen');
+      }
+      inviteToken = token;
+      startSignup('invite', data);
+    } catch (err) {
+      $('inviteBadText').textContent = 'Could not reach the server. Check your connection and open the link again.';
+      showScreen('inviteBadScreen');
     }
+  })();
+
+  /* ---------- step 1: profile ---------- */
+  $('signupProfileForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const fullName = $('signupFullName').value.trim();
+    const phone = $('signupPhone').value.trim();
+    const email = $('signupEmail').value.trim();
+
+    if (!fullName) return showProfileError('Full name is required.');
+    if (fullName.length < 2) return showProfileError('Full name must be at least 2 characters.');
+    if (!emailPattern.test(email)) return showProfileError('Enter a valid email address.');
+    if (!phone) return showProfileError('Phone number is required.');
 
     profileError.classList.remove('show');
-
-    document.getElementById('signupPasswordEmail').textContent = email || 'your email';
-
+    $('signupPasswordEmail').textContent = email;
     showScreen('signupPasswordScreen');
+    setTimeout(() => $('signupPassword').focus(), 50);
   });
 
-  /* ---------- step 3: set password ---------- */
-
-  const signupPasswordInput = document.getElementById('signupPassword');
-  const signupConfirmInput = document.getElementById('signupConfirmPassword');
-  const createAccountBtn = document.getElementById('createAccountBtn');
+  /* ---------- step 2: set password ---------- */
+  const signupPasswordInput = $('signupPassword');
+  const signupConfirmInput = $('signupConfirmPassword');
+  const createAccountBtn = $('createAccountBtn');
   const signupChecklistRows = Array.from(document.querySelectorAll('#signupChecklist .checklist-row'));
 
   function evaluateSignupPasswordRules(){
     const pw = signupPasswordInput.value;
     const confirm = signupConfirmInput.value;
-
     return {
       length: pw.length >= 8,
       upper: /[A-Z]/.test(pw),
       lower: /[a-z]/.test(pw),
       number: /[0-9]/.test(pw),
-      special: /[!@#$%^&*()_\-+=\[\]{};:'",.<>\/?\\|`~]/.test(pw),
+      special: /[^A-Za-z0-9]/.test(pw),
       match: pw.length > 0 && pw === confirm
     };
   }
 
   function updateSignupChecklist(){
     const rules = evaluateSignupPasswordRules();
-
-    signupChecklistRows.forEach(row => {
-      const rule = row.dataset.rule;
-      row.classList.toggle('met', !!rules[rule]);
-    });
-
+    signupChecklistRows.forEach(row => row.classList.toggle('met', !!rules[row.dataset.rule]));
     createAccountBtn.disabled = !Object.values(rules).every(Boolean);
   }
 
   signupPasswordInput.addEventListener('input', updateSignupChecklist);
   signupConfirmInput.addEventListener('input', updateSignupChecklist);
 
-  document.getElementById('signupPasswordForm').addEventListener('submit', (e) => {
+  $('signupPasswordForm').addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!Object.values(evaluateSignupPasswordRules()).every(Boolean)) return;
+    passwordError.classList.remove('show');
 
-    const rules = evaluateSignupPasswordRules();
-    if (!Object.values(rules).every(Boolean)) return;
+    const body = {
+      name: $('signupFullName').value.trim(),
+      phone: $('signupPhone').value.trim(),
+      password: signupPasswordInput.value
+    };
+    let url = '/api/signup/invite/' + encodeURIComponent(inviteToken);
+    if (signupMode === 'customer'){ url = '/api/signup/customer'; body.email = $('signupEmail').value.trim(); }
 
-    // Placeholder for a real account-creation 
-    alert('Account created. You can now sign in.');
-    window.location.href = 'LandingPage_Inventory-1.html';
+    createAccountBtn.disabled = true;
+    const original = createAccountBtn.textContent;
+    createAccountBtn.textContent = 'Creating…';
+    let r;
+    try { r = await postJson(url, body); }
+    catch (err) { r = { ok: false, status: 0, data: { error: 'Could not reach the server. Try again.' } }; }
+    createAccountBtn.textContent = original;
+    updateSignupChecklist();
+
+    if (r.ok){
+      const email = $('signupEmail').value.trim();
+      inviteToken = '';
+      ['signupPassword', 'signupConfirmPassword'].forEach(id => { $(id).value = ''; });
+      updateSignupChecklist();
+      loginNotice.textContent = 'Account created. Sign in with ' + email + ' to continue.';
+      loginNotice.classList.add('show');
+      emailInput.value = email;
+      passwordInput.value = '';
+      showScreen('loginScreen');
+      setTimeout(() => passwordInput.focus(), 50);
+      return;
+    }
+    if (r.status === 404 && signupMode === 'invite'){        // link was used, cancelled or expired meanwhile
+      $('inviteBadText').textContent = r.data.error || 'This sign-up link is invalid or has expired.';
+      return showScreen('inviteBadScreen');
+    }
+    const f = r.data.fields || {};
+    const msg = r.data.error || 'Could not create the account. Try again.';
+    if (f.name || f.phone || f.email){                       // a detail from step 1 was refused: go back and show why
+      showScreen('signupProfileScreen');
+      return showProfileError(msg);
+    }
+    passwordError.textContent = f.password || msg;
+    passwordError.classList.add('show');
   });
+
+  ['email', 'password'].forEach(id => $(id).addEventListener('input', () => loginNotice.classList.remove('show')));
 </script>
 
 </body>

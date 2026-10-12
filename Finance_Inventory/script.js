@@ -4401,6 +4401,57 @@ function renderAccountsTable() {
 }
 
 
+function inviteToast(message, isError) {
+
+    const el = document.createElement("div");
+    el.className = "app-toast" + (isError ? " error" : "");
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 5000);
+
+}
+
+
+async function inviteApi(path, options) {
+
+    const res = await fetch("/api/invitations" + path, Object.assign({
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" }
+    }, options));
+
+    if (res.status === 401) {
+        window.location.href = "Login_Inventory.html";
+        throw new Error("Not signed in");
+    }
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+        throw Object.assign(
+            new Error(data.error || "Request failed"),
+            { fields: data.fields }
+        );
+    }
+
+    return data;
+
+}
+
+
+async function loadPendingInvites() {
+
+    try {
+        const rows = await inviteApi("");
+        pendingInvitesData.splice(0, pendingInvitesData.length, ...rows);
+    } catch (err) {
+        console.warn("[invites] could not load:", err.message);
+    }
+
+    renderPendingInvites();
+
+}
+
+
 function renderPendingInvites() {
 
     const tableBody =
@@ -4428,18 +4479,59 @@ function renderPendingInvites() {
                 <td>${escapeHTML(invite.name)}</td>
                 <td class="dim">${escapeHTML(invite.email)}</td>
                 <td class="dim">${escapeHTML(invite.role)}</td>
-                <td class="dim">${escapeHTML(invite.codeSent)}</td>
+                <td class="dim">${escapeHTML(invite.sent)}</td>
                 <td>
-                    <span class="status-pill watch">Pending</span>
+                    <span class="status-pill ${invite.status === "expired" ? "out" : "watch"}">${invite.status === "expired" ? "Expired" : "Pending"}</span>
                 </td>
                 <td>
-                    <button type="button" class="btn-secondary btn-sm">
+                    <button type="button" class="btn-secondary btn-sm" data-invite-resend="${Number(invite.id)}">
                         Resend
+                    </button>
+                    <button type="button" class="btn-secondary btn-sm" data-invite-cancel="${Number(invite.id)}">
+                        Cancel
                     </button>
                 </td>
             </tr>
 
         `).join("");
+
+}
+
+
+async function handleInviteAction(event) {
+
+    const resend = event.target.closest("[data-invite-resend]");
+    const cancel = event.target.closest("[data-invite-cancel]");
+    const button = resend || cancel;
+
+    if (!button) {
+        return;
+    }
+
+    const id = button.dataset.inviteResend || button.dataset.inviteCancel;
+    const invite = pendingInvitesData.find(i => String(i.id) === String(id));
+
+    if (cancel && !confirm("Cancel the invitation for " + (invite ? invite.email : "this person") + "? Their link will stop working.")) {
+        return;
+    }
+
+    button.disabled = true;
+
+    try {
+
+        if (resend) {
+            const r = await inviteApi("/" + id + "/resend", { method: "POST" });
+            inviteToast(r.emailSent ? "A new sign-up link was emailed." : r.message, !r.emailSent);
+        } else {
+            await inviteApi("/" + id, { method: "DELETE" });
+            inviteToast("Invitation cancelled.");
+        }
+
+    } catch (err) {
+        inviteToast(err.message, true);
+    }
+
+    await loadPendingInvites();
 
 }
 
@@ -4496,7 +4588,15 @@ function initUserManagement() {
 
     renderAccountsTable();
     renderPendingInvites();
+    loadPendingInvites();
     initEditUserModal();
+
+    const pendingBody =
+        document.getElementById("pendingInvitesTableBody");
+
+    if (pendingBody) {
+        pendingBody.addEventListener("click", handleInviteAction);
+    }
 
 
     const inviteButton =
@@ -4561,7 +4661,7 @@ function initUserManagement() {
 
     if (form) {
 
-        form.addEventListener("submit", event => {
+        form.addEventListener("submit", async event => {
 
             event.preventDefault();
 
@@ -4571,12 +4671,16 @@ function initUserManagement() {
             const email =
                 document.getElementById("inviteEmail");
 
+            const role =
+                document.getElementById("inviteRole");
+
             if (
                 !name.value.trim() ||
                 !email.value.trim()
             ) {
 
                 if (error) {
+                    error.textContent = "All fields are required.";
                     error.classList.add("show");
                 }
 
@@ -4587,11 +4691,41 @@ function initUserManagement() {
                 error.classList.remove("show");
             }
 
-            alert(
-                "Invitation details hehe"
-            );
+            const submit = form.querySelector('button[type="submit"]');
+            submit.disabled = true;
 
-            closeInviteUserModal();
+            try {
+
+                const r = await inviteApi("", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        name: name.value,
+                        email: email.value,
+                        role: role.value
+                    })
+                });
+
+                closeInviteUserModal();
+
+                inviteToast(
+                    r.emailSent
+                        ? "Invitation sent to " + email.value.trim() + "."
+                        : r.message,
+                    !r.emailSent
+                );
+
+                await loadPendingInvites();
+
+            } catch (err) {
+
+                if (error) {
+                    error.textContent = err.message;
+                    error.classList.add("show");
+                }
+
+            } finally {
+                submit.disabled = false;
+            }
 
         });
 

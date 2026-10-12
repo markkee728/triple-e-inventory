@@ -99,7 +99,7 @@
         </div>
 
         <aside class="panel cartpane" id="cartPane" aria-label="Current sale">
-          <div class="cart-head"><h2>Current sale<span class="cart-count" id="cartCount">0</span></h2><button class="btn-secondary btn-sm" id="clear">Clear</button></div>
+          <div class="cart-head"><h2>Current sale<span class="cart-count" id="cartCount">0</span></h2><div style="display:flex;gap:6px"><button class="btn-secondary btn-sm" id="heldBtn" hidden title="Resume a held sale">Held<span class="cart-count" id="heldCount" style="margin-left:6px;padding:0 7px">0</span></button><button class="btn-secondary btn-sm" id="holdBtn" title="Park this sale and serve another customer">Hold</button><button class="btn-secondary btn-sm" id="clear">Clear</button></div></div>
           <div class="lines" id="lines"></div>
           <div class="pay">
             <div class="row"><span class="dim">VAT (12%, included)</span><span class="mono" id="vat">₱0.00</span></div>
@@ -131,11 +131,12 @@
         <div class="stat-card amber"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="stat-label">Cash / Card</div><div class="stat-value" id="stSplit" style="font-size:22px;padding-top:4px">₱0 / ₱0</div><div class="stat-foot">By payment method</div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><div><div class="panel-title">Receipts</div><div class="panel-sub">Reprint a receipt or ask admin to void one</div></div></div>
+        <div class="panel-head" style="flex-wrap:wrap;gap:10px"><div><div class="panel-title" id="rcTitle">Receipts</div><div class="panel-sub">Reprint a receipt or ask admin to void one. Customer back with an old receipt? Pick the date or type the receipt number.</div></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="date" id="salesDate" aria-label="Sales date" style="width:auto"><input id="salesQ" placeholder="Receipt no." maxlength="30" autocomplete="off" aria-label="Search receipt number" style="width:150px"><button class="btn-secondary btn-sm" id="salesToday">Today</button></div></div>
         <div class="table-wrapper"><table>
           <thead><tr><th>Receipt</th><th>Time</th><th class="r">Items</th><th class="r">Total</th><th>Paid by</th><th>Status</th><th></th></tr></thead>
           <tbody id="saleRows"></tbody></table></div>
-        <div class="empty" id="noSales"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>No sales yet today.</div>
+        <div class="empty" id="noSales"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><span id="noSalesTxt">No sales yet today.</span></div>
       </div>
     </section>
 
@@ -149,6 +150,15 @@
 <div class="modal-overlay" id="voidBg"><div class="modal"><h3>Request void</h3><p class="dim" id="voidFor"></p>
   <label for="voidReason">Reason (required)</label><textarea id="voidReason" rows="3"></textarea><div class="err-text" id="voidErr"></div>
   <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
+<div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
+  <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
+  <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" onclick="closeModal('holdBg')">Cancel</button></div></div></div>
+<div class="modal-overlay" id="heldBg"><div class="modal" style="max-width:480px"><h3>Held sales</h3><p class="dim">Resuming one while you have items in the cart will hold the current sale automatically.</p>
+  <div id="heldList"></div>
+  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('heldBg')">Close</button></div></div></div>
+<div class="modal-overlay" id="noticeBg"><div class="modal" style="max-width:440px"><h3>Void request update</h3><p class="dim">Admin has answered your void request.</p>
+  <div id="noticeList"></div>
+  <div class="modal-actions"><button class="btn-primary" id="noticeOk">Got it</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
@@ -191,7 +201,13 @@ async function submitSale(sale) {          // server re-prices from the database
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
     items: sale.items.map(i => ({ sku: i.sku, qty: i.qty })), method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef }) });
 }
-async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return null; } }   // null = could not reach the server (keep what is on screen)
+let salesFilter = { date: '', q: '' };       // empty = today
+async function loadTodaySales() {
+  const qs = salesFilter.q ? '?receipt=' + encodeURIComponent(salesFilter.q) : salesFilter.date ? '?date=' + salesFilter.date : '';
+  try { return await api('/api/pos/sales' + qs); } catch (e) { return null; }
+}   // null = could not reach the server (keep what is on screen)
+async function loadVoidNotices() { try { return await api('/api/pos/void-notices'); } catch (e) { return []; } }
+async function ackVoidNotices(ids) { try { await api('/api/pos/void-notices/seen', { method: 'POST', body: JSON.stringify({ ids }) }); } catch (e) {} }
 async function requestVoid(id, why) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
 
 /* ===== App ===== */
@@ -214,6 +230,64 @@ const CARD_RE = /^[A-Z0-9-]{4,30}$/;
 const cardCode = () => $('cardRef').value.trim().toUpperCase();
 let busy = false;
 const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
+
+/* ----- persistence + hold/park sales -----
+   The open cart and every held sale are saved in this browser, per cashier, so a refresh (or a crash) loses nothing.
+   Only SKU + qty are stored; prices and stock always come fresh from the server when a sale is resumed. */
+let held = [], holdSeq = 0, ready = false;
+const storeKey = () => 'tripleE.pos.' + (USER.id != null ? USER.id : (USER.name || 'cashier'));
+const readStore = () => { try { return JSON.parse(localStorage.getItem(storeKey())) || {}; } catch (e) { return {}; } };
+function writeStore() {
+  if (!ready) return;                                   // never overwrite saved data before it has been loaded
+  try { localStorage.setItem(storeKey(), JSON.stringify({ cart, held, seq: holdSeq })); } catch (e) {}
+}
+const cleanLines = a => (Array.isArray(a) ? a : []).filter(l => l && typeof l.sku === 'string' && Number(l.qty) > 0).map(l => ({ sku: l.sku, qty: Number(l.qty) }));
+function updateHeldBtn() { $('heldCount').textContent = held.length; $('heldBtn').hidden = !held.length; $('holdBtn').disabled = !cart.length; }
+function pushHeld(label) {
+  holdSeq++;
+  held.push({ id: 'H' + Date.now().toString(36) + holdSeq, no: holdSeq, label: (label || '').trim().slice(0, 40), at: Date.now(), items: cart.map(l => ({ sku: l.sku, qty: l.qty })) });
+}
+function heldTotal(h) { return h.items.reduce((s, i) => { const p = prod(i.sku); return p ? s + cents(p.price) * i.qty : s; }, 0) / 100; }
+function renderHeld() {
+  $('heldList').innerHTML = held.length ? held.slice().reverse().map(h => {
+    const units = h.items.reduce((n, i) => n + i.qty, 0), lines = h.items.map(i => { const p = prod(i.sku); return (p ? esc(p.name) : esc(i.sku) + ' (unavailable)') + ' × ' + i.qty; }).join(', ');
+    return `<div class="line"><div class="top"><div><strong>${esc(h.label || 'Held sale #' + h.no)}</strong>
+      <div class="faint" style="font-size:12.5px;font-weight:400">#${h.no} · held ${new Date(h.at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })} · ${units} item${units === 1 ? '' : 's'}</div></div>
+      <span class="mono">${peso(heldTotal(h))}</span></div>
+      <div class="faint" style="font-size:12.5px;margin-top:4px">${lines}</div>
+      <div class="bot"><button class="btn-primary btn-sm" data-resume="${esc(h.id)}">Resume</button><button class="btn-danger btn-sm" data-discard="${esc(h.id)}">Discard</button></div></div>`; }).join('')
+    : '<div class="empty">No held sales.</div>';
+}
+function openHold() {
+  if (!cart.length) return;
+  $('holdLabel').value = ''; $('holdBg').classList.add('show'); setTimeout(() => $('holdLabel').focus(), 30);
+}
+function confirmHold() {
+  if (!cart.length) return closeModal('holdBg');
+  const label = $('holdLabel').value; pushHeld(label); closeModal('holdBg'); resetSale();
+  toast('Sale held — ready for the next customer.');
+}
+function openHeld() { renderHeld(); $('heldBg').classList.add('show'); }
+function resumeHeld(id) {
+  const i = held.findIndex(h => h.id === id); if (i < 0) return;
+  const h = held[i];
+  if (!h.items.some(x => { const p = prod(x.sku); return p && p.available > 0; })) return toast('None of the items on this sale are in stock right now.', true);
+  held.splice(i, 1);
+  if (cart.length) pushHeld('Swapped out (#' + (holdSeq + 1) + ')');   // never lose the sale that is currently on screen
+  cart = cleanLines(h.items);
+  $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false;
+  closeModal('heldBg'); syncCart(); showPage('terminal'); toast('Resumed ' + (h.label || 'held sale #' + h.no) + '.');
+}
+function discardHeld(id) {
+  const h = held.find(x => x.id === id); if (!h) return;
+  if (!confirm('Discard held sale ' + (h.label || '#' + h.no) + '? This cannot be undone.')) return;
+  held = held.filter(x => x.id !== id); writeStore(); updateHeldBtn(); renderHeld();
+}
+addEventListener('storage', e => {                      // another tab on the same till changed the held list
+  if (!ready || e.key !== storeKey()) return;
+  const st = readStore(); held = Array.isArray(st.held) ? st.held : []; holdSeq = Math.max(holdSeq, st.seq || 0);
+  updateHeldBtn(); if ($('heldBg').classList.contains('show')) renderHeld();
+});
 
 /* ----- theme (same behaviour + storage key as the inventory app) ----- */
 function applyTheme(t) {
@@ -289,7 +363,7 @@ function renderCart() {
   const t = total(), units = cart.reduce((n, l) => n + l.qty, 0);
   $('total').textContent = peso(t); $('vat').textContent = peso(t * VAT_RATE / (1 + VAT_RATE));
   $('cartCount').textContent = units; $('clear').disabled = !cart.length;
-  updatePay(); updateFab(); renderProducts();
+  updatePay(); updateFab(); renderProducts(); updateHeldBtn(); writeStore();
 }
 function updateFab() {
   const units = cart.reduce((n, l) => n + l.qty, 0);
@@ -319,7 +393,10 @@ function addToCart(sku) {
 function renderSales() {
   const live = sales.filter(s => s.status !== 'Voided');
   const sum = a => a.reduce((n, s) => n + s.total, 0);
-  $('navSalesCount').textContent = sales.length; $('noSales').hidden = sales.length > 0;
+  const viewingOld = !!(salesFilter.date || salesFilter.q);
+  $('rcTitle').textContent = salesFilter.q ? 'Receipts matching "' + salesFilter.q + '"' : salesFilter.date ? 'Receipts for ' + salesFilter.date : 'Receipts';
+  $('noSalesTxt').textContent = viewingOld ? 'No receipts found.' : 'No sales yet today.';
+  $('navSalesCount').textContent = viewingOld ? $('navSalesCount').textContent : sales.length; $('noSales').hidden = sales.length > 0;
   $('stTotal').textContent = peso(sum(live)); $('stCount').textContent = live.length;
   $('stAvg').textContent = 'Avg ' + peso(live.length ? sum(live) / live.length : 0);
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
@@ -437,6 +514,8 @@ document.addEventListener('click', e => {
   if (d.page) showPage(d.page);
   if (d.cat !== undefined && b.classList.contains('pill-btn')) { cat = d.cat; renderCats(); renderProducts(); }
   if (d.view) { view = d.view; document.querySelectorAll('.view-btn').forEach(x => x.classList.toggle('active', x === b)); renderProducts(); }
+  if (d.resume) resumeHeld(d.resume);
+  if (d.discard) discardHeld(d.discard);
   if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
   if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
 });
@@ -455,14 +534,50 @@ $('q').onkeydown = e => {                                   // scanner / keyboar
   else if (hit) toast(hit.name + ' is out of stock.', true);
 };
 document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
-  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); $('userDropdown').classList.remove('open'); } });
+  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('holdBg'); closeModal('heldBg'); $('userDropdown').classList.remove('open'); } });
 $('cardOk').onchange = updatePay; $('tendered').oninput = updatePay; $('cardRef').oninput = () => { $('cardRef').value = $('cardRef').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); updatePay(); };
 $('complete').onclick = completeSale; $('clear').onclick = resetSale;
+$('holdBtn').onclick = openHold; $('heldBtn').onclick = openHeld; $('holdOk').onclick = confirmHold;
+$('holdLabel').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); confirmHold(); } };
 $('cartFab').onclick = () => $('cartPane').scrollIntoView({ behavior: 'smooth', block: 'start' });
 $('logout').onclick = async () => { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = 'Login_Inventory.html'; };
 addEventListener('scroll', () => document.querySelector('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
 const tick = () => $('clock').textContent = new Date().toLocaleTimeString('en-PH');
 tick(); setInterval(tick, 1000);
+
+
+/* ----- look up older receipts ----- */
+async function applySalesFilter() {
+  const f = await loadTodaySales();
+  if (f) { sales = f; renderSales(); } else toast('Could not load receipts.', true);
+}
+$('salesDate').max = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);   // Manila date
+$('salesDate').onchange = () => { salesFilter = { date: $('salesDate').value, q: '' }; $('salesQ').value = ''; applySalesFilter(); };
+let salesQT; $('salesQ').oninput = () => { $('salesQ').value = $('salesQ').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); clearTimeout(salesQT);
+  salesQT = setTimeout(() => { salesFilter = { date: '', q: $('salesQ').value }; if (salesFilter.q) $('salesDate').value = ''; applySalesFilter(); }, 350); };
+$('salesToday').onclick = () => { salesFilter = { date: '', q: '' }; $('salesDate').value = ''; $('salesQ').value = ''; applySalesFilter(); };
+/* ----- alert when admin approves / rejects a void request ----- */
+let notices = [], noticeBusy = false;
+function showNotices(list) {
+  notices = list;
+  $('noticeList').innerHTML = list.map(n => `<div style="margin:10px 0;padding:12px 14px;border-radius:10px;border:1px solid ${n.approved ? 'var(--ok,#2e9e5b)' : 'var(--bad,#d64545)'}">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong class="mono">${esc(n.receiptNo)}</strong>
+    <span class="status-pill ${n.approved ? 'ok' : 'bad'}">${n.approved ? 'Void approved' : 'Void rejected'}</span></div>
+    <div class="dim" style="margin-top:6px;font-size:13.5px">${n.approved ? 'The sale is voided and its items went back into stock.' : 'The sale stands as completed — nothing was changed.'}</div>
+    <div class="faint" style="margin-top:4px;font-size:12.5px">Your reason: ${esc(n.reason)} · ${esc(n.decidedBy)}, ${esc(n.decidedAt)}</div></div>`).join('');
+  $('noticeBg').classList.add('show');
+}
+async function checkVoidNotices() {
+  if (noticeBusy || $('noticeBg').classList.contains('show')) return;
+  noticeBusy = true;
+  try {
+    const list = await loadVoidNotices();
+    if (list.length) { const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); } showNotices(list); }
+  } finally { noticeBusy = false; }
+}
+$('noticeOk').onclick = async () => { const ids = notices.map(n => n.id); closeModal('noticeBg'); await ackVoidNotices(ids); };
+setInterval(() => { if (!document.hidden) checkVoidNotices(); }, 10000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVoidNotices(); });
 
 $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 (async () => {
@@ -471,7 +586,10 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
   if (window.AccountMenu) AccountMenu.setUser(USER);
   PRODUCTS = await loadProducts(); sales = (await loadTodaySales()) || [];
-  renderCats(); renderProducts(); renderCart(); renderSales();
+  const st = readStore(); held = Array.isArray(st.held) ? st.held : []; holdSeq = Number(st.seq) || held.reduce((m, h) => Math.max(m, h.no || 0), 0);
+  if (PRODUCTS.length) { cart = cleanLines(st.cart); ready = true; }      // if the catalogue failed to load, leave the saved data untouched
+  renderCats(); renderProducts(); syncCart(); renderSales();
+  checkVoidNotices();
 })();
 </script>
 </body>

@@ -1086,6 +1086,8 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
   res.json(rows.map(a => ({ timestamp: a.ts, user: a.user_name || 'System', role: a.role_label, action: a.action, detail: a.detail })));
 }));
 
+/* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
+require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, assertEmailDomain, TZ });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 /* ---------- stock count (physical inventory) ---------- */
