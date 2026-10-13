@@ -18,6 +18,26 @@
 .line .ovr{color:#e0a43a;font-size:12px;font-weight:600}
 .link-btn{background:none;border:0;padding:0;color:var(--blue-bright);font-size:12.5px;cursor:pointer;text-decoration:underline}
 .link-btn:hover{filter:brightness(1.2)}
+/* Cash Shift form spacing and accessibility */
+#page-shift .cash-shift-panel { padding: 28px; max-width: 900px; }
+#page-shift .shift-form-group { display: flex; flex-direction: column; gap: 9px; margin-bottom: 22px; }
+#page-shift .shift-form-group label { display: block; margin: 0; font-weight: 600; }
+#page-shift .shift-form-group input,
+#page-shift .shift-form-group select,
+#page-shift .shift-form-group textarea { box-sizing: border-box; display: block; width: 100%; min-height: 46px; margin: 0; padding: 11px 14px; border-radius: 8px; }
+#page-shift .shift-form-group textarea { min-height: 98px; resize: vertical; }
+#page-shift .shift-movement-card { margin: 26px 0 30px; padding: 24px; border: 1px solid var(--border,#777); border-radius: 12px; }
+#page-shift .shift-movement-card h3 { margin: 0 0 8px; }
+#page-shift .shift-movement-card > .faint { margin: 0 0 24px; line-height: 1.55; }
+#page-shift .shift-form-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 6px; }
+#page-shift .shift-form-actions button { min-height: 44px; padding: 11px 20px; }
+#page-shift #shiftMovementStatus { margin-top: 14px; line-height: 1.5; min-height: 0; }
+#page-shift #shiftMovementStatus:empty { display: none; }
+#page-shift .shift-close-fields { padding-top: 8px; }
+#page-shift .shift-close-fields .shift-form-actions { margin-top: 8px; }
+#page-shift .shift-stats { margin: 24px 0; gap: 14px; }
+#page-shift .shift-history-panel { margin-top: 24px; padding: 24px; }
+@media (max-width: 600px) { #page-shift .cash-shift-panel { padding: 18px; } #page-shift .shift-movement-card { padding: 18px; } #page-shift .shift-form-actions button { width: 100%; } }
 </style>
 </head>
 <body>
@@ -158,18 +178,32 @@
 
     <section class="page" id="page-shift">
       <div class="welcome"><h1>Cash Shift</h1><p>Manual cash reconciliation — no electronic cash drawer required.</p></div>
-      <div class="panel" style="padding:24px;max-width:860px">
+      <div class="panel cash-shift-panel">
         <h2 id="shiftStatus">Loading shift...</h2>
         <p id="shiftCheckoutWarning" class="faint">Open a shift before recording sales.</p>
-        <div id="shiftOpenPanel" hidden><label for="shiftOpeningInput">Opening cash (₱)</label><input type="number" id="shiftOpeningInput" min="0" max="10000000" step="0.01" placeholder="0.00"><p><button class="btn-primary" id="shiftOpenBtn">Open Cash Shift</button></p></div>
+        <div id="shiftOpenPanel" hidden>
+          <div class="shift-form-group"><label for="shiftOpeningInput">Opening cash (₱)</label><input type="number" id="shiftOpeningInput" min="0" max="10000000" step="0.01" placeholder="0.00"></div>
+          <div class="shift-form-actions"><button class="btn-primary" id="shiftOpenBtn">Open Cash Shift</button></div>
+        </div>
         <div id="shiftClosePanel" hidden>
-          <div class="stats" style="margin:18px 0"><div class="stat-card"><div class="stat-label">Opening Cash</div><div class="stat-value" id="shiftOpening">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Sales</div><div class="stat-value" id="shiftSales">₱0.00</div></div><div class="stat-card"><div class="stat-label">Expected Cash</div><div class="stat-value" id="shiftExpected">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Transactions</div><div class="stat-value" id="shiftTransactions">0</div></div></div>
-          <div style="margin:16px 0;padding:14px;border:1px solid var(--border,#777);border-radius:8px"><h3>Cash Added / Cash Removed</h3><p class="faint">Record cash-box movements that are not sales (e.g. change float or petty cash).</p><label for="shiftMovementKind">Movement</label><select id="shiftMovementKind"><option value="cash_in">Cash added</option><option value="cash_out">Cash removed</option></select><label for="shiftMovementAmount">Amount (₱)</label><input id="shiftMovementAmount" type="number" min="0.01" step="0.01"><label for="shiftMovementReason">Reason</label><input id="shiftMovementReason" maxlength="300" placeholder="Required, at least 5 characters"><p><button class="btn-secondary" id="shiftMovementBtn">Record movement</button></p><div id="shiftMovementStatus" role="status"></div></div>
-          <label for="shiftClosingInput">Actual cash counted (₱)</label><input type="number" id="shiftClosingInput" min="0" max="10000000" step="0.01" placeholder="0.00">
-          <label for="shiftNote">Closing note (optional)</label><textarea id="shiftNote" rows="2" maxlength="500" placeholder="Explain any shortage or overage"></textarea><p><button class="btn-primary" id="shiftCloseBtn">Close Cash Shift</button></p>
+          <div class="stats shift-stats"><div class="stat-card"><div class="stat-label">Opening Cash</div><div class="stat-value" id="shiftOpening">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Sales</div><div class="stat-value" id="shiftSales">₱0.00</div></div><div class="stat-card"><div class="stat-label">Expected Cash</div><div class="stat-value" id="shiftExpected">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Transactions</div><div class="stat-value" id="shiftTransactions">0</div></div></div>
+          <div class="shift-movement-card">
+            <h3>Cash Added / Cash Removed</h3>
+            <p class="faint">Record cash-box movements that are not sales (e.g. change float or petty cash).</p>
+            <div class="shift-form-group"><label for="shiftMovementKind">Movement</label><select id="shiftMovementKind"><option value="cash_in">Cash added</option><option value="cash_out">Cash removed</option></select></div>
+            <div class="shift-form-group"><label for="shiftMovementAmount">Amount (₱)</label><input id="shiftMovementAmount" type="number" min="0.01" step="0.01" placeholder="0.00"></div>
+            <div class="shift-form-group"><label for="shiftMovementReason">Reason</label><input id="shiftMovementReason" maxlength="300" placeholder="Required, at least 5 characters"></div>
+            <div class="shift-form-actions"><button class="btn-secondary" id="shiftMovementBtn">Record movement</button></div>
+            <div id="shiftMovementStatus" role="status" aria-live="polite"></div>
+          </div>
+          <div class="shift-close-fields">
+            <div class="shift-form-group"><label for="shiftClosingInput">Actual cash counted (₱)</label><input type="number" id="shiftClosingInput" min="0" max="10000000" step="0.01" placeholder="0.00"></div>
+            <div class="shift-form-group"><label for="shiftNote">Closing note (optional)</label><textarea id="shiftNote" rows="3" maxlength="500" placeholder="Explain any shortage or overage"></textarea></div>
+            <div class="shift-form-actions"><button class="btn-primary" id="shiftCloseBtn">Close Cash Shift</button></div>
+          </div>
         </div>
       </div>
-      <div class="panel" style="margin-top:20px;padding:20px"><h2>My Shift History</h2><div class="table-wrapper"><table><thead><tr><th>Shift</th><th>Opened</th><th>Closed</th><th>Cash Sales</th><th>Difference</th></tr></thead><tbody id="shiftHistory"></tbody></table></div></div>
+      <div class="panel shift-history-panel"><h2>My Shift History</h2><div class="table-wrapper"><table><thead><tr><th>Shift</th><th>Opened</th><th>Closed</th><th>Cash Sales</th><th>Difference</th></tr></thead><tbody id="shiftHistory"></tbody></table></div></div>
     </section>
   </div>
 </main>
