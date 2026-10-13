@@ -1137,6 +1137,17 @@ async function ensureMovementColumns() {
   } catch (err) { console.warn('[db] could not check the stock movement columns:', err.message); }
 }
 ensureMovementColumns();
+
+// Serve the Triple-E frontend
+const frontendDir = path.resolve(__dirname, "../Finance_Inventory");
+
+app.use(express.static(frontendDir));
+
+// Open the landing page when visiting the website
+app.get("/", (req, res) => {
+  res.sendFile(path.join(frontendDir, "LandingPage_Inventory-1.html"));
+});
+
 app.listen(process.env.PORT || 8080, () => {
   console.log('Triple E API on port ' + (process.env.PORT || 8080));
   console.log('[profile] My Profile routes are loaded (GET/PUT /api/auth/profile)');
