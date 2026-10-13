@@ -1098,6 +1098,10 @@ require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, st
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');
 app.use(express.static(dir));
 
+app.get('/', (req, res) => {
+  res.redirect('/Login_Inventory.html');
+});
+
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err, req, res, next) => {
   if (err.type === 'entity.parse.failed') return res.status(400).json({ error: 'Invalid request body' });
