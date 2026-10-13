@@ -14,7 +14,7 @@
   var round2 = function (n) { return Math.round((n + Number.EPSILON) * 100) / 100; };
 
   var list = [], cur = null, busy = false, dirty = false, filter = 'all', term = '', blind = false;
-  var DEPTS = ['Raw Materials', 'Work In Progress', 'Finished Goods', 'Finishing Supplies'];
+  var DEPTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
 
   async function api(path, options) {
     var res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, options));

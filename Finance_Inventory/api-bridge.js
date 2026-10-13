@@ -9,7 +9,7 @@
   const $ = (id) => document.getElementById(id);
   const esc = (v) => (typeof escapeHTML === 'function' ? escapeHTML(String(v)) : String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';'));
   const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
-  const DEPARTMENTS = ['Raw Materials', 'Work In Progress', 'Finished Goods', 'Finishing Supplies'];
+  const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
   const NOTE_REQUIRED = ['other', 'count_correction_up', 'count_correction_down'];
 
   let REASONS = { in: {}, out: {} };
@@ -24,11 +24,11 @@
       other: ALL_D
     },
     out: {
-      rust_corrosion: ['Raw Materials', 'Work In Progress', 'Finished Goods'],
+      rust_corrosion: ['Raw Materials', 'Finished Goods'],
       damaged: ALL_D,
-      scrap_cutting_waste: ['Raw Materials', 'Work In Progress'],
-      production_use: ['Raw Materials', 'Work In Progress', 'Finishing Supplies'],
-      quality_rejection: ['Raw Materials', 'Work In Progress', 'Finished Goods'],
+      scrap_cutting_waste: ['Raw Materials'],
+      production_use: ['Raw Materials', 'Finishing Supplies'],
+      quality_rejection: ['Raw Materials', 'Finished Goods'],
       lost_missing: ALL_D,
       returned_to_supplier: ['Raw Materials', 'Finishing Supplies'],
       count_correction_down: ALL_D,
@@ -166,7 +166,7 @@
       movements: movements.length,
       inventoryValue: inventory.reduce((s, i) => s + i.onHand * i.unitCost, 0)
     });
-    const colors = { 'Raw Materials': '#4a90d9', 'Work In Progress': '#d9a441', 'Finished Goods': '#43c47a', 'Finishing Supplies': '#9b6bd1' };
+    const colors = { 'Raw Materials': '#4a90d9', 'Finished Goods': '#43c47a', 'Finishing Supplies': '#9b6bd1' };
     replace(dashboardHealthMock, Object.keys(colors).map((name) => {
       const items = inventory.filter((i) => i.department === name);
       return { name, total: items.length, healthy: items.filter((i) => getStockStatus(i) === 'ok').length, color: colors[name] };
@@ -481,7 +481,7 @@
     return same || typed;
   }
 
-  // Only Finished Goods are sold. Raw Materials, Finishing Supplies and Work In Progress have no selling price.
+  // Only Finished Goods are sold. Raw Materials and Finishing Supplies have no selling price.
   const SELLS_DEPT = ['Finished Goods'];
   const sellsNow = () => SELLS_DEPT.indexOf(($('npDept') || {}).value) >= 0;
   function syncPriceField() {
@@ -1849,7 +1849,7 @@
   function drawDonut(inv) {
     const box = $('donutChartContainer'), legend = $('donutLegend');
     if (!box || !legend) return;
-    const colors = { 'Raw Materials': '#4a90d9', 'Work In Progress': '#d9a441', 'Finished Goods': '#43c47a', 'Finishing Supplies': '#e35b9e' };
+    const colors = { 'Raw Materials': '#4a90d9', 'Finished Goods': '#43c47a', 'Finishing Supplies': '#e35b9e' };
     const byDept = {};
     inv.forEach((i) => { byDept[i.department] = (byDept[i.department] || 0) + i.onHand * i.unitCost; });
     const names = Object.keys(byDept).filter((k) => byDept[k] > 0);

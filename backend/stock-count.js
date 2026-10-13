@@ -4,7 +4,7 @@
    Posting writes one Stock In / Stock Out line per difference (reason "Stock count correction"), so the movement log,
    audit log and reports all show it. The tables are created automatically the first time the server starts. */
 
-const DEPARTMENTS = ['Raw Materials', 'Work In Progress', 'Finished Goods', 'Finishing Supplies'];
+const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
 const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
 
 module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ }) {

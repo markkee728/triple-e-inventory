@@ -108,7 +108,7 @@
 
                 <button class="nav-item" data-page="sales">
                     <span class="dot"></span>
-                    Sales Transactions
+                    Sales &amp; Orders
                 </button>
 
             </div>
@@ -523,7 +523,7 @@
                     </h1>
 
                     <p>
-                        Real-time stock levels across Raw Materials, Work in Progress, and Finished Goods, with low-stock alerts.
+                        Real-time stock levels across Raw Materials, Finished Goods, and Finishing Supplies, with low-stock alerts.
                     </p>
 
                 </div>
@@ -636,10 +636,6 @@
 
                                 <option value="Raw Materials">
                                     Raw Materials
-                                </option>
-
-                                <option value="Work In Progress">
-                                    Work In Progress
                                 </option>
 
                                 <option value="Finished Goods">
@@ -807,7 +803,6 @@
                                 >
                                     <option value="">All departments</option>
                                     <option value="Raw Materials">Raw Materials</option>
-                                    <option value="Work In Progress">Work In Progress</option>
                                     <option value="Finished Goods">Finished Goods</option>
                                     <option value="Finishing Supplies">Finishing Supplies</option>
                                 </select>
@@ -1299,9 +1294,9 @@
                 <div class="catalog-header">
                     <div>
                         <div class="catalog-eyebrow">Sales</div>
-                        <h1 class="catalog-title">Sales Transactions</h1>
+                        <h1 class="catalog-title">Sales &amp; Orders</h1>
                         <p class="catalog-sub">
-                            Online orders from the shop and walk-in sales from the POS. Update an order&rsquo;s status here and the customer sees it on their orders page.
+                            Manage e-commerce orders and cashier sales in one place. Filter by sales channel, review payments, and update online order fulfillment.
                         </p>
                     </div>
                     <button class="btn-secondary btn-sm" id="soRefresh" type="button">Refresh</button>
@@ -1315,8 +1310,8 @@
                         </div>
                         <div class="inv-filters">
                             <select id="soView" class="inv-select">
-                                <option value="orders">Online orders</option>
-                                <option value="pos">POS walk-in sales</option>
+                                <option value="orders">E-commerce Orders</option>
+                                <option value="pos">POS Sales</option>
                             </select>
                             <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
                             <select id="soStatus" class="inv-select">
@@ -3313,7 +3308,6 @@
                             class="form-select"
                         >
                             <option value="Raw Materials">Raw Materials</option>
-                            <option value="Work In Progress">Work In Progress</option>
                             <option value="Finished Goods">Finished Goods</option>
                             <option value="Finishing Supplies">Finishing Supplies</option>
                         </select>
@@ -3458,7 +3452,7 @@
                             Source
                         </label>
                         <div id="npSource" class="sup-readonly"></div>
-                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Work In Progress and Finished Goods are made by the company (in-house production).</div>
+                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Finished Goods can be recorded when completed products are received from production.</div>
                     </div>
                 </div>
 
