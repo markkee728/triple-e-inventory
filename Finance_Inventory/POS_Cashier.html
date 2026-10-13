@@ -47,8 +47,9 @@
       <div class="nav-label">Counter</div>
       <button class="nav-item active" data-page="terminal"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Point of Sale</button>
       <button class="nav-item" data-page="sales"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Today's Sales<span class="count" id="navSalesCount">0</span></button>
-    </div>
-  </nav>
+      <button class="nav-item" data-page="shift"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M3 10h18M7 6V4h10v2M16 15h3"/></svg>Cash Shift</button>
+      </div>
+    </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Point of Sale</strong>Triple E Metal Products</div></div>
 </aside>
 
@@ -167,6 +168,20 @@
       </div>
     </section>
 
+    <section class="page" id="page-shift">
+      <div class="welcome"><h1>Cash Shift</h1><p>Manual cash reconciliation — no electronic cash drawer required.</p></div>
+      <div class="panel" style="padding:24px;max-width:860px">
+        <h2 id="shiftStatus">Loading shift...</h2>
+        <p id="shiftCheckoutWarning" class="faint">Open a shift before recording sales.</p>
+        <div id="shiftOpenPanel" hidden><label for="shiftOpeningInput">Opening cash (₱)</label><input type="number" id="shiftOpeningInput" min="0" max="10000000" step="0.01" placeholder="0.00"><p><button class="btn-primary" id="shiftOpenBtn">Open Cash Shift</button></p></div>
+        <div id="shiftClosePanel" hidden>
+          <div class="stats" style="margin:18px 0"><div class="stat-card"><div class="stat-label">Opening Cash</div><div class="stat-value" id="shiftOpening">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Sales</div><div class="stat-value" id="shiftSales">₱0.00</div></div><div class="stat-card"><div class="stat-label">Expected Cash</div><div class="stat-value" id="shiftExpected">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Transactions</div><div class="stat-value" id="shiftTransactions">0</div></div></div>
+          <label for="shiftClosingInput">Actual cash counted (₱)</label><input type="number" id="shiftClosingInput" min="0" max="10000000" step="0.01" placeholder="0.00">
+          <label for="shiftNote">Closing note (optional)</label><textarea id="shiftNote" rows="2" maxlength="500" placeholder="Explain any shortage or overage"></textarea><p><button class="btn-primary" id="shiftCloseBtn">Close Cash Shift</button></p>
+        </div>
+      </div>
+      <div class="panel" style="margin-top:20px;padding:20px"><h2>My Shift History</h2><div class="table-wrapper"><table><thead><tr><th>Shift</th><th>Opened</th><th>Closed</th><th>Cash Sales</th><th>Difference</th></tr></thead><tbody id="shiftHistory"></tbody></table></div></div>
+    </section>
   </div>
 </main>
 
@@ -253,7 +268,7 @@ const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDig
 const pesoShort = n => '₱' + Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 let PRODUCTS = [], cart = [], sales = [], method = 'Cash', voidId = null, cat = '', view = 'grid';
-const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales" };
+const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift' };
 const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
@@ -576,7 +591,8 @@ $('rcPrint').onclick = () => {                    // prints only the receipt ima
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(f);
   const d = f.contentWindow.document; d.open();
-  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"></body></html>');
+  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"><script src="cash-shift-ui.js?v=1"></script>
+</body></html>');
   d.close();
   const img = d.querySelector('img'), go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not open the print dialog.', true); } setTimeout(() => f.remove(), 60000); };
   img.complete ? go() : (img.onload = go);
@@ -647,7 +663,7 @@ async function completeSale() {
   let sale;
   try { sale = await submitSale(draft); }
   catch (e) { busy = false; updatePay(); toast(e.message || 'Could not save the sale.', true); try { PRODUCTS = await loadProducts(); syncCart(); } catch (x) {} return; }
-  busy = false; sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale, false);
+  busy = false; if (window.refreshCashShift) window.refreshCashShift(); sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale, false);
   try { PRODUCTS = await loadProducts(); syncCart(); renderCats(); } catch (e) {}       // stock shown = what the server now has
 }
 // after stock changes: drop lines whose product is gone and trim quantities to what is really in stock

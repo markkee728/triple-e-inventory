@@ -1090,6 +1090,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, assertEmailDomain, TZ });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
+require('./cash-shifts')({ app, pool, auth, wrap, tx });
 /* ---------- stock count (physical inventory) ---------- */
 require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 

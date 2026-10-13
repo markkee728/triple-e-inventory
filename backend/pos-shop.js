@@ -439,6 +439,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     }
 
     const sale = await tx(async (client) => {
+      await client.query('SELECT pg_advisory_xact_lock($1,$2)', [73001, req.user.id]);
+      const shiftResult = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
+      if (!shiftResult.rowCount) throw bad('cashShift', 'Open your Cash Shift before completing a sale.');
+      const cashShiftId = shiftResult.rows[0].shift_id;
       const items = await loadSellable(client, lines, { lock: true });
       const changed = [];
       for (const i of items) {
@@ -462,9 +466,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       const vat = round2(total * VAT_RATE / (1 + VAT_RATE));
       const ins = await client.query(
-        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef]);
+        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref, cash_shift_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId]);
       const s = ins.rows[0];
       for (const i of items) {
         await client.query(
