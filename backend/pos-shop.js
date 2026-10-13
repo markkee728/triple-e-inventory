@@ -1,7 +1,13 @@
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const FG = 'Finished Goods';
+// Units sold by measure (weight / length / volume) may be typed with up to 2 decimals; everything else (sheet, pcs, box...) is whole numbers only.
+const MEASURED_UNIT = /^(kg|g|tonne|ton|lb|m|meter|metre|ft|foot|feet|liter|litre|l|linear m|linear meter|linear metre|lm)s?$/i;
+const isMeasured = (unit) => MEASURED_UNIT.test(String(unit || '').trim());
+const OVERRIDE_MINUTES = 10;     // how long a supervisor approval stays valid at the counter
 const VAT_RATE = 0.12;
 const DELIVERY_FEE = Number(process.env.DELIVERY_FEE) || 150;
-const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card'];
+const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card', 'Xendit'];
 // Order life-cycle. An order can only move one step forward; the last step ends it.
 const FLOW = {
   Delivery: ['Pending Confirmation', 'Paid', 'Packed', 'Out for Delivery', 'Delivered'],
@@ -27,8 +33,6 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   async function ensureSalesSchema() {
     try {
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS received_by TEXT');
-      // cashier alert: a decided void request stays "unseen" until the cashier acknowledges it (old rows default to seen)
-      await pool.query('ALTER TABLE void_requests ADD COLUMN IF NOT EXISTS cashier_seen BOOLEAN NOT NULL DEFAULT TRUE');
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ');
       await pool.query(`CREATE TABLE IF NOT EXISTS order_status_history (
         history_id  BIGSERIAL PRIMARY KEY,
@@ -56,6 +60,193 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     } catch (err) { console.warn('[db] could not prepare the sales tables:', err.message); }
   }
   ensureSalesSchema();
+
+  // Xendit invoice metadata. Payment is only confirmed by the signed server callback.
+  async function ensureXenditSchema() {
+    try {
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS xendit_invoice_id TEXT');
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS xendit_external_id TEXT');
+      await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid'");
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_xendit_invoice ON orders (xendit_invoice_id) WHERE xendit_invoice_id IS NOT NULL');
+    } catch (err) { console.warn('[db] could not prepare Xendit columns:', err.message); }
+  }
+  ensureXenditSchema();
+
+  const xenditBaseUrl = 'https://api.xendit.co';
+  const xenditAuth = () => {
+    const key = process.env.XENDIT_SECRET_KEY;
+    if (!key) throw new Error('XENDIT_SECRET_KEY is not configured');
+    return 'Basic ' + Buffer.from(key + ':').toString('base64');
+  };
+  async function xenditRequest(url, options = {}) {
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: { Authorization: xenditAuth(), 'Content-Type': 'application/json', ...(options.headers || {}) },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = new Error(data.message || 'Xendit request failed');
+      err.status = response.status;
+      throw err;
+    }
+    return data;
+  }
+
+  // Cashier hosted-checkout requests. A pending request is NOT a sale or stock movement.
+  async function ensurePosPayments() {
+    await pool.query(`CREATE TABLE IF NOT EXISTS pos_xendit_payments (
+      payment_id BIGSERIAL PRIMARY KEY, cashier_id INT NOT NULL REFERENCES users(user_id),
+      cashier_name TEXT NOT NULL, external_id TEXT NOT NULL UNIQUE,
+      invoice_id TEXT UNIQUE, checkout_url TEXT, amount NUMERIC(12,2) NOT NULL,
+      items JSONB NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+      sale_id BIGINT, error_message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+  }
+  const posPaymentsReady = ensurePosPayments().catch(e => { console.error('[db] POS Xendit schema:', e.message); throw e; });
+  app.post('/api/pos/xendit-checkout', auth('cashier'), wrap(async (req, res) => {
+    await posPaymentsReady;
+    const b = req.body || {};
+    const lines = readLines(b.items);
+    // Override prices are deliberately rejected here until approved override handling is implemented.
+    if ((b.items || []).some(i => i && i.price !== undefined)) throw bad('items', 'Xendit checkout currently requires standard catalog prices');
+    const items = await loadSellable(pool, lines, { lock: false });
+    const amount = round2(items.reduce((sum, i) => sum + lineCents(i.price, i.qty), 0) / 100);
+    if (!Number.isFinite(amount) || amount <= 0) throw bad('amount', 'Invalid checkout total');
+    const crypto = require('crypto');
+    const externalId = 'triplee-pos-' + crypto.randomUUID();
+    const snapshot = items.map(i => ({ sku: i.sku, qty: i.qty, price: i.price }));
+    const created = await pool.query(`INSERT INTO pos_xendit_payments (cashier_id,cashier_name,external_id,amount,items)
+      VALUES ($1,$2,$3,$4,$5::jsonb) RETURNING payment_id`, [req.user.id,req.user.name,externalId,amount,JSON.stringify(snapshot)]);
+    const id = created.rows[0].payment_id;
+    try {
+      const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
+      if (!base || !/^https?:\/\//.test(base)) throw new Error('APP_BASE_URL must be a valid frontend URL');
+      const invoice = await xenditRequest(`${xenditBaseUrl}/v2/invoices`, { method:'POST', body: {
+        external_id:externalId, amount, currency:'PHP', description:`Triple-E cashier payment ${id}`,
+        success_redirect_url:`${base}/POS_Cashier.html?payment=return`,
+        failure_redirect_url:`${base}/POS_Cashier.html?payment=failed`
+      }});
+      await pool.query(`UPDATE pos_xendit_payments SET invoice_id=$1,checkout_url=$2 WHERE payment_id=$3`, [invoice.id,invoice.invoice_url,id]);
+      res.status(201).json({ paymentId:id, checkoutUrl:invoice.invoice_url, amount, status:'pending' });
+    } catch(e) {
+      await pool.query(`UPDATE pos_xendit_payments SET status='error',error_message=$1 WHERE payment_id=$2`, [String(e.message).slice(0,400),id]);
+      throw e;
+    }
+  }));
+  app.get('/api/pos/xendit-payments/:id', auth('cashier'), wrap(async (req,res) => {
+    await posPaymentsReady;
+    const {rows} = await pool.query(`SELECT payment_id,status,amount,checkout_url,sale_id,error_message
+      FROM pos_xendit_payments WHERE payment_id=$1 AND cashier_id=$2`, [req.params.id,req.user.id]);
+    if (!rows.length) return res.status(404).json({error:'Payment not found'});
+    res.json(rows[0]);
+  }));
+  async function handlePosXenditWebhook(event, externalId, invoiceId) {
+    await posPaymentsReady;
+    const {rows} = await pool.query('SELECT payment_id FROM pos_xendit_payments WHERE external_id=$1 AND invoice_id=$2', [externalId,invoiceId]);
+    if (!rows.length) return false;
+    await tx(async client => {
+      const {rows: locked} = await client.query('SELECT * FROM pos_xendit_payments WHERE payment_id=$1 FOR UPDATE', [rows[0].payment_id]);
+      const p = locked[0];
+      if (p.status === 'paid') return;
+      if (event.status === 'EXPIRED' && p.status === 'pending') {
+        await client.query("UPDATE pos_xendit_payments SET status='expired' WHERE payment_id=$1",[p.payment_id]); return;
+      }
+      if (event.status !== 'PAID') return;
+      if (Math.round(Number(event.paid_amount ?? event.amount)*100) !== Math.round(Number(p.amount)*100) || event.currency && event.currency !== 'PHP')
+        throw new Error('POS Xendit paid amount/currency mismatch');
+      const lines = p.items.map(i=>({sku:i.sku,qty:i.qty}));
+      const items = await loadSellable(client,lines,{lock:true});
+      const currentTotal = round2(items.reduce((sum,i)=>sum+lineCents(i.price,i.qty),0)/100);
+      if (Math.round(currentTotal*100)!==Math.round(Number(p.amount)*100)) {
+        await client.query("UPDATE pos_xendit_payments SET status='review',error_message='Price changed after payment; manual reconciliation required' WHERE payment_id=$1",[p.payment_id]);
+        return;
+      }
+      const vat = round2(currentTotal * VAT_RATE / (1+VAT_RATE));
+      const {rows:sales} = await client.query(`INSERT INTO pos_sales
+        (cashier_id,cashier_name,method,total,vat,tendered,change_given,card_ref)
+        VALUES ($1,$2,'Card',$3,$4,NULL,NULL,$5) RETURNING *`,
+        [p.cashier_id,p.cashier_name,currentTotal,vat,invoiceId]);
+      const sale = sales[0];
+      for(const i of items) {
+        await client.query(`INSERT INTO pos_sale_items (sale_id,product_id,sku,name,unit,qty,price,list_price,override_by)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL)`,[sale.sale_id,i.product_id,i.sku,i.name,i.unit,i.qty,i.price,i.price]);
+        await postMovement(client,{productId:i.product_id,type:'out',reason:'sale',qty:i.qty,userId:p.cashier_id,sourceType:'pos_sale',sourceId:sale.sale_id,note:sale.receipt_no});
+      }
+      await client.query("UPDATE pos_xendit_payments SET status='paid',sale_id=$1 WHERE payment_id=$2",[sale.sale_id,p.payment_id]);
+    });
+    return true;
+  }
+
+  // Customer starts hosted checkout for an order they own. The total always comes from PostgreSQL.
+  app.post('/api/shop/orders/:no/xendit-checkout', auth('customer'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT order_id, order_no, total, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
+      [req.params.no, req.user.id]);
+    if (!rows.length) throw bad('order', 'Order not found');
+    const o = rows[0];
+    if (o.payment_method !== 'Xendit') throw bad('payment', 'This order was not placed with Xendit');
+    if (o.payment_status === 'paid' || o.status !== 'Pending Confirmation') throw bad('payment', 'This order is no longer awaiting payment');
+    if (o.xendit_invoice_id) {
+      try {
+        const existing = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
+        if (existing.status === 'PENDING' && existing.invoice_url) return res.json({ checkoutUrl: existing.invoice_url });
+      } catch (_) { /* create a replacement invoice below if the previous one is unavailable */ }
+    }
+    const externalId = o.xendit_external_id || `triplee-${o.order_no}-${o.order_id}`;
+    const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
+    if (!base) throw bad('config', 'Set APP_BASE_URL to the public HTTPS address of this application');
+    const invoice = await xenditRequest(`${xenditBaseUrl}/v2/invoices`, {
+      method: 'POST',
+      body: {
+        external_id: externalId,
+        amount: Number(o.total),
+        currency: 'PHP',
+        description: `Triple-E Metal Products order ${o.order_no}`,
+        success_redirect_url: `${base}/Shop_Customer.html?payment=return`,
+        failure_redirect_url: `${base}/Shop_Customer.html?payment=failed`,
+        invoice_duration: 86400
+      }
+    });
+    await pool.query('UPDATE orders SET xendit_invoice_id = $1, xendit_external_id = $2, payment_status = $3 WHERE order_id = $4',
+      [invoice.id, externalId, 'pending', o.order_id]);
+    res.json({ checkoutUrl: invoice.invoice_url });
+  }));
+
+  // Xendit calls this endpoint directly. Never trust the browser redirect as payment proof.
+  app.post('/api/payments/xendit/webhook', wrap(async (req, res) => {
+    const expected = process.env.XENDIT_CALLBACK_TOKEN;
+    const supplied = req.get('x-callback-token');
+    if (!expected || !supplied || supplied !== expected) return res.status(401).json({ error: 'Invalid callback token' });
+    const event = req.body || {};
+    const externalId = str(event.external_id);
+    const invoiceId = str(event.id);
+    if (!externalId || !invoiceId) return res.status(400).json({ error: 'Missing invoice identifiers' });
+    const { rows } = await pool.query(
+      'SELECT * FROM orders WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId]);
+    if (!rows.length) { await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true}); }
+    const o = rows[0];
+    if (event.status === 'PAID' && Number(event.paid_amount ?? event.amount) === Number(o.total) && o.payment_status !== 'paid' && o.status === 'Pending Confirmation') {
+      await tx(async (client) => {
+        const locked = await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id]);
+        const current = locked.rows[0];
+        if (!current || current.payment_status === 'paid' || current.status !== 'Pending Confirmation') return;
+        await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, `Xendit invoice ${invoiceId} paid`);
+        await client.query("UPDATE orders SET payment_status = 'paid' WHERE order_id = $1", [current.order_id]);
+      });
+    } else if (event.status === 'EXPIRED' && o.payment_status !== 'paid') {
+      await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id]);
+    }
+    res.json({ received: true });
+  }));
+
+  // Price overrides at the counter: keep the list price and who approved the change (safe to run every time the server starts).
+  async function ensurePosOverrideSchema() {
+    try {
+      await pool.query('ALTER TABLE pos_sale_items ADD COLUMN IF NOT EXISTS list_price NUMERIC(12,2)');
+      await pool.query('ALTER TABLE pos_sale_items ADD COLUMN IF NOT EXISTS override_by INT REFERENCES users(user_id)');
+    } catch (err) { console.warn('[db] could not prepare the price-override columns:', err.message); }
+  }
+  ensurePosOverrideSchema();
 
   // Customer refund requests (one per order). Safe to run every time the server starts.
   async function ensureRefundSchema() {
@@ -114,7 +305,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   const catalogJson = (r) => ({
     sku: r.sku, name: r.name, category: r.category, unit: r.unit,
     spec: [r.grade, r.form].filter(Boolean).join(' · '),
-    price: +r.selling_price, available: +r.on_hand, low: +r.reorder_level
+    price: +r.selling_price, available: +r.on_hand, low: +r.reorder_level, fractional: isMeasured(r.unit)
   });
   async function catalog() {
     const { rows } = await pool.query(CATALOG_SQL, [FG]);
@@ -149,6 +340,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     for (const [sku, qty] of lines) {
       const p = bySku.get(sku);
       if (!p) throw bad('items', `${sku} is not available for sale`);
+      if (!isMeasured(p.unit) && !Number.isInteger(qty)) throw bad('items', `${p.name} is sold in whole ${p.unit} only`);
       if (+p.on_hand < qty) throw bad('items', `Only ${+p.on_hand} ${p.unit} of ${p.name} in stock`);
       out.push({ ...p, qty, price: +p.selling_price });
     }
@@ -191,8 +383,38 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     id: String(s.sale_id), receiptNo: s.receipt_no, total: +s.total, vat: +s.vat, method: s.method,
     tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given,
     cardRef: s.card_ref || undefined, cashierName: s.cashier_name, createdAt: new Date(s.created_at).getTime(), status: s.status,
-    items: items.map(i => ({ sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, price: +i.price }))
+    items: items.map(i => ({ sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, price: +i.price,
+      listPrice: i.list_price !== null && i.list_price !== undefined && +i.list_price !== +i.price ? +i.list_price : undefined }))
   });
+
+  // A line total in whole centavos: price (centavos) x qty (hundredths). Integer maths so the till and the server always agree.
+  const lineCents = (price, qty) => Math.round(Math.round(price * 100) * Math.round(qty * 100) / 100);
+
+  // Supervisor approval for negotiated prices: a finance user types their own login at the counter. The password is checked once and
+  // never kept; the cashier's screen only gets a short-lived signed token that is good for price overrides on this cashier's sales.
+  const approvalFails = new Map();            // cashier id -> { n, until }   (stops guessing a supervisor's password at the till)
+  app.post('/api/pos/override-approval', auth('cashier'), wrap(async (req, res) => {
+    const f = approvalFails.get(req.user.id);
+    if (f && f.until > Date.now()) throw bad('approval', 'Too many wrong attempts. Try again in a few minutes.');
+    const email = str(req.body && req.body.email).toLowerCase();
+    const password = req.body && req.body.password;
+    if (!email || typeof password !== 'string' || !password || password.length > 200) throw bad('approval', 'Enter the supervisor email and password');
+    const { rows } = await pool.query(
+      `SELECT u.user_id, u.full_name, u.password_hash, u.status, r.role_key FROM users u JOIN roles r USING (role_id) WHERE u.email = $1`, [email]);
+    const u = rows[0];
+    const ok = !!u && u.status === 'active' && u.role_key === 'finance' && await bcrypt.compare(password, u.password_hash);
+    if (!ok) {
+      const n = ((f && f.until <= Date.now() ? 0 : f && f.n) || 0) + 1;
+      approvalFails.set(req.user.id, { n, until: n >= 5 ? Date.now() + 5 * 60000 : 0 });
+      await audit(pool, req.user, 'Price override refused', 'Supervisor approval failed at the counter');
+      throw bad('approval', 'Those supervisor details are not valid. Only a finance account can approve a price change.');
+    }
+    approvalFails.delete(req.user.id);
+    const token = jwt.sign({ purpose: 'price_override', cashier: req.user.id, approver: u.user_id, approverName: u.full_name },
+      process.env.JWT_SECRET, { expiresIn: OVERRIDE_MINUTES + 'm' });
+    await audit(pool, req.user, 'Price override approved', `Approved by ${u.full_name} (valid ${OVERRIDE_MINUTES} min)`);
+    res.json({ token, approver: u.full_name, expiresAt: Date.now() + OVERRIDE_MINUTES * 60000 });
+  }));
 
   app.post('/api/pos/sales', auth('cashier'), wrap(async (req, res) => {
     const b = req.body || {};
@@ -200,9 +422,31 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const method = str(b.method);
     if (!['Cash', 'Card'].includes(method)) throw bad('method', 'Choose Cash or Card');
 
+    // negotiated prices: {sku, qty, price} lines need a valid supervisor approval token
+    const overrides = new Map();
+    for (const it of b.items) {
+      if (it && it.price === undefined) continue;
+      const sku = str(it.sku).toUpperCase(), price = Number(it.price);
+      if (!Number.isFinite(price) || price <= 0 || price > 1e7 || Math.round(price * 100) !== price * 100) throw bad('items', `Invalid price for ${sku}`);
+      if (overrides.has(sku) || b.items.filter(x => str(x && x.sku).toUpperCase() === sku).length > 1) throw bad('items', `${sku} appears twice with a changed price`);
+      overrides.set(sku, price);
+    }
+    let approval = null;
+    if (overrides.size) {
+      try { approval = jwt.verify(String(b.approvalToken || ''), process.env.JWT_SECRET); } catch (e) { approval = null; }
+      if (!approval || approval.purpose !== 'price_override' || approval.cashier !== req.user.id)
+        throw bad('approval', 'Price change needs a supervisor approval (it may have expired — ask them to approve again)');
+    }
+
     const sale = await tx(async (client) => {
       const items = await loadSellable(client, lines, { lock: true });
-      const total = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
+      const changed = [];
+      for (const i of items) {
+        const o = overrides.get(i.sku.toUpperCase());
+        i.list_price = i.price;
+        if (o !== undefined && o !== i.price) { changed.push(`${i.sku} ${peso(i.price)}→${peso(o)}`); i.price = o; i.override_by = approval.approver; }
+      }
+      const total = items.reduce((n, i) => n + lineCents(i.price, i.qty), 0) / 100;
       let tendered = null, change = null, cardRef = null;
       if (method === 'Cash') {
         tendered = round2(Number(b.tendered));
@@ -224,29 +468,25 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const s = ins.rows[0];
       for (const i of items) {
         await client.query(
-          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [s.sale_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price]);
+          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price, list_price, override_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [s.sale_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price, i.list_price, i.override_by || null]);
         await postMovement(client, { productId: i.product_id, type: 'out', reason: 'sale', qty: i.qty, userId: req.user.id,
           sourceType: 'pos_sale', sourceId: s.sale_id, note: s.receipt_no });
       }
-      await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)`);
+      await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)`
+        + (changed.length ? ` · price override approved by ${approval.approverName}: ${changed.join(', ')}` : ''));
       return saleJson(s, items);
     });
     res.status(201).json(sale);
   }));
 
-  // Sales list (Manila time). Default = today. ?date=YYYY-MM-DD shows another day, ?receipt=TEXT searches receipt numbers on any day.
-  // Cashiers can look back LOOKBACK_DAYS (so a customer returning with an old receipt can be found); finance has no limit.
-  const LOOKBACK_DAYS = Number(process.env.POS_LOOKBACK_DAYS) || 60;
+  // Today's sales (Manila time). Finance may pass ?date=YYYY-MM-DD for a daily summary.
   app.get('/api/pos/sales', auth('cashier', 'finance'), wrap(async (req, res) => {
-    const isFinance = req.user.role === 'finance';
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : null;
-    const q = String(req.query.receipt || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 30);
-    const params = [TZ], where = [];
-    if (q) { params.push('%' + q + '%'); where.push(`s.receipt_no ILIKE $${params.length}`); }
-    else { params.push(date); where.push(`(s.created_at AT TIME ZONE $1)::date = COALESCE($${params.length}::date, (now() AT TIME ZONE $1)::date)`); }
-    if (!isFinance) where.push(`(s.created_at AT TIME ZONE $1)::date >= (now() AT TIME ZONE $1)::date - ${LOOKBACK_DAYS}`);
-    const { rows: sales } = await pool.query(`SELECT s.* FROM pos_sales s WHERE ${where.join(' AND ')} ORDER BY s.created_at DESC LIMIT 200`, params);
+    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') && req.user.role === 'finance' ? req.query.date : null;
+    const { rows: sales } = await pool.query(
+      `SELECT * FROM pos_sales
+        WHERE (created_at AT TIME ZONE $1)::date = COALESCE($2::date, (now() AT TIME ZONE $1)::date)
+        ORDER BY created_at DESC`, [TZ, date]);
     const { rows: items } = sales.length
       ? await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = ANY($1) ORDER BY item_id', [sales.map(s => s.sale_id)])
       : { rows: [] };
@@ -291,28 +531,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           userId: req.user.id, sourceType: 'pos_sale', sourceId: sale_id, note: `Void of ${receipt_no}` });
       }
       await client.query(`UPDATE pos_sales SET status = $2 WHERE sale_id = $1`, [sale_id, approve ? 'Voided' : 'Completed']);
-      await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now(), cashier_seen = FALSE WHERE request_id = $1`,
+      await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
         [r.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
       await audit(client, req.user, 'Record edited', `Void ${approve ? 'approved' : 'rejected'} for ${receipt_no}${approve ? ' — stock restored' : ''}`);
     });
-    res.json({ ok: true });
-  }));
-
-  /* ---------- cashier: alerts for decided void requests ---------- */
-  // Decisions on this cashier's own void requests that they have not acknowledged yet.
-  app.get('/api/pos/void-notices', auth('cashier'), wrap(async (req, res) => {
-    const { rows } = await pool.query(
-      `SELECT v.request_id, v.status, v.reason, s.receipt_no, s.total,
-              to_char(v.decided_at AT TIME ZONE $2, 'HH12:MI AM') AS decided_at, u.name AS decided_by_name
-         FROM void_requests v JOIN pos_sales s USING (sale_id) LEFT JOIN users u ON u.user_id = v.decided_by
-        WHERE v.requested_by = $1 AND v.status IN ('approved','rejected') AND v.cashier_seen = FALSE
-        ORDER BY v.decided_at`, [req.user.id, TZ]);
-    res.json(rows.map(r => ({ id: r.request_id, receiptNo: r.receipt_no, total: +r.total, approved: r.status === 'approved',
-      reason: r.reason, decidedAt: r.decided_at, decidedBy: r.decided_by_name || 'Admin' })));
-  }));
-  app.post('/api/pos/void-notices/seen', auth('cashier'), wrap(async (req, res) => {
-    const ids = Array.isArray((req.body || {}).ids) ? req.body.ids.map(Number).filter(Number.isInteger) : [];
-    if (ids.length) await pool.query('UPDATE void_requests SET cashier_seen = TRUE WHERE requested_by = $1 AND request_id = ANY($2)', [req.user.id, ids]);
     res.json({ ok: true });
   }));
 
@@ -341,7 +563,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
     shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
       barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
-    phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status,
+    phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status, paymentStatus: o.payment_status || 'unpaid',
     cancelRequested: !!cancelPending,
     refund: refundJson(refund),
     refundEligible: FINAL_STATUS.includes(o.status) && !refund && Date.now() <= refundDeadline(o),

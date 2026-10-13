@@ -10,6 +10,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css">
+<style>
+.qty input{width:64px;height:30px;border:0;border-radius:0;background:transparent;text-align:center;padding:0 2px;font-family:"IBM Plex Mono",monospace;font-size:14px;box-shadow:none}
+.qty input:focus{background:var(--field);box-shadow:inset 0 0 0 1px var(--blue-bright)}
+.qty .u{padding:0 8px 0 2px;font-size:12px;color:var(--text-faint);white-space:nowrap}
+.line .was{font-size:12px;color:var(--text-faint);text-decoration:line-through;margin-right:6px}
+.line .ovr{color:#e0a43a;font-size:12px;font-weight:600}
+.link-btn{background:none;border:0;padding:0;color:var(--blue-bright);font-size:12.5px;cursor:pointer;text-decoration:underline}
+.link-btn:hover{filter:brightness(1.2)}
+</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -106,7 +115,8 @@
             <div class="row total"><span>Total</span><span class="mono" id="total">₱0.00</span></div>
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
-              <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Card / Phone</button>
+              <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
+              <button class="seg-btn" data-m="Xendit">QR / Bank (Xendit)</button>
             </div>
             <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" inputmode="decimal" placeholder="0.00">
               <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
@@ -114,6 +124,12 @@
             <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
               <div class="faint" style="font-size:12.5px;margin-top:6px">The customer pays the total from their own phone (bank / card / e-wallet app). Check that the payment really went through, then type the reference number shown on their confirmation screen.</div>
               <label class="chk" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="cardOk" style="width:auto"> I saw the payment confirmation for the full amount</label></div>
+            <div id="xenditBox" hidden style="margin:10px 0;font-size:13px">Create a secure Xendit payment link. Customer can scan its QR or open the link and select available bank, wallet, or other supported channels. Sale completes only after verified payment.</div>
+            <div id="xenditPending" hidden style="padding:12px;border:1px solid #aaa;border-radius:8px;margin:8px 0;text-align:center">
+              <strong id="xenditState">Waiting for payment</strong><div id="xenditQR" style="display:flex;justify-content:center;margin:12px"></div>
+              <a id="xenditLink" href="#" target="_blank" rel="noopener noreferrer">Open secure checkout</a>
+              <div style="margin-top:10px"><button type="button" class="btn-secondary btn-sm" id="xenditCheck">Check payment</button> <button type="button" class="btn-secondary btn-sm" id="xenditDismiss">Close</button></div>
+            </div>
             <div class="err-text" id="payErr"></div>
             <button class="btn-primary btn-lg" id="complete" disabled>Complete sale</button>
           </div>
@@ -131,12 +147,11 @@
         <div class="stat-card amber"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="stat-label">Cash / Card</div><div class="stat-value" id="stSplit" style="font-size:22px;padding-top:4px">₱0 / ₱0</div><div class="stat-foot">By payment method</div></div>
       </div>
       <div class="panel">
-        <div class="panel-head" style="flex-wrap:wrap;gap:10px"><div><div class="panel-title" id="rcTitle">Receipts</div><div class="panel-sub">Reprint a receipt or ask admin to void one. Customer back with an old receipt? Pick the date or type the receipt number.</div></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><input type="date" id="salesDate" aria-label="Sales date" style="width:auto"><input id="salesQ" placeholder="Receipt no." maxlength="30" autocomplete="off" aria-label="Search receipt number" style="width:150px"><button class="btn-secondary btn-sm" id="salesToday">Today</button></div></div>
+        <div class="panel-head"><div><div class="panel-title">Receipts</div><div class="panel-sub">Reprint a receipt or ask admin to void one</div></div></div>
         <div class="table-wrapper"><table>
           <thead><tr><th>Receipt</th><th>Time</th><th class="r">Items</th><th class="r">Total</th><th>Paid by</th><th>Status</th><th></th></tr></thead>
           <tbody id="saleRows"></tbody></table></div>
-        <div class="empty" id="noSales"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><span id="noSalesTxt">No sales yet today.</span></div>
+        <div class="empty" id="noSales"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>No sales yet today.</div>
       </div>
     </section>
 
@@ -156,13 +171,18 @@
 <div class="modal-overlay" id="heldBg"><div class="modal" style="max-width:480px"><h3>Held sales</h3><p class="dim">Resuming one while you have items in the cart will hold the current sale automatically.</p>
   <div id="heldList"></div>
   <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('heldBg')">Close</button></div></div></div>
-<div class="modal-overlay" id="noticeBg"><div class="modal" style="max-width:440px"><h3>Void request update</h3><p class="dim">Admin has answered your void request.</p>
-  <div id="noticeList"></div>
-  <div class="modal-actions"><button class="btn-primary" id="noticeOk">Got it</button></div></div></div>
+<div class="modal-overlay" id="priceBg"><div class="modal"><h3 id="priceTitle">Change price</h3><p class="dim" id="priceFor"></p>
+  <div id="priceField"><label for="priceNew">Negotiated price per unit (₱)</label><input id="priceNew" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+  <div id="priceAuth"><p class="faint" style="font-size:12.5px;margin-top:12px">A supervisor (finance account) must approve price changes. They can sign in right here; the password is not stored.</p>
+    <label for="supEmail">Supervisor email</label><input id="supEmail" type="email" autocomplete="off">
+    <label for="supPass">Supervisor password</label><input id="supPass" type="password" autocomplete="off"></div>
+  <div class="err-text" id="priceErr"></div>
+  <div class="modal-actions"><button class="btn-primary" id="priceOk">Apply</button><button class="btn-secondary" onclick="closeModal('priceBg')">Cancel</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
 <script src="account-menu.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
 const HOME = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
@@ -185,6 +205,7 @@ const DEMO = [
   {sku:'DRB-1012',name:'Deformed Rebar',category:'Bars & Rods',unit:'length',spec:'12 mm · Grade 40 · 6 m',price:248,available:420},
   {sku:'ANG-0203',name:'Angle Bar',category:'Angles & Channels',unit:'length',spec:'2 × 2 in · 3 mm · 6 m',price:710,available:88},
   {sku:'RFR-0026',name:'Rib-Type Roofing',category:'Roofing',unit:'linear m',spec:'0.4 mm · Pre-painted',price:425,available:260},
+  {sku:'SSB-0010',name:'Stainless Flat Bar',category:'Bars & Rods',unit:'kg',spec:'304 · 25 × 3 mm',price:185.5,available:1200},
   {sku:'FBT-0012',name:'Hex Bolt & Nut Set',category:'Fasteners',unit:'box',spec:'M12 × 50 · 50 pcs',price:580,available:8}];
 async function api(path, opts) {
   const r = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
@@ -199,15 +220,13 @@ async function loadProducts() {            // GET /api/pos/products — finished
 }
 async function submitSale(sale) {          // server re-prices from the database and posts the stock-out
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
-    items: sale.items.map(i => ({ sku: i.sku, qty: i.qty })), method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef }) });
+    items: sale.items.map(i => i.override ? { sku: i.sku, qty: i.qty, price: i.price } : { sku: i.sku, qty: i.qty }), approvalToken: sale.approvalToken,
+    method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef }) });
 }
-let salesFilter = { date: '', q: '' };       // empty = today
-async function loadTodaySales() {
-  const qs = salesFilter.q ? '?receipt=' + encodeURIComponent(salesFilter.q) : salesFilter.date ? '?date=' + salesFilter.date : '';
-  try { return await api('/api/pos/sales' + qs); } catch (e) { return null; }
-}   // null = could not reach the server (keep what is on screen)
-async function loadVoidNotices() { try { return await api('/api/pos/void-notices'); } catch (e) { return []; } }
-async function ackVoidNotices(ids) { try { await api('/api/pos/void-notices/seen', { method: 'POST', body: JSON.stringify({ ids }) }); } catch (e) {} }
+async function requestApproval(email, password) {   // finance login at the counter -> short-lived token for price overrides
+  return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
+}
+async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return null; } }   // null = could not reach the server (keep what is on screen)
 async function requestVoid(id, why) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
 
 /* ===== App ===== */
@@ -224,7 +243,15 @@ function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.classNam
 function closeModal(id) { $(id).classList.remove('show'); }
 const prod = sku => PRODUCTS.find(p => p.sku === sku);
 const cents = n => Math.round((Number(n) + Number.EPSILON) * 100);                 // money is compared in whole centavos, never raw floats
-const total = () => cart.reduce((s, l) => s + cents(prod(l.sku).price) * Math.round(l.qty * 100) / 100, 0) / 100;
+/* quantities: whole numbers for sheets / pcs / boxes, up to 2 decimals for kg / metres etc. */
+const MEASURED_RE = /^(kg|g|tonne|ton|lb|m|meter|metre|ft|foot|feet|liter|litre|l|linear m|linear meter|linear metre|lm)s?$/i;
+const isFrac = p => !!p && (typeof p.fractional === 'boolean' ? p.fractional : MEASURED_RE.test(String(p.unit || '').trim()));
+const fmtQty = n => Number(n).toLocaleString('en-PH', { maximumFractionDigits: 2 });
+const unitPrice = l => l.price !== undefined ? l.price : prod(l.sku).price;          // negotiated price wins over the list price
+const lineCents = (price, qty) => Math.round(Math.round(price * 100) * Math.round(qty * 100) / 100);   // integer maths, same as the server
+const lineAmt = l => lineCents(unitPrice(l), l.qty) / 100;
+const total = () => cart.reduce((s, l) => s + lineCents(unitPrice(l), l.qty), 0) / 100;
+const hasOverride = () => cart.some(l => l.price !== undefined);
 const parseMoney = v => { const n = parseFloat(String(v).replace(/[₱,\s]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0; };
 const CARD_RE = /^[A-Z0-9-]{4,30}$/;
 const cardCode = () => $('cardRef').value.trim().toUpperCase();
@@ -234,25 +261,26 @@ const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
 /* ----- persistence + hold/park sales -----
    The open cart and every held sale are saved in this browser, per cashier, so a refresh (or a crash) loses nothing.
    Only SKU + qty are stored; prices and stock always come fresh from the server when a sale is resumed. */
-let held = [], holdSeq = 0, ready = false;
+let held = [], holdSeq = 0, ready = false, approval = null;     // approval = { token, by, exp } from a supervisor; cleared whenever a sale ends or is swapped
 const storeKey = () => 'tripleE.pos.' + (USER.id != null ? USER.id : (USER.name || 'cashier'));
 const readStore = () => { try { return JSON.parse(localStorage.getItem(storeKey())) || {}; } catch (e) { return {}; } };
 function writeStore() {
   if (!ready) return;                                   // never overwrite saved data before it has been loaded
-  try { localStorage.setItem(storeKey(), JSON.stringify({ cart, held, seq: holdSeq })); } catch (e) {}
+  try { localStorage.setItem(storeKey(), JSON.stringify({ cart, held, seq: holdSeq, approval })); } catch (e) {}
 }
-const cleanLines = a => (Array.isArray(a) ? a : []).filter(l => l && typeof l.sku === 'string' && Number(l.qty) > 0).map(l => ({ sku: l.sku, qty: Number(l.qty) }));
+const cleanLines = a => (Array.isArray(a) ? a : []).filter(l => l && typeof l.sku === 'string' && Number(l.qty) > 0).map(l => { const o = { sku: l.sku, qty: Math.round(Number(l.qty) * 100) / 100 }; if (Number(l.price) > 0) o.price = Math.round(Number(l.price) * 100) / 100; return o; });
+const approvalOk = () => !!(approval && approval.exp > Date.now() + 5000);
 function updateHeldBtn() { $('heldCount').textContent = held.length; $('heldBtn').hidden = !held.length; $('holdBtn').disabled = !cart.length; }
 function pushHeld(label) {
   holdSeq++;
-  held.push({ id: 'H' + Date.now().toString(36) + holdSeq, no: holdSeq, label: (label || '').trim().slice(0, 40), at: Date.now(), items: cart.map(l => ({ sku: l.sku, qty: l.qty })) });
+  held.push({ id: 'H' + Date.now().toString(36) + holdSeq, no: holdSeq, label: (label || '').trim().slice(0, 40), at: Date.now(), items: cart.map(l => ({ sku: l.sku, qty: l.qty, ...(l.price !== undefined ? { price: l.price } : {}) })) });
 }
-function heldTotal(h) { return h.items.reduce((s, i) => { const p = prod(i.sku); return p ? s + cents(p.price) * i.qty : s; }, 0) / 100; }
+function heldTotal(h) { return h.items.reduce((s, i) => { const p = prod(i.sku); return p ? s + lineCents(i.price !== undefined ? i.price : p.price, i.qty) : s; }, 0) / 100; }
 function renderHeld() {
   $('heldList').innerHTML = held.length ? held.slice().reverse().map(h => {
-    const units = h.items.reduce((n, i) => n + i.qty, 0), lines = h.items.map(i => { const p = prod(i.sku); return (p ? esc(p.name) : esc(i.sku) + ' (unavailable)') + ' × ' + i.qty; }).join(', ');
+    const units = h.items.length, lines = h.items.map(i => { const p = prod(i.sku); return (p ? esc(p.name) : esc(i.sku) + ' (unavailable)') + ' × ' + fmtQty(i.qty); }).join(', ');
     return `<div class="line"><div class="top"><div><strong>${esc(h.label || 'Held sale #' + h.no)}</strong>
-      <div class="faint" style="font-size:12.5px;font-weight:400">#${h.no} · held ${new Date(h.at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })} · ${units} item${units === 1 ? '' : 's'}</div></div>
+      <div class="faint" style="font-size:12.5px;font-weight:400">#${h.no} · held ${new Date(h.at).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })} · ${units} line${units === 1 ? '' : 's'}</div></div>
       <span class="mono">${peso(heldTotal(h))}</span></div>
       <div class="faint" style="font-size:12.5px;margin-top:4px">${lines}</div>
       <div class="bot"><button class="btn-primary btn-sm" data-resume="${esc(h.id)}">Resume</button><button class="btn-danger btn-sm" data-discard="${esc(h.id)}">Discard</button></div></div>`; }).join('')
@@ -274,7 +302,7 @@ function resumeHeld(id) {
   if (!h.items.some(x => { const p = prod(x.sku); return p && p.available > 0; })) return toast('None of the items on this sale are in stock right now.', true);
   held.splice(i, 1);
   if (cart.length) pushHeld('Swapped out (#' + (holdSeq + 1) + ')');   // never lose the sale that is currently on screen
-  cart = cleanLines(h.items);
+  cart = cleanLines(h.items); approval = null;
   $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false;
   closeModal('heldBg'); syncCart(); showPage('terminal'); toast('Resumed ' + (h.label || 'held sale #' + h.no) + '.');
 }
@@ -354,19 +382,20 @@ function renderProducts() {
 
 /* ----- cart + payment ----- */
 function renderCart() {
-  $('lines').innerHTML = cart.length ? cart.map(l => { const p = prod(l.sku); return `<div class="line">
-    <div class="top"><div>${esc(p.name)}<div class="faint" style="font-size:12.5px;font-weight:400">${esc(p.sku)} · ${peso(p.price)} / ${esc(p.unit)}</div></div>
+  $('lines').innerHTML = cart.length ? cart.map(l => { const p = prod(l.sku), ov = l.price !== undefined && l.price !== p.price, frac = isFrac(p); return `<div class="line">
+    <div class="top"><div>${esc(p.name)}<div class="faint" style="font-size:12.5px;font-weight:400">${esc(p.sku)} · ${ov ? `<span class="was">${peso(p.price)}</span><span class="ovr">${peso(l.price)}</span>` : peso(p.price)} / ${esc(p.unit)}
+      · <button class="link-btn" data-price="${esc(l.sku)}">${ov ? 'Edit price' : 'Change price'}</button>${ov ? ` · <button class="link-btn" data-priceoff="${esc(l.sku)}">Reset</button>` : ''}</div></div>
     <button class="icon-btn" data-rm="${esc(l.sku)}" title="Remove" aria-label="Remove ${esc(p.name)}">${TRASH}</button></div>
-    <div class="bot"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><span class="mono">${l.qty}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
-    <span class="mono">${peso(p.price * l.qty)}</span></div></div>`; }).join('')
+    <div class="bot"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><input data-qty="${esc(l.sku)}" value="${l.qty}" inputmode="${frac ? 'decimal' : 'numeric'}" autocomplete="off" aria-label="Quantity of ${esc(p.name)}"><span class="u">${esc(p.unit)}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
+    <span class="mono">${peso(lineAmt(l))}</span></div></div>`; }).join('')
     : '<div class="empty"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>Add products to start a sale.</div>';
-  const t = total(), units = cart.reduce((n, l) => n + l.qty, 0);
+  const t = total(), units = cart.length;
   $('total').textContent = peso(t); $('vat').textContent = peso(t * VAT_RATE / (1 + VAT_RATE));
   $('cartCount').textContent = units; $('clear').disabled = !cart.length;
   updatePay(); updateFab(); renderProducts(); updateHeldBtn(); writeStore();
 }
 function updateFab() {
-  const units = cart.reduce((n, l) => n + l.qty, 0);
+  const units = cart.length;
   $('cartFab').hidden = !(units && $('page-terminal').classList.contains('active-page'));
   $('fabText').textContent = `View sale · ${units} item${units === 1 ? '' : 's'}`; $('fabTotal').textContent = peso(total());
 }
@@ -381,22 +410,79 @@ function updatePay() {
     else if (!$('cardOk').checked) ok = false;
   }
   $('payErr').textContent = msg; $('complete').disabled = !ok;
+  if (method === 'Xendit') { $('complete').textContent = 'Generate QR / Bank checkout · ' + peso(t); return; }
   $('complete').textContent = method === 'Card' && cart.length ? 'Complete sale · Paid by phone ' + peso(t) : 'Complete sale';
 }
 function addToCart(sku) {
   const p = prod(sku), l = cart.find(x => x.sku === sku), have = l ? l.qty : 0;
-  if (have + 1 > p.available) return toast('Only ' + p.available + ' ' + p.unit + ' in stock.', true);
-  l ? l.qty++ : cart.push({ sku, qty: 1 }); renderCart();
+  if (have + 1 > p.available) return toast('Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock.', true);
+  if (l) l.qty = Math.round((l.qty + 1) * 100) / 100; else cart.push({ sku, qty: 1 }); renderCart();
+}
+function stepDown(sku) {           // the − button: down by 1; removes the line if less than 1 would be left
+  const l = cart.find(x => x.sku === sku); if (!l) return;
+  const q = Math.round((l.qty - 1) * 100) / 100;
+  if (q < 0.01) cart = cart.filter(x => x !== l); else l.qty = q;
+  renderCart();
+}
+function typeQty(input) {          // the typed quantity box
+  const sku = input.dataset.qty, l = cart.find(x => x.sku === sku), p = prod(sku); if (!l || !p) return;
+  const raw = input.value.trim().replace(/,/g, ''), n = Number(raw);
+  let msg = '';
+  if (!raw || !Number.isFinite(n) || n <= 0) msg = 'Enter a quantity above zero (use the bin to remove the line).';
+  else if (!isFrac(p) && !Number.isInteger(n)) msg = p.name + ' is sold in whole ' + p.unit + ' only.';
+  else if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) msg = 'Up to 2 decimal places only.';
+  else if (n > p.available) msg = 'Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock.';
+  if (msg) { toast(msg, true); input.value = l.qty; return; }
+  l.qty = Math.round(n * 100) / 100; renderCart();
+}
+
+/* ----- negotiated price (needs a supervisor) ----- */
+let priceMode = null;              // { sku } while changing a line price, { resume: true } while only re-approving at checkout
+function openPrice(sku) {
+  const p = prod(sku), l = cart.find(x => x.sku === sku); if (!p || !l) return;
+  priceMode = { sku };
+  $('priceTitle').textContent = 'Change price'; $('priceFor').textContent = p.name + ' · list price ' + peso(p.price) + ' / ' + p.unit;
+  $('priceField').hidden = false; $('priceNew').value = l.price !== undefined ? l.price : p.price; $('priceOk').textContent = 'Apply price';
+  $('priceAuth').hidden = approvalOk(); $('supPass').value = ''; $('priceErr').textContent = '';
+  $('priceBg').classList.add('show'); setTimeout(() => { $('priceNew').focus(); $('priceNew').select(); }, 30);
+}
+function openReapprove() {         // a price change is on the sale but the supervisor approval has gone
+  priceMode = { resume: true };
+  $('priceTitle').textContent = 'Supervisor approval needed'; $('priceFor').textContent = 'This sale has a changed price and needs a supervisor to approve it.';
+  $('priceField').hidden = true; $('priceOk').textContent = 'Approve & continue'; $('priceAuth').hidden = false;
+  $('supPass').value = ''; $('priceErr').textContent = ''; $('priceBg').classList.add('show'); setTimeout(() => $('supEmail').focus(), 30);
+}
+async function applyPrice() {
+  if (!priceMode) return;
+  $('priceErr').textContent = '';
+  let newPrice = 0;
+  if (priceMode.sku) {
+    const l = cart.find(x => x.sku === priceMode.sku); if (!l) return closeModal('priceBg');
+    newPrice = parseMoney($('priceNew').value);
+    if (!newPrice) return $('priceErr').textContent = 'Enter a price above zero.';
+    if (newPrice > 10000000) return $('priceErr').textContent = 'That price is too large.';
+  }
+  if (!approvalOk()) {
+    const email = $('supEmail').value.trim(), pw = $('supPass').value;
+    if (!email || !pw) return $('priceErr').textContent = 'Supervisor email and password are required.';
+    $('priceOk').disabled = true;
+    try { const r = await requestApproval(email, pw); approval = { token: r.token, by: r.approver, exp: r.expiresAt }; }
+    catch (e) { $('priceOk').disabled = false; $('supPass').value = ''; return $('priceErr').textContent = e.message || 'Could not verify the supervisor.'; }
+    $('priceOk').disabled = false; $('supEmail').value = ''; $('supPass').value = '';
+  }
+  closeModal('priceBg');
+  const mode = priceMode; priceMode = null;
+  if (mode.sku) {
+    const p = prod(mode.sku), l = cart.find(x => x.sku === mode.sku);
+    if (l) { if (newPrice === p.price) delete l.price; else l.price = newPrice; renderCart(); toast(newPrice === p.price ? 'Back to the list price.' : 'Price set. Approved by ' + approval.by + '.'); }
+  } else completeSale();
 }
 
 /* ----- today's sales ----- */
 function renderSales() {
   const live = sales.filter(s => s.status !== 'Voided');
   const sum = a => a.reduce((n, s) => n + s.total, 0);
-  const viewingOld = !!(salesFilter.date || salesFilter.q);
-  $('rcTitle').textContent = salesFilter.q ? 'Receipts matching "' + salesFilter.q + '"' : salesFilter.date ? 'Receipts for ' + salesFilter.date : 'Receipts';
-  $('noSalesTxt').textContent = viewingOld ? 'No receipts found.' : 'No sales yet today.';
-  $('navSalesCount').textContent = viewingOld ? $('navSalesCount').textContent : sales.length; $('noSales').hidden = sales.length > 0;
+  $('navSalesCount').textContent = sales.length; $('noSales').hidden = sales.length > 0;
   $('stTotal').textContent = peso(sum(live)); $('stCount').textContent = live.length;
   $('stAvg').textContent = 'Avg ' + peso(live.length ? sum(live) / live.length : 0);
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
@@ -440,7 +526,7 @@ async function receiptPng(s, reprint) {
     center(new Date(s.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }), { size: 11 });
     center('Cashier: ' + s.cashierName, { size: 11 });
     rule();
-    for (const i of s.items) { row(i.qty + ' × ' + i.name, peso(i.qty * i.price)); sub('@ ' + peso(i.price) + ' / ' + i.unit + ' · ' + i.sku); }
+    for (const i of s.items) { row(fmtQty(i.qty) + (MEASURED_RE.test(String(i.unit).trim()) ? ' ' + i.unit : '') + ' × ' + i.name, peso(lineCents(i.price, i.qty) / 100)); sub('@ ' + peso(i.price) + ' / ' + i.unit + ' · ' + i.sku + (i.listPrice ? ' (list ' + peso(i.listPrice) + ')' : '')); }
     rule();
     const net = Math.round((cents(s.total) - cents(s.vat))) / 100;
     row('VATable sales', peso(net), { size: 11 }); row('VAT 12% (incl.)', peso(s.vat), { size: 11 });
@@ -479,13 +565,50 @@ $('rcPrint').onclick = () => {                    // prints only the receipt ima
   img.complete ? go() : (img.onload = go);
 };
 
+let xenditPayment = null, xenditPoll = null;
+async function checkXenditPayment() {
+  if (!xenditPayment) return;
+  try {
+    const p = await api('/api/pos/xendit-payments/' + encodeURIComponent(xenditPayment.paymentId));
+    if (p.status === 'paid') {
+      clearInterval(xenditPoll); xenditPoll = null; xenditPayment = null;
+      $('xenditPending').hidden = true; busy = false; resetSale(); updatePay();
+      toast('Xendit payment verified. Sale completed.');
+      PRODUCTS = await loadProducts(); renderCats();
+      const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); }
+    } else if (['expired','review','error'].includes(p.status)) {
+      clearInterval(xenditPoll); xenditPoll = null; busy = false;
+      $('xenditState').textContent = p.status === 'review' ? 'Paid, needs staff reconciliation. Do not collect again.' : 'Payment ' + p.status;
+      updatePay();
+    }
+  } catch(e) { $('xenditState').textContent = 'Could not check status; retry'; }
+}
+async function beginXendit(draft) {
+  if (xenditPayment) { $('xenditPending').hidden = false; return; }
+  busy = true; updatePay();
+  try {
+    const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
+    xenditPayment = p;
+    $('xenditPending').hidden = false; $('xenditState').textContent = 'Waiting for verified payment';
+    $('xenditLink').href = p.checkoutUrl; $('xenditQR').replaceChildren();
+    if (window.QRCode) new QRCode($('xenditQR'),{text:p.checkoutUrl,width:192,height:192});
+    else $('xenditState').textContent = 'QR unavailable. Use checkout link below.';
+    xenditPoll = setInterval(checkXenditPayment,4000);
+  } catch(e) { busy = false; toast(e.message || 'Xendit checkout failed',true); }
+  updatePay();
+}
+$('xenditCheck').onclick = checkXenditPayment;
+$('xenditDismiss').onclick = () => { $('xenditPending').hidden = true; toast('Pending payment is still active. Do not collect a second payment.',true); };
 async function completeSale() {
   if (busy || !cart.length) return;
   const t = total(), tend = parseMoney($('tendered').value);
   if (method === 'Cash' && cents(tend) < cents(t)) return updatePay();
   if (method === 'Card' && (!CARD_RE.test(cardCode()) || !$('cardOk').checked)) return updatePay();
-  const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: p.price }; }),
+  if (hasOverride() && !approvalOk()) return openReapprove();
+  const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: unitPrice(l), override: l.price !== undefined && l.price !== p.price }; }),
+    approvalToken: hasOverride() ? approval.token : undefined,
     method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined };
+  if (method === 'Xendit') return beginXendit(draft);
   busy = true; $('complete').disabled = true; $('complete').textContent = 'Saving…';
   let sale;
   try { sale = await submitSale(draft); }
@@ -496,20 +619,25 @@ async function completeSale() {
 // after stock changes: drop lines whose product is gone and trim quantities to what is really in stock
 function syncCart() {
   let changed = false;
-  cart = cart.filter(l => { const p = prod(l.sku); if (!p || p.available <= 0) { changed = true; return false; } if (l.qty > p.available) { l.qty = p.available; changed = true; } return true; });
+  cart = cart.filter(l => { const p = prod(l.sku); if (!p || p.available <= 0) { changed = true; return false; }
+    if (!isFrac(p) && !Number.isInteger(l.qty)) { l.qty = Math.max(1, Math.floor(l.qty)); changed = true; }
+    if (l.qty > p.available) { l.qty = isFrac(p) ? p.available : Math.floor(p.available); changed = true; }
+    return l.qty > 0; });
   if (changed) toast('Cart adjusted to the stock available.', true);
   renderCart();
 }
-function resetSale() { cart = []; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
+function resetSale() { cart = []; approval = null; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return; const d = b.dataset;
   if (d.add) addToCart(d.add);
   if (d.inc) addToCart(d.inc);
-  if (d.dec) { const l = cart.find(x => x.sku === d.dec); if (--l.qty < 1) cart = cart.filter(x => x !== l); renderCart(); }
+  if (d.dec) stepDown(d.dec);
+  if (d.price) openPrice(d.price);
+  if (d.priceoff) { const l = cart.find(x => x.sku === d.priceoff); if (l) { delete l.price; renderCart(); } }
   if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
-  if (d.m) { if (method !== d.m) { $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; } method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; updatePay(); }
+  if (d.m) { if (method !== d.m) { $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; } method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; $('xenditBox').hidden = method !== 'Xendit'; updatePay(); }
   if (d.cash) { $('tendered').value = d.cash === 'exact' ? total().toFixed(2) : d.cash; updatePay(); }
   if (d.page) showPage(d.page);
   if (d.cat !== undefined && b.classList.contains('pill-btn')) { cat = d.cat; renderCats(); renderProducts(); }
@@ -534,9 +662,13 @@ $('q').onkeydown = e => {                                   // scanner / keyboar
   else if (hit) toast(hit.name + ' is out of stock.', true);
 };
 document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
-  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('holdBg'); closeModal('heldBg'); $('userDropdown').classList.remove('open'); } });
+  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('holdBg'); closeModal('heldBg'); closeModal('priceBg'); $('userDropdown').classList.remove('open'); } });
 $('cardOk').onchange = updatePay; $('tendered').oninput = updatePay; $('cardRef').oninput = () => { $('cardRef').value = $('cardRef').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); updatePay(); };
 $('complete').onclick = completeSale; $('clear').onclick = resetSale;
+$('priceOk').onclick = applyPrice;
+$('priceBg').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); applyPrice(); } };
+document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.qty) typeQty(e.target); });
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset && e.target.dataset.qty) { e.preventDefault(); e.target.blur(); } });
 $('holdBtn').onclick = openHold; $('heldBtn').onclick = openHeld; $('holdOk').onclick = confirmHold;
 $('holdLabel').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); confirmHold(); } };
 $('cartFab').onclick = () => $('cartPane').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -544,40 +676,6 @@ $('logout').onclick = async () => { try { await fetch('/api/auth/logout', { meth
 addEventListener('scroll', () => document.querySelector('.topbar').classList.toggle('scrolled', scrollY > 4), { passive: true });
 const tick = () => $('clock').textContent = new Date().toLocaleTimeString('en-PH');
 tick(); setInterval(tick, 1000);
-
-
-/* ----- look up older receipts ----- */
-async function applySalesFilter() {
-  const f = await loadTodaySales();
-  if (f) { sales = f; renderSales(); } else toast('Could not load receipts.', true);
-}
-$('salesDate').max = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);   // Manila date
-$('salesDate').onchange = () => { salesFilter = { date: $('salesDate').value, q: '' }; $('salesQ').value = ''; applySalesFilter(); };
-let salesQT; $('salesQ').oninput = () => { $('salesQ').value = $('salesQ').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); clearTimeout(salesQT);
-  salesQT = setTimeout(() => { salesFilter = { date: '', q: $('salesQ').value }; if (salesFilter.q) $('salesDate').value = ''; applySalesFilter(); }, 350); };
-$('salesToday').onclick = () => { salesFilter = { date: '', q: '' }; $('salesDate').value = ''; $('salesQ').value = ''; applySalesFilter(); };
-/* ----- alert when admin approves / rejects a void request ----- */
-let notices = [], noticeBusy = false;
-function showNotices(list) {
-  notices = list;
-  $('noticeList').innerHTML = list.map(n => `<div style="margin:10px 0;padding:12px 14px;border-radius:10px;border:1px solid ${n.approved ? 'var(--ok,#2e9e5b)' : 'var(--bad,#d64545)'}">
-    <div style="display:flex;justify-content:space-between;gap:8px;align-items:center"><strong class="mono">${esc(n.receiptNo)}</strong>
-    <span class="status-pill ${n.approved ? 'ok' : 'bad'}">${n.approved ? 'Void approved' : 'Void rejected'}</span></div>
-    <div class="dim" style="margin-top:6px;font-size:13.5px">${n.approved ? 'The sale is voided and its items went back into stock.' : 'The sale stands as completed — nothing was changed.'}</div>
-    <div class="faint" style="margin-top:4px;font-size:12.5px">Your reason: ${esc(n.reason)} · ${esc(n.decidedBy)}, ${esc(n.decidedAt)}</div></div>`).join('');
-  $('noticeBg').classList.add('show');
-}
-async function checkVoidNotices() {
-  if (noticeBusy || $('noticeBg').classList.contains('show')) return;
-  noticeBusy = true;
-  try {
-    const list = await loadVoidNotices();
-    if (list.length) { const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); } showNotices(list); }
-  } finally { noticeBusy = false; }
-}
-$('noticeOk').onclick = async () => { const ids = notices.map(n => n.id); closeModal('noticeBg'); await ackVoidNotices(ids); };
-setInterval(() => { if (!document.hidden) checkVoidNotices(); }, 10000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) checkVoidNotices(); });
 
 $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 (async () => {
@@ -587,9 +685,9 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   if (window.AccountMenu) AccountMenu.setUser(USER);
   PRODUCTS = await loadProducts(); sales = (await loadTodaySales()) || [];
   const st = readStore(); held = Array.isArray(st.held) ? st.held : []; holdSeq = Number(st.seq) || held.reduce((m, h) => Math.max(m, h.no || 0), 0);
+  if (st.approval && st.approval.token && st.approval.exp > Date.now()) approval = st.approval;
   if (PRODUCTS.length) { cart = cleanLines(st.cart); ready = true; }      // if the catalogue failed to load, leave the saved data untouched
   renderCats(); renderProducts(); syncCart(); renderSales();
-  checkVoidNotices();
 })();
 </script>
 </body>

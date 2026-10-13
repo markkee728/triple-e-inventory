@@ -1,6 +1,15 @@
-/* Mailgun mailer + email templates (no extra npm package: uses Node's built-in fetch).
+/* Email sending + email templates.  Two ways to send (the first one that is set up in backend/.env is used):
 
-   Needs these in backend/.env (see .env.example):
+   1) Gmail   GMAIL_USER and GMAIL_APP_PASSWORD   (no domain needed; good for getting started)
+   2) Mailgun MAILGUN_API_KEY and MAILGUN_DOMAIN   (use this once you have your own domain)
+   With neither, nothing is sent: the email is printed in the server console instead.
+
+   Gmail needs:
+     GMAIL_USER          your Gmail address, e.g. triplee.metal@gmail.com
+     GMAIL_APP_PASSWORD  a 16-character Google "app password" (not your normal Gmail password)
+     MAIL_FROM           optional, e.g. Triple E Metal Products <triplee.metal@gmail.com>  (Gmail shows your own address anyway)
+
+   Mailgun needs these in backend/.env (see .env.example):
      MAILGUN_API_KEY   your Mailgun private API key
      MAILGUN_DOMAIN    the sending domain you verified in Mailgun, e.g. mg.triplee-metal.com
      MAILGUN_REGION    us (default) or eu
@@ -25,12 +34,43 @@ function renderTemplate(file, vars, { html = true } = {}) {
   });
 }
 
-const isConfigured = () => !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN);
+const gmailConfigured = () => !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
+const mailgunConfigured = () => !!(process.env.MAILGUN_API_KEY && process.env.MAILGUN_DOMAIN);
+const isConfigured = () => gmailConfigured() || mailgunConfigured();
+
+let gmailTransport = null;
+async function sendViaGmail({ to, subject, html, text }) {
+  const user = String(process.env.GMAIL_USER).trim();
+  const pass = String(process.env.GMAIL_APP_PASSWORD).replace(/\s+/g, '');   // Google shows the app password in groups of 4; spaces are ignored
+  const from = process.env.MAIL_FROM || ('Triple E Metal Products <' + user + '>');
+  try {
+    if (!gmailTransport) {
+      const nodemailer = require('nodemailer');
+      gmailTransport = nodemailer.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: Number(process.env.SMTP_PORT) || 465,
+        secure: (Number(process.env.SMTP_PORT) || 465) === 465,
+        auth: { user, pass },
+        connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 20000
+      });
+    }
+    await gmailTransport.sendMail({ from, to, subject, html, text });
+    return { sent: true };
+  } catch (err) {
+    console.error('[mail] Gmail could not send the message:', err.code || '', err.message);
+    gmailTransport = null;
+    if (err.code === 'EAUTH' || /535|Invalid login|Username and Password/i.test(err.message))
+      return { sent: false, reason: 'Gmail refused the login. Use a Google app password, not your normal password' };
+    if (err.code === 'MODULE_NOT_FOUND') return { sent: false, reason: 'Run "npm install" in the backend folder' };
+    return { sent: false, reason: 'Gmail could not send the email' };
+  }
+}
 
 async function sendMail({ to, subject, html, text, tag }) {
+  if (gmailConfigured()) return sendViaGmail({ to, subject, html, text });
   const from = process.env.MAIL_FROM || ('Triple E Metal Products <no-reply@' + (process.env.MAILGUN_DOMAIN || 'localhost') + '>');
-  if (!isConfigured()) {
-    console.warn('[mail] Mailgun is not set up (MAILGUN_API_KEY / MAILGUN_DOMAIN missing). Email NOT sent.');
+  if (!mailgunConfigured()) {
+    console.warn('[mail] No email service is set up (GMAIL_USER / GMAIL_APP_PASSWORD or MAILGUN_API_KEY / MAILGUN_DOMAIN missing). Email NOT sent.');
     console.warn('[mail] To: ' + to + '\n[mail] Subject: ' + subject + '\n' + text);
     return { sent: false, reason: 'Email is not set up on the server yet' };
   }

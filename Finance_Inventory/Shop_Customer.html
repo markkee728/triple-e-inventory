@@ -218,11 +218,11 @@ async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeUR
 
 /* ===== App ===== */
 let DELIVERY_FEE = 150;
-const ONLINE = ['Online Banking', 'E-Wallet', 'Card'];
+const ONLINE = ['Xendit'];
 const $ = id => document.getElementById(id);
 const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
-let PRODUCTS = [], cart = [], orders = [], cat = '', fulfil = 'Delivery', pay = 'Online Banking', view = 'catalog', cancelId = null, refundId = null;
+let PRODUCTS = [], cart = [], orders = [], cat = '', fulfil = 'Delivery', pay = 'Xendit', view = 'catalog', cancelId = null, refundId = null;
 const prod = sku => PRODUCTS.find(p => p.sku === sku);
 const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
 const units = () => cart.reduce((n, l) => n + l.qty, 0);
@@ -411,6 +411,7 @@ function renderOrders() {
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
+    ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue to Xendit payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${o.cancelRequested ? '<p class="dim" style="margin-top:10px">Cancellation requested — waiting for admin.</p>'
       : !['Delivered', 'Picked Up', 'Cancelled'].includes(o.status) ? `<button class="btn-danger btn-sm" style="margin-top:12px" data-cancel="${o.id}">Request cancellation</button>` : ''}
@@ -441,16 +442,43 @@ async function placeOrder() {
     if (e.fields && e.fields.items) await refreshStock().then(() => { if (view === 'checkout') { if (!cart.length) show('cart'); else renderCheckout(); } });   // stock changed: show the real numbers
     return toast(e.message || 'Could not place the order.', true);
   }
-  $('place').disabled = false; orders.unshift(order); cart = []; renderCart();
+  // The server has accepted the order. Move its items out of the cart immediately,
+  // including when hosted payment is still pending or cannot be opened.
+  // My Orders is the source of truth for retrying an unpaid Xendit invoice.
+  cart = [];
+  saveCart();
+  syncCounts();
+  renderCart();
+  renderCatalog();
+  if (pay === 'Xendit') {
+    try {
+      const payment = await api('/api/shop/orders/' + encodeURIComponent(order.id) + '/xendit-checkout', { method: 'POST', body: '{}' });
+      if (!payment.checkoutUrl) throw new Error('Xendit did not return a checkout URL.');
+      location.href = payment.checkoutUrl;
+      return;
+    } catch (e) {
+      $('place').disabled = false;
+      orders.unshift(order);
+      await loadOrders().then(v => { orders = v; }).catch(() => {});
+      show('orders');
+      return toast('Order was created, but checkout could not start: ' + (e.message || 'Please retry from My Orders.'), true);
+    }
+  }
+  $('place').disabled = false; orders.unshift(order); renderCart();
   try { PRODUCTS = await loadProducts(); } catch (e) {}
   renderCatalog(); show('orders');
-  toast(online ? 'Order placed. We will confirm it once your payment is verified.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
+  toast(online ? 'Order placed. Payment will be confirmed by Xendit.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
 }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit]'); if (!el) return; const d = el.dataset;
   if (d.view) show(d.view);
+  if (d.xendit) {
+    api('/api/shop/orders/' + encodeURIComponent(d.xendit) + '/xendit-checkout', { method: 'POST', body: '{}' })
+      .then(payment => { if (payment.checkoutUrl) location.href = payment.checkoutUrl; else toast('No checkout URL was returned.', true); })
+      .catch(err => toast(err.message || 'Could not open Xendit checkout.', true));
+  }
   if (d.add || d.inc) addToCart(d.add || d.inc);
   if (d.dec) { const l = cart.find(x => x.sku === d.dec); if (--l.qty < 1) cart = cart.filter(x => x !== l); renderCart(); }
   if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
