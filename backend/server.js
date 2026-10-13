@@ -29,7 +29,7 @@ const TZ = 'Asia/Manila';
 class ValidationError extends Error {
   constructor(fields) { super(Object.values(fields)[0]); this.fields = fields; }
 }
-const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
+const DEPARTMENTS = ['Raw Materials', 'Work In Progress', 'Finished Goods', 'Finishing Supplies'];
 const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
 // Units offered in the product form (kg and pcs first, then units used for metals)
 const UNITS = ['kg', 'pcs', 'tonne', 'g', 'lb', 'm', 'ft', 'sheet', 'plate', 'bar', 'coil', 'roll', 'bundle', 'set', 'pair', 'box', 'bag', 'drum', 'liter'];
@@ -69,11 +69,11 @@ const REASON_DEPTS = {
     other: ALL_DEPTS
   },
   out: {
-    rust_corrosion: ['Raw Materials', 'Finished Goods'],
+    rust_corrosion: ['Raw Materials', 'Work In Progress', 'Finished Goods'],
     damaged: ALL_DEPTS,
-    scrap_cutting_waste: ['Raw Materials'],
-    production_use: ['Raw Materials', 'Finishing Supplies'],
-    quality_rejection: ['Raw Materials', 'Finished Goods'],
+    scrap_cutting_waste: ['Raw Materials', 'Work In Progress'],
+    production_use: ['Raw Materials', 'Work In Progress', 'Finishing Supplies'],
+    quality_rejection: ['Raw Materials', 'Work In Progress', 'Finished Goods'],
     lost_missing: ALL_DEPTS,
     returned_to_supplier: ['Raw Materials', 'Finishing Supplies'],
     count_correction_down: ALL_DEPTS,
@@ -1138,17 +1138,6 @@ async function ensureMovementColumns() {
   } catch (err) { console.warn('[db] could not check the stock movement columns:', err.message); }
 }
 ensureMovementColumns();
-
-// Serve the Triple-E frontend
-const frontendDir = path.resolve(__dirname, "../Finance_Inventory");
-
-app.use(express.static(frontendDir));
-
-// Open the landing page when visiting the website
-app.get("/", (req, res) => {
-  res.sendFile(path.join(frontendDir, "LandingPage_Inventory-1.html"));
-});
-
 app.listen(process.env.PORT || 8080, () => {
   console.log('Triple E API on port ' + (process.env.PORT || 8080));
   console.log('[profile] My Profile routes are loaded (GET/PUT /api/auth/profile)');

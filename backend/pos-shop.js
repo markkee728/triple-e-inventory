@@ -106,6 +106,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.post('/api/pos/xendit-checkout', auth('cashier'), wrap(async (req, res) => {
     await posPaymentsReady;
     const b = req.body || {};
+    const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
+    if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
     const lines = readLines(b.items);
     // Override prices are deliberately rejected here until approved override handling is implemented.
     if ((b.items || []).some(i => i && i.price !== undefined)) throw bad('items', 'Xendit checkout currently requires standard catalog prices');
@@ -418,6 +420,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   app.post('/api/pos/sales', auth('cashier'), wrap(async (req, res) => {
     const b = req.body || {};
+    const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
+    if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
     const lines = readLines(b.items);
     const method = str(b.method);
     if (!['Cash', 'Card'].includes(method)) throw bad('method', 'Choose Cash or Card');
@@ -440,6 +444,11 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
     const sale = await tx(async (client) => {
       await client.query('SELECT pg_advisory_xact_lock($1,$2)', [73001, req.user.id]);
+      const prior = await client.query('SELECT * FROM pos_sales WHERE cashier_id=$1 AND request_id=$2', [req.user.id, requestId]);
+      if (prior.rowCount) {
+        const it = await client.query('SELECT * FROM pos_sale_items WHERE sale_id=$1 ORDER BY item_id', [prior.rows[0].sale_id]);
+        return saleJson(prior.rows[0], it.rows);
+      }
       const shiftResult = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
       if (!shiftResult.rowCount) throw bad('cashShift', 'Open your Cash Shift before completing a sale.');
       const cashShiftId = shiftResult.rows[0].shift_id;
@@ -466,9 +475,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       const vat = round2(total * VAT_RATE / (1 + VAT_RATE));
       const ins = await client.query(
-        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref, cash_shift_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId]);
+        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref, cash_shift_id, request_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId, requestId]);
       const s = ins.rows[0];
       for (const i of items) {
         await client.query(
@@ -673,6 +682,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.post('/api/shop/orders', auth('customer'), wrap(async (req, res) => {
     await addressSchemaReady;
     const b = req.body || {};
+    const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
+    if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
     const lines = readLines(b.items);
     const fulfillment = str(b.fulfillment);
     if (!['Delivery', 'Pickup'].includes(fulfillment)) throw bad('fulfillment', 'Choose Delivery or Pickup');

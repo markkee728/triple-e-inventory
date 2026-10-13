@@ -20,6 +20,11 @@
    $('shiftHistory').innerHTML=rows.length?rows.map(s=>`<tr><td>#${s.id}</td><td>${esc(new Date(s.openedAt).toLocaleString('en-PH'))}</td><td>${s.closedAt?esc(new Date(s.closedAt).toLocaleString('en-PH')):'Open'}</td><td>${fmt(s.cashSales)}</td><td>${s.difference==null?'—':fmt(s.difference)}</td></tr>`).join(''):'<tr><td colspan="5">No shifts yet.</td></tr>';
   }catch(e){$('shiftHistory').textContent=e.message;}
  }
+ $('shiftMovementBtn').onclick=async()=>{
+  const kind=$('shiftMovementKind').value,amount=Number($('shiftMovementAmount').value),reason=$('shiftMovementReason').value.trim();
+  try{await request('/api/pos/cash-shifts/movements',{method:'POST',body:JSON.stringify({kind,amount,reason})});$('shiftMovementStatus').textContent='Movement recorded.';$('shiftMovementAmount').value='';$('shiftMovementReason').value='';await refresh();}
+  catch(e){$('shiftMovementStatus').textContent=e.message;}
+ };
  $('shiftOpenBtn').onclick=async()=>{
   const amount=Number($('shiftOpeningInput').value);if(!$('shiftOpeningInput').value.trim())return alert('Enter opening cash.');
   try{await request('/api/pos/cash-shifts/open',{method:'POST',body:JSON.stringify({openingCash:amount})});await refresh();await history();}

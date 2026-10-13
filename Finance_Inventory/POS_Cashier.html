@@ -17,18 +17,7 @@
 .line .was{font-size:12px;color:var(--text-faint);text-decoration:line-through;margin-right:6px}
 .line .ovr{color:#e0a43a;font-size:12px;font-weight:600}
 .link-btn{background:none;border:0;padding:0;color:var(--blue-bright);font-size:12.5px;cursor:pointer;text-decoration:underline}
- .link-btn:hover{filter:brightness(1.2)}
-/* Cashier checkout: keep text inside narrow side panels */
-.cartpane,.cartpane *{box-sizing:border-box}
-.cartpane .pay{min-width:0}
-.cartpane .pay .seg{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
-.cartpane .pay .seg-btn{min-width:0;white-space:normal;overflow-wrap:anywhere;line-height:1.35;text-align:center;padding:10px 5px;font-size:12px}
-#complete{display:flex;width:100%;min-width:0;max-width:100%;height:auto;min-height:48px;padding:12px 14px;white-space:normal;overflow-wrap:anywhere;word-break:normal;text-align:center;line-height:1.4;letter-spacing:.25px;font-size:13px}
-#xenditBox{line-height:1.55;overflow-wrap:break-word}
-#xenditHistory{max-width:100%;white-space:normal;text-align:center;line-height:1.4;letter-spacing:0}
-#xenditPending{min-width:0;overflow-wrap:anywhere}
-#xenditLink{overflow-wrap:anywhere}
-@media(max-width:420px){.cartpane .pay .seg{grid-template-columns:1fr}.cartpane .pay .seg-btn{font-size:13px}}
+.link-btn:hover{filter:brightness(1.2)}
 </style>
 </head>
 <body>
@@ -128,7 +117,7 @@
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
-              <button class="seg-btn" data-m="Xendit">Online Payment</button>
+              <button class="seg-btn" data-m="Xendit">QR / Bank (Xendit)</button>
             </div>
             <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" inputmode="decimal" placeholder="0.00">
               <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
@@ -136,8 +125,7 @@
             <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
               <div class="faint" style="font-size:12.5px;margin-top:6px">The customer pays the total from their own phone (bank / card / e-wallet app). Check that the payment really went through, then type the reference number shown on their confirmation screen.</div>
               <label class="chk" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="cardOk" style="width:auto"> I saw the payment confirmation for the full amount</label></div>
-            <div id="xenditBox" hidden style="margin:10px 0;font-size:13px">Generate a secure checkout link. The customer can scan the QR code and choose an available bank or wallet. The sale completes after Xendit confirms payment.</div>
-            <div style="margin:8px 0"><button type="button" class="btn-secondary btn-sm" id="xenditHistory">Payment history / Recover</button></div>
+            <div id="xenditBox" hidden style="margin:10px 0;font-size:13px">Create a secure Xendit payment link. Customer can scan its QR or open the link and select available bank, wallet, or other supported channels. Sale completes only after verified payment.</div>
             <div id="xenditPending" hidden style="padding:12px;border:1px solid #aaa;border-radius:8px;margin:8px 0;text-align:center">
               <strong id="xenditState">Waiting for payment</strong><div id="xenditQR" style="display:flex;justify-content:center;margin:12px"></div>
               <a id="xenditLink" href="#" target="_blank" rel="noopener noreferrer">Open secure checkout</a>
@@ -176,6 +164,7 @@
         <div id="shiftOpenPanel" hidden><label for="shiftOpeningInput">Opening cash (₱)</label><input type="number" id="shiftOpeningInput" min="0" max="10000000" step="0.01" placeholder="0.00"><p><button class="btn-primary" id="shiftOpenBtn">Open Cash Shift</button></p></div>
         <div id="shiftClosePanel" hidden>
           <div class="stats" style="margin:18px 0"><div class="stat-card"><div class="stat-label">Opening Cash</div><div class="stat-value" id="shiftOpening">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Sales</div><div class="stat-value" id="shiftSales">₱0.00</div></div><div class="stat-card"><div class="stat-label">Expected Cash</div><div class="stat-value" id="shiftExpected">₱0.00</div></div><div class="stat-card"><div class="stat-label">Cash Transactions</div><div class="stat-value" id="shiftTransactions">0</div></div></div>
+          <div style="margin:16px 0;padding:14px;border:1px solid var(--border,#777);border-radius:8px"><h3>Cash Added / Cash Removed</h3><p class="faint">Record cash-box movements that are not sales (e.g. change float or petty cash).</p><label for="shiftMovementKind">Movement</label><select id="shiftMovementKind"><option value="cash_in">Cash added</option><option value="cash_out">Cash removed</option></select><label for="shiftMovementAmount">Amount (₱)</label><input id="shiftMovementAmount" type="number" min="0.01" step="0.01"><label for="shiftMovementReason">Reason</label><input id="shiftMovementReason" maxlength="300" placeholder="Required, at least 5 characters"><p><button class="btn-secondary" id="shiftMovementBtn">Record movement</button></p><div id="shiftMovementStatus" role="status"></div></div>
           <label for="shiftClosingInput">Actual cash counted (₱)</label><input type="number" id="shiftClosingInput" min="0" max="10000000" step="0.01" placeholder="0.00">
           <label for="shiftNote">Closing note (optional)</label><textarea id="shiftNote" rows="2" maxlength="500" placeholder="Explain any shortage or overage"></textarea><p><button class="btn-primary" id="shiftCloseBtn">Close Cash Shift</button></p>
         </div>
@@ -238,12 +227,7 @@ async function api(path, opts) {
   const r = await fetch(path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
   if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    if (r.status === 404 && path.startsWith('/api/pos/xendit')) {
-      throw new Error('Xendit checkout endpoint not found (404). Open the POS through the Node backend, not Live Server. Restart backend with npm start and check that the latest backend/pos-shop.js is installed. URL: ' + path);
-    }
-    throw new Error(d.error || ('Request failed (HTTP ' + r.status + ')'));
-  }
+  if (!r.ok) throw new Error(d.error || 'Request failed');
   return d;
 }
 async function loadProducts() {            // GET /api/pos/products — finished goods only, with price > 0
@@ -253,7 +237,7 @@ async function loadProducts() {            // GET /api/pos/products — finished
 async function submitSale(sale) {          // server re-prices from the database and posts the stock-out
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
     items: sale.items.map(i => i.override ? { sku: i.sku, qty: i.qty, price: i.price } : { sku: i.sku, qty: i.qty }), approvalToken: sale.approvalToken,
-    method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef }) });
+    method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef, requestId: sale.requestId }) });
 }
 async function requestApproval(email, password) {   // finance login at the counter -> short-lived token for price overrides
   return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
@@ -288,6 +272,8 @@ const parseMoney = v => { const n = parseFloat(String(v).replace(/[₱,\s]/g, ''
 const CARD_RE = /^[A-Z0-9-]{4,30}$/;
 const cardCode = () => $('cardRef').value.trim().toUpperCase();
 let busy = false;
+let pendingSaleRequestId = null;
+const saleRequestId = () => pendingSaleRequestId ||= (crypto.randomUUID ? crypto.randomUUID() : 'pos-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
 
 /* ----- persistence + hold/park sales -----
@@ -414,6 +400,7 @@ function renderProducts() {
 
 /* ----- cart + payment ----- */
 function renderCart() {
+  if (!busy) pendingSaleRequestId = null;
   $('lines').innerHTML = cart.length ? cart.map(l => { const p = prod(l.sku), ov = l.price !== undefined && l.price !== p.price, frac = isFrac(p); return `<div class="line">
     <div class="top"><div>${esc(p.name)}<div class="faint" style="font-size:12.5px;font-weight:400">${esc(p.sku)} · ${ov ? `<span class="was">${peso(p.price)}</span><span class="ovr">${peso(l.price)}</span>` : peso(p.price)} / ${esc(p.unit)}
       · <button class="link-btn" data-price="${esc(l.sku)}">${ov ? 'Edit price' : 'Change price'}</button>${ov ? ` · <button class="link-btn" data-priceoff="${esc(l.sku)}">Reset</button>` : ''}</div></div>
@@ -442,7 +429,7 @@ function updatePay() {
     else if (!$('cardOk').checked) ok = false;
   }
   $('payErr').textContent = msg; $('complete').disabled = !ok;
-  if (method === 'Xendit') { $('complete').textContent = 'Generate Online Payment · ' + peso(t); return; }
+  if (method === 'Xendit') { $('complete').textContent = 'Generate QR / Bank checkout · ' + peso(t); return; }
   $('complete').textContent = method === 'Card' && cart.length ? 'Complete sale · Paid by phone ' + peso(t) : 'Complete sale';
 }
 function addToCart(sku) {
@@ -550,7 +537,7 @@ async function receiptPng(s, reprint) {
     const gap = n => { y += n; };
 
     center('TRIPLE E METAL PRODUCTS', { bold: true, size: 15 });
-    center('Official Receipt', { size: 12 });
+    center('Sales Transaction Record', { size: 12 });
     if (s.status === 'Voided') center('*** VOIDED ***', { bold: true, size: 14 });
     else if (s.status === 'Void Pending') center('*** VOID REQUESTED ***', { bold: true, size: 12 });
     if (reprint) center('** REPRINT / COPY **', { bold: true, size: 11 });
@@ -591,36 +578,13 @@ $('rcPrint').onclick = () => {                    // prints only the receipt ima
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(f);
   const d = f.contentWindow.document; d.open();
-  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"><script src="cash-shift-ui.js?v=1"></script>
-</body></html>');
+  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"></body></html>');
   d.close();
   const img = d.querySelector('img'), go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not open the print dialog.', true); } setTimeout(() => f.remove(), 60000); };
   img.complete ? go() : (img.onload = go);
 };
 
 let xenditPayment = null, xenditPoll = null;
-function showPendingXendit(p) {
-  xenditPayment = {paymentId:p.payment_id || p.paymentId, checkoutUrl:p.checkout_url || p.checkoutUrl};
-  $('xenditPending').hidden=false;
-  $('xenditState').textContent='Waiting for verified payment';
-  $('xenditLink').href=xenditPayment.checkoutUrl;
-  $('xenditQR').replaceChildren();
-  if (window.QRCode && xenditPayment.checkoutUrl) new QRCode($('xenditQR'),{text:xenditPayment.checkoutUrl,width:192,height:192});
-  clearInterval(xenditPoll);
-  xenditPoll=setInterval(checkXenditPayment,4000);
-}
-$('xenditHistory').onclick=async()=>{
-  try {
-    const list=await api('/api/pos/xendit-payments');
-    const active=list.filter(p=>p.status==='pending');
-    if (active.length) {
-      const latest=active[0];
-      showPendingXendit(latest);
-      busy=true;updatePay();
-      toast('Recovered pending Xendit payment #'+latest.payment_id+'. Confirm its status before starting another sale.');
-    } else toast('No pending Xendit payments. Recent: '+list.slice(0,5).map(p=>'#'+p.payment_id+' '+p.status).join(', '));
-  } catch(e) {toast(e.message || 'Could not load payment history',true);}
-};
 async function checkXenditPayment() {
   if (!xenditPayment) return;
   try {
@@ -643,7 +607,12 @@ async function beginXendit(draft) {
   busy = true; updatePay();
   try {
     const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
-    showPendingXendit(p);
+    xenditPayment = p;
+    $('xenditPending').hidden = false; $('xenditState').textContent = 'Waiting for verified payment';
+    $('xenditLink').href = p.checkoutUrl; $('xenditQR').replaceChildren();
+    if (window.QRCode) new QRCode($('xenditQR'),{text:p.checkoutUrl,width:192,height:192});
+    else $('xenditState').textContent = 'QR unavailable. Use checkout link below.';
+    xenditPoll = setInterval(checkXenditPayment,4000);
   } catch(e) { busy = false; toast(e.message || 'Xendit checkout failed',true); }
   updatePay();
 }
@@ -657,13 +626,13 @@ async function completeSale() {
   if (hasOverride() && !approvalOk()) return openReapprove();
   const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: unitPrice(l), override: l.price !== undefined && l.price !== p.price }; }),
     approvalToken: hasOverride() ? approval.token : undefined,
-    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined };
+    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined, requestId: saleRequestId() };
   if (method === 'Xendit') return beginXendit(draft);
   busy = true; $('complete').disabled = true; $('complete').textContent = 'Saving…';
   let sale;
   try { sale = await submitSale(draft); }
   catch (e) { busy = false; updatePay(); toast(e.message || 'Could not save the sale.', true); try { PRODUCTS = await loadProducts(); syncCart(); } catch (x) {} return; }
-  busy = false; if (window.refreshCashShift) window.refreshCashShift(); sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale, false);
+  busy = false; pendingSaleRequestId = null; if (window.refreshCashShift) window.refreshCashShift(); if (!sales.some(x=>x.id===sale.id)) sales.unshift(sale); resetSale(); renderSales(); showReceipt(sale, false);
   try { PRODUCTS = await loadProducts(); syncCart(); renderCats(); } catch (e) {}       // stock shown = what the server now has
 }
 // after stock changes: drop lines whose product is gone and trim quantities to what is really in stock
@@ -676,7 +645,7 @@ function syncCart() {
   if (changed) toast('Cart adjusted to the stock available.', true);
   renderCart();
 }
-function resetSale() { cart = []; approval = null; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
+function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
@@ -740,5 +709,6 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   renderCats(); renderProducts(); syncCart(); renderSales();
 })();
 </script>
+<script src="cash-shift-ui.js?v=2"></script>
 </body>
 </html>
