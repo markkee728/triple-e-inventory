@@ -173,7 +173,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if ((event.status === 'SETTLED' ? 'PAID' : event.status) !== 'PAID') return;
       if (Math.round(Number(event.paid_amount ?? event.amount)*100) !== Math.round(Number(p.amount)*100) || event.currency && event.currency !== 'PHP')
         throw new Error('POS Xendit paid amount/currency mismatch');
-      const lines = p.items.map(i=>({sku:i.sku,qty:i.qty}));
+      const lines = readLines(p.items.map(i=>({sku:i.sku,qty:i.qty})));   // loadSellable needs the SKU -> qty Map that readLines builds (a plain array here caused "is not iterable")
       const items = await loadSellable(client,lines,{lock:true});
       const currentTotal = round2(items.reduce((sum,i)=>sum+lineCents(i.price,i.qty),0)/100);
       if (Math.round(currentTotal*100)!==Math.round(Number(p.amount)*100)) {
