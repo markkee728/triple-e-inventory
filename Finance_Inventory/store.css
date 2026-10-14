@@ -164,3 +164,10 @@ html[data-theme="light"] .in-cart-note{color:#17794a}
 .sum-ship,.ship-to{margin-top:12px;padding:10px 12px;border-radius:8px;border:1px solid var(--border);background:var(--inset);font-size:13.5px;color:var(--text-dim);overflow-wrap:anywhere}
 .sum-ship b,.ship-to b{display:block;font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--text-faint);margin-bottom:2px;font-weight:500}
 @media(max-width:700px){.addr-form{padding:12px}}
+
+/* product photos on the catalog cards */
+.prod-art{cursor:pointer}
+.prod-art:has(.shop-product-image){height:190px;background:var(--card)}
+.shop-product-image{width:100%;height:100%;object-fit:contain;display:block;background:var(--card)}
+.prod .name a:hover{color:var(--blue-bright)}
+@media(max-width:700px){.prod-art:has(.shop-product-image){height:130px}}

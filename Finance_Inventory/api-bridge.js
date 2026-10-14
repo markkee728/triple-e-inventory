@@ -571,7 +571,10 @@
       try {
         if (editing) await api('/products/' + encodeURIComponent(editing), { method: 'PUT', body: JSON.stringify(payload) });
         else await api('/products', { method: 'POST', body: JSON.stringify(payload) });
-        toast(editing ? 'Product updated' : 'Product added');
+        let shopMsg = '';
+        try { if (window.TripleEShop && await window.TripleEShop.saveWithProduct(sku)) shopMsg = ' · online shop details saved'; }
+        catch (shopErr) { toast('Product saved, but the online shop details were NOT saved: ' + shopErr.message, 'error'); await load(); return; }
+        toast((editing ? 'Product updated' : 'Product added') + shopMsg);
         closeNewProductModal();
         await load();
       } catch (err) {

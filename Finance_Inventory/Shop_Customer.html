@@ -169,19 +169,64 @@
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
 
 <!-- Finished Goods product details -->
-<div class="modal-overlay" id="shopDetailsBg" role="dialog" aria-modal="true" aria-labelledby="shopDetailsTitle" style="display:none;align-items:center;justify-content:center;padding:20px;z-index:1000">
-  <div class="card shop-detail-dialog" style="width:min(760px,100%);max-height:90vh;overflow:auto;padding:24px;position:relative">
-    <button type="button" class="btn-secondary" id="shopDetailsClose" style="float:right" aria-label="Close product details">Close ×</button>
+<div class="modal-overlay" id="shopDetailsBg" role="dialog" aria-modal="true" aria-labelledby="shopDetailsTitle" style="display:none">
+  <div class="pd-dialog">
+    <button type="button" class="pd-close" id="shopDetailsClose" aria-label="Close product details">&times;</button>
     <div id="shopDetailsContent"></div>
   </div>
 </div>
 <style>
-.shop-product-image{width:100%;height:100%;min-height:140px;max-height:220px;object-fit:contain;display:block;background:rgba(127,127,127,.06)}
-.shop-detail-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start;margin-top:18px}
-.shop-detail-photo{width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:rgba(127,127,127,.08)}
-.shop-detail-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.shop-detail-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:6px;cursor:pointer}
-.shop-detail-specs{display:grid;grid-template-columns:minmax(100px,1fr) 2fr;gap:8px;margin-top:12px}.shop-detail-specs dt{font-weight:600}.shop-detail-specs dd{margin:0}
-@media(max-width:600px){.shop-detail-main{grid-template-columns:1fr}}
+.pd-dialog{position:relative;width:min(980px,100%);max-height:92vh;overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overscroll-behavior:contain}
+.pd-close{position:absolute;top:12px;right:12px;z-index:5;width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:22px;line-height:1;cursor:pointer}
+.pd-close:hover{border-color:var(--blue-bright)}
+.pd-grid{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+.pd-gallery{padding:22px;background:var(--inset);border-radius:16px 0 0 16px}
+.pd-stage{position:relative;aspect-ratio:1/1;border-radius:12px;background:var(--card);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;overflow:hidden;color:var(--blue-bright)}
+.pd-stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:var(--card)}
+.pd-stage .ico{width:84px;height:84px;opacity:.7;vertical-align:0}
+.pd-nav{position:absolute;top:50%;transform:translateY(-50%);width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:18px;opacity:.92}
+.pd-nav.prev{left:10px}.pd-nav.next{right:10px}
+.pd-count{position:absolute;bottom:10px;right:10px;padding:2px 9px;border-radius:99px;background:rgba(0,0,0,.55);color:#fff;font-size:12px}
+.pd-thumbs{display:flex;gap:8px;margin-top:12px;overflow-x:auto;padding-bottom:2px}
+.pd-thumb{flex:none;width:62px;height:62px;padding:0;border-radius:8px;border:2px solid var(--border);background:var(--card);cursor:pointer;overflow:hidden;opacity:.75}
+.pd-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.pd-thumb.on{border-color:var(--blue-bright);opacity:1}
+.pd-info{padding:28px 26px 24px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.pd-crumb{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-faint);padding-right:44px}
+.pd-info h2{font-family:Oswald,sans-serif;font-weight:600;font-size:28px;line-height:1.2;letter-spacing:.2px}
+.pd-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.pd-price b{font-family:Oswald,sans-serif;font-weight:600;font-size:32px}
+.pd-price span{color:var(--text-faint);font-size:14px}
+.pd-short{color:var(--text-dim);font-size:15px;line-height:1.55;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.pd-buy{display:flex;gap:10px;align-items:stretch;margin-top:4px;flex-wrap:wrap}
+.pd-qty{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:8px;background:var(--field);overflow:hidden}
+.pd-qty button{width:40px;height:100%;min-height:44px;border:0;background:transparent;color:var(--text);font-size:20px;cursor:pointer}
+.pd-qty button:hover{background:rgba(74,144,217,.14)}
+.pd-qty input{width:56px;text-align:center;border:0;background:transparent;color:var(--text);font-weight:600;font-size:16px;padding:0;-moz-appearance:textfield}
+.pd-qty input::-webkit-outer-spin-button,.pd-qty input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.pd-buy .btn-primary{flex:1;min-height:44px;font-size:15px}
+.pd-perks{display:grid;gap:8px;margin-top:6px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--inset);font-size:13.5px;color:var(--text-dim)}
+.pd-perks div{display:flex;gap:8px;align-items:center}.pd-perks .ico{width:16px;height:16px;color:var(--green);vertical-align:0;flex:none}
+.pd-tabs{grid-column:1/-1;border-top:1px solid var(--border);padding:0 26px 26px}
+.pd-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
+.pd-tab{padding:14px 16px 12px;border:0;border-bottom:3px solid transparent;background:none;color:var(--text-dim);font-weight:600;font-size:14.5px;cursor:pointer;margin-bottom:-1px}
+.pd-tab.on{color:var(--text);border-bottom-color:var(--blue-bright)}
+.pd-panel[hidden]{display:none}
+.pd-desc{white-space:pre-line;line-height:1.7;font-size:15px;color:var(--text);max-width:70ch}
+.pd-desc.empty,.pd-empty{color:var(--text-faint);font-style:italic}
+.pd-specs{display:grid;grid-template-columns:minmax(120px,240px) 1fr;border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:14.5px}
+.pd-specs dt,.pd-specs dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--row-line,var(--border))}
+.pd-specs dt{font-weight:600;background:var(--inset);color:var(--text-dim)}
+.pd-specs dt:nth-last-child(2),.pd-specs dd:last-child{border-bottom:0}
+@media(max-width:760px){
+  .pd-grid{grid-template-columns:1fr}
+  .pd-dialog{max-height:94vh;border-radius:18px 18px 0 0}
+  .pd-gallery{border-radius:18px 18px 0 0;padding:16px}
+  .pd-info{padding:18px 16px}.pd-info h2{font-size:23px}.pd-price b{font-size:27px}
+  .pd-tabs{padding:0 16px 20px}
+  .pd-specs{grid-template-columns:1fr 1.4fr}
+  .pd-buy{position:sticky;bottom:0;background:var(--card);padding:10px 0;margin:0}
+}
 </style>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type' };</script>
@@ -356,9 +401,9 @@ function renderCatalog() {
   const rows = filtered();
   $('resultLine').textContent = `${rows.length} of ${PRODUCTS.length} products`;
   $('grid').innerHTML = rows.map(p => { const out = p.available <= 0, n = inCart(p.sku); return `<article class="card prod">
-    <div class="prod-art">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.hidden=true" />` : catIcon(p.category)}${stockChip(p)}</div>
+    <div class="prod-art" data-details="${esc(p.sku)}" style="cursor:pointer" title="View details">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.hidden=true" />` : catIcon(p.category)}${stockChip(p)}</div>
     <div class="prod-body">
-      <div class="sku">${esc(p.sku)}</div><div class="name">${esc(p.name)}</div><div class="spec">${esc(p.spec || p.category)}</div>
+      <div class="sku">${esc(p.sku)}</div><div class="name"><a href="#" data-details="${esc(p.sku)}" style="color:inherit;text-decoration:none" onclick="return false">${esc(p.name)}</a></div><div class="spec">${esc(p.spec || p.category)}</div>
       <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
       <div class="buy"><button class="btn-secondary" type="button" data-details="${esc(p.sku)}">View details</button><button class="btn-primary" data-add="${esc(p.sku)}" ${out ? 'disabled' : ''}>${out ? 'Unavailable' : 'Add to cart'}</button></div>
       <div class="in-cart-note">${n ? n + ' in your cart' : ''}</div>
@@ -488,21 +533,75 @@ async function placeOrder() {
 }
 
 
+const PD_PERKS = '<div class="pd-perks"><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Made by Triple E Metal, genuine factory product</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Delivery or pickup, choose at checkout</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Refund requests accepted after delivery</div></div>';
+let pdSku = null;
+function closeProductDetails() { $('shopDetailsBg').style.display = 'none'; pdSku = null; document.body.style.overflow = ''; }
 async function openProductDetails(sku) {
   const p = prod(sku); if (!p) return;
   const bg = $('shopDetailsBg'), area = $('shopDetailsContent');
-  bg.style.display = 'flex'; area.textContent = 'Loading product details…';
-  try {
-    const d = await api('/api/shop/product-content/' + encodeURIComponent(sku));
-    const photos = (d.images || []).filter(i => /^https:\/\//i.test(i.url));
-    const specs = Object.entries(d.specs || {});
-    const img = photos.length ? `<img id="shopDetailsHero" class="shop-detail-photo" src="${esc(photos[0].url)}" alt="${esc(photos[0].alt || d.name)}">` : `<div class="prod-art" style="min-height:180px">${catIcon(p.category)}</div>`;
-    area.innerHTML = `<div class="shop-detail-main"><div>${img}<div class="shop-detail-thumbs">${photos.map((im,i)=>`<img src="${esc(im.url)}" alt="${esc(im.alt || 'Product image '+(i+1))}" data-photo="${i}" loading="lazy">`).join('')}</div></div><div><div class="sku">${esc(p.sku)}</div><h2 id="shopDetailsTitle">${esc(d.name)}</h2><div class="price">${peso(p.price)} / ${esc(p.unit)}</div><p>${esc(d.description || 'No description provided yet.')}</p><p>${stockChip(p)}</p><button type="button" class="btn-primary" data-add="${esc(p.sku)}" ${p.available<=0?'disabled':''}>Add to cart</button></div></div>${specs.length ? `<h3>Specifications</h3><dl class="shop-detail-specs">${specs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>` : ''}`;
-    area.querySelectorAll('[data-photo]').forEach(el => el.addEventListener('click', () => { const hero = $('shopDetailsHero'); if(hero){hero.src=photos[Number(el.dataset.photo)].url;hero.alt=photos[Number(el.dataset.photo)].alt || d.name;} }));
-  } catch(err) { area.textContent = err.message || 'Could not load product details.'; }
+  pdSku = sku; bg.style.display = 'flex'; document.body.style.overflow = 'hidden';
+  area.innerHTML = '<div style="padding:60px 20px;text-align:center;color:var(--text-dim)">Loading product details…</div>';
+  let d = { name: p.name, description: p.description || '', specs: p.specs || {}, images: p.image ? [{ url: p.image, alt: p.name }] : [] };
+  try { d = await api('/api/shop/product-content/' + encodeURIComponent(sku)); }
+  catch (err) { if (pdSku !== sku) return; /* fall back to what the catalog already loaded, so the popup never breaks */ }
+  if (pdSku !== sku) return;
+  const photos = (d.images || []).filter(i => /^https:\/\//i.test(i.url));
+  const specs = Object.entries(d.specs || {});
+  const desc = (d.description || '').trim();
+  const frac = !!p.fractional, step = frac ? 0.5 : 1;
+  let cur = 0;
+  area.innerHTML = `<div class="pd-grid">
+    <div class="pd-gallery">
+      <div class="pd-stage" id="pdStage">${catIcon(p.category)}${photos.length ? `<img id="pdHero" src="${esc(photos[0].url)}" alt="${esc(photos[0].alt || d.name)}" onerror="this.style.visibility='hidden'">` : ''}
+        ${photos.length > 1 ? `<button type="button" class="pd-nav prev" data-pd="-1" aria-label="Previous photo">&#8249;</button><button type="button" class="pd-nav next" data-pd="1" aria-label="Next photo">&#8250;</button><span class="pd-count" id="pdCount">1 / ${photos.length}</span>` : ''}
+      </div>
+      ${photos.length > 1 ? `<div class="pd-thumbs">${photos.map((im, i) => `<button type="button" class="pd-thumb ${i ? '' : 'on'}" data-pdthumb="${i}" aria-label="Show photo ${i + 1}"><img src="${esc(im.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+    </div>
+    <div class="pd-info">
+      <div class="pd-crumb">${esc(p.category || 'Product')} · ${esc(p.sku)}</div>
+      <h2 id="shopDetailsTitle">${esc(d.name || p.name)}</h2>
+      <div>${stockChip(p)}</div>
+      <div class="pd-price"><b>${peso(p.price)}</b><span>per ${esc(p.unit)}</span></div>
+      ${p.spec ? `<div class="spec" style="color:var(--text-dim)">${esc(p.spec)}</div>` : ''}
+      ${desc.length > 140 ? `<div class="pd-short">${esc(desc)}</div>` : ''}
+      <div class="pd-buy">
+        <div class="pd-qty"><button type="button" id="pdMinus" aria-label="Decrease quantity">&minus;</button><input id="pdQty" type="number" inputmode="decimal" min="${step}" step="${step}" value="1" aria-label="Quantity" ${p.available <= 0 ? 'disabled' : ''}><button type="button" id="pdPlus" aria-label="Increase quantity">+</button></div>
+        <button type="button" class="btn-primary" id="pdAdd" ${p.available <= 0 ? 'disabled' : ''}>${p.available <= 0 ? 'Out of stock' : 'Add to cart'}</button>
+      </div>
+      <div class="in-cart-note" id="pdNote">${inCart(p.sku) ? inCart(p.sku) + ' already in your cart' : ''}</div>
+      ${PD_PERKS}
+    </div>
+    <div class="pd-tabs">
+      <div class="pd-tabbar" role="tablist"><button type="button" class="pd-tab on" role="tab" data-pdtab="desc">Description</button><button type="button" class="pd-tab" role="tab" data-pdtab="specs">Specifications${specs.length ? ' (' + specs.length + ')' : ''}</button></div>
+      <div class="pd-panel" id="pdPanelDesc" role="tabpanel">${desc ? `<div class="pd-desc">${esc(desc)}</div>` : '<div class="pd-empty">No description has been added for this product yet.</div>'}</div>
+      <div class="pd-panel" id="pdPanelSpecs" role="tabpanel" hidden>${specs.length ? `<dl class="pd-specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>` : '<div class="pd-empty">No specifications listed yet.</div>'}</div>
+    </div></div>`;
+  const show = i => {
+    cur = (i + photos.length) % photos.length;
+    const hero = $('pdHero'); if (hero) { hero.src = photos[cur].url; hero.alt = photos[cur].alt || d.name; }
+    area.querySelectorAll('.pd-thumb').forEach((t, n) => t.classList.toggle('on', n === cur));
+    const c = $('pdCount'); if (c) c.textContent = (cur + 1) + ' / ' + photos.length;
+  };
+  area.querySelectorAll('[data-pd]').forEach(b => b.onclick = () => show(cur + Number(b.dataset.pd)));
+  area.querySelectorAll('[data-pdthumb]').forEach(b => b.onclick = () => show(Number(b.dataset.pdthumb)));
+  area.querySelectorAll('[data-pdtab]').forEach(b => b.onclick = () => {
+    area.querySelectorAll('.pd-tab').forEach(t => t.classList.toggle('on', t === b));
+    $('pdPanelDesc').hidden = b.dataset.pdtab !== 'desc'; $('pdPanelSpecs').hidden = b.dataset.pdtab !== 'specs';
+  });
+  const qty = $('pdQty'), clamp = () => { let v = Number(qty.value); if (!Number.isFinite(v) || v < step) v = step; const room = p.available - inCart(p.sku); if (room > 0 && v > room) v = room; qty.value = frac ? Math.round(v * 100) / 100 : Math.floor(v); };
+  $('pdMinus').onclick = () => { qty.value = Number(qty.value) - step; clamp(); };
+  $('pdPlus').onclick = () => { qty.value = Number(qty.value) + step; clamp(); };
+  qty.onchange = clamp;
+  $('pdAdd').onclick = () => {
+    clamp(); const n = Number(qty.value), l = cart.find(x => x.sku === p.sku);
+    if ((l ? l.qty : 0) + n > p.available) return toast('Only ' + p.available + ' ' + p.unit + ' available.', true);
+    l ? l.qty += n : cart.push({ sku: p.sku, qty: n });
+    toast(n + ' × ' + p.name + ' added to cart.'); syncCounts(); if (view === 'catalog') renderCatalog(); else renderCart();
+    $('pdNote').textContent = inCart(p.sku) + ' in your cart'; qty.value = step;
+  };
 }
-$('shopDetailsClose').onclick = () => $('shopDetailsBg').style.display = 'none';
-$('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetailsBg')) $('shopDetailsBg').style.display='none';});
+$('shopDetailsClose').onclick = closeProductDetails;
+$('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetailsBg')) closeProductDetails();});
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
@@ -547,7 +646,7 @@ $('q').oninput = $('sort').onchange = $('inStock').onchange = renderCatalog;
 $('q').onkeydown = e => { if (e.key === 'Escape') { $('shopDetailsBg').style.display='none'; $('q').value = ''; renderCatalog(); } };
 document.addEventListener('keydown', e => {
   if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); show('catalog'); $('q').focus(); }
-  if (e.key === 'Escape') { setNav(false); closeModal('cancelBg'); closeModal('refundBg'); $('userDropdown').classList.remove('open'); }
+  if (e.key === 'Escape') { closeProductDetails(); setNav(false); closeModal('cancelBg'); closeModal('refundBg'); $('userDropdown').classList.remove('open'); }
 });
 $('toCheckout').onclick = () => show('checkout');
 $('place').onclick = placeOrder;

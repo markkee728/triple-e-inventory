@@ -1,6 +1,28 @@
 // Mount after auth() and wrap() are declared, before app.listen().
 // This module stores image URLs (e.g. Google Cloud Storage HTTPS URLs), not image bytes.
 module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
+ // Self-healing schema: creates the online-shop columns/table if 004_shop_product_content.sql was never run
+ // on this database (safe to run on every start). Without them the online catalog cannot save or read details.
+ const ready=(async()=>{
+  try{
+   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_description TEXT NOT NULL DEFAULT ''");
+   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_specs JSONB NOT NULL DEFAULT '{}'::jsonb");
+   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_visible BOOLEAN NOT NULL DEFAULT TRUE');
+   await pool.query(`CREATE TABLE IF NOT EXISTS shop_product_images (
+    image_id BIGSERIAL PRIMARY KEY,
+    product_id INT NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
+    image_url TEXT NOT NULL,
+    alt_text TEXT NOT NULL DEFAULT '',
+    sort_order INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT shop_image_url_length CHECK (char_length(image_url) BETWEEN 10 AND 2048))`);
+   await pool.query('CREATE INDEX IF NOT EXISTS shop_product_images_product_idx ON shop_product_images(product_id,sort_order,image_id)');
+   console.log('[shop] online product details schema ready');
+  }catch(err){console.warn('[shop] could not prepare the online product details schema:',err.message);}
+ })();
+ const whenReady=(req,res,next)=>{ready.then(()=>next(),next);};
+ app.use('/api/shop',whenReady);
+ app.use('/api/finance/shop-products',whenReady);
  const getProduct = async sku => (await pool.query('SELECT product_id,sku,name,department,is_archived,selling_price,on_hand,shop_description,shop_specs,shop_visible FROM products WHERE sku=$1',[sku])).rows[0];
  const normalize = (r,images) => ({sku:r.sku,name:r.name,description:r.shop_description,specs:r.shop_specs,visible:r.shop_visible,images,available:Number(r.on_hand),price:Number(r.selling_price)});
  const imagesFor = async id => (await pool.query('SELECT image_id AS id,image_url AS url,alt_text AS alt,sort_order AS "order" FROM shop_product_images WHERE product_id=$1 ORDER BY sort_order,image_id',[id])).rows;
