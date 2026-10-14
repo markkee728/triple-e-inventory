@@ -40,6 +40,7 @@
   let CATEGORIES = [];
   const NEW_CATEGORY = '__new__';
   let movementCache = [];
+  let salesCache = [];      // every POS sale + online order from /api/sales (used by the Sales Transaction Report)
   let currentUser = null;
   let avatarState = { has: false, v: 0 };   // profile photo (stored in the users table)
 
@@ -129,10 +130,12 @@
       if (e.message === 'Not signed in') throw e;
       console.warn('[api-bridge] ' + path + ' failed: ' + e.message); return fallback;
     });
-    const [inventory, products, suppliers, movements, users, audit, reasons, categories] = await Promise.all([
+    const [inventory, products, suppliers, movements, users, audit, reasons, categories, salesRes] = await Promise.all([
       soft('/inventory', inventoryCache), soft('/products', productCatalogData.slice()),
       soft('/suppliers', supplierData.slice()), soft('/movements?limit=1000', movementCache),
-      soft('/users', userAccountsData.slice()), soft('/audit', auditLogData.slice()), soft('/reasons', REASONS), soft('/categories', CATEGORIES)]);
+      soft('/users', userAccountsData.slice()), soft('/audit', auditLogData.slice()), soft('/reasons', REASONS), soft('/categories', CATEGORIES),
+      soft('/sales', { sales: [] })]);
+    salesCache = (salesRes && salesRes.sales) || [];
     // dropdown list = categories table + any category already used by a product (so it is never empty if products exist)
     const catSet = new Map();
     (Array.isArray(categories) ? categories : []).concat(
@@ -1843,6 +1846,28 @@
     else if (rep.type === 'yearly') rep.anchor = addMonths(rep.anchor, 12 * dir);
   }
 
+  /* Sales that count as real revenue in a period: POS sales that are not voided, and online orders that were
+     confirmed (not pending / cancelled) and not refunded. One row per product line. Dates use Manila time. */
+  const SALE_TZ = 'Asia/Manila';
+  const saleDay = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: SALE_TZ });
+  function repSales(range) {
+    if (range.invalid) return [];
+    const out = [];
+    salesCache.forEach((t) => {
+      const day = saleDay(t.createdAt);
+      if (day < range.from || day > range.to) return;
+      if (t.source === 'POS' ? t.status === 'Voided' : (t.status === 'Pending Confirmation' || t.status === 'Cancelled')) return;
+      if (t.refund && t.refund.status === 'approved') return;
+      const confirmedBy = (t.history || []).filter((h) => h.to === 'Paid').map((h) => h.by).pop();
+      const handler = t.source === 'POS' ? (t.cashier || 'Cashier') : (confirmedBy || 'Online shop');
+      (t.items || []).forEach((i) => out.push({
+        ref: t.ref, source: t.source, date: day, product: i.name, qty: i.qty, unit: i.unit, price: i.price,
+        revenue: i.qty * i.price, profit: i.qty * (i.price - i.cost), customer: t.customer || '', method: t.method || '', handledBy: handler
+      }));
+    });
+    return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.ref < b.ref ? 1 : -1));
+  }
+
   function repMovements(range) {
     if (range.invalid) return [];
     return movementCache.filter((m) => m.date && m.date >= range.from && m.date <= range.to);
@@ -1962,9 +1987,12 @@
     setText('repSkusInReport', num(inv.length));
     setText('repStockValue', money(stockValue));
     setText('repMovementsInPeriod', num(moves.length));
-    setText('repSalesInPeriod', '0');
-    setText('repSalesRevenue', money(0));
-    setText('repSalesProfit', money(0));
+    const sales = repSales(range);
+    const saleRevenue = sales.reduce((t, r) => t + r.revenue, 0), saleProfit = sales.reduce((t, r) => t + r.profit, 0);
+    const saleCount = new Set(sales.map((r) => r.ref)).size;
+    setText('repSalesInPeriod', num(saleCount));
+    setText('repSalesRevenue', money(saleRevenue));
+    setText('repSalesProfit', money(saleProfit));
     setText('repLowStockAlerts', num(low));
 
     drawDonut(inv);
@@ -2001,11 +2029,21 @@
       if (mFoot) mFoot.innerHTML = moves.length ? '<tr class="report-foot-row"><td colspan="8">' + moves.length + ' movements \u00B7 ' + inCount + ' stock in \u00B7 ' + outCount + ' stock out</td></tr>' : '';
     }
 
-    // sales (no sales data is stored yet)
-    setText('reportSalesSub', range.label + ' \u00B7 0 transactions');
+    // sales transaction report (POS walk-in + online shop)
+    setText('reportSalesSub', range.invalid ? 'Start date must be on or before the end date'
+      : range.label + ' \u00B7 ' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 revenue ' + money(saleRevenue) + ' \u00B7 profit ' + money(saleProfit));
     const slBody = $('reportSalesBody'), slFoot = $('reportSalesFoot');
-    if (slBody) slBody.innerHTML = '<tr><td colspan="10" class="report-note">No sales recorded. Sales transactions are not connected to the database yet, so this report stays empty for now.</td></tr>';
-    if (slFoot) slFoot.innerHTML = '';
+    if (slBody) {
+      slBody.innerHTML = sales.length ? sales.map((r) =>
+        '<tr><td class="mono">' + esc(r.ref) + '<div class="dim" style="font-size:12px">' + (r.source === 'POS' ? 'POS walk-in' : 'Online shop') + '</div></td>' +
+        '<td class="dim">' + esc(niceDate(r.date)) + '</td><td>' + esc(r.product) + '</td>' +
+        '<td>' + esc(num(r.qty)) + ' ' + esc(r.unit || '') + '</td><td class="dim">' + esc(money(r.price)) + '</td>' +
+        '<td>' + esc(money(r.revenue)) + '</td><td class="' + (r.profit < 0 ? 'qty-out' : 'qty-in') + '">' + esc(money(r.profit)) + '</td>' +
+        '<td class="dim">' + esc(r.customer) + '</td><td class="dim">' + esc(r.method) + '</td><td class="dim">' + esc(r.handledBy) + '</td></tr>').join('')
+        : '<tr><td colspan="10" class="report-note">' + (range.invalid ? 'Fix the date range above.' : 'No sales in this period. Voided, cancelled, unconfirmed and refunded sales are not counted.') + '</td></tr>';
+    }
+    if (slFoot) slFoot.innerHTML = sales.length ? '<tr class="report-foot-row"><td colspan="5">' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 ' + sales.length + ' line' + (sales.length === 1 ? '' : 's') +
+      ' \u00B7 product sales only (delivery fees not included)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
   }
 
   /* ---- CSV export ---- */
@@ -2039,6 +2077,10 @@
       row(['Ref', 'Date', 'Product', 'Type', 'Reason', 'Quantity', 'Unit', 'Department', 'Handled by']));
     moves.forEach((m) => lines.push(row([T(m.ref), m.date, T(m.product), m.type === 'in' ? 'In' : 'Out', T(m.reason || ''),
       (m.type === 'in' ? '' : '-') + m.qty, T(m.unit), T(m.department), T(m.handledBy)])));
+    lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online, excludes voided / cancelled / unconfirmed / refunded)')]),
+      row(['Sales ref', 'Source', 'Date', 'Product', 'Quantity', 'Unit', 'Unit price', 'Revenue', 'Profit', 'Customer', 'Payment', 'Handled by']));
+    repSales(range).forEach((r) => lines.push(row([T(r.ref), T(r.source === 'POS' ? 'POS walk-in' : 'Online shop'), r.date, T(r.product), r.qty, T(r.unit || ''),
+      r.price.toFixed(2), r.revenue.toFixed(2), r.profit.toFixed(2), T(r.customer), T(r.method), T(r.handledBy)])));
     const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -2050,6 +2092,10 @@
 
   function setupReports() {
     if (!$('reports')) return;
+    // re-read sales each time Reports is opened, so orders confirmed or sold a moment ago are included
+    document.querySelectorAll('.nav-item[data-page="reports"]').forEach((n) => n.addEventListener('click', () => {
+      api('/sales').then((r) => { salesCache = (r && r.sales) || []; renderReports(); }).catch((e) => console.warn('[api-bridge] /sales failed: ' + e.message));
+    }));
     // sensible defaults for the custom range: the last 7 days
     rep.to = iso(new Date()); rep.from = addDays(rep.to, -6);
     if ($('reportFromDate')) $('reportFromDate').value = rep.from;
