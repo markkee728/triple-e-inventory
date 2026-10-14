@@ -622,7 +622,11 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* =====================================================
      SHOP — customer
   ===================================================== */
-  app.get('/api/shop/products', auth('customer'), wrap(async (req, res) => res.json(await catalog())));
+  app.get('/api/shop/products', auth('customer'), wrap(async (req, res) => {
+    const rows = await catalog();
+    // adds minimum order, star rating and "notify me" info (shop-extras.js); the catalog still works if that module is off
+    res.json(app.locals.shopExtras ? await app.locals.shopExtras.decorate(rows, req.user) : rows);
+  }));
   app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
   // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
   app.get('/api/shop/info', (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
@@ -768,6 +772,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const order = await tx(async (client) => {
       // No stock lock here: stock is only deducted when Finance confirms the order. This just refuses what is clearly unavailable.
       const items = await loadSellable(client, lines, { lock: false });
+      if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);   // minimum order per product
       const subtotal = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
       const fee = fulfillment === 'Delivery' ? DELIVERY_FEE : 0;
       const ins = await client.query(

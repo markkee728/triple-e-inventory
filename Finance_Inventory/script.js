@@ -68,6 +68,16 @@ const pageInformation = {
         subtitle: "Release finished goods against purchase orders"
     },
 
+    quotes: {
+        title: "Quote Requests",
+        subtitle: "Bulk orders and custom sizes"
+    },
+
+    reviews: {
+        title: "Product Reviews",
+        subtitle: "Verified customer reviews"
+    },
+
     usermgmt: {
         title: "User Management",
         subtitle: "Manage user accounts"

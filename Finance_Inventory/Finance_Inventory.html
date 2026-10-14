@@ -126,6 +126,16 @@
                     Sales Transactions
                 </button>
 
+                <button class="nav-item" data-page="quotes">
+                    <span class="dot"></span>
+                    Quote Requests
+                </button>
+
+                <button class="nav-item" data-page="reviews">
+                    <span class="dot"></span>
+                    Product Reviews
+                </button>
+
             </div>
 
 
@@ -1393,6 +1403,10 @@
             <!-- =================================================
                  USER MANAGEMENT
             ================================================== -->
+
+            <!-- Quote requests and product reviews: filled in by shop-extras-admin.js -->
+            <section id="quotes" class="page"></section>
+            <section id="reviews" class="page"></section>
 
             <section id="usermgmt" class="page">
 
@@ -3533,6 +3547,11 @@
                         <textarea id="npShopImages" class="form-textarea" rows="2" placeholder="Or paste image links here, one per line"></textarea>
                     </div>
                     <div class="form-group">
+                        <label class="form-label" for="npShopMinOrder">Minimum order (online shop)</label>
+                        <input id="npShopMinOrder" type="number" class="form-input" min="0.01" step="0.01" value="1" inputmode="decimal" style="max-width:160px">
+                        <div class="field-hint">The smallest quantity a customer can order online, in the product&rsquo;s unit (e.g. 5 for &ldquo;5 lengths&rdquo;). Use 1 for no minimum. The shop shows it next to &ldquo;Sold per &hellip;&rdquo;. The POS counter is not affected.</div>
+                    </div>
+                    <div class="form-group">
                         <label class="form-label" for="npShopVisible"><input id="npShopVisible" type="checkbox" checked> Show in Online Shop</label>
                         <div class="field-hint">Customers only see a product that is checked here, has a selling price above 0, and is not archived.</div>
                     </div>
@@ -3584,7 +3603,8 @@
     <script src="cash-shift-reports.js?v=3"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
-    <script src="finished-goods-shop.js?v=4"></script>
+    <script src="finished-goods-shop.js?v=5"></script>
+    <script src="shop-extras-admin.js?v=1"></script>
 
 </body>
 

@@ -19,3 +19,11 @@ QUICK START (local)
   4. Open http://localhost:8080/Login_Inventory.html
 
 NOTE: the OTP screen is still the demo code 000000. See backend/README.md "Not done yet".
+
+
+ONLINE SHOP EXTRAS (quotes, minimum order, back-in-stock, reviews)
+  Code:  backend/shop-extras.js  +  Finance_Inventory/shop-extras-admin.js  (Shop_Customer.html has the customer side)
+  Tables are created automatically when the server starts. backend/db/006_shop_extras.sql is the same thing for running by hand.
+  .env:  QUOTE_EMAIL (optional) = where a copy of each new quote request is emailed; falls back to SHOP_EMAIL.
+         Customer emails (quote received/replied, back in stock) use the same Gmail / Mailgun settings as order emails.
+  Finance: menu Sales > Quote Requests and Product Reviews. Set "Minimum order" in Products > Finished Goods > Online shop details.

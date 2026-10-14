@@ -1091,6 +1091,7 @@ require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, st
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
+require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./cash-shifts')({ app, pool, auth, wrap, tx, TZ });
 /* ---------- stock count (physical inventory) ---------- */
 require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });

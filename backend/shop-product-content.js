@@ -11,6 +11,7 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_description TEXT NOT NULL DEFAULT ''");
    await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_specs JSONB NOT NULL DEFAULT '{}'::jsonb");
    await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS shop_visible BOOLEAN NOT NULL DEFAULT TRUE');
+   await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty NUMERIC(14,2) NOT NULL DEFAULT 1 CHECK (min_order_qty > 0)');
    await pool.query(`CREATE TABLE IF NOT EXISTS shop_product_images (
     image_id BIGSERIAL PRIMARY KEY,
     product_id INT NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
@@ -32,8 +33,8 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
  app.use('/api/shop',whenReady);
  app.use('/api/finance/shop-products',whenReady);
  app.use('/api/finance/shop-images',whenReady);
- const getProduct = async sku => (await pool.query('SELECT product_id,sku,name,department,is_archived,selling_price,on_hand,shop_description,shop_specs,shop_visible FROM products WHERE sku=$1',[sku])).rows[0];
- const normalize = (r,images) => ({sku:r.sku,name:r.name,description:r.shop_description,specs:r.shop_specs,visible:r.shop_visible,images,available:Number(r.on_hand),price:Number(r.selling_price)});
+ const getProduct = async sku => (await pool.query('SELECT product_id,sku,name,department,is_archived,selling_price,on_hand,shop_description,shop_specs,shop_visible,min_order_qty,unit FROM products WHERE sku=$1',[sku])).rows[0];
+ const normalize = (r,images) => ({sku:r.sku,name:r.name,description:r.shop_description,specs:r.shop_specs,visible:r.shop_visible,images,available:Number(r.on_hand),price:Number(r.selling_price),unit:r.unit,minOrder:Number(r.min_order_qty)});
  const imagesFor = async id => (await pool.query('SELECT image_id AS id,image_url AS url,alt_text AS alt,sort_order AS "order" FROM shop_product_images WHERE product_id=$1 ORDER BY sort_order,image_id',[id])).rows;
  const UPLOADED = /^\/api\/shop\/images\/\d{1,12}$/;   // photos uploaded through the product form
  const validUrl = v => {if(UPLOADED.test(v))return true;try {const u=new URL(v);return u.protocol==='https:' && u.username==='' && u.password==='' && v.length<=2048;}catch{return false;}};
@@ -70,6 +71,8 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
   if(typeof b.description!=='string'||b.description.length>5000||typeof b.visible!=='boolean'||!b.specs||typeof b.specs!=='object'||Array.isArray(b.specs)) return res.status(400).json({error:'Invalid product content'});
   const specs=Object.entries(b.specs);
   if(specs.length>30||specs.some(([k,v])=>k.length>80||!k.trim()||typeof v!=='string'||v.length>300))return res.status(400).json({error:'Invalid specifications'});
+  const minOrder=b.minOrder===undefined?undefined:Number(b.minOrder);
+  if(minOrder!==undefined&&(!Number.isFinite(minOrder)||minOrder<=0||minOrder>1e6||Math.round(minOrder*100)!==minOrder*100))return res.status(400).json({error:'Minimum order must be a number above 0 (up to 2 decimals)'});
   if(!Array.isArray(b.images)||b.images.length>8||b.images.some((im,i)=>!im||typeof im.url!=='string'||!validUrl(im.url)||typeof im.alt!=='string'||im.alt.length>200))return res.status(400).json({error:'Use up to 8 photos (uploaded files or HTTPS image URLs) and short alt text'});
   const client=await pool.connect();
   try {
@@ -77,7 +80,7 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
    const r=await client.query(`SELECT product_id FROM products WHERE sku=$1 AND department='Finished Goods' AND NOT is_archived FOR UPDATE`,[sku]);
    if(!r.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'Product not found'});}
    const id=r.rows[0].product_id;
-   await client.query('UPDATE products SET shop_description=$1,shop_specs=$2::jsonb,shop_visible=$3 WHERE product_id=$4',[b.description.trim(),JSON.stringify(b.specs),b.visible,id]);
+   await client.query('UPDATE products SET shop_description=$1,shop_specs=$2::jsonb,shop_visible=$3,min_order_qty=COALESCE($5,min_order_qty) WHERE product_id=$4',[b.description.trim(),JSON.stringify(b.specs),b.visible,id,minOrder===undefined?null:minOrder]);
    await client.query('DELETE FROM shop_product_images WHERE product_id=$1',[id]);
    for(let i=0;i<b.images.length;i++)await client.query('INSERT INTO shop_product_images(product_id,image_url,alt_text,sort_order) VALUES($1,$2,$3,$4)',[id,b.images[i].url,b.images[i].alt.trim(),i]);
    await client.query('COMMIT');res.json({ok:true});
