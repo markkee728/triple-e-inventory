@@ -181,6 +181,16 @@ a.nav-item{text-decoration:none}
   <div class="err-text" id="refundErr" role="alert"></div>
   <p class="dim" style="font-size:13px;margin-top:8px">Our team reviews every request. You will see the decision on this page.</p>
   <div class="modal-actions"><button class="btn-primary" id="refundSend">Send request</button><button class="btn-secondary" onclick="closeModal('refundBg')">Close</button></div></div></div>
+<div class="modal-overlay" id="payBg"><div class="modal" style="max-width:480px;text-align:center">
+  <h3 id="payTitle">Complete your payment</h3><p class="dim" id="payFor"></p>
+  <div id="payWait">
+    <div id="payQR" style="display:flex;justify-content:center;margin:14px 0"></div>
+    <p class="dim" id="payHint" style="font-size:13px;line-height:1.5">Scan this with your phone camera or your bank / e-wallet app. Paying on this device? Tap the button below.</p>
+    <a class="btn-primary btn-lg" id="payLink" href="#" target="_blank" rel="noopener" style="display:block;text-decoration:none;margin:12px 0">Open payment page</a>
+    <div class="chip-pill warn" id="payState" style="display:inline-block">Waiting for your payment…</div>
+  </div>
+  <div id="payDone" hidden></div>
+  <div class="modal-actions" style="justify-content:center"><button class="btn-secondary" id="payClose">Close</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
@@ -248,6 +258,7 @@ a.nav-item{text-decoration:none}
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type' };</script>
 <script src="account-menu.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 
 <script>
@@ -480,6 +491,45 @@ function renderHelpLines() {
     el.innerHTML = 'Questions? ' + (bits.length ? bits.join(' · ') + ' · ' : '') + '<a href="Shop_Info.html#contact">Help &amp; contact</a>';
   });
 }
+/* ----- online payment window: shows the QR inside checkout, confirms by itself, then shows the receipt ----- */
+let payPoll = null, payOrderId = null;
+const stopPayPoll = () => { clearInterval(payPoll); payPoll = null; };
+async function checkPay() {
+  if (!payOrderId) return;
+  try {
+    const r = await api('/api/shop/orders/' + encodeURIComponent(payOrderId) + '/verify-payment', { method: 'POST', body: '{}' });
+    if (r.paymentStatus === 'paid') { stopPayPoll(); await showPaid(); }
+    else if (r.paymentStatus === 'expired') { stopPayPoll(); $('payState').textContent = 'This payment link expired. Close this and tap “Continue Online Payment” in My Orders for a new one.'; }
+  } catch (e) {}
+}
+async function showPaid() {
+  try { orders = await loadOrders(); } catch (e) {}
+  const o = orders.find(x => x.id === payOrderId); if (!o) return;
+  $('payTitle').textContent = 'Payment successful ✓'; $('payFor').textContent = 'Order ' + o.id + ' is confirmed. Thank you!';
+  $('payWait').hidden = true; $('payDone').hidden = false;
+  $('payDone').innerHTML = '<div class="card" style="text-align:left;padding:14px;margin:12px 0">'
+    + o.items.map(it => `<div class="row"><span>${esc(it.qty)} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')
+    + (o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : '')
+    + `<div class="row total"><span>Total paid</span><span class="mono">${peso(o.total)}</span></div>`
+    + `<div class="dim" style="font-size:12.5px;margin-top:8px">${esc(new Date(o.createdAt).toLocaleString('en-PH'))} · ${esc(payLabel(o.method))} · ${esc(o.fulfillment)}</div></div>`
+    + `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn-primary" data-receipt="${esc(o.id)}">Print receipt</button><button class="btn-secondary" id="payOrders">View my orders</button></div>`;
+  $('payOrders').onclick = () => { closePay(); show('orders'); };
+  renderOrders(); syncCounts();
+}
+function closePay() { stopPayPoll(); payOrderId = null; closeModal('payBg'); }
+function openPayModal(order, url) {
+  payOrderId = order.id; stopPayPoll();
+  $('payTitle').textContent = 'Complete your payment'; $('payFor').textContent = 'Order ' + order.id + ' · ' + peso(order.total);
+  $('payWait').hidden = false; $('payDone').hidden = true; $('payQR').replaceChildren();
+  if (url) {
+    $('payLink').href = url; $('payLink').hidden = false; $('payHint').hidden = false; $('payState').textContent = 'Waiting for your payment…';
+    if (window.QRCode) new QRCode($('payQR'), { text: url, width: 192, height: 192 });
+  } else { $('payLink').hidden = true; $('payHint').hidden = true; $('payState').textContent = 'Confirming your payment…'; }
+  $('payBg').classList.add('show');
+  payPoll = setInterval(checkPay, 3000); checkPay();
+}
+$('payClose').onclick = () => { const was = payOrderId; closePay(); if (was) { show('orders'); } };
+document.addEventListener('visibilitychange', () => { if (!document.hidden && payOrderId) checkPay(); });
 function printReceipt(id) {
   const o = orders.find(x => x.id === id); if (!o) return;
   const i = INFO || {}, w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your receipt.', true);
@@ -580,7 +630,8 @@ async function placeOrder() {
     try {
       const payment = await api('/api/shop/orders/' + encodeURIComponent(order.id) + '/xendit-checkout', { method: 'POST', body: '{}' });
       if (!payment.checkoutUrl) throw new Error('Online payment provider did not return a checkout URL.');
-      location.href = payment.checkoutUrl;
+      $('place').disabled = false; orders.unshift(order); syncCounts();
+      openPayModal(order, payment.checkoutUrl);
       return;
     } catch (e) {
       $('place').disabled = false;
@@ -685,7 +736,7 @@ document.addEventListener('click', e => {
   if (d.details) openProductDetails(d.details);
   if (d.xendit) {
     api('/api/shop/orders/' + encodeURIComponent(d.xendit) + '/xendit-checkout', { method: 'POST', body: '{}' })
-      .then(payment => { if (payment.checkoutUrl) location.href = payment.checkoutUrl; else toast('No checkout URL was returned.', true); })
+      .then(payment => { const o = orders.find(x => x.id === d.xendit); if (payment.checkoutUrl && o) openPayModal(o, payment.checkoutUrl); else toast('No checkout URL was returned.', true); })
       .catch(err => toast(err.message || 'Could not open online checkout.', true));
   }
   if (d.add || d.inc) addToCart(d.add || d.inc);
@@ -754,16 +805,16 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
     for (const o of pending) {
       try { const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' }); if (r.paymentStatus === 'paid') paid = true; } catch (e) {}
     }
-    if (paid) toast('Payment received. Thank you! Your order is confirmed.');
+    if (paid && !$('payBg').classList.contains('show')) toast('Payment received. Thank you! Your order is confirmed.');
     return paid;
   };
   const refreshOrders = async () => { try { await verifyPending(); const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
   setInterval(refreshOrders, 15000);
   // Back from the payment page: show My Orders and check every few seconds until the payment is confirmed.
   if (/[?&]payment=return/.test(location.search)) {
-    show('orders'); history.replaceState(null, '', location.pathname);
-    let tries = 0; const t = setInterval(async () => { await refreshOrders(); if (++tries >= 30 || !orders.some(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation')) clearInterval(t); }, 4000);
-    refreshOrders();
+    history.replaceState(null, '', location.pathname);
+    const last = orders.find(o => o.method === 'Xendit');
+    if (last) { openPayModal(last, null); } else { show('orders'); }
   } else if (/[?&]payment=failed/.test(location.search)) { history.replaceState(null, '', location.pathname); show('orders'); toast('Payment was not completed. You can retry from My Orders.', true); }
   else refreshOrders();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOrders(); });

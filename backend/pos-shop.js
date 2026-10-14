@@ -183,7 +183,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const vat = round2(currentTotal * VAT_RATE / (1+VAT_RATE));
       const {rows:sales} = await client.query(`INSERT INTO pos_sales
         (cashier_id,cashier_name,method,total,vat,tendered,change_given,card_ref)
-        VALUES ($1,$2,'Card',$3,$4,NULL,NULL,$5) RETURNING *`,
+        VALUES ($1,$2,'Xendit',$3,$4,NULL,NULL,$5) RETURNING *`,
         [p.cashier_id,p.cashier_name,currentTotal,vat,invoiceId]);
       const sale = sales[0];
       for(const i of items) {
@@ -286,6 +286,23 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     try {
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS request_id TEXT');
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_sales_cashier_request ON pos_sales (cashier_id, request_id) WHERE request_id IS NOT NULL');
+      // online-payment sales are saved with method 'Xendit' (shown as "Online payment"): make sure the method column accepts it
+      await pool.query(`DO $$
+        DECLARE c record;
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'pos_sales'::regclass AND conname = 'pos_sales_method_flow_check') THEN
+            FOR c IN SELECT conname FROM pg_constraint
+                      WHERE conrelid = 'pos_sales'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) ILIKE '%method%'
+            LOOP
+              EXECUTE format('ALTER TABLE pos_sales DROP CONSTRAINT %I', c.conname);
+            END LOOP;
+            ALTER TABLE pos_sales ADD CONSTRAINT pos_sales_method_flow_check CHECK (method IN ('Cash','Card','Xendit'));
+          END IF;
+        END $$`);
+      // earlier online payments were saved as 'Card': relabel the ones that really came from a paid Xendit invoice
+      await posPaymentsReady.catch(() => {});
+      await pool.query(`UPDATE pos_sales SET method = 'Xendit'
+        WHERE method = 'Card' AND card_ref IN (SELECT invoice_id FROM pos_xendit_payments WHERE status = 'paid' AND invoice_id IS NOT NULL)`);
     } catch (err) { console.warn('[db] could not prepare pos_sales.request_id:', err.message); }
   })();
 

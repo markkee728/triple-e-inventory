@@ -57,13 +57,13 @@
 
   function paymentsHtml() {
     const pos = data.payments.pos, on = data.payments.online;
-    const posTotal = pos.reduce((n, x) => n + x.total, 0), posCash = (pos.find(x => x.method === 'Cash') || {}).total || 0, posCard = (pos.find(x => x.method === 'Card') || {}).total || 0;
+    const posTotal = pos.reduce((n, x) => n + x.total, 0), posCash = (pos.find(x => x.method === 'Cash') || {}).total || 0, posCard = pos.filter(x => x.method === 'Card' || x.method === 'Xendit').reduce((n, x) => n + x.total, 0);
     const onCollected = on.reduce((n, x) => n + x.collected, 0), awaiting = on.reduce((n, x) => n + x.awaiting, 0), refunded = on.reduce((n, x) => n + x.refunded, 0);
     const net = posTotal + onCollected - refunded;
     let h = '<div class="cr-stats">' +
       stat('Net collected', peso(net), 'POS + online − refunds', 'good') +
       stat('POS cash', peso(posCash), 'goes to cashier drawers') +
-      stat('POS card', peso(posCard), 'card terminal, not in drawer') +
+      stat('POS card & online', peso(posCard), 'card / online payment, not in drawer') +
       stat('Online collected', peso(onCollected), 'paid / confirmed orders') +
       stat('Awaiting confirmation', peso(awaiting), 'not counted as collected yet', awaiting ? 'warn' : '') +
       stat('Refunds approved', peso(refunded), 'online orders', refunded ? 'bad' : '') + '</div>';

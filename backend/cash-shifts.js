@@ -48,8 +48,8 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
   FROM pos_cash_shifts s
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(p.total) FILTER (WHERE p.method='Cash'),0) AS cash_sales,
                             COUNT(*) FILTER (WHERE p.method='Cash')::int AS cash_tx,
-                            COALESCE(SUM(p.total) FILTER (WHERE p.method='Card'),0) AS card_sales,
-                            COUNT(*) FILTER (WHERE p.method='Card')::int AS card_tx,
+                            COALESCE(SUM(p.total) FILTER (WHERE p.method IN ('Card','Xendit')),0) AS card_sales,
+                            COUNT(*) FILTER (WHERE p.method IN ('Card','Xendit'))::int AS card_tx,
                             COUNT(*) FILTER (WHERE p.status='Void Pending')::int AS pending_voids
                        FROM pos_sales p WHERE p.cash_shift_id = s.shift_id AND p.status <> 'Voided') cs ON true
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_in'),0) AS cash_in,

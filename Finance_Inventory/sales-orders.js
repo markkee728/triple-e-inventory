@@ -7,7 +7,7 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const when = (t) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  let ORDERS = [], POS = [];
+  let ORDERS = [], POS = [], VOIDS = {};   // VOIDS: receipt no. -> pending void request {id, reason}
   const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 
   function toast(msg, err) {
@@ -41,7 +41,8 @@
 
   async function load() {
     // Each list loads on its own so one failing request doesn't blank the others.
-    const [o, p] = await Promise.allSettled([api('/orders'), api('/pos/sales')]);
+    const [o, p, v] = await Promise.allSettled([api('/orders'), api('/pos/sales'), api('/pos/void-requests')]);
+    VOIDS = {}; if (v.status === 'fulfilled') v.value.forEach(r => { VOIDS[r.receiptNo] = r; });
     if (o.status === 'fulfilled') ORDERS = o.value; else $('soSub').textContent = o.reason.message;
     if (p.status === 'fulfilled') POS = p.value; else $('soPosSub').textContent = p.reason.message;
     if (o.status === 'fulfilled') renderOrders();
@@ -77,17 +78,30 @@
     const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
     const live = rows.filter(s => s.status !== 'Voided');
     $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total, 0)) + ' collected';
-    $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>';
+    $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Action</th></tr>';
     $('soPosBody').innerHTML = rows.length ? rows.map(s => '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' +
-      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' + pill(s.status) + '</td></tr>').join('')
-      : '<tr><td colspan="7" class="report-note">No POS sales today.</td></tr>';
+      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' + pill(s.status) +
+      (VOIDS[s.receiptNo] ? '<div class="faint" style="font-size:12px;margin-top:4px;max-width:220px">Cashier\'s reason: ' + esc(VOIDS[s.receiptNo].reason) + '</div>' : '') + '</td><td>' +
+      (s.status === 'Void Pending' && VOIDS[s.receiptNo]
+        ? '<button class="btn-danger btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="1">Approve void</button> <button class="btn-secondary btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
+        : '<span class="faint">—</span>') + '</td></tr>').join('')
+      : '<tr><td colspan="8" class="report-note">No POS sales today.</td></tr>';
   }
 
   document.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-so-next],[data-so-cancel],[data-so-abort]'); if (!b) return;
+    const b = e.target.closest('[data-so-next],[data-so-cancel],[data-so-abort],[data-so-void]'); if (!b) return;
     b.disabled = true;
     try {
-      if (b.dataset.soNext) {
+      if (b.dataset.soVoid) {
+        const no = b.dataset.soVoid, ok = b.dataset.ok === '1', v = VOIDS[no], sale = POS.find(x => x.receiptNo === no);
+        if (!v) { toast('No pending void request for ' + no + '. Refreshing…', true); await load(); return; }
+        const online = sale && sale.method === 'Xendit';
+        const msg = (ok ? 'Approve the void of ' + no + '?\nAll items go back into stock. This cannot be undone.' : 'Reject the void request for ' + no + '?\nThe sale stays completed.')
+          + '\n\nCashier\'s reason: ' + v.reason + (ok && online ? '\n\nThis sale was paid online. Voiding does not refund the customer: send the refund from your Xendit dashboard.' : '');
+        if (!window.confirm(msg)) { b.disabled = false; return; }
+        await api('/pos/void-requests/' + encodeURIComponent(v.id) + '/decision', { method: 'POST', body: JSON.stringify({ approve: ok }) });
+        toast(ok ? no + ' was voided and the stock returned.' : 'Void request for ' + no + ' rejected.');
+      } else if (b.dataset.soNext) {
         const no = b.dataset.soNext, to = b.dataset.to, body = { status: to };
         if (FINAL.includes(to)) {                         // the server needs the name of the person who received the order
           const who = window.prompt('Who ' + (to === 'Delivered' ? 'received the delivery' : 'picked up the order') + '? (2–80 characters)');

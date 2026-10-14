@@ -502,7 +502,7 @@ function renderSales() {
   $('stTotal').textContent = peso(sum(live)); $('stCount').textContent = live.length;
   $('stAvg').textContent = 'Avg ' + peso(live.length ? sum(live) / live.length : 0);
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
-  $('stSplit').textContent = pesoShort(sum(live.filter(s => s.method === 'Cash'))) + ' / ' + pesoShort(sum(live.filter(s => s.method === 'Card')));
+  $('stSplit').textContent = pesoShort(sum(live.filter(s => s.method === 'Cash'))) + ' / ' + pesoShort(sum(live.filter(s => s.method !== 'Cash')));
   $('saleRows').innerHTML = sales.map(s => `<tr><td class="mono">${s.receiptNo}</td><td class="dim">${new Date(s.createdAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</td>
     <td class="r">${s.items.reduce((n, i) => n + i.qty, 0)}</td><td class="r mono">${peso(s.total)}</td><td>${s.method === 'Xendit' ? 'Online payment' : s.method}</td>
     <td><span class="status-pill ${s.status === 'Completed' ? 'ok' : s.status === 'Voided' ? 'bad' : 'warn'}">${s.status}</span></td>
@@ -549,6 +549,7 @@ async function receiptPng(s, reprint) {
     gap(4); row('TOTAL', peso(s.total), { bold: true, size: 16 });
     gap(4);
     if (s.method === 'Cash') { row('Cash', peso(s.tendered)); row('Change', peso(s.change || 0)); }
+    else if (s.method === 'Xendit') { row('Online payment', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
     else { row('Card / Online', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
     rule(); gap(2); center('Thank you for your purchase!', { size: 11 }); center('Please keep this receipt.', { size: 10.5, color: '#555' });
     y += PAD; return y;
