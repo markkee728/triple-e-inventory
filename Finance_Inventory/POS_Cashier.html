@@ -590,8 +590,13 @@ async function checkXenditPayment() {
       clearInterval(xenditPoll); xenditPoll = null; xenditPayment = null;
       $('xenditPending').hidden = true; busy = false; resetSale(); updatePay();
       toast('Online payment verified. Sale completed.');
-      PRODUCTS = await loadProducts(); renderCats();
+      if (window.refreshCashShift) window.refreshCashShift();
+      try { PRODUCTS = await loadProducts(); renderCats(); } catch (e) {}
       const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); }
+      const done = (fresh || []).find(x => String(x.id) === String(p.sale_id));
+      if (done) showReceipt(done, false);
+    } else if (p.status === 'pending' && p.checkError) {
+      $('xenditState').textContent = 'Waiting for payment… (could not confirm with Xendit: ' + p.checkError + ')';
     } else if (['expired','review','error'].includes(p.status)) {
       clearInterval(xenditPoll); xenditPoll = null; busy = false;
       $('xenditState').textContent = p.status === 'review' ? 'Paid, needs staff reconciliation. Do not collect again.' : 'Payment ' + p.status;

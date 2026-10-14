@@ -143,6 +143,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const sel = () => pool.query(`SELECT payment_id,status,amount,checkout_url,sale_id,error_message,invoice_id,external_id
       FROM pos_xendit_payments WHERE payment_id=$1 AND cashier_id=$2`, [req.params.id,req.user.id]);
     let {rows} = await sel();
+    let checkError;
     if (!rows.length) return res.status(404).json({error:'Payment not found'});
     // Do not rely only on Xendit's callback (it cannot reach a local/offline server): ask Xendit for the invoice itself.
     if (rows[0].status === 'pending' && rows[0].invoice_id) {
@@ -153,10 +154,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           await handlePosXenditWebhook({ ...inv, status: st }, rows[0].external_id, rows[0].invoice_id);
           ({rows} = await sel());
         }
-      } catch (e) { console.warn('[xendit] POS status check failed:', e.message); }
+      } catch (e) { checkError = e.message; console.warn('[xendit] POS status check failed:', e.message); }
     }
     const { invoice_id, external_id, ...out } = rows[0];
-    res.json(out);
+    res.json(checkError ? { ...out, checkError } : out);
   }));
   async function handlePosXenditWebhook(event, externalId, invoiceId) {
     await posPaymentsReady;
