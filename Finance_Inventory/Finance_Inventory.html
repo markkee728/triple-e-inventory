@@ -18,6 +18,16 @@
         href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=Oswald:wght@500;600;700&display=swap"
         rel="stylesheet"
     >
+<style>
+/* Only affects the Finished Goods section of the existing product modal. */
+#npShopSection[hidden]{display:none!important}
+#npShopSection{margin-top:22px;padding:20px;border:1px solid var(--border, #7775);border-radius:12px}
+#npShopSection .form-group{margin-top:16px}
+#npShopSection textarea{width:100%;box-sizing:border-box;min-height:86px;padding:12px;resize:vertical}
+#npShopSection #npShopVisible{width:auto;margin-right:8px}
+#npShopSection #npShopSaveBtn{margin-top:10px}
+#npShopStatus{margin-top:10px;min-height:20px}
+</style>
 </head>
 
 <body>
@@ -108,7 +118,7 @@
 
                 <button class="nav-item" data-page="sales">
                     <span class="dot"></span>
-                    Sales &amp; Orders
+                    Sales Transactions
                 </button>
 
             </div>
@@ -523,7 +533,7 @@
                     </h1>
 
                     <p>
-                        Real-time stock levels across Raw Materials, Finished Goods, and Finishing Supplies, with low-stock alerts.
+                        Real-time stock levels across Raw Materials, Work in Progress, and Finished Goods, with low-stock alerts.
                     </p>
 
                 </div>
@@ -636,6 +646,10 @@
 
                                 <option value="Raw Materials">
                                     Raw Materials
+                                </option>
+
+                                <option value="Work In Progress">
+                                    Work In Progress
                                 </option>
 
                                 <option value="Finished Goods">
@@ -803,6 +817,7 @@
                                 >
                                     <option value="">All departments</option>
                                     <option value="Raw Materials">Raw Materials</option>
+                                    <option value="Work In Progress">Work In Progress</option>
                                     <option value="Finished Goods">Finished Goods</option>
                                     <option value="Finishing Supplies">Finishing Supplies</option>
                                 </select>
@@ -1294,9 +1309,9 @@
                 <div class="catalog-header">
                     <div>
                         <div class="catalog-eyebrow">Sales</div>
-                        <h1 class="catalog-title">Sales &amp; Orders</h1>
+                        <h1 class="catalog-title">Sales Transactions</h1>
                         <p class="catalog-sub">
-                            Manage e-commerce orders and cashier sales in one place. Filter by sales channel, review payments, and update online order fulfillment.
+                            Online orders from the shop and walk-in sales from the POS. Update an order&rsquo;s status here and the customer sees it on their orders page.
                         </p>
                     </div>
                     <button class="btn-secondary btn-sm" id="soRefresh" type="button">Refresh</button>
@@ -1310,8 +1325,8 @@
                         </div>
                         <div class="inv-filters">
                             <select id="soView" class="inv-select">
-                                <option value="orders">E-commerce Orders</option>
-                                <option value="pos">POS Sales</option>
+                                <option value="orders">Online orders</option>
+                                <option value="pos">POS walk-in sales</option>
                             </select>
                             <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
                             <select id="soStatus" class="inv-select">
@@ -1433,7 +1448,7 @@
                             </div>
 
                             <div class="panel-sub">
-                                Waiting for the sign-up link to be used
+                                Awaiting signup
                             </div>
 
                         </div>
@@ -1451,7 +1466,7 @@
                                     <th>Name</th>
                                     <th>Email</th>
                                     <th>Role</th>
-                                    <th>Link Sent</th>
+                                    <th>Code Sent</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -3001,11 +3016,11 @@
                         class="form-select"
                     >
 
-                        <option value="finance">
+                        <option value="Finance-Admin Officer">
                             Finance-Admin Officer
                         </option>
 
-                        <option value="cashier">
+                        <option value="Cashier">
                             Cashier
                         </option>
 
@@ -3308,6 +3323,7 @@
                             class="form-select"
                         >
                             <option value="Raw Materials">Raw Materials</option>
+                            <option value="Work In Progress">Work In Progress</option>
                             <option value="Finished Goods">Finished Goods</option>
                             <option value="Finishing Supplies">Finishing Supplies</option>
                         </select>
@@ -3452,7 +3468,36 @@
                             Source
                         </label>
                         <div id="npSource" class="sup-readonly"></div>
-                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Finished Goods can be recorded when completed products are received from production.</div>
+                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Work In Progress and Finished Goods are made by the company (in-house production).</div>
+                    </div>
+                </div>
+
+
+                <!-- FINISHED GOODS ONLINE SHOP DETAILS -->
+                <div id="npShopSection" class="np-shop-section" hidden>
+                    <div class="form-section-label">Online Shop Details · Finished Goods Only</div>
+                    <p class="field-hint">These details are attached to the same inventory product. Save the product first, then save its online details.</p>
+                    <div class="form-group">
+                        <label class="form-label" for="npShopDescription">Customer-facing description</label>
+                        <textarea id="npShopDescription" class="form-textarea" rows="4" maxlength="5000" placeholder="Describe the finished product, features and uses..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="npShopSpecs">Specifications</label>
+                        <textarea id="npShopSpecs" class="form-textarea" rows="4" placeholder="Material: Brass&#10;Finish: Polished&#10;Dimensions: 150 mm"></textarea>
+                        <div class="field-hint">One specification per line, using Name: Value.</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="npShopImages">Product photo URLs</label>
+                        <textarea id="npShopImages" class="form-textarea" rows="3" placeholder="https://storage.googleapis.com/your-bucket/product-photo.jpg"></textarea>
+                        <div class="field-hint">Up to 8 HTTPS image URLs, one per line. Direct file uploads require a separate storage integration.</div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="npShopVisible"><input id="npShopVisible" type="checkbox" checked> Show in Online Shop</label>
+                        <div class="field-hint">Visibility in the customer catalog also requires the shop API to respect this setting.</div>
+                    </div>
+                    <div class="form-group">
+                        <button type="button" class="btn-secondary" id="npShopSaveBtn">Save Online Shop Details</button>
+                        <div class="field-hint" id="npShopStatus" role="status" aria-live="polite"></div>
                     </div>
                 </div>
 
@@ -3497,6 +3542,7 @@
     <script src="sales-orders.js?v=1"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
+    <script src="finished-goods-shop.js?v=1"></script>
 
 </body>
 
