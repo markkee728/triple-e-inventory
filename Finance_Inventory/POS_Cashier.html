@@ -24,6 +24,41 @@
 .cartpane .seg-btn .sub{display:block;font-size:11px;font-weight:500;opacity:.8}
 .cartpane .seg-btn .ico{width:20px;height:20px;flex:none}
 #complete{white-space:normal;line-height:1.25;letter-spacing:.4px;font-size:13.5px;min-height:48px;overflow-wrap:anywhere}
+/* walk-in quote requests */
+.pq-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
+@media(max-width:1100px){.pq-layout{grid-template-columns:1fr}}
+.quote-form{padding:22px 24px 24px}
+.quote-form label{display:block;margin:0 0 6px;font-family:Inter,sans-serif;font-size:13.5px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--text-dim)}
+.quote-form .q-optional{font-weight:400;color:var(--text-faint)}
+.quote-form input,.quote-form select,.quote-form textarea{width:100%;box-sizing:border-box}
+.quote-form textarea{resize:vertical;min-height:90px}
+.quote-form .is-bad{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(227,91,91,.14)}
+.quote-form .err-text{min-height:0;margin-top:5px}.quote-form .err-text:empty{display:none}
+.q-field{margin-bottom:16px}
+.q-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+@media(max-width:600px){.q-grid{grid-template-columns:1fr}.quote-form{padding:16px}}
+.q-hint{display:block;margin-top:6px;font-size:12.5px;line-height:1.45;color:var(--text-faint)}
+.q-meta{display:flex;justify-content:space-between;gap:12px}.q-meta .err-text{flex:1}.q-count{margin-left:auto;font-size:12px;color:var(--text-faint);margin-top:5px;white-space:nowrap}
+.qf-sec{display:flex;align-items:center;gap:10px;margin:24px 0 16px;padding-top:20px;border-top:1px solid var(--border);font-family:Oswald,sans-serif;font-size:16px;font-weight:600;letter-spacing:.3px}
+.qf-sec.first{margin-top:0;padding-top:0;border-top:0}
+.qf-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(74,144,217,.16);color:var(--blue-bright);font-family:Inter,sans-serif;font-size:13px;font-weight:700}
+.q-seg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.q-opt{position:relative;display:block;margin:0!important;cursor:pointer}
+.q-opt input{position:absolute;opacity:0;width:1px;height:1px}
+.q-opt-body{display:flex;flex-direction:column;gap:3px;padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--field);transition:border-color .15s,background .15s}
+.q-opt-body b{font-size:15px;color:var(--text)}.q-opt-body small{font-size:12.5px;font-weight:400;color:var(--text-faint)}
+.q-opt:hover .q-opt-body{border-color:var(--blue-bright)}
+.q-opt input:checked+.q-opt-body{border-color:var(--blue-bright);background:rgba(74,144,217,.1);box-shadow:0 0 0 3px rgba(74,144,217,.15)}
+#pqArea{margin-top:16px}
+.quote-form .q-formerr{margin:4px 0}
+.quote-form button[type=submit]{margin-top:16px;width:100%;padding:14px}
+.pq-row{padding:12px 0;border-top:1px solid var(--border)}.pq-row:first-child{border-top:0;padding-top:0}
+.pq-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:3px}
+.pq-top b{font-family:"IBM Plex Mono",monospace;font-size:13px}
+.pq-sub{font-size:13.5px;color:var(--text-dim)}
+.pq-amount{margin-top:6px;display:flex;justify-content:space-between;font-weight:600}
+.pq-reply{margin-top:6px;padding:8px 10px;border-radius:6px;background:var(--inset);font-size:13px;color:var(--text-dim);white-space:pre-line}
+.pq-call{margin-top:6px;font-size:12.5px;color:var(--green);font-weight:600}
 </style>
 </head>
 <body>
@@ -43,6 +78,7 @@
       <button class="nav-item active" data-page="terminal"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Point of Sale</button>
       <button class="nav-item" data-page="sales"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Today's Sales<span class="count" id="navSalesCount">0</span></button>
       <button class="nav-item" data-page="shift"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M3 10h18M7 6V4h10v2M16 15h3"/></svg>Cash Shift<span class="count" id="navShiftBadge" hidden></span></button>
+      <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Quote Requests<span class="count" id="navQuoteCount" hidden>0</span></button>
       </div>
     </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Point of Sale</strong>Triple E Metal Products</div></div>
@@ -163,6 +199,47 @@
       </div>
     </section>
 
+    <!-- ===== PAGE: WALK-IN QUOTE REQUESTS ===== -->
+    <section class="page" id="page-quotes">
+      <div class="welcome"><h1>Quote Requests</h1><p>For walk-in or phone customers who want a price on a bulk order or a custom size. Finance replies with the quote.</p></div>
+      <div class="pq-layout">
+        <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
+          <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
+          <div class="q-grid">
+            <div class="q-field"><label for="pqName">Customer name</label><input id="pqName" maxlength="80" placeholder="e.g. Juan dela Cruz"><div class="err-text" id="pqE_contactName"></div></div>
+            <div class="q-field"><label for="pqPhone">Mobile number</label><input id="pqPhone" type="tel" inputmode="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="pqE_phone"></div><small class="q-hint">We will call or text this number with the price.</small></div>
+          </div>
+          <div class="qf-sec"><span class="qf-num">2</span>What do they need?</div>
+          <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select></div>
+          <div class="q-field" id="pqNameWrap"><label for="pqItem">Describe the item</label><input id="pqItem" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="pqE_productName"></div></div>
+          <div class="q-grid">
+            <div class="q-field"><label for="pqQty">Quantity</label><input id="pqQty" maxlength="60" placeholder="e.g. 200 sheets"><div class="err-text" id="pqE_quantity"></div></div>
+            <div class="q-field"><label for="pqNeeded">Needed by <span class="q-optional">(optional)</span></label><input id="pqNeeded" type="date"><div class="err-text" id="pqE_neededBy"></div></div>
+          </div>
+          <div class="q-field"><label for="pqDetails">Sizes and details</label><textarea id="pqDetails" rows="3" maxlength="2000" placeholder="Length, width, thickness, finish, cutting or bending needed"></textarea>
+            <div class="q-meta"><div class="err-text" id="pqE_details"></div><span class="q-count" id="pqCount">0 / 2000</span></div></div>
+          <div class="qf-sec"><span class="qf-num">3</span>Pickup or delivery?</div>
+          <div class="q-seg" role="radiogroup" aria-label="Pickup or delivery">
+            <label class="q-opt"><input type="radio" name="pqFulfil" value="Pickup" checked><span class="q-opt-body"><b>Pickup</b><small>Customer collects at the shop</small></span></label>
+            <label class="q-opt"><input type="radio" name="pqFulfil" value="Delivery"><span class="q-opt-body"><b>Delivery</b><small>We bring it to them</small></span></label>
+          </div>
+          <div id="pqArea" hidden>
+            <div class="q-grid">
+              <div class="q-field"><label for="pqCity">City / Municipality</label><input id="pqCity" maxlength="60" placeholder="e.g. Angeles City"><div class="err-text" id="pqE_city"></div></div>
+              <div class="q-field"><label for="pqBrgy">Barangay</label><input id="pqBrgy" maxlength="60" placeholder="e.g. Balibago"><div class="err-text" id="pqE_barangay"></div></div>
+            </div>
+            <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street"></div></div>
+          </div>
+          <div class="err-text q-formerr" id="pqErr" role="alert"></div>
+          <button type="submit" class="btn-primary" id="pqSend">Send to Finance</button>
+        </form>
+        <aside class="panel">
+          <div class="panel-head"><div><div class="panel-title">Counter requests</div><div class="panel-sub">Quotes that came back are shown first</div></div></div>
+          <div id="pqList"><p class="dim">Loading…</p></div>
+        </aside>
+      </div>
+    </section>
+
     <section class="page" id="page-shift">
       <div class="welcome"><h1>Cash Shift</h1><p>Your cash drawer: open it, record cash added or removed, and count it when you finish.</p></div>
       <div id="csApp" aria-live="polite"><div class="panel cs-loading">Loading your shift…</div></div>
@@ -176,7 +253,10 @@
 <div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:380px"><div class="paper" id="receipt" style="padding:0;overflow:hidden"><img id="receiptImg" alt="Receipt" style="display:block;width:100%;height:auto"></div>
   <div class="modal-actions"><button class="btn-primary" id="rcPrint">Print</button><button class="btn-secondary" id="rcSave">Save PNG</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
 <div class="modal-overlay" id="voidBg"><div class="modal"><h3>Request void</h3><p class="dim" id="voidFor"></p>
-  <label for="voidReason">Reason (required)</label><textarea id="voidReason" rows="3"></textarea><div class="err-text" id="voidErr"></div>
+  <label for="voidReason">Reason</label>
+  <select id="voidReason"><option value="">Choose a reason…</option><option value="wrong_item">Wrong item or quantity rung up</option><option value="wrong_price">Wrong price</option><option value="changed_mind">Customer changed their mind</option><option value="payment_problem">Payment problem</option><option value="duplicate">Duplicate sale</option><option value="other">Other</option></select>
+  <label for="voidDetails" id="voidDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="voidDetails" rows="3" maxlength="300" placeholder="Anything Finance should know"></textarea>
+  <div class="err-text" id="voidErr" role="alert"></div>
   <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
@@ -240,7 +320,7 @@ async function requestApproval(email, password) {   // finance login at the coun
   return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
 }
 async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return null; } }   // null = could not reach the server (keep what is on screen)
-async function requestVoid(id, why) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
+async function requestVoid(id, reason, details) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 
 /* ===== App ===== */
 const VAT_RATE = 0.12, LOW_STOCK = 10;
@@ -249,7 +329,7 @@ const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDig
 const pesoShort = n => '₱' + Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 let PRODUCTS = [], cart = [], sales = [], method = 'Cash', voidId = null, cat = '', view = 'grid';
-const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift' };
+const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift', quotes: 'Quote Requests' };
 const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
@@ -358,7 +438,8 @@ $('sidebarClose').onclick = $('sidebarBackdrop').onclick = () => setNav(false);
 function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
-  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' ? 'Counter' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
+  if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
+  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
 }
 $('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
 document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });
@@ -667,12 +748,86 @@ document.addEventListener('click', e => {
   if (d.resume) resumeHeld(d.resume);
   if (d.discard) discardHeld(d.discard);
   if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
-  if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
+  if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
 });
+$('voidReason').onchange = () => { $('voidDetailsLbl').textContent = $('voidReason').value === 'other' ? 'Please explain (required)' : 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidErr').textContent = ''; };
+$('voidDetails').oninput = () => { $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; };
 $('voidSend').onclick = async () => {
-  const why = $('voidReason').value.trim(); if (why.length < 5) return $('voidErr').textContent = 'Please explain why (at least 5 characters).';
-  try { await requestVoid(voidId, why); } catch (e) { return $('voidErr').textContent = e.message; }
+  const code = $('voidReason').value, details = $('voidDetails').value.trim();
+  if (!code) { $('voidReason').classList.add('is-bad'); $('voidReason').focus(); return $('voidErr').textContent = 'Please choose a reason.'; }
+  if (code === 'other' && details.length < 5) { $('voidDetails').classList.add('is-bad'); $('voidDetails').focus(); return $('voidErr').textContent = 'Please explain the reason (at least 5 characters).'; }
+  $('voidSend').disabled = true;
+  try { await requestVoid(voidId, code, details); } catch (e) { $('voidSend').disabled = false; return $('voidErr').textContent = e.message; }
+  $('voidSend').disabled = false;
   sales.find(s => s.id === voidId).status = 'Void Pending'; closeModal('voidBg'); renderSales(); toast('Void request sent to admin.');
+};
+
+/* ===== Walk-in quote requests (POS) ===== */
+let POSQ = [];
+const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
+const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
+const pqToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+const PQ_IDS = { productName: 'pqItem', quantity: 'pqQty', neededBy: 'pqNeeded', details: 'pqDetails', contactName: 'pqName', phone: 'pqPhone', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
+function pqErr(f, msg) { const b = $('pqE_' + f); if (b) b.textContent = msg || ''; if (PQ_IDS[f]) $(PQ_IDS[f]).classList.toggle('is-bad', !!msg); return !msg; }
+const PQ_CHECK = {
+  contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
+  phone: () => { const v = $('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
+  productName: () => $('pqProduct').value || $('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
+  quantity: () => { const v = $('pqQty').value.trim(); if (!v) return 'Enter the quantity.'; return parseFloat((v.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]) > 0 ? '' : 'Start with a number, e.g. 200 sheets.'; },
+  neededBy: () => { const v = $('pqNeeded').value; if (!v) return ''; if (v < pqToday()) return 'The date cannot be in the past.'; return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
+  details: () => { const n = $('pqDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
+  city: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqCity').value.trim()) ? 'Enter the city or municipality.' : '',
+  barangay: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqBrgy').value.trim()) ? 'Enter the barangay.' : '',
+  street: () => { const v = $('pqStreet').value.trim(); return pqFulfil() === 'Delivery' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
+};
+const pqField = f => pqErr(f, PQ_CHECK[f]());
+function renderPosQuoteForm() {
+  const sel = $('pqProduct'), keep = sel.value;
+  sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map(p => `<option value="${esc(p.sku)}">${esc(p.name)}${p.spec ? ' — ' + esc(p.spec) : ''} (${esc(p.sku)})</option>`).join('');
+  if (keep && prod(keep)) sel.value = keep;
+  $('pqNeeded').min = pqToday(); pqProductChanged();
+}
+function pqProductChanged() {
+  const p = prod($('pqProduct').value);
+  $('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
+  $('pqQty').placeholder = p ? 'e.g. 200 ' + p.unit + (p.unit.endsWith('s') ? '' : 's') : 'e.g. 200 sheets';
+}
+const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], closed: ['', 'Closed'] };
+async function loadPosQuotes() {
+  try { POSQ = await api('/api/pos/quotes'); if (!Array.isArray(POSQ)) POSQ = []; } catch (e) { if (!(e instanceof TypeError)) toast(e.message, true); POSQ = []; }
+  const ready = POSQ.filter(q => q.status === 'quoted').length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
+  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = PQ_STATUS[q.status] || ['', q.status];
+    return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
+      <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
+      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
+      ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
+      ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}
+      ${q.status === 'quoted' ? '<div class="pq-call">Call or text the customer with this price.</div>' : ''}</div>`; }).join('')
+    : '<p class="dim">No requests logged yet.</p>';
+}
+$('pqProduct').onchange = pqProductChanged;
+document.querySelectorAll('input[name="pqFulfil"]').forEach(r => r.onchange = () => { $('pqArea').hidden = pqFulfil() !== 'Delivery'; ['city', 'barangay', 'street'].forEach(f => pqErr(f, '')); });
+Object.keys(PQ_IDS).forEach(f => { const el = $(PQ_IDS[f]); el.addEventListener('blur', () => pqField(f)); el.addEventListener('input', () => { if (el.classList.contains('is-bad')) pqField(f); $('pqErr').textContent = ''; }); });
+$('pqNeeded').addEventListener('change', () => pqField('neededBy'));
+$('pqPhone').addEventListener('input', () => { const p = $('pqPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
+$('pqDetails').addEventListener('input', () => { $('pqCount').textContent = $('pqDetails').value.length + ' / 2000'; });
+$('pqForm').onsubmit = async e => {
+  e.preventDefault(); const err = $('pqErr'); err.textContent = '';
+  const f = pqFulfil(), fields = ['contactName', 'phone', 'productName', 'quantity', 'neededBy', 'details'].concat(f === 'Delivery' ? ['city', 'barangay', 'street'] : []);
+  let first = null; fields.forEach(k => { if (!pqField(k) && !first) first = PQ_IDS[k]; });
+  if (first) { err.textContent = 'Please fix the highlighted fields.'; const el = $(first); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus({ preventScroll: true }); return; }
+  const body = { contactName: $('pqName').value.trim(), phone: $('pqPhone').value.replace(/[\s().-]/g, ''), sku: $('pqProduct').value || undefined, productName: $('pqItem').value.trim(),
+    quantity: $('pqQty').value.trim(), neededBy: $('pqNeeded').value || undefined, details: $('pqDetails').value.trim(), fulfillment: f };
+  if (f === 'Delivery') Object.assign(body, { city: $('pqCity').value.trim(), barangay: $('pqBrgy').value.trim(), street: $('pqStreet').value.trim() });
+  $('pqSend').disabled = true;
+  let r;
+  try { r = await api('/api/pos/quotes', { method: 'POST', body: JSON.stringify(body) }); }
+  catch (er) { $('pqSend').disabled = false; err.textContent = er.message; return; }
+  $('pqSend').disabled = false;
+  ['pqName', 'pqPhone', 'pqItem', 'pqQty', 'pqNeeded', 'pqDetails', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); });
+  Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; $('pqCount').textContent = '0 / 2000'; pqProductChanged();
+  document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; $('pqArea').hidden = true;
+  toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
 };
 $('q').oninput = renderProducts;
 $('q').onkeydown = e => {                                   // scanner / keyboard: Enter adds an exact SKU match or the only result
@@ -709,7 +864,8 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   const st = readStore(); held = Array.isArray(st.held) ? st.held : []; holdSeq = Number(st.seq) || held.reduce((m, h) => Math.max(m, h.no || 0), 0);
   if (st.approval && st.approval.token && st.approval.exp > Date.now()) approval = st.approval;
   if (PRODUCTS.length) { cart = cleanLines(st.cart); ready = true; }      // if the catalogue failed to load, leave the saved data untouched
-  renderCats(); renderProducts(); syncCart(); renderSales();
+  renderCats(); renderProducts(); syncCart(); renderSales(); loadPosQuotes();
+  setInterval(() => { if (!document.hidden) loadPosQuotes(); }, 60000);
 })();
 </script>
 <script src="cash-shift-ui.js?v=3"></script>

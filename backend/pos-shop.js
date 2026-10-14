@@ -25,6 +25,29 @@ const REFUND_REASONS = {
   missing_items: 'Missing items',
   other: 'Other'
 };
+// Cancellations: the customer picks a reason. Cancelling soon after ordering (and before we pack it) is approved on the spot;
+// after that window the shop decides. Change the window with CANCEL_AUTO_HOURS in .env (default 24 hours).
+const CANCEL_AUTO_HOURS = Number(process.env.CANCEL_AUTO_HOURS) || 24;
+const CANCEL_REASONS = {
+  changed_mind: 'Changed my mind',
+  ordered_by_mistake: 'Ordered by mistake',
+  wrong_item_or_qty: 'Wrong item or quantity',
+  found_better_price: 'Found a better price',
+  too_slow: 'Delivery or pickup will take too long',
+  wrong_details: 'Wrong address or contact details',
+  payment_problem: 'Problem with payment',
+  other: 'Other'
+};
+// Cashier asks Finance to void a receipt: pick a reason; "Other" needs a written explanation.
+const VOID_REASONS = {
+  wrong_item: 'Wrong item or quantity rung up',
+  wrong_price: 'Wrong price',
+  changed_mind: 'Customer changed their mind',
+  payment_problem: 'Payment problem',
+  duplicate: 'Duplicate sale',
+  other: 'Other'
+};
+const CUSTOMER_CANCELLABLE = ['Pending Confirmation', 'Paid'];   // once we start packing, only the shop can cancel
 
 const makeOrderMail = require('./order-mail');
 
@@ -60,6 +83,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
               ('Pending Confirmation','Paid','Packed','Out for Delivery','Ready for Pickup','Delivered','Picked Up','Cancelled'));
           END IF;
         END $$`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_cancel_requests (
+        request_id   BIGSERIAL PRIMARY KEY,
+        order_id     BIGINT NOT NULL REFERENCES orders(order_id),
+        reason       TEXT NOT NULL,
+        status       TEXT NOT NULL DEFAULT 'pending',
+        requested_by INT REFERENCES users(user_id),
+        decided_by   INT REFERENCES users(user_id),
+        decided_at   TIMESTAMPTZ,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('ALTER TABLE order_cancel_requests ADD COLUMN IF NOT EXISTS reason_code TEXT');
+      await pool.query('ALTER TABLE order_cancel_requests ADD COLUMN IF NOT EXISTS auto_approved BOOLEAN NOT NULL DEFAULT FALSE');
+      await pool.query('ALTER TABLE order_cancel_requests ALTER COLUMN decided_by DROP NOT NULL').catch(() => {});   // instant cancellations have no staff member
     } catch (err) { console.warn('[db] could not prepare the sales tables:', err.message); }
   }
   ensureSalesSchema();
@@ -575,8 +610,11 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   app.post('/api/pos/sales/:id/void-request', auth('cashier'), wrap(async (req, res) => {
-    const reason = str((req.body || {}).reason);
-    if (reason.length < 5 || reason.length > 300) throw bad('reason', 'Please explain why (at least 5 characters)');
+    const b = req.body || {}, code = str(b.reason), details = str(b.details);
+    if (!VOID_REASONS[code]) throw bad('reason', 'Choose the reason for the void');
+    if (code === 'other' && details.length < 5) throw bad('details', 'Please explain the reason (at least 5 characters)');
+    if (details.length > 300) throw bad('details', 'Please keep the details under 300 characters');
+    const reason = VOID_REASONS[code] + (details ? ' \u2014 ' + details : '');
     await tx(async (client) => {
       const r = await client.query('SELECT sale_id, receipt_no, status FROM pos_sales WHERE sale_id = $1 FOR UPDATE', [req.params.id]);
       if (!r.rowCount) throw bad('id', 'Sale not found');
@@ -627,9 +665,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     // adds minimum order, star rating and "notify me" info (shop-extras.js); the catalog still works if that module is off
     res.json(app.locals.shopExtras ? await app.locals.shopExtras.decorate(rows, req.user) : rows);
   }));
-  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
+  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() }));
   // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
-  app.get('/api/shop/info', (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
+  app.get('/api/shop/info', (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() }));
 
   /* ---------- refunds (shared by the customer and finance routes) ---------- */
   // (request_id is BIGSERIAL, which pg returns as text, hence Number())
@@ -646,12 +684,19 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // the last moment a refund can be requested (the order must be closed: Delivered / Picked Up)
   const refundDeadline = (o) => new Date(o.status_updated_at || o.created_at).getTime() + REFUND_WINDOW_DAYS * 86400000;
 
+  // until this moment a customer can cancel and it is approved immediately
+  const instantUntil = (o) => new Date(o.created_at).getTime() + CANCEL_AUTO_HOURS * 3600000;
+
   const orderJson = (o, items, cancelPending, refund) => ({
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
     shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
       barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
     phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status, paymentStatus: o.payment_status || 'unpaid',
     cancelRequested: !!cancelPending,
+    cancellable: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending,
+    cancelInstant: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending && Date.now() <= instantUntil(o),
+    cancelInstantUntil: CUSTOMER_CANCELLABLE.includes(o.status) ? instantUntil(o) : undefined,
+    cancelAutoHours: CANCEL_AUTO_HOURS,
     refund: refundJson(refund),
     refundEligible: FINAL_STATUS.includes(o.status) && !refund && Date.now() <= refundDeadline(o),
     refundDeadline: FINAL_STATUS.includes(o.status) ? refundDeadline(o) : undefined,
@@ -798,19 +843,41 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   app.post('/api/shop/orders/:no/cancel-request', auth('customer'), wrap(async (req, res) => {
-    const reason = str((req.body || {}).reason);
-    if (reason.length < 5 || reason.length > 300) throw bad('reason', 'Please explain why (at least 5 characters)');
+    const b = req.body || {};
+    const code = str(b.reason), details = str(b.details);
+    if (!CANCEL_REASONS[code]) throw bad('reason', 'Choose the reason for cancelling');
+    if (code === 'other' && details.length < 5) throw bad('details', 'Please tell us the reason (at least 5 characters)');
+    if (details.length > 300) throw bad('details', 'Please keep the details under 300 characters');
+    const reason = CANCEL_REASONS[code] + (details ? ' \u2014 ' + details : '');
+    let instant = false;
     await tx(async (client) => {
-      const r = await client.query('SELECT order_id, order_no, status FROM orders WHERE order_no = $1 AND customer_id = $2 FOR UPDATE', [req.params.no, req.user.id]);
+      const r = await client.query('SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2 FOR UPDATE', [req.params.no, req.user.id]);
       if (!r.rowCount) throw bad('id', 'Order not found');
       const o = r.rows[0];
-      if (!['Pending Confirmation', 'Paid'].includes(o.status)) throw bad('id', 'This order is already packed or finished, so it can no longer be cancelled');
+      if (o.status === 'Cancelled') throw bad('id', 'This order is already cancelled');
+      if (!CUSTOMER_CANCELLABLE.includes(o.status)) throw bad('id', 'We are already preparing or have finished this order, so it can no longer be cancelled here. Please contact us if you need help');
       const dup = await client.query(`SELECT 1 FROM order_cancel_requests WHERE order_id = $1 AND status = 'pending'`, [o.order_id]);
-      if (dup.rowCount) throw bad('id', 'A cancellation request is already waiting for approval');
-      await client.query('INSERT INTO order_cancel_requests (order_id, reason, requested_by) VALUES ($1,$2,$3)', [o.order_id, reason, req.user.id]);
-      await audit(client, req.user, 'Record edited', `Cancellation requested for ${o.order_no}: ${reason}`);
+      if (dup.rowCount) throw bad('id', 'You already asked to cancel this order. Our team is reviewing it');
+      instant = Date.now() <= instantUntil(o);
+      if (instant) {
+        // inside the free-cancel window: cancelled right away, stock goes back if it was already taken
+        if (o.stock_deducted) {
+          const { rows: items } = await client.query('SELECT product_id, qty FROM order_items WHERE order_id = $1 ORDER BY product_id', [o.order_id]);
+          for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'refund', qty: +i.qty,
+            userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: `Cancelled ${o.order_no}` });
+        }
+        await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+        await client.query(`INSERT INTO order_cancel_requests (order_id, reason, reason_code, requested_by, status, auto_approved, decided_at) VALUES ($1,$2,$3,$4,'approved',TRUE,now())`,
+          [o.order_id, reason, code, req.user.id]);
+        await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, 'Cancelled by customer: ' + reason);
+        await audit(client, req.user, 'Record edited', `Order ${o.order_no} cancelled by the customer (within ${CANCEL_AUTO_HOURS} h): ${reason}${o.stock_deducted ? ' \u2014 stock restored, refund to original payment method due' : ''}`);
+      } else {
+        await client.query('INSERT INTO order_cancel_requests (order_id, reason, reason_code, requested_by) VALUES ($1,$2,$3,$4)', [o.order_id, reason, code, req.user.id]);
+        await audit(client, req.user, 'Record edited', `Cancellation requested for ${o.order_no}: ${reason}`);
+      }
     });
-    res.status(201).json({ ok: true });
+    res.status(201).json({ ok: true, cancelled: instant });
+    if (instant) notify(req.params.no, 'Cancelled', { reason });
   }));
 
   // Customer asks for a refund on a finished order (Delivered / Picked Up) inside the refund window. One request per order.

@@ -166,28 +166,49 @@ a.nav-item{text-decoration:none}
       <div class="page-head"><div><h1>Request a quote</h1><p>For bulk orders or custom sizes. Our team replies with a price, usually within one working day.</p></div></div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
-          <label for="qProduct">Product</label>
-          <select id="qProduct"></select>
-          <div id="qNameWrap" hidden><label for="qProductName">What do you need?</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"></div>
+          <div class="qf-sec first"><span class="qf-num">1</span>What do you need?</div>
+          <div class="q-field"><label for="qProduct">Product</label><select id="qProduct"></select></div>
+          <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Describe the item</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="qE_productName"></div></div>
           <div class="q-grid">
-            <div><label for="qQty">Quantity</label><input id="qQty" maxlength="60" placeholder="e.g. 200 sheets"><small id="qQtyHint" class="dim"></small></div>
-            <div><label for="qNeeded">Needed by <span class="dim">(optional)</span></label><input id="qNeeded" type="date"></div>
+            <div class="q-field"><label for="qQty">Quantity</label><input id="qQty" maxlength="60" placeholder="e.g. 200 sheets"><small id="qQtyHint" class="q-hint"></small><div class="err-text" id="qE_quantity"></div></div>
+            <div class="q-field"><label for="qNeeded">Needed by <span class="q-optional">(optional)</span></label><input id="qNeeded" type="date"><div class="err-text" id="qE_neededBy"></div></div>
           </div>
-          <label for="qDetails">Sizes and details</label>
-          <textarea id="qDetails" rows="4" maxlength="2000" placeholder="Length, width, thickness, finish, cutting or bending needed, anything else we should know"></textarea>
+          <div class="q-field"><label for="qDetails">Sizes and details</label>
+            <textarea id="qDetails" rows="4" maxlength="2000" placeholder="Length, width, thickness, finish, cutting or bending needed, anything else we should know"></textarea>
+            <div class="q-meta"><div class="err-text" id="qE_details"></div><span class="q-count" id="qDetailsCount">0 / 2000</span></div></div>
+
+          <div class="qf-sec"><span class="qf-num">2</span>How will you receive it?</div>
+          <div id="qDeliveryAnchor" tabindex="-1"></div>
+          <div class="q-seg" role="radiogroup" aria-label="Delivery or pickup">
+            <label class="q-opt"><input type="radio" name="qFulfil" value="Delivery"><span class="q-opt-body"><b>Delivery</b><small>We bring it to your address</small></span></label>
+            <label class="q-opt"><input type="radio" name="qFulfil" value="Pickup"><span class="q-opt-body"><b>Pickup</b><small>You collect it at our shop</small></span></label>
+          </div>
+          <div class="err-text" id="qE_fulfillment"></div>
+          <div id="qPickupBox" class="fulfil-note" hidden></div>
+          <div id="qDeliveryBox" hidden>
+            <div class="q-sub">Deliver to</div>
+            <div class="addr-list" id="qAddrList" role="radiogroup" aria-label="Delivery address"></div>
+            <div id="qAddrNew" hidden>
+              <div class="q-grid">
+                <div class="q-field"><label for="qCity">City / Municipality</label><input id="qCity" maxlength="60" autocomplete="address-level2" placeholder="e.g. Angeles City"><div class="err-text" id="qE_city"></div></div>
+                <div class="q-field"><label for="qBrgy">Barangay</label><input id="qBrgy" maxlength="60" placeholder="e.g. Balibago"><div class="err-text" id="qE_barangay"></div></div>
+              </div>
+              <div class="q-field"><label for="qStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="qStreet" maxlength="100" autocomplete="address-line1" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="qE_street"></div></div>
+              <p class="q-hint">We only need the area to quote the delivery. You will give the full address when you order. <button type="button" class="link-btn" data-view="checkout">Save addresses at checkout</button></p>
+            </div>
+            <div class="err-text" id="qE_address"></div>
+          </div>
+
+          <div class="qf-sec"><span class="qf-num">3</span>Your contact details</div>
           <div class="q-grid">
-            <div><label for="qFulfil">How will you receive it?</label><select id="qFulfil"><option value="">Not sure yet</option><option>Delivery</option><option>Pickup</option></select></div>
-            <div><label for="qArea">Delivery area <span class="dim">(optional)</span></label><input id="qArea" maxlength="120" placeholder="City or barangay"></div>
+            <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="80" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
+            <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
-          <div class="q-grid">
-            <div><label for="qName">Your name</label><input id="qName" maxlength="80"></div>
-            <div><label for="qPhone">Mobile number</label><input id="qPhone" inputmode="tel" maxlength="20" placeholder="0917 123 4567"></div>
-          </div>
-          <div class="err-text" id="qErr" role="alert"></div>
+          <div class="err-text q-formerr" id="qErr" role="alert"></div>
           <button type="submit" class="btn-primary btn-lg" id="qSend">Send request</button>
         </form>
         <aside class="sticky-side">
-          <div class="card" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
+          <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
           <div class="help-line" data-help></div>
         </aside>
       </div>
@@ -195,7 +216,7 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== ORDERS ===== -->
     <section class="page" id="orders">
-      <div class="page-head"><div><h1>My orders</h1><p>Track deliveries, request a cancellation, or ask for a refund after your order arrives.</p></div></div>
+      <div class="page-head"><div><h1>My orders</h1><p>Track deliveries, cancel an order, or ask for a refund after your order arrives.</p></div></div>
       <div id="orderList"></div>
       <div class="help-line" data-help></div>
     </section>
@@ -205,9 +226,13 @@ a.nav-item{text-decoration:none}
 
 <button class="cart-fab" id="cartFab" hidden><span id="fabText">View cart</span><span class="mono" id="fabTotal">₱0.00</span></button>
 
-<div class="modal-overlay" id="cancelBg"><div class="modal"><h3>Request cancellation</h3><p class="dim" id="cancelFor"></p>
-  <label for="cancelReason">Reason (required)</label><textarea id="cancelReason" rows="3"></textarea><div class="err-text" id="cancelErr"></div>
-  <div class="modal-actions"><button class="btn-primary" id="cancelSend">Send request</button><button class="btn-secondary" onclick="closeModal('cancelBg')">Keep order</button></div></div></div>
+<div class="modal-overlay" id="cancelBg"><div class="modal"><h3 id="cancelTitle">Cancel order</h3><p class="dim" id="cancelFor"></p>
+  <div class="cancel-note" id="cancelNote"></div>
+  <label for="cancelReason">Why are you cancelling?</label>
+  <select id="cancelReason"><option value="">Choose a reason…</option><option value="changed_mind">Changed my mind</option><option value="ordered_by_mistake">Ordered by mistake</option><option value="wrong_item_or_qty">Wrong item or quantity</option><option value="found_better_price">Found a better price</option><option value="too_slow">Delivery or pickup will take too long</option><option value="wrong_details">Wrong address or contact details</option><option value="payment_problem">Problem with payment</option><option value="other">Other</option></select>
+  <label for="cancelDetails" id="cancelDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="cancelDetails" rows="3" maxlength="300" placeholder="Anything else you would like us to know"></textarea>
+  <div class="err-text" id="cancelErr" role="alert"></div>
+  <div class="modal-actions"><button class="btn-danger" id="cancelSend">Cancel order</button><button class="btn-secondary" onclick="closeModal('cancelBg')">Keep order</button></div></div></div>
 <div class="modal-overlay" id="refundBg"><div class="modal"><h3>Request a refund</h3><p class="dim" id="refundFor"></p>
   <label for="refundReason">Reason</label>
   <select id="refundReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item received</option><option value="not_as_described">Not as described</option><option value="missing_items">Missing items</option><option value="other">Other</option></select>
@@ -346,7 +371,7 @@ async function submitOrder(o) {            // server re-prices from the database
 let INFO = {}, REFUND_DAYS = 7;
 async function loadConfig() { try { return await api('/api/shop/config'); } catch (e) { return {}; } }     // delivery fee comes from the server so it can never disagree with the order total
 async function requestRefund(id, reason, details) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/refund-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
-async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
+async function requestCancel(id, reason, details) { return api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 
 /* ===== App ===== */
 let DELIVERY_FEE = 150;
@@ -632,6 +657,13 @@ function refundBlock(o) {
   if (o.refundEligible) return `<div class="refund-row"><button class="btn-secondary btn-sm" data-refund="${esc(o.id)}">Request refund</button><span class="dim">You can ask until ${fmtDay(o.refundDeadline)}.</span></div>`;
   return `<p class="dim" style="margin-top:12px">The ${o.refundWindowDays || 7}-day refund period for this order has ended.</p>`;
 }
+function cancelBlock(o) {
+  if (['Delivered', 'Picked Up', 'Cancelled'].includes(o.status)) return '';
+  if (o.cancelRequested) return '<p class="dim" style="margin-top:10px">Cancellation requested. Our team is reviewing it and will reply here.</p>';
+  if (!o.cancellable) return '<p class="dim" style="margin-top:12px">We are already preparing this order, so it can no longer be cancelled online. Please contact us if you need help.</p>';
+  const until = new Date(o.cancelInstantUntil).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `<div class="refund-row"><button class="btn-danger btn-sm" data-cancel="${esc(o.id)}">${o.cancelInstant ? 'Cancel order' : 'Request cancellation'}</button><span class="dim">${o.cancelInstant ? 'Cancels right away until ' + until + '.' : 'Our team will review your request.'}</span></div>`;
+}
 function renderOrders() {
   $('navOrderCount').textContent = orders.length;
   $('orderList').innerHTML = orders.length ? orders.map(o => { const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
@@ -645,8 +677,7 @@ function renderOrders() {
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
-    ${o.cancelRequested ? '<p class="dim" style="margin-top:10px">Cancellation requested — waiting for admin.</p>'
-      : !['Delivered', 'Picked Up', 'Cancelled'].includes(o.status) ? `<button class="btn-danger btn-sm" style="margin-top:12px" data-cancel="${o.id}">Request cancellation</button>` : ''}
+    ${cancelBlock(o)}
     ${refundBlock(o)}</div>`; }).join('')
     : `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><h3>No orders yet</h3><p>Your orders and their delivery progress will show up here.</p><button class="btn-primary" data-view="catalog">Start shopping</button></div>`;
 }
@@ -844,46 +875,122 @@ async function setAlert(sku, on) {
 }
 
 /* ----- request a quote ----- */
-let QUOTES = [];
+let QUOTES = [], QADDRS = [], qAddr = null;      // qAddr: id of the chosen saved address, 'new' = typed in, null = nothing chosen yet
 const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote sent'], closed: ['', 'Closed'] };
+const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
+const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
+const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+function qErr(field, msg) {                         // show / clear the message under one field
+  const box = $('qE_' + field); if (box) box.textContent = msg || '';
+  const el = { productName: 'qProductName', quantity: 'qQty', neededBy: 'qNeeded', details: 'qDetails', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' }[field];
+  if (el) $(el).classList.toggle('is-bad', !!msg);
+  return !msg;
+}
+const QCHECK = {                                    // one rule per field; each returns an error message or ''
+  productName: () => $('qProduct').value || $('qProductName').value.trim().length >= 3 ? '' : 'Tell us what you need (at least 3 characters).',
+  quantity: () => { const v = $('qQty').value.trim(); if (!v) return 'Enter the quantity you need.';
+    const n = parseFloat((v.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]); return n > 0 ? '' : 'Start with a number, e.g. 200 sheets.'; },
+  neededBy: () => { const v = $('qNeeded').value; if (!v) return ''; if (v < todayISO()) return 'The date cannot be in the past.';
+    return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
+  details: () => { const n = $('qDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
+  contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
+  phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
+  city: () => qAddr === 'new' && !/\p{L}/u.test($('qCity').value.trim()) ? 'Enter the city or municipality.' : '',
+  barangay: () => qAddr === 'new' && !/\p{L}/u.test($('qBrgy').value.trim()) ? 'Enter the barangay.' : '',
+  street: () => { const v = $('qStreet').value.trim(); return qAddr === 'new' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
+};
+const qField = f => qErr(f, QCHECK[f]());
+
 function renderQuote() {
   const sel = $('qProduct'), keep = sel.value;
   sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map(p => `<option value="${esc(p.sku)}">${esc(p.name)}${p.spec ? ' — ' + esc(p.spec) : ''} (${esc(p.sku)})</option>`).join('');
   if (keep && prod(keep)) sel.value = keep;
   if (!$('qName').value) $('qName').value = USER.name || '';
   if (!$('qPhone').value && $('phone') && $('phone').value) $('qPhone').value = $('phone').value;
-  quoteProductChanged(); loadQuotes();
+  $('qNeeded').min = todayISO();
+  quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses();
 }
 function quoteProductChanged() {
   const p = prod($('qProduct').value);
-  $('qNameWrap').hidden = !!p;
+  $('qNameWrap').hidden = !!p; if (p) qErr('productName', '');
   $('qQty').placeholder = p ? 'e.g. 200 ' + p.unit + (p.unit.endsWith('s') ? '' : 's') : 'e.g. 200 sheets';
-  $('qQtyHint').textContent = p ? 'Priced per ' + p.unit + '. Current price ' + peso(p.price) + ' — bulk quantities may get a better price.' : '';
+  $('qQtyHint').textContent = p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '';
+}
+async function loadQuoteAddresses() {
+  try { QADDRS = await api('/api/shop/addresses'); if (!Array.isArray(QADDRS)) QADDRS = []; } catch (e) { QADDRS = []; }
+  if (qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) qAddr = (QADDRS.find(a => a.isDefault) || QADDRS[0] || {}).id || (qFulfil() === 'Delivery' ? 'new' : null);
+  renderQuoteReceive();
+}
+function renderQuoteReceive() {
+  const f = qFulfil(); document.querySelectorAll('.q-opt').forEach(o => o.classList.toggle('on', o.querySelector('input').checked));
+  $('qDeliveryBox').hidden = f !== 'Delivery'; $('qPickupBox').hidden = f !== 'Pickup';
+  if (f === 'Pickup') { const i = INFO || {}; $('qPickupBox').innerHTML = '<b>Pick it up at our shop.</b>' + (i.address ? ' ' + esc(i.address) : '') + ' We will tell you when it is ready.'; }
+  if (f !== 'Delivery') return;
+  if (qAddr === null) qAddr = (QADDRS.find(a => a.isDefault) || QADDRS[0] || {}).id || 'new';
+  const full = a => a.fullAddress || [a.addressLine, a.barangay, a.city, a.province, a.zip].filter(Boolean).join(', ');
+  $('qAddrList').innerHTML = QADDRS.map(a => `<div class="addr-card ${a.id === qAddr ? 'on' : ''}" data-qaddr="${a.id}" role="radio" tabindex="0" aria-checked="${a.id === qAddr}">
+      <span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><div class="addr-top"><b>${esc(a.recipient)}</b><span class="chip-pill">${esc(a.label)}</span>${a.isDefault ? '<span class="chip-pill ok">Default</span>' : ''}</div>
+      <div class="addr-full">${esc(full(a))}</div></div></div>`).join('')
+    + (QADDRS.length ? `<div class="addr-card addr-new ${qAddr === 'new' ? 'on' : ''}" data-qaddr="new" role="radio" tabindex="0" aria-checked="${qAddr === 'new'}"><span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><b>Deliver to a different area</b></div></div>` : '');
+  $('qAddrNew').hidden = qAddr !== 'new';
 }
 async function loadQuotes() {
   try { QUOTES = await api('/api/shop/quotes'); } catch (e) { QUOTES = []; }
+  if (!Array.isArray(QUOTES)) QUOTES = [];
   const open = QUOTES.filter(q => q.status === 'new').length; $('navQuoteCount').textContent = open; $('navQuoteCount').hidden = !open;
   $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const st = QSTATUS[q.status] || ['', q.status];
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)} · ${new Date(q.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</div>
+      ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}</div>`; }).join('')
     : '<p class="dim">You have not sent a request yet.</p>';
 }
 function openQuote(sku) { show('quote'); if (sku && prod(sku)) { $('qProduct').value = sku; quoteProductChanged(); } $('qQty').focus(); }
 $('qProduct').onchange = quoteProductChanged;
+document.querySelectorAll('input[name="qFulfil"]').forEach(r => r.onchange = () => { qErr('fulfillment', ''); $('qE_address').textContent = ''; renderQuoteReceive(); });
+$('qDeliveryBox').addEventListener('click', e => { const el = e.target.closest('[data-qaddr]'); if (!el) return; qAddr = el.dataset.qaddr === 'new' ? 'new' : Number(el.dataset.qaddr); $('qE_address').textContent = ''; renderQuoteReceive(); });
+$('qDeliveryBox').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-qaddr]')) { e.preventDefault(); e.target.click(); } });
+// check a field when the customer leaves it, and clear its message as soon as they fix it
+[['qProductName', 'productName'], ['qQty', 'quantity'], ['qNeeded', 'neededBy'], ['qDetails', 'details'], ['qName', 'contactName'], ['qPhone', 'phone'], ['qCity', 'city'], ['qBrgy', 'barangay'], ['qStreet', 'street']].forEach(([id, f]) => {
+  $(id).addEventListener('blur', () => qField(f));
+  $(id).addEventListener('input', () => { if ($(id).classList.contains('is-bad')) qField(f); $('qErr').textContent = ''; });
+});
+$('qNeeded').addEventListener('change', () => qField('neededBy'));
+$('qPhone').addEventListener('input', () => { const p = $('qPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
+$('qQty').addEventListener('input', () => { $('qE_quantity').textContent = $('qQty').classList.contains('is-bad') ? $('qE_quantity').textContent : ''; });
+$('qDetails').addEventListener('input', () => { $('qDetailsCount').textContent = $('qDetails').value.length + ' / 2000'; });
+function validateQuote() {
+  const f = qFulfil(), fields = ['productName', 'quantity', 'neededBy', 'details'];
+  if (f === 'Delivery' && qAddr === 'new') fields.push('city', 'barangay', 'street');
+  fields.push('contactName', 'phone');
+  const idOf = { productName: 'qProductName', quantity: 'qQty', neededBy: 'qNeeded', details: 'qDetails', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' };
+  let first = null; fields.forEach(k => { if (!qField(k) && !first) first = idOf[k]; });
+  if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
+  else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
+  // focus the field that comes first on the page
+  const order = ['qProduct', 'qProductName', 'qQty', 'qNeeded', 'qDetails', 'qDeliveryAnchor', 'qAddrList', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
+  const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
+  return { ok: !first, focus: bad };
+}
 $('quoteForm').onsubmit = async e => {
   e.preventDefault(); const err = $('qErr'); err.textContent = '';
-  const sku = $('qProduct').value;
-  if (!sku && $('qProductName').value.trim().length < 3) return err.textContent = 'Tell us what you need.';
-  if (!$('qQty').value.trim()) return err.textContent = 'Enter the quantity you need.';
-  if ($('qDetails').value.trim().length < 10) return err.textContent = 'Add the sizes and details (at least 10 characters).';
+  const v = validateQuote();
+  if (!v.ok) { err.textContent = 'Please fix the highlighted fields.'; const el = $(v.focus) || document.querySelector('.q-seg'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus({ preventScroll: true }); } return; }
+  const f = qFulfil(), body = { sku: $('qProduct').value || undefined, productName: $('qProductName').value.trim(), quantity: $('qQty').value.trim(), details: $('qDetails').value.trim(),
+    neededBy: $('qNeeded').value || undefined, fulfillment: f, contactName: $('qName').value.trim(), phone: $('qPhone').value.replace(/[\s().-]/g, '') };
+  if (f === 'Delivery') { if (qAddr === 'new') Object.assign(body, { city: $('qCity').value.trim(), barangay: $('qBrgy').value.trim(), street: $('qStreet').value.trim() }); else body.addressId = qAddr; }
   $('qSend').disabled = true;
-  try {
-    await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify({ sku: sku || undefined, productName: $('qProductName').value.trim(), quantity: $('qQty').value.trim(), details: $('qDetails').value.trim(),
-      neededBy: $('qNeeded').value || undefined, fulfillment: $('qFulfil').value || undefined, area: $('qArea').value.trim(), contactName: $('qName').value.trim(), phone: $('qPhone').value.trim() }) });
-  } catch (er) { $('qSend').disabled = false; return err.textContent = (er.fields && Object.values(er.fields)[0]) || er.message; }
-  $('qSend').disabled = false; ['qQty', 'qDetails', 'qNeeded', 'qArea', 'qProductName'].forEach(id => $(id).value = ''); $('qProduct').value = ''; quoteProductChanged();
+  try { await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify(body) }); }
+  catch (er) {                                       // show the server's message under the field it belongs to
+    $('qSend').disabled = false;
+    const fe = er.fields || {}, map = { contactName: 1, phone: 1, quantity: 1, details: 1, neededBy: 1, productName: 1, city: 1, barangay: 1, street: 1 };
+    let shown = false; Object.keys(fe).forEach(k => { if (map[k]) { qErr(k, fe[k]); shown = true; } else if (k === 'fulfillment') { qErr('fulfillment', fe[k]); shown = true; } else if (k === 'address') { $('qE_address').textContent = fe[k]; shown = true; } });
+    if (!shown) err.textContent = (fe && Object.values(fe)[0]) || er.message; return;
+  }
+  $('qSend').disabled = false;
+  ['qQty', 'qDetails', 'qNeeded', 'qProductName'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); $('qProduct').value = ''; $('qDetailsCount').textContent = '0 / 2000';
+  ['productName', 'quantity', 'neededBy', 'details'].forEach(k => qErr(k, '')); quoteProductChanged();
   toast('Request sent. We will reply soon.'); loadQuotes();
 };
 
@@ -919,12 +1026,35 @@ document.addEventListener('click', e => {
     $('refundFor').textContent = 'Order ' + o.id + ' · ' + peso(o.total);
     $('refundReason').value = ''; $('refundDetails').value = ''; $('refundErr').textContent = ''; $('refundBg').classList.add('show'); $('refundReason').focus();
   }
-  if (d.cancel) { cancelId = d.cancel; $('cancelFor').textContent = 'Order ' + cancelId; $('cancelReason').value = ''; $('cancelErr').textContent = ''; $('cancelBg').classList.add('show'); $('cancelReason').focus(); }
+  if (d.cancel) {
+    const o = orders.find(x => x.id === d.cancel); if (!o) return; cancelId = d.cancel;
+    $('cancelFor').textContent = 'Order ' + o.id + ' · ' + peso(o.total);
+    const hrs = o.cancelAutoHours || 24, when = ms => new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+    $('cancelNote').className = 'cancel-note ' + (o.cancelInstant ? 'ok' : 'warn');
+    $('cancelNote').innerHTML = o.cancelInstant
+      ? `<b>This will be cancelled right away.</b> Orders can be cancelled instantly for ${hrs} hours after ordering (until ${when(o.cancelInstantUntil)}).${o.paymentStatus === 'paid' ? ' Your payment is refunded to your original payment method.' : ''}`
+      : `<b>Our team will review this.</b> This order was placed more than ${hrs} hours ago, so we need to confirm it first. You will see our decision on this page.`;
+    $('cancelTitle').textContent = o.cancelInstant ? 'Cancel order' : 'Request cancellation';
+    $('cancelSend').textContent = o.cancelInstant ? 'Cancel order' : 'Send request';
+    $('cancelReason').value = ''; $('cancelDetails').value = ''; $('cancelErr').textContent = ''; $('cancelReason').classList.remove('is-bad'); $('cancelDetails').classList.remove('is-bad');
+    $('cancelDetailsLbl').textContent = 'More details (optional)';
+    $('cancelBg').classList.add('show'); $('cancelReason').focus();
+  }
 });
+$('cancelReason').onchange = () => { const other = $('cancelReason').value === 'other'; $('cancelDetailsLbl').textContent = other ? 'Please tell us why (required)' : 'More details (optional)'; $('cancelErr').textContent = ''; $('cancelReason').classList.remove('is-bad'); };
+$('cancelDetails').oninput = () => { $('cancelDetails').classList.remove('is-bad'); $('cancelErr').textContent = ''; };
 $('cancelSend').onclick = async () => {
-  const why = $('cancelReason').value.trim(); if (why.length < 5) return $('cancelErr').textContent = 'Please explain why (at least 5 characters).';
-  try { await requestCancel(cancelId, why); } catch (er) { return $('cancelErr').textContent = er.message; }
-  orders.find(o => o.id === cancelId).cancelRequested = true; closeModal('cancelBg'); renderOrders(); toast('Cancellation request sent.');
+  const code = $('cancelReason').value, details = $('cancelDetails').value.trim(), err = $('cancelErr');
+  if (!code) { $('cancelReason').classList.add('is-bad'); $('cancelReason').focus(); return err.textContent = 'Please choose a reason.'; }
+  if (code === 'other' && details.length < 5) { $('cancelDetails').classList.add('is-bad'); $('cancelDetails').focus(); return err.textContent = 'Please tell us the reason (at least 5 characters).'; }
+  err.textContent = ''; $('cancelSend').disabled = true;
+  let r;
+  try { r = await requestCancel(cancelId, code, details); }
+  catch (er) { $('cancelSend').disabled = false; return err.textContent = (er.fields && Object.values(er.fields)[0]) || er.message; }
+  $('cancelSend').disabled = false; closeModal('cancelBg');
+  try { orders = await loadOrders(); } catch (e) { const o = orders.find(x => x.id === cancelId); if (o) { if (r && r.cancelled) o.status = 'Cancelled'; else o.cancelRequested = true; } }
+  renderOrders(); syncCounts();
+  toast(r && r.cancelled ? 'Your order was cancelled.' : 'Request sent. Our team will review it and reply here.');
 };
 $('refundSend').onclick = async () => {
   const reason = $('refundReason').value, details = $('refundDetails').value.trim();

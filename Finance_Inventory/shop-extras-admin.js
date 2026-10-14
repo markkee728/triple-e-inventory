@@ -101,7 +101,7 @@
     $('sxqSub').textContent = quotes.length ? (n ? n + ' waiting for your reply' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
-      return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
+      return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
         '<td>' + esc(x.quantity) + '</td><td>' + esc(day(x.neededBy) || '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x.status) + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="' + (x.status === 'new' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'new' ? 'Reply' : 'View') + '</button></td></tr>';
@@ -145,7 +145,7 @@
     ensureOverlay();
     if (!x) { closeModal(); return; }
     var h = '<div class="sx-head"><h2>Quote \u00B7 ' + esc(x.id) + '</h2>' + qPill(x.status) + '</div>' +
-      '<dl class="sx-info">' + info('Customer', x.customer) + info('Phone', x.phone) + info('Email', x.email) + info('Item', x.product || 'Custom item') + info('SKU', x.sku) +
+      '<dl class="sx-info">' + info('Customer', x.customer) + info('Phone', x.phone) + info('Email', x.email) + info('Came from', x.source === 'pos' ? 'Walk-in at the counter (no account \u2014 reply by phone)' : 'Online shop') + info('Item', x.product || 'Custom item') + info('SKU', x.sku) +
       info('Quantity', x.quantity) + info('Needed by', day(x.neededBy)) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     if (x.status !== 'new') {

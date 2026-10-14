@@ -14,6 +14,7 @@ const { escapeHtml: esc } = mailer;
 
 const FINAL_STATUS = ['Delivered', 'Picked Up'];
 const MOBILE_RE = /^(\+63|0)9\d{9}$/;
+const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'\u2019-]*$/u;
 const MAX_OPEN_QUOTES = 5;           // a customer can have this many un-answered requests at once
 const BACK_IN_STOCK_DAYS = 7;        // how long the "Back in stock" tag shows for a customer who asked to be told
 
@@ -50,6 +51,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_customer ON quote_requests (customer_id, created_at DESC)');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quote_requests (status, created_at DESC)');
+      // walk-in customers logged at the POS have no shop account
+      await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
+      await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
         user_id     INT NOT NULL REFERENCES users(user_id),
@@ -75,7 +80,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     } catch (err) { console.warn('[shop] could not prepare the quotes / reviews / stock alerts schema:', err.message); }
   })();
   const whenReady = (req, res, next) => { ready.then(() => next(), next); };
-  ['/api/shop/quotes', '/api/shop/reviews', '/api/shop/my-reviews', '/api/shop/stock-alerts', '/api/finance/quotes', '/api/finance/reviews']
+  ['/api/shop/quotes', '/api/shop/reviews', '/api/shop/my-reviews', '/api/shop/stock-alerts', '/api/finance/quotes', '/api/finance/reviews', '/api/pos/quotes']
     .forEach((p) => app.use(p, whenReady));
 
   /* ---------------- mail (never blocks or fails a request) ---------------- */
@@ -99,33 +104,66 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     quantity: q.quantity, details: q.details, neededBy: q.needed_by ? String(q.needed_by).slice(0, 10) : undefined,
     fulfillment: q.fulfillment || undefined, area: q.area || undefined,
     quotedAmount: q.quoted_amount == null ? undefined : +q.quoted_amount, replyNote: q.reply_note || undefined,
-    createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
+    source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
   });
 
-  app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
-    const b = req.body || {};
-    const contactName = str(b.contactName) || req.user.name;
-    if (contactName.length < 2 || contactName.length > 80) throw bad('contactName', 'Enter your name');
+  // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
+  async function readQuote(b, { fallbackName, userId }) {
+    const contactName = str(b.contactName) || fallbackName;
+    if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
+    if (contactName.length < 2 || contactName.length > 80 || !NAME_RE.test(contactName)) throw bad('contactName', 'Enter your full name (letters only)');
     const phone = str(b.phone).replace(/[\s().-]/g, '');
+    if (!phone) throw bad('phone', 'Enter your mobile number so we can reach you');
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
     const quantity = str(b.quantity);
-    if (quantity.length < 1 || quantity.length > 60) throw bad('quantity', 'Tell us how much you need, e.g. 200 sheets');
+    if (!quantity) throw bad('quantity', 'Tell us how much you need, e.g. 200 sheets');
+    if (quantity.length > 60) throw bad('quantity', 'Please keep the quantity short, e.g. 200 sheets');
+    if (!(parseFloat(quantity.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0] > 0)) throw bad('quantity', 'Start with a number greater than 0, e.g. 200 sheets');
     const details = str(b.details);
     if (details.length < 10 || details.length > 2000) throw bad('details', 'Describe what you need (sizes, thickness, finish) in at least 10 characters');
     let neededBy = null;
     if (str(b.neededBy)) {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(str(b.neededBy)) || Number.isNaN(Date.parse(b.neededBy))) throw bad('neededBy', 'Choose a valid date');
-      neededBy = str(b.neededBy);
+      const d = str(b.neededBy);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw bad('neededBy', 'Choose a valid date');
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });      // YYYY-MM-DD in Philippine time
+      const limit = new Date(Date.parse(today) + 730 * 86400000).toISOString().slice(0, 10);
+      if (d < today) throw bad('neededBy', 'The date cannot be in the past');
+      if (d > limit) throw bad('neededBy', 'Choose a date within the next 2 years');
+      neededBy = d;
     }
-    const fulfillment = ['Delivery', 'Pickup'].includes(str(b.fulfillment)) ? str(b.fulfillment) : null;
-    const area = str(b.area).slice(0, 120) || null;
+
+    // delivery or pickup is required; delivery needs an address (a saved one, or the city and barangay typed in)
+    const fulfillment = str(b.fulfillment);
+    if (!['Delivery', 'Pickup'].includes(fulfillment)) throw bad('fulfillment', 'Choose delivery or pickup');
+    let area = null;
+    if (fulfillment === 'Delivery') {
+      if (userId && b.addressId !== undefined && b.addressId !== null && b.addressId !== '') {
+        const id = Number(b.addressId);
+        if (!Number.isInteger(id)) throw bad('address', 'Choose where it should be delivered');
+        const a = (await pool.query('SELECT * FROM customer_addresses WHERE address_id = $1 AND user_id = $2', [id, userId])).rows[0];
+        if (!a) throw bad('address', 'That saved address was not found. Please choose another');
+        area = [a.address_line, a.barangay && (/^(brgy|barangay)/i.test(a.barangay) ? a.barangay : 'Brgy. ' + a.barangay), a.city, a.province, a.zip_code].filter(Boolean).join(', ');
+      } else {
+        const city = str(b.city), barangay = str(b.barangay), street = str(b.street);
+        if (city.length < 2 || city.length > 60 || !/\p{L}/u.test(city)) throw bad('city', 'Enter the city or municipality');
+        if (barangay.length < 2 || barangay.length > 60 || !/\p{L}/u.test(barangay)) throw bad('barangay', 'Enter the barangay');
+        if (street && (street.length < 5 || street.length > 100)) throw bad('street', 'Enter the house no. and street (5 to 100 characters), or leave it empty');
+        area = [street, /^(brgy|barangay)/i.test(barangay) ? barangay : 'Brgy. ' + barangay, city].filter(Boolean).join(', ');
+      }
+      area = area.slice(0, 250);
+    }
 
     let sku = null, productName = str(b.productName).slice(0, 120) || null;
     if (str(b.sku)) {
       const p = (await pool.query(`SELECT sku, name FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
       if (!p) throw bad('sku', 'That product is not available');
       sku = p.sku; productName = p.name;
-    }
+    } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
+    return { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName };
+  }
+
+  app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
+    const { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName } = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
     const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE customer_id = $1 AND status = 'new'`, [req.user.id])).rows[0].n;
     if (open >= MAX_OPEN_QUOTES) throw bad('quote', `You already have ${open} requests waiting for an answer. Please wait for our reply first`);
 
@@ -148,7 +186,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const to = process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
       if (to) await send(to, `New quote request ${row.quote_no} from ${contactName}`, [
         `Customer: ${contactName} (${phone})`, `Item: ${productName || 'See details'}`, `Quantity: ${quantity}`,
-        neededBy ? `Needed by: ${neededBy}` : '', fulfillment ? `Receive by: ${fulfillment}${area ? ' \u00B7 ' + area : ''}` : '', '', details, '',
+        neededBy ? `Needed by: ${neededBy}` : '', `Receive by: ${fulfillment}${area ? ' \u00B7 ' + area : ''}`, '', details, '',
         `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
       else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
     })().catch((e) => console.error('[mail] quote emails failed:', e.message));
@@ -159,10 +197,43 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     res.json(rows.map(quoteJson));
   }));
 
+  /* ---- walk-in customers: the cashier logs the request, Finance prices it, the cashier tells the customer ---- */
+  const MAX_OPEN_POS_QUOTES = 50;
+  app.post('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
+    const { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName } = await readQuote(req.body || {}, { fallbackName: '', userId: null });
+    const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE source = 'pos' AND status = 'new'`)).rows[0].n;
+    if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
+    const row = await tx(async (client) => {
+      const r = await client.query(
+        `INSERT INTO quote_requests (customer_id, source, created_by, contact_name, phone, product_sku, product_name, quantity, details, needed_by, fulfillment, area)
+         VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+        [req.user.id, contactName, phone, sku, productName, quantity, details, neededBy, fulfillment, area]);
+      await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${productName ? ' \u2014 ' + productName : ''} (${quantity}) for ${contactName}`);
+      return r.rows[0];
+    });
+    res.status(201).json({ ...quoteJson(row), customer: row.contact_name, phone: row.phone });
+    (async () => {
+      const to = process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
+      if (!to) return;
+      await send(to, `Walk-in quote request ${row.quote_no} from ${contactName}`, [
+        `Walk-in customer: ${contactName} (${phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${productName || 'See details'}`, `Quantity: ${quantity}`,
+        neededBy ? `Needed by: ${neededBy}` : '', `Receive by: ${fulfillment}${area ? ' \u00B7 ' + area : ''}`, '', details, '',
+        `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
+    })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));
+  }));
+
+  // everything logged at the counter, newest first, so any cashier can answer "did my quote come back?"
+  app.get('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT q.*, c.full_name AS created_by_name FROM quote_requests q LEFT JOIN users c ON c.user_id = q.created_by
+        WHERE q.source = 'pos' ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 60`);
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
+  }));
+
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
-         FROM quote_requests q JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
+         FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
         ORDER BY (q.status = 'new') DESC, q.created_at DESC LIMIT 300`);
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
   }));
@@ -190,6 +261,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     });
     res.json({ ok: true });
     if (status !== 'new' && note) (async () => {
+      if (!q.customer_id) return;                       // walk-in from the POS: Finance replies by phone
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
       await send(u && u.email, status === 'quoted' ? `Your quote ${q.quote_no} is ready` : `Update on your quote request ${q.quote_no}`, [
         `Hi ${q.contact_name},`, status === 'quoted' ? 'Here is our reply to your quote request.' : 'We have an update on your quote request.', '',
