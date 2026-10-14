@@ -20,6 +20,8 @@ const pool = new Pool(process.env.DATABASE_URL
 const app = express();
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
+// Low-stock alerts (email + text). Registered this early so it also sees every change made by the routes below.
+require('./low-stock')(app, pool);
 
 const TZ = 'Asia/Manila';
 

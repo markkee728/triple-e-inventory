@@ -68,6 +68,25 @@ const SMS_TEXT = {
   refund_declined:  (o) => `Triple E Metal: We could not approve the refund for order ${o.order_no}. Please check your email.`
 };
 
+// the one text a delivery recipient (someone other than the account owner) receives
+const RECIPIENT_SMS = {
+  'Out for Delivery': (o) => `Triple E Metal: A delivery for ${o.recipient_name || 'you'} (order ${o.order_no}) is out for delivery. Please keep your phone nearby.`
+};
+
+// Who gets the text: the ACCOUNT OWNER (their current number from the account, so a changed number works right away;
+// the number saved on the order is only a fallback) gets every update. The delivery RECIPIENT, when it is a different
+// number, gets only the events listed in RECIPIENT_SMS.
+function smsTargets(o, ev) {
+  const owner = sms.toE164(o.account_phone) ? o.account_phone : o.phone;
+  const list = [];
+  if (SMS_TEXT[ev]) list.push({ to: owner, kind: 'owner' });
+  if (o.fulfillment === 'Delivery' && RECIPIENT_SMS[ev] && o.phone) {
+    const r = sms.toE164(o.phone), w = sms.toE164(owner);
+    if (r && r !== w) list.push({ to: o.phone, kind: 'recipient' });
+  }
+  return list;
+}
+
 function build(o, items, ev, extra, info) {
   const base = env('APP_BASE_URL').replace(/\/$/, '');
   const link = base ? base + '/Shop_Customer.html' : '';
@@ -111,7 +130,7 @@ module.exports = function makeOrderMail(pool) {
     try {
       if (!EVENTS[ev]) return;
       const { rows } = await pool.query(
-        `SELECT o.*, u.email, u.full_name FROM orders o JOIN users u ON u.user_id = o.customer_id WHERE o.order_no = $1`, [orderNo]);
+        `SELECT o.*, u.email, u.full_name, u.phone AS account_phone FROM orders o JOIN users u ON u.user_id = o.customer_id WHERE o.order_no = $1`, [orderNo]);
       const o = rows[0];
       if (!o) return;
       const info = shopInfo();
@@ -128,11 +147,14 @@ module.exports = function makeOrderMail(pool) {
           } catch (err) { console.error(`[mail] order email "${ev}" for ${orderNo} failed:`, err.message); }
         })(),
         (async () => {
-          if (!SMS_TEXT[ev] || !sms.eventEnabled(ev) || !o.phone) return;
-          try {
-            const r = await sms.sendSms({ to: o.phone, message: SMS_TEXT[ev](o, d, info) });
-            if (!r.sent) console.warn(`[sms] order text "${ev}" for ${orderNo} not sent: ${r.reason}`);
-          } catch (err) { console.error(`[sms] order text "${ev}" for ${orderNo} failed:`, err.message); }
+          if (!sms.eventEnabled(ev)) return;
+          for (const t of smsTargets(o, ev)) {
+            try {
+              const message = t.kind === 'owner' ? SMS_TEXT[ev](o, d, info) : RECIPIENT_SMS[ev](o, d, info);
+              const r = await sms.sendSms({ to: t.to, message });
+              if (!r.sent) console.warn(`[sms] order text "${ev}" (${t.kind}) for ${orderNo} not sent: ${r.reason}`);
+            } catch (err) { console.error(`[sms] order text "${ev}" (${t.kind}) for ${orderNo} failed:`, err.message); }
+          }
         })()
       ]);
     } catch (err) { console.error(`[notify] order notification "${ev}" for ${orderNo} failed:`, err.message); }

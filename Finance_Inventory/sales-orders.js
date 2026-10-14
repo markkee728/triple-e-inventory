@@ -53,7 +53,7 @@
   function renderOrders() {
     const q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value;
     const rows = ORDERS.filter(o => (st === 'all' || o.status === st) &&
-      (!q || (o.id + ' ' + o.customer + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));
+      (!q || (o.id + ' ' + o.customer + ' ' + (o.customerPhone || '') + ' ' + (o.phone || '') + ' ' + (o.recipient || '') + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));
     $('soSub').textContent = rows.length + ' of ' + ORDERS.length + ' orders';
     $('soHead').innerHTML = '<tr><th>Order</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Type / Payment</th><th>Status</th><th>Action</th></tr>';
     $('soBody').innerHTML = rows.length ? rows.map(o => {
@@ -65,9 +65,14 @@
         if (o.canCancel) act += (act ? ' ' : '') + '<button class="btn-secondary btn-sm" data-so-abort="' + esc(o.id) + '">Cancel order</button>';
         if (!act) act = '<span class="faint">—</span>';
       }
-      return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + esc(o.customer) +
-        (o.address ? '<div class="faint" style="font-size:12px">' + esc(o.address) + '</div>' : '') +
-        '<div class="faint" style="font-size:12px">' + esc(o.phone) + '</div></td><td>' + items + '</td><td>' + peso(o.total) +
+      // Customer = the account owner (live phone from the account). Deliver to = the recipient saved on the order.
+      const sub = (t) => '<div class="faint" style="font-size:12px">' + t + '</div>';
+      const who = esc(o.customer) + sub(esc(o.customerPhone || o.phone)) +
+        (o.fulfillment === 'Delivery'
+          ? sub('<b>Deliver to:</b> ' + esc([o.recipient, o.recipientPhone || o.phone].filter(Boolean).join(' · '))) + (o.address ? sub(esc(o.address)) : '')
+          : '');
+      return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + who +
+        '</td><td>' + items + '</td><td>' + peso(o.total) +
         '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(payLabel(o.method)) + '</div></td><td>' + pill(o.status) +
         (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + tracker(o) + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
     }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';

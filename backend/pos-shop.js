@@ -906,7 +906,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* ---------- finance: confirm orders, decide cancellations ---------- */
   app.get('/api/orders', auth('finance'), wrap(async (req, res) => {
     const { rows: orders } = await pool.query(
-      `SELECT o.*, u.full_name AS customer FROM orders o JOIN users u ON u.user_id = o.customer_id ORDER BY o.created_at DESC LIMIT 200`);
+      `SELECT o.*, u.full_name AS customer, u.phone AS customer_phone, u.email AS customer_email FROM orders o JOIN users u ON u.user_id = o.customer_id ORDER BY o.created_at DESC LIMIT 200`);
     const ids = orders.map(o => o.order_id);
     const { rows: items } = ids.length ? await pool.query('SELECT * FROM order_items WHERE order_id = ANY($1) ORDER BY item_id', [ids]) : { rows: [] };
     const { rows: cr } = ids.length ? await pool.query(`SELECT DISTINCT order_id FROM order_cancel_requests WHERE order_id = ANY($1) AND status = 'pending'`, [ids]) : { rows: [] };
@@ -915,6 +915,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.json(orders.map(o => {
       const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status);
       return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
+        // account owner (read live from the account) and, for Delivery, the recipient saved on the order
+        customerPhone: o.customer_phone || undefined, customerEmail: o.customer_email || undefined,
+        recipient: o.fulfillment === 'Delivery' ? (o.recipient_name || undefined) : undefined,
+        recipientPhone: o.fulfillment === 'Delivery' ? o.phone : undefined,
         flow,                                                            // the steps this order goes through (Delivery or Pickup)
         next: at >= 0 && at < flow.length - 1 ? flow[at + 1] : null,     // the one step Finance can do next
         canCancel: ADMIN_CANCELLABLE.includes(o.status) };
