@@ -1327,6 +1327,8 @@
                             <select id="soView" class="inv-select">
                                 <option value="orders">Online orders</option>
                                 <option value="pos">POS walk-in sales</option>
+                                <option value="payments">Payment summary (POS + online)</option>
+                                <option value="shifts">Cash shifts (cashier drawers)</option>
                             </select>
                             <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
                             <select id="soStatus" class="inv-select">
@@ -1342,12 +1344,13 @@
                             </select>
                         </div>
                     </div>
-                    <div class="table-wrapper">
+                    <div class="table-wrapper" id="soTableWrap">
                         <table>
                             <thead id="soHead"></thead>
                             <tbody id="soBody"></tbody>
                         </table>
                     </div>
+                    <div id="soCash" hidden></div>
                 </div>
 
             </section>
@@ -3539,7 +3542,8 @@
     <!-- JAVASCRIPT -->
     <script src="script.js"></script>
     <script src="api-bridge.js?v=8"></script>
-    <script src="sales-orders.js?v=1"></script>
+    <script src="sales-orders.js?v=2"></script>
+    <script src="cash-shift-reports.js?v=1"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="finished-goods-shop.js?v=3"></script>

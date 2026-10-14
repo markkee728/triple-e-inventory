@@ -38,6 +38,11 @@
 
   function render() {
     const view = $('soView').value, q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value;
+    const cashView = view === 'payments' || view === 'shifts';
+    if ($('soTableWrap')) $('soTableWrap').hidden = cashView;
+    if ($('soCash')) $('soCash').hidden = !cashView;
+    $('soSearch').style.display = cashView ? 'none' : '';
+    if (cashView) { $('soStatus').style.display = 'none'; if (window.CashReports) window.CashReports.show(view); return; }
     $('soStatus').style.display = view === 'orders' ? '' : 'none';
     if (view === 'orders') {
       const rows = ORDERS.filter(o => (st === 'all' || o.status === st) &&
