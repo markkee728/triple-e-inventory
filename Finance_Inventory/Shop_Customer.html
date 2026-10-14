@@ -286,9 +286,11 @@ async function loadProducts() {            // GET /api/shop/products — finishe
   catch (e) { if (e instanceof TypeError) return DEMO; toast(e.message, true); return []; }   // DEMO only when no server is reachable (file preview)
 }
 async function loadOrders() { try { return await api('/api/shop/orders'); } catch (e) { return []; } }
+let pendingOrderRequestId = null;   // same id on a retry of the same order, so a double-click cannot create two orders
+const orderRequestId = () => pendingOrderRequestId ||= (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'shop-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 async function submitOrder(o) {            // server re-prices from the database; stock is deducted when Finance confirms the order
   return api('/api/shop/orders', { method: 'POST', body: JSON.stringify({
-    items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, phone: o.phone, method: o.method,
+    requestId: orderRequestId(), items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, phone: o.phone, method: o.method,
     shipTo: o.shipTo, saveAddress: o.saveAddress, addressLabel: o.addressLabel, makeDefault: o.makeDefault }) });
 }
 let INFO = {}, REFUND_DAYS = 7;
@@ -568,6 +570,7 @@ async function placeOrder() {
   // The server has accepted the order. Move its items out of the cart immediately,
   // including when hosted payment is still pending or cannot be opened.
   // My Orders is the source of truth for retrying an unpaid Xendit invoice.
+  pendingOrderRequestId = null;
   cart = [];
   saveCart();
   syncCounts();
