@@ -747,8 +747,25 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   renderChips(); renderCatalog(); renderCart(); renderOrders();
   if (cartNotes.length) toast(cartNotes[0], true);
   // pick up status changes made by Finance (every 15 s, and whenever the tab is shown again)
-  const refreshOrders = async () => { try { const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
+  // Ask the server to check any unpaid online order with Xendit, so a payment is saved even if Xendit's callback never reaches us.
+  const verifyPending = async () => {
+    const pending = orders.filter(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation');
+    let paid = false;
+    for (const o of pending) {
+      try { const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' }); if (r.paymentStatus === 'paid') paid = true; } catch (e) {}
+    }
+    if (paid) toast('Payment received. Thank you! Your order is confirmed.');
+    return paid;
+  };
+  const refreshOrders = async () => { try { await verifyPending(); const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
   setInterval(refreshOrders, 15000);
+  // Back from the payment page: show My Orders and check every few seconds until the payment is confirmed.
+  if (/[?&]payment=return/.test(location.search)) {
+    show('orders'); history.replaceState(null, '', location.pathname);
+    let tries = 0; const t = setInterval(async () => { await refreshOrders(); if (++tries >= 30 || !orders.some(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation')) clearInterval(t); }, 4000);
+    refreshOrders();
+  } else if (/[?&]payment=failed/.test(location.search)) { history.replaceState(null, '', location.pathname); show('orders'); toast('Payment was not completed. You can retry from My Orders.', true); }
+  else refreshOrders();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOrders(); });
 })();
 </script>

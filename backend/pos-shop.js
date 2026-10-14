@@ -140,10 +140,23 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
   app.get('/api/pos/xendit-payments/:id', auth('cashier'), wrap(async (req,res) => {
     await posPaymentsReady;
-    const {rows} = await pool.query(`SELECT payment_id,status,amount,checkout_url,sale_id,error_message
+    const sel = () => pool.query(`SELECT payment_id,status,amount,checkout_url,sale_id,error_message,invoice_id,external_id
       FROM pos_xendit_payments WHERE payment_id=$1 AND cashier_id=$2`, [req.params.id,req.user.id]);
+    let {rows} = await sel();
     if (!rows.length) return res.status(404).json({error:'Payment not found'});
-    res.json(rows[0]);
+    // Do not rely only on Xendit's callback (it cannot reach a local/offline server): ask Xendit for the invoice itself.
+    if (rows[0].status === 'pending' && rows[0].invoice_id) {
+      try {
+        const inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(rows[0].invoice_id)}`);
+        const st = inv.status === 'SETTLED' ? 'PAID' : inv.status;
+        if (st === 'PAID' || st === 'EXPIRED') {
+          await handlePosXenditWebhook({ ...inv, status: st }, rows[0].external_id, rows[0].invoice_id);
+          ({rows} = await sel());
+        }
+      } catch (e) { console.warn('[xendit] POS status check failed:', e.message); }
+    }
+    const { invoice_id, external_id, ...out } = rows[0];
+    res.json(out);
   }));
   async function handlePosXenditWebhook(event, externalId, invoiceId) {
     await posPaymentsReady;
@@ -156,7 +169,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (event.status === 'EXPIRED' && p.status === 'pending') {
         await client.query("UPDATE pos_xendit_payments SET status='expired' WHERE payment_id=$1",[p.payment_id]); return;
       }
-      if (event.status !== 'PAID') return;
+      if ((event.status === 'SETTLED' ? 'PAID' : event.status) !== 'PAID') return;
       if (Math.round(Number(event.paid_amount ?? event.amount)*100) !== Math.round(Number(p.amount)*100) || event.currency && event.currency !== 'PHP')
         throw new Error('POS Xendit paid amount/currency mismatch');
       const lines = p.items.map(i=>({sku:i.sku,qty:i.qty}));
@@ -217,20 +230,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.json({ checkoutUrl: invoice.invoice_url });
   }));
 
-  // Xendit calls this endpoint directly. Never trust the browser redirect as payment proof.
-  app.post('/api/payments/xendit/webhook', wrap(async (req, res) => {
-    const expected = process.env.XENDIT_CALLBACK_TOKEN;
-    const supplied = req.get('x-callback-token');
-    if (!expected || !supplied || supplied !== expected) return res.status(401).json({ error: 'Invalid callback token' });
-    const event = req.body || {};
-    const externalId = str(event.external_id);
-    const invoiceId = str(event.id);
-    if (!externalId || !invoiceId) return res.status(400).json({ error: 'Missing invoice identifiers' });
-    const { rows } = await pool.query(
-      'SELECT * FROM orders WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId]);
-    if (!rows.length) { await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true}); }
-    const o = rows[0];
-    if (event.status === 'PAID' && Number(event.paid_amount ?? event.amount) === Number(o.total) && o.payment_status !== 'paid' && o.status === 'Pending Confirmation') {
+  async function applyShopInvoice(o, event, invoiceId) {
+    if ((event.status === 'PAID' || event.status === 'SETTLED') && Number(event.paid_amount ?? event.amount) === Number(o.total) && o.payment_status !== 'paid' && o.status === 'Pending Confirmation') {
       let confirmed = false;
       await tx(async (client) => {
         const locked = await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id]);
@@ -244,8 +245,48 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     } else if (event.status === 'EXPIRED' && o.payment_status !== 'paid') {
       await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id]);
     }
+  }
+
+  // The customer's page calls this after paying: ask Xendit directly, so the order is saved even if the callback never arrives.
+  app.post('/api/shop/orders/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2', [req.params.no, req.user.id]);
+    if (!rows.length) throw bad('order', 'Order not found');
+    const o = rows[0];
+    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid') {
+      try {
+        const inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
+        await applyShopInvoice(o, inv, o.xendit_invoice_id);
+      } catch (e) { console.warn('[xendit] order payment check failed:', e.message); }
+    }
+    const cur = await pool.query('SELECT status, payment_status FROM orders WHERE order_id = $1', [o.order_id]);
+    res.json({ status: cur.rows[0].status, paymentStatus: cur.rows[0].payment_status });
+  }));
+
+  // Xendit calls this endpoint directly. Never trust the browser redirect as payment proof.
+  app.post('/api/payments/xendit/webhook', wrap(async (req, res) => {
+    const expected = process.env.XENDIT_CALLBACK_TOKEN;
+    const supplied = req.get('x-callback-token');
+    if (!expected || !supplied || supplied !== expected) return res.status(401).json({ error: 'Invalid callback token' });
+    const event = req.body || {};
+    const externalId = str(event.external_id);
+    const invoiceId = str(event.id);
+    if (!externalId || !invoiceId) return res.status(400).json({ error: 'Missing invoice identifiers' });
+    const { rows } = await pool.query(
+      'SELECT * FROM orders WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId]);
+    if (!rows.length) { await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true}); }
+    await applyShopInvoice(rows[0], event, invoiceId);
     res.json({ received: true });
   }));
+
+  // POS sales remember the request id of each sale (stops a double-click or retry from saving the same sale twice).
+  // No migration created this column, so without it every POS sale failed with "Server error". Safe to run every time the server starts.
+  const posSalesReady = (async () => {
+    try {
+      await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS request_id TEXT');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_sales_cashier_request ON pos_sales (cashier_id, request_id) WHERE request_id IS NOT NULL');
+    } catch (err) { console.warn('[db] could not prepare pos_sales.request_id:', err.message); }
+  })();
 
   // Price overrides at the counter: keep the list price and who approved the change (safe to run every time the server starts).
   async function ensurePosOverrideSchema() {
@@ -427,6 +468,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   app.post('/api/pos/sales', auth('cashier'), wrap(async (req, res) => {
+    await posSalesReady;
     const b = req.body || {};
     const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
     if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
