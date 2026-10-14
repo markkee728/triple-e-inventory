@@ -1,6 +1,6 @@
 // Cash shifts: cashier drawer reconciliation + Finance monitoring.
 // Mount from server.js AFTER auth(), wrap(), tx() are defined.
-module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
+module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn}) {
  const TZ = tzIn || 'Asia/Manila';
  const VARIANCE_ALERT = Number(process.env.CASH_VARIANCE_ALERT || 100);   // |difference| at or above this needs Finance review
  const STALE_HOURS = Number(process.env.CASH_SHIFT_STALE_HOURS || 16);    // an open shift older than this is flagged
@@ -10,10 +10,14 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
  // 2-decimal money check that is safe against floating point (1.10*100 is 110.00000000000001 in JS)
  const money = x => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= MAX_MONEY && Math.abs(x*100 - Math.round(x*100)) < 1e-6;
  const r2 = x => Math.round(x*100)/100;
+ const peso = n => '₱'+Number(n).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2});
+ // Cash shift events go into the audit log (Finance > Audit Log, action "Cash shift"). Never let a logging problem block the till.
+ const log = (client,user,detail) => audit ? audit(client,user,'Cash shift',detail) : Promise.resolve();
 
  /* ---------- schema (self-healing: the movements table was never in a migration) ---------- */
  const ready = (async()=>{
   try {
+   await (app.locals.posReturnsReady || Promise.resolve());   // the return tables (pos-shop.js) are read by the shift summary below
    await pool.query(`CREATE TABLE IF NOT EXISTS pos_cash_shifts (
     shift_id BIGSERIAL PRIMARY KEY, cashier_id INT NOT NULL REFERENCES users(user_id), cashier_name TEXT NOT NULL,
     opened_at TIMESTAMPTZ NOT NULL DEFAULT now(), closed_at TIMESTAMPTZ,
@@ -43,8 +47,9 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
    cs.cash_sales::float8 AS "cashSales", cs.cash_tx AS "cashTransactions",
    cs.card_sales::float8 AS "cardSales", cs.card_tx AS "cardTransactions", cs.pending_voids AS "pendingVoids",
    mv.cash_in::float8 AS "cashIn", mv.cash_out::float8 AS "cashOut",
-   (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out)::float8 AS "expectedCash",
-   CASE WHEN s.closed_at IS NOT NULL THEN ROUND(s.closing_cash - (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out), 2)::float8 END AS "difference"
+   rt.cash_returns::float8 AS "cashReturns", rt.cash_return_tx AS "cashReturnTransactions", rt.pending_returns AS "pendingReturns",
+   (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out - rt.cash_returns)::float8 AS "expectedCash",
+   CASE WHEN s.closed_at IS NOT NULL THEN ROUND(s.closing_cash - (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out - rt.cash_returns), 2)::float8 END AS "difference"
   FROM pos_cash_shifts s
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(p.total) FILTER (WHERE p.method='Cash'),0) AS cash_sales,
                             COUNT(*) FILTER (WHERE p.method='Cash')::int AS cash_tx,
@@ -54,12 +59,17 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
                        FROM pos_sales p WHERE p.cash_shift_id = s.shift_id AND p.status <> 'Voided') cs ON true
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_in'),0) AS cash_in,
                             COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_out'),0) AS cash_out
-                       FROM pos_cash_movements m WHERE m.shift_id = s.shift_id) mv ON true`;
+                       FROM pos_cash_movements m WHERE m.shift_id = s.shift_id) mv ON true
+  LEFT JOIN LATERAL (SELECT COALESCE(SUM(r.amount) FILTER (WHERE r.status='approved' AND r.refund_method='Cash' AND r.refund_shift_id = s.shift_id),0) AS cash_returns,
+                            COUNT(*) FILTER (WHERE r.status='approved' AND r.refund_method='Cash' AND r.refund_shift_id = s.shift_id)::int AS cash_return_tx,
+                            COUNT(*) FILTER (WHERE r.status='pending' AND r.refund_method='Cash' AND r.requested_shift_id = s.shift_id)::int AS pending_returns
+                       FROM pos_return_requests r WHERE r.refund_shift_id = s.shift_id OR r.requested_shift_id = s.shift_id) rt ON true`;
  const flagged = s => {            // review flags used by the Finance monitor
   const flags = [];
   if (s.difference != null && Math.abs(s.difference) >= VARIANCE_ALERT) flags.push(s.difference < 0 ? 'Large shortage' : 'Large overage');
   if (!s.closedAt && Date.now() - new Date(s.openedAt).getTime() > STALE_HOURS*3600000) flags.push('Open too long');
   if (s.pendingVoids) flags.push(s.pendingVoids + ' void pending');
+  if (s.pendingReturns) flags.push(s.pendingReturns + ' return pending');
   return flags;
  };
  const movementsFor = async ids => {
@@ -84,7 +94,9 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
    const old=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL',[req.user.id]);
    if(old.rowCount)return {error:'You already have an open cash shift.'};
-   const r=await client.query('INSERT INTO pos_cash_shifts(cashier_id,cashier_name,opening_cash) VALUES ($1,$2,$3) RETURNING shift_id',[req.user.id,req.user.name,amount]);return {id:r.rows[0].shift_id};
+   const r=await client.query('INSERT INTO pos_cash_shifts(cashier_id,cashier_name,opening_cash) VALUES ($1,$2,$3) RETURNING shift_id',[req.user.id,req.user.name,amount]);
+   await log(client,req.user,`Shift #${r.rows[0].shift_id} opened — starting cash ${peso(amount)}`);
+   return {id:r.rows[0].shift_id};
   });if(result.error)return fail(res,409,result.error);res.status(201).json(result);
  }));
 
@@ -111,7 +123,12 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
    const diff=r2(amount-cur.expectedCash);
    if(diff!==0&&note.trim().length<5)return {error:'The count is '+(diff<0?'short':'over')+' by ₱'+Math.abs(diff).toFixed(2)+'. Please write a short explanation (at least 5 characters).',field:'note',status:400};
    await client.query('UPDATE pos_cash_shifts SET closed_at=now(),closing_cash=$2,closing_note=$3,closing_breakdown=$4 WHERE shift_id=$1',[id,amount,note.trim(),bd?JSON.stringify(bd):null]);
-   const report=await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id]);return report.rows[0];
+   const report=await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id]);
+   const c=report.rows[0];
+   await log(client,req.user,`Shift #${id} closed — expected ${peso(c.expectedCash)}, counted ${peso(amount)}, `
+     +(diff===0?'balanced':(diff<0?'SHORT ':'OVER ')+peso(Math.abs(diff))+(Math.abs(diff)>=VARIANCE_ALERT?' (flagged for Finance review)':''))
+     +(c.cashReturns?` · cash returns ${peso(c.cashReturns)}`:'')+(note.trim()?` · Note: ${note.trim()}`:''));
+   return c;
   });if(result.error)return fail(res,result.status||409,result.error,result.field);res.json(result);
  }));
 
@@ -132,6 +149,7 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
     const dup=await client.query(`SELECT 1 FROM pos_cash_movements WHERE shift_id=$1 AND kind=$2 AND amount=$3 AND reason=$4 AND created_at > now() - interval '15 seconds'`,[id,kind,amount,reason.trim()]);
     if(dup.rowCount)return {error:'That exact movement was just recorded.'};
     const r=await client.query('INSERT INTO pos_cash_movements(shift_id,cashier_id,kind,amount,reason) VALUES($1,$2,$3,$4,$5) RETURNING movement_id',[id,req.user.id,kind,amount,reason.trim()]);
+    await log(client,req.user,`Shift #${id}: cash ${kind==='cash_in'?'added':'removed'} ${peso(amount)} — ${reason.trim()}`);
     return {id:r.rows[0].movement_id};
   });
   if(result.error)return fail(res,result.status||409,result.error,result.field);res.status(201).json(result);
@@ -173,7 +191,10 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
   const pos=(await pool.query(`SELECT method, COUNT(*) FILTER (WHERE status<>'Voided')::int AS count,
       COALESCE(SUM(total) FILTER (WHERE status<>'Voided'),0)::float8 AS total,
       COUNT(*) FILTER (WHERE status='Voided')::int AS voided,
-      COALESCE(SUM(total) FILTER (WHERE status='Voided'),0)::float8 AS "voidedTotal"
+      COALESCE(SUM(total) FILTER (WHERE status='Voided'),0)::float8 AS "voidedTotal",
+      COALESCE((SELECT SUM(r.amount) FROM pos_return_requests r JOIN pos_sales s2 ON s2.sale_id=r.sale_id
+                 WHERE r.status='approved' AND s2.method=pos_sales.method
+                   AND (s2.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date),0)::float8 AS returned
     FROM pos_sales WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date GROUP BY method ORDER BY method`,[TZ,f,t])).rows;
   const online=(await pool.query(`SELECT o.payment_method AS method,
       COUNT(*) FILTER (WHERE o.status NOT IN ('Pending Confirmation','Cancelled'))::int AS count,

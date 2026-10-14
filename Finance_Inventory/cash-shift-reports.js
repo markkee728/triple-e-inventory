@@ -57,20 +57,22 @@
 
   function paymentsHtml() {
     const pos = data.payments.pos, on = data.payments.online;
-    const posTotal = pos.reduce((n, x) => n + x.total, 0), posCash = (pos.find(x => x.method === 'Cash') || {}).total || 0, posCard = pos.filter(x => x.method === 'Card' || x.method === 'Xendit').reduce((n, x) => n + x.total, 0);
+    const posRet = pos.reduce((n, x) => n + (x.returned || 0), 0);   // approved partial returns, taken off the sale totals
+    const posTotal = pos.reduce((n, x) => n + x.total - (x.returned || 0), 0), posCash = (() => { const c = pos.find(x => x.method === 'Cash'); return c ? c.total - (c.returned || 0) : 0; })(), posCard = pos.filter(x => x.method === 'Card' || x.method === 'Xendit').reduce((n, x) => n + x.total - (x.returned || 0), 0);
     const onCollected = on.reduce((n, x) => n + x.collected, 0), awaiting = on.reduce((n, x) => n + x.awaiting, 0), refunded = on.reduce((n, x) => n + x.refunded, 0);
     const net = posTotal + onCollected - refunded;
     let h = '<div class="cr-stats">' +
-      stat('Net collected', peso(net), 'POS + online − refunds', 'good') +
+      stat('Net collected', peso(net), 'POS + online − refunds & returns', 'good') +
       stat('POS cash', peso(posCash), 'goes to cashier drawers') +
       stat('POS card & online', peso(posCard), 'card / online payment, not in drawer') +
       stat('Online collected', peso(onCollected), 'paid / confirmed orders') +
       stat('Awaiting confirmation', peso(awaiting), 'not counted as collected yet', awaiting ? 'warn' : '') +
-      stat('Refunds approved', peso(refunded), 'online orders', refunded ? 'bad' : '') + '</div>';
-    h += '<div class="cr-h">POS walk-in sales by payment method</div><div class="table-wrapper"><table><thead><tr><th>Method</th><th class="cr-r">Sales</th><th class="cr-r">Total</th><th class="cr-r">Voided</th></tr></thead><tbody>' +
-      (pos.length ? pos.map(x => '<tr><td>' + esc(payLabel(x.method)) + '</td><td class="cr-r">' + x.count + '</td><td class="cr-r">' + peso(x.total) + '</td><td class="cr-r">' + (x.voided ? x.voided + ' · ' + peso(x.voidedTotal) : '—') + '</td></tr>').join('') +
-        '<tr><td><b>Total</b></td><td class="cr-r"><b>' + pos.reduce((n, x) => n + x.count, 0) + '</b></td><td class="cr-r"><b>' + peso(posTotal) + '</b></td><td></td></tr>'
-        : '<tr><td colspan="4" class="cr-empty">No POS sales in this period.</td></tr>') + '</tbody></table></div>';
+      stat('Refunds approved', peso(refunded), 'online orders', refunded ? 'bad' : '') +
+      stat('POS returns approved', peso(posRet), 'items brought back at the counter', posRet ? 'bad' : '') + '</div>';
+    h += '<div class="cr-h">POS walk-in sales by payment method</div><div class="table-wrapper"><table><thead><tr><th>Method</th><th class="cr-r">Sales</th><th class="cr-r">Total</th><th class="cr-r">Returned</th><th class="cr-r">Voided</th></tr></thead><tbody>' +
+      (pos.length ? pos.map(x => '<tr><td>' + esc(payLabel(x.method)) + '</td><td class="cr-r">' + x.count + '</td><td class="cr-r">' + peso(x.total - (x.returned || 0)) + (x.returned ? '<div class="faint" style="font-size:12px">of ' + peso(x.total) + ' sold</div>' : '') + '</td><td class="cr-r">' + (x.returned ? '−' + peso(x.returned) : '—') + '</td><td class="cr-r">' + (x.voided ? x.voided + ' · ' + peso(x.voidedTotal) : '—') + '</td></tr>').join('') +
+        '<tr><td><b>Total</b></td><td class="cr-r"><b>' + pos.reduce((n, x) => n + x.count, 0) + '</b></td><td class="cr-r"><b>' + peso(posTotal) + '</b></td><td class="cr-r"><b>' + (posRet ? '−' + peso(posRet) : '') + '</b></td><td></td></tr>'
+        : '<tr><td colspan="5" class="cr-empty">No POS sales in this period.</td></tr>') + '</tbody></table></div>';
     h += '<div class="cr-h">Online orders by payment method</div><div class="table-wrapper"><table><thead><tr><th>Method</th><th class="cr-r">Paid orders</th><th class="cr-r">Collected</th><th class="cr-r">Awaiting</th><th class="cr-r">Refunded</th><th class="cr-r">Cancelled</th></tr></thead><tbody>' +
       (on.length ? on.map(x => '<tr><td>' + esc(payLabel(x.method)) + (/^Cash on/.test(x.method) ? '<div class="faint" style="font-size:12px">collected on delivery/pickup, not in a POS drawer</div>' : '') + '</td><td class="cr-r">' + x.count + '</td><td class="cr-r">' + peso(x.collected) + '</td><td class="cr-r">' + (x.awaitingCount ? x.awaitingCount + ' · ' + peso(x.awaiting) : '—') + '</td><td class="cr-r">' + (x.refunded ? peso(x.refunded) : '—') + '</td><td class="cr-r">' + (x.cancelled || '—') + '</td></tr>').join('')
         : '<tr><td colspan="6" class="cr-empty">No online orders in this period.</td></tr>') + '</tbody></table></div>';
@@ -88,26 +90,26 @@
     const t = data.totals, net = t.shortage + t.overage;
     let h = '<div class="cr-stats">' +
       stat('Shifts', t.shifts, t.open + ' still open') +
-      stat('Expected cash', peso(t.expectedCash), 'opening + sales + added − removed') +
+      stat('Expected cash', peso(t.expectedCash), 'opening + sales + added − removed − refunds') +
       stat('Counted cash', peso(t.countedCash), 'closed shifts only') +
       stat('Net variance', (net < 0 ? '−' : net > 0 ? '+' : '') + peso(Math.abs(net)), 'short ' + peso(Math.abs(t.shortage)) + ' · over ' + peso(t.overage), Math.abs(net) < 0.005 ? 'good' : 'bad') +
-      stat('Needs review', t.needsReview, 'variance ≥ ' + peso(data.varianceAlert) + ', open too long or void pending', t.needsReview ? 'warn' : 'good') + '</div>';
-    h += '<div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Open for</th><th class="cr-r">Opening</th><th class="cr-r">Cash sales</th><th class="cr-r">In / Out</th><th class="cr-r">Expected</th><th class="cr-r">Counted</th><th>Result</th><th>Flags</th></tr></thead><tbody>';
-    if (!data.shifts.length) h += '<tr><td colspan="11" class="cr-empty">No cash shifts in this period.</td></tr>';
+      stat('Needs review', t.needsReview, 'variance ≥ ' + peso(data.varianceAlert) + ', open too long, void or return pending', t.needsReview ? 'warn' : 'good') + '</div>';
+    h += '<div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Open for</th><th class="cr-r">Opening</th><th class="cr-r">Cash sales</th><th class="cr-r">In / Out</th><th class="cr-r">Refunds</th><th class="cr-r">Expected</th><th class="cr-r">Counted</th><th>Result</th><th>Flags</th></tr></thead><tbody>';
+    if (!data.shifts.length) h += '<tr><td colspan="12" class="cr-empty">No cash shifts in this period.</td></tr>';
     data.shifts.forEach((s) => {
-      h += '<tr class="cr-row" data-crrow="' + esc(s.id) + '"><td>' + esc(s.cashierName) + '</td><td>' + esc(when(s.openedAt)) + '</td><td>' + (s.closedAt ? esc(when(s.closedAt)) : '<span class="cr-tag good">Open</span>') + '</td><td>' + dur(s.openedAt, s.closedAt) + '</td><td class="cr-r">' + peso(s.openingCash) + '</td><td class="cr-r">' + peso(s.cashSales) + '<div class="faint" style="font-size:12px">' + s.cashTransactions + ' sale(s)</div></td><td class="cr-r">+' + peso(s.cashIn) + '<div class="faint" style="font-size:12px">−' + peso(s.cashOut) + '</div></td><td class="cr-r">' + peso(s.expectedCash) + '</td><td class="cr-r">' + (s.closingCash == null ? '—' : peso(s.closingCash)) + '</td><td>' + varCell(s) + '</td><td>' + (s.flags.map(f => '<span class="cr-tag warn">' + esc(f) + '</span>').join('') || '<span class="faint">—</span>') + '</td></tr>';
+      h += '<tr class="cr-row" data-crrow="' + esc(s.id) + '"><td>' + esc(s.cashierName) + '</td><td>' + esc(when(s.openedAt)) + '</td><td>' + (s.closedAt ? esc(when(s.closedAt)) : '<span class="cr-tag good">Open</span>') + '</td><td>' + dur(s.openedAt, s.closedAt) + '</td><td class="cr-r">' + peso(s.openingCash) + '</td><td class="cr-r">' + peso(s.cashSales) + '<div class="faint" style="font-size:12px">' + s.cashTransactions + ' sale(s)</div></td><td class="cr-r">+' + peso(s.cashIn) + '<div class="faint" style="font-size:12px">−' + peso(s.cashOut) + '</div></td><td class="cr-r">' + (s.cashReturns ? '−' + peso(s.cashReturns) + '<div class="faint" style="font-size:12px">' + s.cashReturnTransactions + ' return(s)</div>' : '<span class="faint">—</span>') + '</td><td class="cr-r">' + peso(s.expectedCash) + '</td><td class="cr-r">' + (s.closingCash == null ? '—' : peso(s.closingCash)) + '</td><td>' + varCell(s) + '</td><td>' + (s.flags.map(f => '<span class="cr-tag warn">' + esc(f) + '</span>').join('') || '<span class="faint">—</span>') + '</td></tr>';
       const mv = s.movements.length ? '<div class="cr-mv">' + s.movements.map(m => '<span class="faint">' + esc(when(m.createdAt)) + '</span><b>' + (m.kind === 'cash_in' ? '+' : '−') + peso(m.amount) + '</b><span>' + esc(m.reason) + '</span>').join('') + '</div>' : '<span class="faint">No cash added or removed.</span>';
-      h += '<tr class="cr-detail" id="crd-' + esc(s.id) + '" hidden><td colspan="11"><b>Shift #' + esc(s.id) + '</b> · card sales (not in drawer): ' + peso(s.cardSales) + ' (' + s.cardTransactions + ')' +
+      h += '<tr class="cr-detail" id="crd-' + esc(s.id) + '" hidden><td colspan="12"><b>Shift #' + esc(s.id) + '</b> · card sales (not in drawer): ' + peso(s.cardSales) + ' (' + s.cardTransactions + ')' +
         (s.closingNote ? '<div style="margin:8px 0"><b>Cashier note:</b> ' + esc(s.closingNote) + '</div>' : '') +
         (s.closingBreakdown ? '<div class="cr-note">Counted: ' + Object.entries(s.closingBreakdown).sort((a, b) => b[0] - a[0]).map(([k, v]) => v + ' × ₱' + k).join(' · ') + '</div>' : '') +
         '<div style="margin-top:8px"><b>Cash added / removed</b></div>' + mv + '</td></tr>';
     });
-    return h + '</tbody></table></div><p class="cr-note">Click a row to see the cashier note, the notes/coins counted and cash movements. Expected cash = opening cash + cash sales + cash added − cash removed.</p>';
+    return h + '</tbody></table></div><p class="cr-note">Click a row to see the cashier note, the notes/coins counted and cash movements. Expected cash = opening cash + cash sales + cash added − cash removed − cash refunds for returned items.</p>';
   }
 
   function csv() {
-    const rows = [['Shift', 'Cashier', 'Opened', 'Closed', 'Opening', 'Cash sales', 'Cash added', 'Cash removed', 'Expected', 'Counted', 'Difference', 'Note']];
-    data.shifts.forEach(s => rows.push([s.id, s.cashierName, s.openedAt, s.closedAt || '', s.openingCash, s.cashSales, s.cashIn, s.cashOut, s.expectedCash, s.closingCash == null ? '' : s.closingCash, s.difference == null ? '' : s.difference, s.closingNote]));
+    const rows = [['Shift', 'Cashier', 'Opened', 'Closed', 'Opening', 'Cash sales', 'Cash added', 'Cash removed', 'Cash refunds', 'Expected', 'Counted', 'Difference', 'Note']];
+    data.shifts.forEach(s => rows.push([s.id, s.cashierName, s.openedAt, s.closedAt || '', s.openingCash, s.cashSales, s.cashIn, s.cashOut, s.cashReturns || 0, s.expectedCash, s.closingCash == null ? '' : s.closingCash, s.difference == null ? '' : s.difference, s.closingNote]));
     const text = rows.map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv' })); a.download = 'cash-shifts-' + data.from + '_to_' + data.to + '.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }

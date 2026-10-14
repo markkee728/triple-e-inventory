@@ -7,7 +7,7 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const when = (t) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  let ORDERS = [], POS = [], VOIDS = {};   // VOIDS: receipt no. -> pending void request {id, reason}
+  let ORDERS = [], POS = [], VOIDS = {}, RETURNS = {};   // VOIDS / RETURNS: receipt no. -> pending void request {id, reason} / pending partial return {id, items, amount, ...}
   const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 
   function toast(msg, err) {
@@ -25,7 +25,7 @@
   const pill = (st) => {
     const c = ['Delivered', 'Picked Up', 'Completed'].includes(st) ? 'in'
       : ['Cancelled', 'Voided'].includes(st) ? 'out'
-      : ['Pending Confirmation', 'Void Pending'].includes(st) ? 'low' : 'watch';
+      : ['Pending Confirmation', 'Void Pending', 'Return Pending'].includes(st) ? 'low' : 'watch';
     return '<span class="status-pill ' + c + '">' + esc(st) + '</span>';
   };
   const LABELS = { Paid: 'Confirm payment', Packed: 'Mark packed', 'Out for Delivery': 'Out for delivery', 'Ready for Pickup': 'Ready for pickup', Delivered: 'Mark delivered', 'Picked Up': 'Mark picked up' };
@@ -41,8 +41,9 @@
 
   async function load() {
     // Each list loads on its own so one failing request doesn't blank the others.
-    const [o, p, v] = await Promise.allSettled([api('/orders'), api('/pos/sales'), api('/pos/void-requests')]);
+    const [o, p, v, rt] = await Promise.allSettled([api('/orders'), api('/pos/sales'), api('/pos/void-requests'), api('/pos/return-requests')]);
     VOIDS = {}; if (v.status === 'fulfilled') v.value.forEach(r => { VOIDS[r.receiptNo] = r; });
+    RETURNS = {}; if (rt.status === 'fulfilled') rt.value.forEach(r => { RETURNS[r.receiptNo] = r; });
     if (o.status === 'fulfilled') ORDERS = o.value; else $('soSub').textContent = o.reason.message;
     if (p.status === 'fulfilled') POS = p.value; else $('soPosSub').textContent = p.reason.message;
     if (o.status === 'fulfilled') renderOrders();
@@ -82,22 +83,50 @@
     const q = $('soPosSearch').value.trim().toLowerCase();
     const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
     const live = rows.filter(s => s.status !== 'Voided');
-    $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total, 0)) + ' collected';
+    $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total - (s.refunded || 0), 0)) + ' collected (after returns)';
     $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Action</th></tr>';
-    $('soPosBody').innerHTML = rows.length ? rows.map(s => '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' +
-      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' + pill(s.status) +
-      (VOIDS[s.receiptNo] ? '<div class="faint" style="font-size:12px;margin-top:4px;max-width:220px">Cashier\'s reason: ' + esc(VOIDS[s.receiptNo].reason) + '</div>' : '') + '</td><td>' +
-      (s.status === 'Void Pending' && VOIDS[s.receiptNo]
-        ? '<button class="btn-danger btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="1">Approve void</button> <button class="btn-secondary btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
-        : '<span class="faint">—</span>') + '</td></tr>').join('')
+    const small = (t) => '<div class="faint" style="font-size:12px;margin-top:4px;max-width:240px">' + t + '</div>';
+    $('soPosBody').innerHTML = (rows.length || Object.keys(RETURNS).length) ? rows.map(s => {
+      const rq = s.returnPending && RETURNS[s.receiptNo];
+      const itemsHtml = s.items.map(i => esc(i.qty + ' × ' + i.name) + (i.returnedQty ? ' <span class="faint">(' + esc(i.returnedQty) + ' returned)</span>' : '')).join('<br>');
+      return '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' + itemsHtml + '</td><td>' + peso(s.total) +
+        (s.refunded ? small('Returned −' + peso(s.refunded) + ' → net ' + peso(s.total - s.refunded)) : '') + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' +
+        (rq ? pill('Return Pending') : pill(s.status)) +
+        (VOIDS[s.receiptNo] ? small('Cashier\'s reason: ' + esc(VOIDS[s.receiptNo].reason)) : '') +
+        (rq ? small('<b>' + esc(rq.returnNo) + '</b>: ' + rq.items.map(i => esc(i.qty + ' ' + i.unit + ' ' + i.name)).join(', ') + '<br>Refund ' + peso(rq.amount) + (rq.refundMethod === 'Cash' ? ' (cash from ' + esc(rq.requestedBy || 'cashier') + '\'s drawer)' : ' (to the original payment method)') + '<br>Reason: ' + esc(rq.reason)) : '') + '</td><td>' +
+        (s.status === 'Void Pending' && VOIDS[s.receiptNo]
+          ? '<button class="btn-danger btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="1">Approve void</button> <button class="btn-secondary btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
+          : rq ? '<button class="btn-primary btn-sm" data-so-return="' + esc(s.receiptNo) + '" data-ok="1">Approve return</button> <button class="btn-secondary btn-sm" data-so-return="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
+          : '<span class="faint">—</span>') + '</td></tr>';
+    }).join('') + Object.values(RETURNS).filter(r => !rows.some(s => s.receiptNo === r.receiptNo)).map(r =>   // returns on an earlier day's receipt
+        '<tr><td>' + esc(r.receiptNo) + '</td><td colspan="2"><span class="faint">Earlier sale</span></td><td>' + r.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '<div class="faint" style="font-size:12px">being returned</div></td><td>' + peso(r.amount) +
+        '<div class="faint" style="font-size:12px">refund</div></td><td>' + esc(r.refundMethod === 'Xendit' ? 'Online payment' : r.refundMethod) + '</td><td>' + pill('Return Pending') + small('<b>' + esc(r.returnNo) + '</b> · ' + esc(r.reason)) +
+        '</td><td><button class="btn-primary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="1">Approve return</button> <button class="btn-secondary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="0">Reject</button></td></tr>').join('')
       : '<tr><td colspan="8" class="report-note">No POS sales today.</td></tr>';
   }
 
   document.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-so-next],[data-so-cancel],[data-so-abort],[data-so-void]'); if (!b) return;
+    const b = e.target.closest('[data-so-next],[data-so-cancel],[data-so-abort],[data-so-void],[data-so-return]'); if (!b) return;
     b.disabled = true;
     try {
-      if (b.dataset.soVoid) {
+      if (b.dataset.soReturn) {
+        const no = b.dataset.soReturn, ok = b.dataset.ok === '1', r = RETURNS[no];
+        if (!r) { toast('No pending return for ' + no + '. Refreshing…', true); await load(); return; }
+        const items = r.items.map(i => '  • ' + i.qty + ' ' + i.unit + ' ' + i.name).join('\n');
+        const how = r.refundMethod === 'Cash' ? 'The ' + peso(r.amount) + ' is paid in cash from ' + (r.requestedBy || 'the cashier') + '\'s open drawer and taken off that shift\'s expected cash.'
+          : 'This sale was paid by ' + (r.refundMethod === 'Xendit' ? 'online payment' : 'card') + ': send the ' + peso(r.amount) + ' refund through the payment provider. No drawer cash is involved.';
+        const body = { approve: ok };
+        if (ok) {
+          if (!window.confirm('Approve return ' + r.returnNo + ' for ' + no + '?\n\n' + items + '\n\nRefund: ' + peso(r.amount) + '\n' + how + '\n\nCashier\'s reason: ' + r.reason)) { b.disabled = false; return; }
+          body.restock = window.confirm('Are the returned items in resellable condition?\n\nOK = put them back in stock\nCancel = refund only, do NOT add them back to stock (damaged goods)');
+        } else {
+          const why = window.prompt('Why is return ' + r.returnNo + ' rejected? The cashier will see this. (5–200 characters)');
+          if (why === null) { b.disabled = false; return; }
+          body.note = why.trim();
+        }
+        await api('/pos/return-requests/' + encodeURIComponent(r.id) + '/decision', { method: 'POST', body: JSON.stringify(body) });
+        toast(ok ? r.returnNo + ' approved' + (body.restock ? ' and the items are back in stock.' : '. Items were not added back to stock.') : r.returnNo + ' rejected.');
+      } else if (b.dataset.soVoid) {
         const no = b.dataset.soVoid, ok = b.dataset.ok === '1', v = VOIDS[no], sale = POS.find(x => x.receiptNo === no);
         if (!v) { toast('No pending void request for ' + no + '. Refreshing…', true); await load(); return; }
         const online = sale && sale.method === 'Xendit';

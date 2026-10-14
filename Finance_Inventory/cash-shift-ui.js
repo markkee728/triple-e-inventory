@@ -71,8 +71,9 @@
     <div class="cs-meta">${esc(c.cashierName)} · opened ${esc(timeOnly(c.openedAt))} · open for <b id="csElapsed">${dur(c.openedAt)}</b></div></div>
     <button class="btn-primary" id="csCloseBtn">Count &amp; close shift</button></div>
    ${c.pendingVoids ? '<div class="cs-warn"><b>' + c.pendingVoids + ' void request(s) waiting for Finance.</b> Your expected cash may change once they are decided.</div>' : ''}
+   ${c.pendingReturns ? '<div class="cs-warn"><b>' + c.pendingReturns + ' return(s) waiting for Finance.</b> Once approved, the cash refund is taken off the cash that should be in your drawer.</div>' : ''}
    <div class="cs-expected"><div class="lab">Cash that should be in your drawer</div><div class="big">${fmt(c.expectedCash)}</div>
-    <div class="cs-eq"><span class="term"><small>Starting</small>${fmt(c.openingCash)}</span><span class="op">+</span><span class="term"><small>Cash sales</small>${fmt(c.cashSales)}</span><span class="op">+</span><span class="term"><small>Added</small>${fmt(c.cashIn)}</span><span class="op">−</span><span class="term"><small>Removed</small>${fmt(c.cashOut)}</span></div></div>
+    <div class="cs-eq"><span class="term"><small>Starting</small>${fmt(c.openingCash)}</span><span class="op">+</span><span class="term"><small>Cash sales</small>${fmt(c.cashSales)}</span><span class="op">+</span><span class="term"><small>Added</small>${fmt(c.cashIn)}</span><span class="op">−</span><span class="term"><small>Removed</small>${fmt(c.cashOut)}</span>${c.cashReturns ? '<span class="op">−</span><span class="term"><small>Refunds</small>' + fmt(c.cashReturns) + '</span>' : ''}</div></div>
    <div class="cs-sub"><div class="stat-card"><div class="stat-label">Cash sales</div><div class="stat-value">${c.cashTransactions}</div><div class="stat-foot">${fmt(c.cashSales)}</div></div>
     <div class="stat-card"><div class="stat-label">Card sales</div><div class="stat-value">${c.cardTransactions}</div><div class="stat-foot">${fmt(c.cardSales)} · not in the drawer</div></div></div>
    <div class="panel cs-card"><h3>Cash added or removed</h3><p>Record any cash that goes in or out of the drawer that is not a sale (change fund, petty cash, bank drop).</p>
@@ -187,7 +188,7 @@
  function resultDialog(s) {
   const bal = Math.abs(s.difference) < 0.005;
   const d = dialog(`<h3>Shift #${esc(s.id)} closed</h3><p class="lead">${bal ? 'Your drawer balances. Great job.' : 'Your count is ' + (s.difference < 0 ? 'short' : 'over') + ' by <b>' + fmt(Math.abs(s.difference)) + '</b>. Finance can see your note.'}</p>
-   <div class="cs-sum"><div><span>Starting cash</span><b>${fmt(s.openingCash)}</b></div><div><span>Cash sales (${s.cashTransactions})</span><b>${fmt(s.cashSales)}</b></div><div><span>Cash added</span><b>+${fmt(s.cashIn)}</b></div><div><span>Cash removed</span><b>−${fmt(s.cashOut)}</b></div><div><span>Expected</span><b>${fmt(s.expectedCash)}</b></div><div><span>Counted</span><b>${fmt(s.closingCash)}</b></div><div><span>Difference</span><b style="color:var(${bal ? '--green' : '--red'})">${bal ? 'Balanced' : fmt(s.difference)}</b></div></div>
+   <div class="cs-sum"><div><span>Starting cash</span><b>${fmt(s.openingCash)}</b></div><div><span>Cash sales (${s.cashTransactions})</span><b>${fmt(s.cashSales)}</b></div><div><span>Cash added</span><b>+${fmt(s.cashIn)}</b></div><div><span>Cash removed</span><b>−${fmt(s.cashOut)}</b></div>${s.cashReturns ? '<div><span>Cash refunds (returns)</span><b>−' + fmt(s.cashReturns) + '</b></div>' : ''}<div><span>Expected</span><b>${fmt(s.expectedCash)}</b></div><div><span>Counted</span><b>${fmt(s.closingCash)}</b></div><div><span>Difference</span><b style="color:var(${bal ? '--green' : '--red'})">${bal ? 'Balanced' : fmt(s.difference)}</b></div></div>
    <div class="cs-actions"><button class="btn-primary" data-done>Done</button></div>`);
   d.q('[data-done]').onclick = d.close; d.q('[data-done]').focus();
  }

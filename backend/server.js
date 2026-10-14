@@ -1165,7 +1165,7 @@ require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, st
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
-require('./cash-shifts')({ app, pool, auth, wrap, tx, TZ });
+require('./cash-shifts')({ app, pool, auth, wrap, tx, audit, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');

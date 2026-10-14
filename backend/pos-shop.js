@@ -47,7 +47,16 @@ const VOID_REASONS = {
   duplicate: 'Duplicate sale',
   other: 'Other'
 };
-const CUSTOMER_CANCELLABLE = ['Pending Confirmation', 'Paid'];   // once we start packing, only the shop can cancel
+// Partial returns at the counter: the customer brings back some of the items on a receipt. The cashier requests it, Finance approves.
+const RETURN_REASONS = {
+  damaged: 'Damaged or defective',
+  wrong_item: 'Wrong item given',
+  not_as_described: 'Not as described',
+  changed_mind: 'Customer changed their mind',
+  other: 'Other'
+};
+const RETURN_WINDOW_DAYS = Number(process.env.POS_RETURN_WINDOW_DAYS) || 7;   // how long after the sale items can still be returned
+const CUSTOMER_CANCELLABLE =['Pending Confirmation', 'Paid'];   // once we start packing, only the shop can cancel
 
 const makeOrderMail = require('./order-mail');
 
@@ -372,6 +381,41 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }
   ensureRefundSchema();
 
+  // Partial returns of POS sales (safe to run every time the server starts).
+  // The two shift columns are plain numbers (no foreign key) because the cash shift table is created by cash-shifts.js, which starts after this file.
+  const posReturnsReady = (async () => {
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS pos_return_requests (
+        return_id          BIGSERIAL PRIMARY KEY,
+        sale_id            BIGINT NOT NULL REFERENCES pos_sales(sale_id),
+        reason             TEXT NOT NULL,
+        amount             NUMERIC(12,2) NOT NULL CHECK (amount > 0),
+        refund_method      TEXT NOT NULL,
+        status             TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+        restock            BOOLEAN,
+        requested_by       INT REFERENCES users(user_id),
+        requested_shift_id BIGINT,
+        refund_shift_id    BIGINT,
+        decided_by         INT REFERENCES users(user_id),
+        decision_note      TEXT,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        decided_at         TIMESTAMPTZ)`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS pos_return_items (
+        return_item_id BIGSERIAL PRIMARY KEY,
+        return_id      BIGINT NOT NULL REFERENCES pos_return_requests(return_id),
+        sale_item_id   BIGINT NOT NULL REFERENCES pos_sale_items(item_id),
+        product_id     INT REFERENCES products(product_id),
+        qty            NUMERIC(14,2) NOT NULL CHECK (qty > 0),
+        unit_price     NUMERIC(12,2) NOT NULL,
+        amount         NUMERIC(12,2) NOT NULL CHECK (amount >= 0))`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_pos_return_sale ON pos_return_requests (sale_id, status)');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_pos_return_status ON pos_return_requests (status, created_at)');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_pos_return_refund_shift ON pos_return_requests (refund_shift_id)');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_pos_return_items_return ON pos_return_items (return_id)');
+    } catch (err) { console.warn('[db] could not prepare the POS return tables:', err.message); }
+  })();
+  app.locals.posReturnsReady = posReturnsReady;   // cash-shifts.js waits for this before it reads the tables
+
   // Structured delivery address on orders + each customer's saved addresses (safe to run every time the server starts).
   async function ensureAddressSchema() {
     try {
@@ -483,13 +527,42 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   ===================================================== */
   app.get('/api/pos/products', auth('cashier'), wrap(async (req, res) => res.json(await catalog())));
 
-  const saleJson = (s, items) => ({
-    id: String(s.sale_id), receiptNo: s.receipt_no, total: +s.total, vat: +s.vat, method: s.method,
-    tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given,
-    cardRef: s.card_ref || undefined, cashierName: s.cashier_name, createdAt: new Date(s.created_at).getTime(), status: s.status,
-    items: items.map(i => ({ sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, price: +i.price,
-      listPrice: i.list_price !== null && i.list_price !== undefined && +i.list_price !== +i.price ? +i.list_price : undefined }))
-  });
+  // ret = returnInfo() result for the sales being sent (optional). total / vat stay as originally charged;
+  // refunded is the money already given back, so the till shows total - refunded as the real sale.
+  const saleJson = (s, items, ret) => {
+    const rs = ret && ret.sales.get(String(s.sale_id));
+    return {
+      id: String(s.sale_id), receiptNo: s.receipt_no, total: +s.total, vat: +s.vat, method: s.method,
+      tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given,
+      cardRef: s.card_ref || undefined, cashierName: s.cashier_name, createdAt: new Date(s.created_at).getTime(), status: s.status,
+      refunded: rs ? rs.refunded : 0, returnPending: !!(rs && rs.pending),
+      items: items.map(i => {
+        const r = ret && ret.items.get(String(i.item_id)) || { approved: 0, pending: 0 };
+        return { itemId: i.item_id === undefined ? undefined : String(i.item_id), sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, price: +i.price,
+          returnedQty: r.approved, pendingReturnQty: r.pending, fractional: isMeasured(i.unit),
+          listPrice: i.list_price !== null && i.list_price !== undefined && +i.list_price !== +i.price ? +i.list_price : undefined };
+      })
+    };
+  };
+
+  // How much of each sale line has been returned (approved) or is waiting for Finance (pending), plus per-sale refund totals.
+  async function returnInfo(db, saleIds) {
+    const out = { items: new Map(), sales: new Map() };
+    if (!saleIds.length) return out;
+    await posReturnsReady;
+    const { rows } = await db.query(
+      `SELECT ri.sale_item_id, r.status, SUM(ri.qty)::float8 AS qty FROM pos_return_items ri JOIN pos_return_requests r USING (return_id)
+        WHERE r.sale_id = ANY($1) AND r.status IN ('pending','approved') GROUP BY ri.sale_item_id, r.status`, [saleIds]);
+    for (const x of rows) {
+      const k = String(x.sale_item_id), cur = out.items.get(k) || { approved: 0, pending: 0 };
+      cur[x.status] = round2(cur[x.status] + x.qty); out.items.set(k, cur);
+    }
+    const sm = await db.query(
+      `SELECT sale_id, COALESCE(SUM(amount) FILTER (WHERE status = 'approved'), 0)::float8 AS refunded, COUNT(*) FILTER (WHERE status = 'pending')::int AS pending
+         FROM pos_return_requests WHERE sale_id = ANY($1) AND status IN ('pending','approved') GROUP BY sale_id`, [saleIds]);
+    for (const x of sm.rows) out.sales.set(String(x.sale_id), { refunded: x.refunded, pending: x.pending });
+    return out;
+  }
 
   // A line total in whole centavos: price (centavos) x qty (hundredths). Integer maths so the till and the server always agree.
   const lineCents = (price, qty) => Math.round(Math.round(price * 100) * Math.round(qty * 100) / 100);
@@ -583,9 +656,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId, requestId]);
       const s = ins.rows[0];
       for (const i of items) {
-        await client.query(
-          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price, list_price, override_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        const li = await client.query(
+          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price, list_price, override_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING item_id`,
           [s.sale_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price, i.list_price, i.override_by || null]);
+        i.item_id = li.rows[0].item_id;
         await postMovement(client, { productId: i.product_id, type: 'out', reason: 'sale', qty: i.qty, userId: req.user.id,
           sourceType: 'pos_sale', sourceId: s.sale_id, note: s.receipt_no });
       }
@@ -606,7 +680,19 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows: items } = sales.length
       ? await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = ANY($1) ORDER BY item_id', [sales.map(s => s.sale_id)])
       : { rows: [] };
-    res.json(sales.map(s => saleJson(s, items.filter(i => i.sale_id === s.sale_id))));
+    const ret = await returnInfo(pool, sales.map(s => s.sale_id));
+    res.json(sales.map(s => saleJson(s, items.filter(i => i.sale_id === s.sale_id), ret)));
+  }));
+
+  // Find an older receipt by its number (the list above only shows today), so a customer can bring items back on a later day.
+  app.get('/api/pos/sales/lookup', auth('cashier'), wrap(async (req, res) => {
+    const no = str(req.query.receipt).toUpperCase();
+    if (!/^[A-Z0-9-]{3,30}$/.test(no)) throw bad('receipt', 'Enter the receipt number printed on the receipt');
+    const sr = await pool.query('SELECT * FROM pos_sales WHERE upper(receipt_no) = $1', [no]);
+    if (!sr.rowCount) throw bad('receipt', 'No receipt with that number');
+    const s = sr.rows[0];
+    const { rows: items } = await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = $1 ORDER BY item_id', [s.sale_id]);
+    res.json(saleJson(s, items, await returnInfo(pool, [s.sale_id])));
   }));
 
   app.post('/api/pos/sales/:id/void-request', auth('cashier'), wrap(async (req, res) => {
@@ -615,10 +701,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (code === 'other' && details.length < 5) throw bad('details', 'Please explain the reason (at least 5 characters)');
     if (details.length > 300) throw bad('details', 'Please keep the details under 300 characters');
     const reason = VOID_REASONS[code] + (details ? ' \u2014 ' + details : '');
+    if (!/^\d{1,18}$/.test(req.params.id)) throw bad('id', 'Sale not found');
+    await posReturnsReady;
     await tx(async (client) => {
       const r = await client.query('SELECT sale_id, receipt_no, status FROM pos_sales WHERE sale_id = $1 FOR UPDATE', [req.params.id]);
       if (!r.rowCount) throw bad('id', 'Sale not found');
       if (r.rows[0].status !== 'Completed') throw bad('id', 'This sale already has a void request or is voided');
+      // a void puts every item back in stock and removes the whole sale, which would count returned items twice
+      const rt = await client.query(`SELECT 1 FROM pos_return_requests WHERE sale_id = $1 AND status IN ('pending','approved') LIMIT 1`, [r.rows[0].sale_id]);
+      if (rt.rowCount) throw bad('id', 'Some items of this sale were already returned (or a return is waiting for Finance), so it cannot be voided. Return the remaining items instead.');
       await client.query('INSERT INTO void_requests (sale_id, reason, requested_by) VALUES ($1,$2,$3)', [r.rows[0].sale_id, reason, req.user.id]);
       await client.query(`UPDATE pos_sales SET status = 'Void Pending' WHERE sale_id = $1`, [r.rows[0].sale_id]);
       await audit(client, req.user, 'Record edited', `Void requested for ${r.rows[0].receipt_no}: ${reason}`);
@@ -653,6 +744,130 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
         [r.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
       await audit(client, req.user, 'Record edited', `Void ${approve ? 'approved' : 'rejected'} for ${receipt_no}${approve ? ' — stock restored' : ''}`);
+    });
+    res.json({ ok: true });
+  }));
+
+  /* ---------- partial returns: cashier requests, Finance approves ---------- */
+  const lineText = (rows) => rows.map(i => `${+i.qty} ${i.unit} ${i.name}`).join(', ');
+
+  app.post('/api/pos/sales/:id/return-request', auth('cashier'), wrap(async (req, res) => {
+    await posReturnsReady;
+    const b = req.body || {}, code = str(b.reason), details = str(b.details);
+    if (!RETURN_REASONS[code]) throw bad('reason', 'Choose the reason for the return');
+    if (code === 'other' && details.length < 5) throw bad('details', 'Please explain the reason (at least 5 characters)');
+    if (details.length > 300) throw bad('details', 'Please keep the details under 300 characters');
+    if (!/^\d{1,18}$/.test(req.params.id)) throw bad('id', 'Sale not found');
+    if (!Array.isArray(b.items) || !b.items.length) throw bad('items', 'Choose at least one item to return');
+    if (b.items.length > 100) throw bad('items', 'Too many lines in one return');
+    const want = new Map();                       // sale item id -> quantity to return
+    for (const it of b.items) {
+      const id = str(it && it.itemId), qty = Number(it && it.qty);
+      if (!/^\d{1,18}$/.test(id)) throw bad('items', 'One of the items is not valid');
+      if (!Number.isFinite(qty) || qty <= 0 || qty > 1e6 || Math.abs(qty * 100 - Math.round(qty * 100)) > 1e-6) throw bad('items', 'Enter a valid quantity to return');
+      want.set(id, round2((want.get(id) || 0) + qty));
+    }
+    const reason = RETURN_REASONS[code] + (details ? ' — ' + details : '');
+
+    const result = await tx(async (client) => {
+      const sr = await client.query('SELECT sale_id, receipt_no, status, method, created_at FROM pos_sales WHERE sale_id = $1 FOR UPDATE', [req.params.id]);
+      if (!sr.rowCount) throw bad('id', 'Sale not found');
+      const sale = sr.rows[0];
+      if (sale.status !== 'Completed') throw bad('id', sale.status === 'Voided' ? 'This sale was voided, so nothing can be returned' : 'This sale has a void request waiting for Finance, so items cannot be returned');
+      if (Date.now() - new Date(sale.created_at).getTime() > RETURN_WINDOW_DAYS * 86400000)
+        throw bad('id', `Items can only be returned within ${RETURN_WINDOW_DAYS} days of the sale`);
+      const pend = await client.query(`SELECT 1 FROM pos_return_requests WHERE sale_id = $1 AND status = 'pending'`, [sale.sale_id]);
+      if (pend.rowCount) throw bad('id', 'This sale already has a return waiting for Finance. Wait for the decision before sending another');
+      let shiftId = null;
+      if (sale.method === 'Cash') {               // a cash refund comes out of this cashier's drawer, so a shift must be open
+        const sh = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL', [req.user.id]);
+        if (!sh.rowCount) throw bad('cashShift', 'Open your Cash Shift first. A cash refund is paid from your drawer.');
+        shiftId = sh.rows[0].shift_id;
+      }
+      const { rows: lines } = await client.query('SELECT item_id, product_id, sku, name, unit, qty, price FROM pos_sale_items WHERE sale_id = $1 ORDER BY item_id', [sale.sale_id]);
+      const ret = await returnInfo(client, [sale.sale_id]);
+      const chosen = [];
+      let cents = 0;
+      for (const [id, qty] of want) {
+        const line = lines.find(l => String(l.item_id) === id);
+        if (!line) throw bad('items', 'One of the items is not on this receipt');
+        const done = ret.items.get(id) || { approved: 0, pending: 0 };
+        const left = round2(+line.qty - done.approved - done.pending);
+        if (qty > left + 1e-9) throw bad('items', left <= 0 ? `${line.name} was already returned` : `Only ${left} ${line.unit} of ${line.name} can still be returned`);
+        if (!isMeasured(line.unit) && !Number.isInteger(qty)) throw bad('items', `${line.name} is sold in whole ${line.unit} only`);
+        const amount = lineCents(+line.price, qty) / 100;
+        cents += Math.round(amount * 100);
+        chosen.push({ ...line, qty, amount });
+      }
+      if (!cents) throw bad('items', 'These items have no value to refund');
+      const amount = cents / 100;
+      const ins = await client.query(
+        `INSERT INTO pos_return_requests (sale_id, reason, amount, refund_method, requested_by, requested_shift_id) VALUES ($1,$2,$3,$4,$5,$6) RETURNING return_id`,
+        [sale.sale_id, reason, amount, sale.method, req.user.id, shiftId]);
+      const returnId = ins.rows[0].return_id;
+      for (const c of chosen)
+        await client.query(`INSERT INTO pos_return_items (return_id, sale_item_id, product_id, qty, unit_price, amount) VALUES ($1,$2,$3,$4,$5,$6)`,
+          [returnId, c.item_id, c.product_id, c.qty, c.price, c.amount]);
+      await audit(client, req.user, 'Return', `Return RT-${returnId} requested for ${sale.receipt_no}: ${lineText(chosen)} — refund ${peso(amount)} (${sale.method === 'Cash' ? 'cash from drawer' : 'to the original payment'}). ${reason}`);
+      return { id: Number(returnId), returnNo: 'RT-' + returnId, amount };
+    });
+    res.status(201).json(result);
+  }));
+
+  const returnJson = (r, items) => ({
+    id: Number(r.return_id), returnNo: 'RT-' + r.return_id, status: r.status, reason: r.reason, amount: +r.amount, refundMethod: r.refund_method,
+    restock: r.restock === null ? undefined : !!r.restock, note: r.decision_note || undefined, requestedBy: r.requested_by_name || undefined,
+    requestedAt: new Date(r.created_at).getTime(), decidedAt: r.decided_at ? new Date(r.decided_at).getTime() : undefined,
+    items: items.map(i => ({ sku: i.sku, name: i.name, unit: i.unit, qty: +i.qty, amount: +i.amount }))
+  });
+
+  app.get('/api/pos/return-requests', auth('finance'), wrap(async (req, res) => {
+    await posReturnsReady;
+    const { rows } = await pool.query(
+      `SELECT r.*, s.receipt_no, s.cashier_name, u.full_name AS requested_by_name
+         FROM pos_return_requests r JOIN pos_sales s USING (sale_id) LEFT JOIN users u ON u.user_id = r.requested_by
+        WHERE r.status = 'pending' ORDER BY r.created_at`);
+    const { rows: items } = rows.length ? await pool.query(
+      `SELECT ri.return_id, ri.qty, ri.amount, i.sku, i.name, i.unit FROM pos_return_items ri JOIN pos_sale_items i ON i.item_id = ri.sale_item_id
+        WHERE ri.return_id = ANY($1) ORDER BY ri.return_item_id`, [rows.map(r => r.return_id)]) : { rows: [] };
+    res.json(rows.map(r => ({ ...returnJson(r, items.filter(i => String(i.return_id) === String(r.return_id))), receiptNo: r.receipt_no })));
+  }));
+
+  app.post('/api/pos/return-requests/:id/decision', auth('finance'), wrap(async (req, res) => {
+    await posReturnsReady;
+    const b = req.body || {}, approve = b.approve === true, note = str(b.note);
+    const restock = b.restock === undefined ? true : b.restock === true;     // damaged goods can be refunded without going back on the shelf
+    if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    if (!approve && note.length < 5) throw bad('note', 'Please tell the cashier why the return is rejected (at least 5 characters)');
+    if (!/^\d{1,18}$/.test(req.params.id)) throw bad('id', 'No pending return with that id');
+    await tx(async (client) => {
+      const r = await client.query(
+        `SELECT r.*, s.receipt_no, s.status AS sale_status, s.method, u.full_name AS requester
+           FROM pos_return_requests r JOIN pos_sales s USING (sale_id) LEFT JOIN users u ON u.user_id = r.requested_by
+          WHERE r.return_id = $1 AND r.status = 'pending' FOR UPDATE OF r, s`, [req.params.id]);
+      if (!r.rowCount) throw bad('id', 'No pending return with that id');
+      const ret = r.rows[0], no = 'RT-' + ret.return_id;
+      const { rows: items } = await client.query(
+        `SELECT ri.product_id, ri.qty, ri.amount, i.sku, i.name, i.unit FROM pos_return_items ri JOIN pos_sale_items i ON i.item_id = ri.sale_item_id
+          WHERE ri.return_id = $1 ORDER BY ri.product_id`, [ret.return_id]);
+      let shiftId = null;
+      if (approve) {
+        if (ret.sale_status !== 'Completed') throw bad('id', 'This sale is no longer completed, so the return cannot be approved');
+        if (ret.method === 'Cash') {              // the refund is paid from the requesting cashier's open drawer, so it must reduce that shift's expected cash
+          const sh = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [ret.requested_by]);
+          if (!sh.rowCount) throw bad('id', `${ret.requester || 'The cashier'} has no open cash shift, so the cash refund cannot be recorded. Ask them to open a Cash Shift, then approve again`);
+          shiftId = sh.rows[0].shift_id;
+        }
+        if (restock) for (const i of items)
+          if (i.product_id) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'return', qty: +i.qty, userId: req.user.id,
+            sourceType: 'pos_sale', sourceId: ret.sale_id, note: `Return ${no} of ${ret.receipt_no}` });
+      }
+      await client.query(
+        `UPDATE pos_return_requests SET status = $2, restock = $3, refund_shift_id = $4, decided_by = $5, decision_note = $6, decided_at = now() WHERE return_id = $1`,
+        [ret.return_id, approve ? 'approved' : 'rejected', approve ? restock : null, shiftId, req.user.id, note || null]);
+      await audit(client, req.user, 'Return', approve
+        ? `Return ${no} approved for ${ret.receipt_no}: ${lineText(items)} — refund ${peso(ret.amount)} (${ret.method === 'Cash' ? 'cash, from ' + ret.requester + "'s shift #" + shiftId : 'to the original payment method'}), ${restock ? 'stock restored' : 'not put back in stock'}${note ? '. ' + note : ''}`
+        : `Return ${no} rejected for ${ret.receipt_no}: ${note}`);
     });
     res.json({ ok: true });
   }));
@@ -1041,8 +1256,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const posIds = pos.rows.map(s => s.sale_id), ordIds = ord.rows.map(o => o.order_id);
     const q = (sql, ids) => (ids.length ? pool.query(sql, [ids]) : Promise.resolve({ rows: [] }));
     const refundBy = await refundsFor(ordIds);
-    const [posItems, ordItems, voids, cancels, hist] = await Promise.all([
-      q(`SELECT i.sale_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
+    await posReturnsReady;
+    const [posItems, ordItems, voids, cancels, hist, posReturns, posReturnLines] = await Promise.all([
+      q(`SELECT i.sale_id, i.item_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
            FROM pos_sale_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.sale_id = ANY($1) ORDER BY i.item_id`, posIds),
       q(`SELECT i.order_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
            FROM order_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.order_id = ANY($1) ORDER BY i.item_id`, ordIds),
@@ -1050,19 +1266,35 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       q(`SELECT order_id, reason FROM order_cancel_requests WHERE status = 'pending' AND order_id = ANY($1)`, ordIds),
       q(`SELECT h.order_id, h.from_status, h.to_status, h.note, h.created_at, u.full_name AS changed_by_name
            FROM order_status_history h LEFT JOIN users u ON u.user_id = h.changed_by
-          WHERE h.order_id = ANY($1) ORDER BY h.created_at, h.history_id`, ordIds)]);
+          WHERE h.order_id = ANY($1) ORDER BY h.created_at, h.history_id`, ordIds),
+      q(`SELECT r.*, u.full_name AS requested_by_name FROM pos_return_requests r LEFT JOIN users u ON u.user_id = r.requested_by
+          WHERE r.sale_id = ANY($1) ORDER BY r.created_at, r.return_id`, posIds),
+      q(`SELECT ri.return_id, ri.sale_item_id, ri.qty, ri.amount, i.sku, i.name, i.unit FROM pos_return_items ri
+           JOIN pos_sale_items i ON i.item_id = ri.sale_item_id JOIN pos_return_requests r ON r.return_id = ri.return_id
+          WHERE r.sale_id = ANY($1) ORDER BY ri.return_item_id`, posIds)]);
+    const retLinesBy = groupBy(posReturnLines.rows, 'return_id'), retBySale = groupBy(posReturns.rows, 'sale_id');
     const pItems = groupBy(posItems.rows, 'sale_id'), oItems = groupBy(ordItems.rows, 'order_id');
     const voidBy = new Map(voids.rows.map(v => [v.sale_id, v])), cancelBy = new Map(cancels.rows.map(c => [c.order_id, c]));
     const histBy = groupBy(hist.rows, 'order_id');
 
     const out = [];
     for (const s of pos.rows) {
-      const items = (pItems.get(s.sale_id) || []).map(lineJson), v = voidBy.get(s.sale_id);
+      const v = voidBy.get(s.sale_id), rets = (retBySale.get(s.sale_id) || []).map(r => returnJson(r, retLinesBy.get(r.return_id) || []));
+      // Items, total and profit are what the shop actually kept: lines already returned (approved) are taken off, so reports stay correct.
+      const gone = new Map();
+      for (const r of retBySale.get(s.sale_id) || []) if (r.status === 'approved')
+        for (const l of retLinesBy.get(r.return_id) || []) gone.set(String(l.sale_item_id), round2((gone.get(String(l.sale_item_id)) || 0) + +l.qty));
+      const refunded = round2(rets.filter(r => r.status === 'approved').reduce((n, r) => n + r.amount, 0));
+      const kept = (pItems.get(s.sale_id) || []).map(i => ({ ...i, qty: round2(+i.qty - (gone.get(String(i.item_id)) || 0)) })).filter(i => i.qty > 0);
+      const items = kept.map(lineJson);
+      const net = round2(+s.total - refunded);
+      const pending = rets.find(r => r.status === 'pending');
       out.push({
         source: 'POS', ref: s.receipt_no, createdAt: new Date(s.created_at).getTime(), customer: 'Walk-in customer', fulfillment: 'Walk-in',
-        method: s.method, subtotal: +s.total, deliveryFee: 0, total: +s.total, vat: +s.vat, status: s.status, cashier: s.cashier_name,
+        method: s.method, subtotal: net, deliveryFee: 0, total: net, vat: refunded ? round2(net * VAT_RATE / (1 + VAT_RATE)) : +s.vat, status: s.status, cashier: s.cashier_name,
         tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given, cardRef: s.card_ref || undefined,
         items, ...money(items), next: null, canCancel: false, history: [],
+        originalTotal: +s.total, refunded, returns: rets, returnRequest: pending || null,
         voidRequest: v ? { id: v.request_id, reason: v.reason } : null
       });
     }

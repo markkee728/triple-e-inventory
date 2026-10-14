@@ -5016,6 +5016,8 @@ function getAuditActionClass(action) {
         case "Record added":    return "added";
         case "Record edited":   return "edited";
         case "Account created": return "account";
+        case "Cash shift":      return "cashshift";
+        case "Return":          return "return";
         default:                return "";
     }
 

@@ -3497,6 +3497,21 @@ button.user-chip:hover {
     color: #f0a5c9;
 }
 
+.action-tag.cashshift {
+    border-color: rgba(74, 190, 200, 0.35);
+    background: rgba(74, 190, 200, 0.1);
+    color: #8fe0e8;
+}
+
+.action-tag.return {
+    border-color: rgba(160, 120, 230, 0.4);
+    background: rgba(160, 120, 230, 0.12);
+    color: #c9b0f5;
+}
+
+html[data-theme="light"] .action-tag.cashshift { color: #0f6f78; background: rgba(15, 111, 120, 0.1); border-color: rgba(15, 111, 120, 0.4); }
+html[data-theme="light"] .action-tag.return { color: #5b3a9e; background: rgba(91, 58, 158, 0.1); border-color: rgba(91, 58, 158, 0.4); }
+
 .audit-detail {
     color: var(--text-dim);
     line-height: 1.45;

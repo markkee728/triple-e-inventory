@@ -191,7 +191,8 @@
         <div class="stat-card amber"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="stat-label">Cash / Card</div><div class="stat-value" id="stSplit" style="font-size:22px;padding-top:4px">₱0 / ₱0</div><div class="stat-foot">By payment method</div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><div><div class="panel-title">Receipts</div><div class="panel-sub">Reprint a receipt or ask admin to void one</div></div></div>
+        <div class="panel-head"><div><div class="panel-title">Receipts</div><div class="panel-sub">Reprint a receipt, return items, or ask admin to void one</div></div>
+          <form id="rcFind" style="display:flex;gap:8px;align-items:center" autocomplete="off"><input id="rcFindNo" placeholder="Older receipt no. (e.g. R-1001)" maxlength="30" style="width:230px"><button class="btn-secondary btn-sm" type="submit">Return items…</button></form></div>
         <div class="table-wrapper"><table>
           <thead><tr><th>Receipt</th><th>Time</th><th class="r">Items</th><th class="r">Total</th><th>Paid by</th><th>Status</th><th></th></tr></thead>
           <tbody id="saleRows"></tbody></table></div>
@@ -258,6 +259,15 @@
   <label for="voidDetails" id="voidDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="voidDetails" rows="3" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="voidErr" role="alert"></div>
   <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
+<div class="modal-overlay" id="returnBg"><div class="modal" style="max-width:620px"><h3>Return items</h3><p class="dim" id="returnFor"></p>
+  <div class="table-wrapper" style="max-height:260px;overflow:auto"><table style="min-width:0;width:100%"><thead><tr><th>Item</th><th class="r">Bought</th><th class="r">Can return</th><th class="r" style="width:100px">Return qty</th></tr></thead><tbody id="returnRows"></tbody></table></div>
+  <div style="display:flex;justify-content:space-between;margin:10px 0;font-weight:600"><span>Refund to customer</span><span class="mono" id="returnTotal">₱0.00</span></div>
+  <p class="dim" id="returnHow" style="margin:0 0 10px"></p>
+  <label for="returnReason">Reason</label>
+  <select id="returnReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item given</option><option value="not_as_described">Not as described</option><option value="changed_mind">Customer changed their mind</option><option value="other">Other</option></select>
+  <label for="returnDetails" id="returnDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="returnDetails" rows="2" maxlength="300" placeholder="Anything Finance should know"></textarea>
+  <div class="err-text" id="returnErr" role="alert"></div>
+  <div class="modal-actions"><button class="btn-primary" id="returnSend">Send to Finance</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
   <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" onclick="closeModal('holdBg')">Cancel</button></div></div></div>
@@ -320,6 +330,8 @@ async function requestApproval(email, password) {   // finance login at the coun
   return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
 }
 async function loadTodaySales() { try { return await api('/api/pos/sales'); } catch (e) { return null; } }   // null = could not reach the server (keep what is on screen)
+async function lookupReceipt(no) { return api('/api/pos/sales/lookup?receipt=' + encodeURIComponent(no)); }
+async function requestReturn(id, items, reason, details) { return api('/api/pos/sales/' + encodeURIComponent(id) + '/return-request', { method: 'POST', body: JSON.stringify({ items, reason, details }) }); }
 async function requestVoid(id, reason, details) { await api('/api/pos/sales/' + encodeURIComponent(id) + '/void-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 
 /* ===== App ===== */
@@ -576,19 +588,22 @@ async function applyPrice() {
 }
 
 /* ----- today's sales ----- */
+const leftToReturn = i => Math.round((i.qty - (i.returnedQty || 0) - (i.pendingReturnQty || 0)) * 100) / 100;
+const canReturn = s => s.status === 'Completed' && !s.returnPending && s.items.some(i => i.itemId && leftToReturn(i) > 0);
 function renderSales() {
   const live = sales.filter(s => s.status !== 'Voided');
-  const sum = a => a.reduce((n, s) => n + s.total, 0);
+  const sum = a => a.reduce((n, s) => n + s.total - (s.refunded || 0), 0);     // what the shop kept: returned items are taken off
   $('navSalesCount').textContent = sales.length; $('noSales').hidden = sales.length > 0;
   $('stTotal').textContent = peso(sum(live)); $('stCount').textContent = live.length;
   $('stAvg').textContent = 'Avg ' + peso(live.length ? sum(live) / live.length : 0);
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
   $('stSplit').textContent = pesoShort(sum(live.filter(s => s.method === 'Cash'))) + ' / ' + pesoShort(sum(live.filter(s => s.method !== 'Cash')));
   $('saleRows').innerHTML = sales.map(s => `<tr><td class="mono">${s.receiptNo}</td><td class="dim">${new Date(s.createdAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</td>
-    <td class="r">${s.items.reduce((n, i) => n + i.qty, 0)}</td><td class="r mono">${peso(s.total)}</td><td>${s.method === 'Xendit' ? 'Online payment' : s.method}</td>
-    <td><span class="status-pill ${s.status === 'Completed' ? 'ok' : s.status === 'Voided' ? 'bad' : 'warn'}">${s.status}</span></td>
+    <td class="r">${s.items.reduce((n, i) => n + i.qty - (i.returnedQty || 0), 0)}</td><td class="r mono">${peso(s.total)}${s.refunded ? `<div class="dim" style="font-size:12px">returned −${peso(s.refunded)}</div>` : ''}</td><td>${s.method === 'Xendit' ? 'Online payment' : s.method}</td>
+    <td><span class="status-pill ${s.returnPending ? 'warn' : s.status === 'Completed' ? 'ok' : s.status === 'Voided' ? 'bad' : 'warn'}">${s.returnPending ? 'Return pending' : s.status}</span></td>
     <td class="r" style="white-space:nowrap"><button class="btn-secondary btn-sm" data-reprint="${s.id}">Reprint</button>
-    ${s.status === 'Completed' ? ` <button class="btn-danger btn-sm" data-void="${s.id}">Void…</button>` : ''}</td></tr>`).join('');
+    ${canReturn(s) ? ` <button class="btn-secondary btn-sm" data-return="${s.id}">Return…</button>` : ''}
+    ${s.status === 'Completed' && !s.refunded && !s.returnPending ? ` <button class="btn-danger btn-sm" data-void="${s.id}">Void…</button>` : ''}</td></tr>`).join('');
 }
 /* ----- receipt as PNG (prints at 80 mm instead of a full A4 page) ----- */
 let lastReceipt = null;
@@ -618,6 +633,7 @@ async function receiptPng(s, reprint) {
     center('Sales Transaction Record', { size: 12 });
     if (s.status === 'Voided') center('*** VOIDED ***', { bold: true, size: 14 });
     else if (s.status === 'Void Pending') center('*** VOID REQUESTED ***', { bold: true, size: 12 });
+    else if (s.returnPending) center('*** RETURN PENDING ***', { bold: true, size: 12 });
     if (reprint) center('** REPRINT / COPY **', { bold: true, size: 11 });
     gap(4); center(s.receiptNo, { bold: true, size: 13 });
     center(new Date(s.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' }), { size: 11 });
@@ -628,6 +644,7 @@ async function receiptPng(s, reprint) {
     const net = Math.round((cents(s.total) - cents(s.vat))) / 100;
     row('VATable sales', peso(net), { size: 11 }); row('VAT 12% (incl.)', peso(s.vat), { size: 11 });
     gap(4); row('TOTAL', peso(s.total), { bold: true, size: 16 });
+    if (s.refunded) { row('Items returned', '-' + peso(s.refunded), { size: 11 }); row('NET SALE', peso(Math.round((cents(s.total) - cents(s.refunded))) / 100), { bold: true, size: 13 }); }
     gap(4);
     if (s.method === 'Cash') { row('Cash', peso(s.tendered)); row('Change', peso(s.change || 0)); }
     else if (s.method === 'Xendit') { row('Online payment', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
@@ -748,8 +765,54 @@ document.addEventListener('click', e => {
   if (d.resume) resumeHeld(d.resume);
   if (d.discard) discardHeld(d.discard);
   if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
+  if (d.return) openReturn(d.return);
   if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
 });
+/* ----- partial return ----- */
+let returnSale = null;
+function openReturn(id, sale) {
+  returnSale = sale || sales.find(s => s.id === id); if (!returnSale) return;
+  $('returnFor').textContent = 'Receipt ' + returnSale.receiptNo + ' · choose what the customer is bringing back';
+  $('returnRows').innerHTML = returnSale.items.filter(i => i.itemId).map(i => { const left = leftToReturn(i);
+    return `<tr><td>${esc(i.name)}<div class="dim" style="font-size:12px">${esc(i.sku)} · ${peso(i.price)} / ${esc(i.unit)}</div></td><td class="r">${i.qty}</td><td class="r">${left}</td>
+    <td class="r"><input type="number" class="ret-qty" data-item="${esc(i.itemId)}" min="0" max="${left}" step="${i.fractional ? '0.01' : '1'}" inputmode="decimal" placeholder="0" ${left > 0 ? '' : 'disabled'} style="width:84px;text-align:right"></td></tr>`; }).join('');
+  $('returnHow').textContent = returnSale.method === 'Cash' ? 'Cash refund: after Finance approves, pay the customer from your drawer. It is taken off your expected cash.' : 'Paid by ' + (returnSale.method === 'Xendit' ? 'online payment' : 'card') + ': Finance refunds the original payment method. No cash leaves your drawer.';
+  $('returnReason').value = ''; $('returnDetails').value = ''; $('returnDetailsLbl').textContent = 'More details (optional)';
+  ['returnReason', 'returnDetails'].forEach(x => $(x).classList.remove('is-bad')); $('returnErr').textContent = '';
+  updateReturnTotal(); $('returnBg').classList.add('show');
+}
+const returnLines = () => [...document.querySelectorAll('#returnRows .ret-qty')].map(el => ({ itemId: el.dataset.item, qty: Number(el.value) || 0 })).filter(x => x.qty > 0);
+function updateReturnTotal() {
+  let cents = 0; for (const l of returnLines()) { const it = returnSale.items.find(i => i.itemId === l.itemId); if (it) cents += lineCents(it.price, l.qty); }
+  $('returnTotal').textContent = peso(cents / 100);
+}
+$('returnRows').addEventListener('input', e => { if (e.target.classList.contains('ret-qty')) { e.target.classList.remove('is-bad'); $('returnErr').textContent = ''; updateReturnTotal(); } });
+$('returnReason').onchange = () => { $('returnDetailsLbl').textContent = $('returnReason').value === 'other' ? 'Please explain (required)' : 'More details (optional)'; $('returnReason').classList.remove('is-bad'); $('returnErr').textContent = ''; };
+$('returnSend').onclick = async () => {
+  const lines = returnLines(), code = $('returnReason').value, details = $('returnDetails').value.trim(), err = m => $('returnErr').textContent = m;
+  if (!lines.length) return err('Enter how many of at least one item are being returned.');
+  for (const l of lines) { const it = returnSale.items.find(i => i.itemId === l.itemId), left = leftToReturn(it);
+    if (l.qty > left + 1e-9) { document.querySelector(`.ret-qty[data-item="${l.itemId}"]`).classList.add('is-bad'); return err('Only ' + left + ' ' + it.unit + ' of ' + it.name + ' can still be returned.'); }
+    if (!it.fractional && !Number.isInteger(l.qty)) { document.querySelector(`.ret-qty[data-item="${l.itemId}"]`).classList.add('is-bad'); return err(it.name + ' is sold in whole ' + it.unit + ' only.'); } }
+  if (!code) { $('returnReason').classList.add('is-bad'); $('returnReason').focus(); return err('Please choose a reason.'); }
+  if (code === 'other' && details.length < 5) { $('returnDetails').classList.add('is-bad'); $('returnDetails').focus(); return err('Please explain the reason (at least 5 characters).'); }
+  $('returnSend').disabled = true;
+  try { await requestReturn(returnSale.id, lines, code, details); }
+  catch (e) { $('returnSend').disabled = false; return err(e.message); }
+  $('returnSend').disabled = false; closeModal('returnBg');
+  const fresh = await loadTodaySales(); if (fresh) sales = fresh; renderSales(); if (window.refreshCashShift) window.refreshCashShift();
+  toast('Return sent to Finance.');
+};
+$('rcFind').onsubmit = async (e) => {
+  e.preventDefault(); const no = $('rcFindNo').value.trim();
+  if (!no) return toast('Type the receipt number first.', true);
+  try {
+    const s = await lookupReceipt(no);
+    if (!canReturn(s)) return toast(s.status !== 'Completed' ? s.receiptNo + ' is ' + s.status.toLowerCase() + ', so nothing can be returned.' : s.returnPending ? s.receiptNo + ' already has a return waiting for Finance.' : 'Everything on ' + s.receiptNo + ' was already returned.', true);
+    $('rcFindNo').value = ''; openReturn(s.id, s);
+  } catch (err) { toast(err.message, true); }
+};
+
 $('voidReason').onchange = () => { $('voidDetailsLbl').textContent = $('voidReason').value === 'other' ? 'Please explain (required)' : 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidErr').textContent = ''; };
 $('voidDetails').oninput = () => { $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; };
 $('voidSend').onclick = async () => {
@@ -839,7 +902,7 @@ $('q').onkeydown = e => {                                   // scanner / keyboar
   else if (hit) toast(hit.name + ' is out of stock.', true);
 };
 document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
-  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('holdBg'); closeModal('heldBg'); closeModal('priceBg'); $('userDropdown').classList.remove('open'); } });
+  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('returnBg'); closeModal('holdBg'); closeModal('heldBg'); closeModal('priceBg'); $('userDropdown').classList.remove('open'); } });
 $('cardOk').onchange = updatePay; $('tendered').oninput = updatePay; $('cardRef').oninput = () => { $('cardRef').value = $('cardRef').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); updatePay(); };
 $('complete').onclick = completeSale; $('clear').onclick = resetSale;
 $('priceOk').onclick = applyPrice;
@@ -866,8 +929,13 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   if (PRODUCTS.length) { cart = cleanLines(st.cart); ready = true; }      // if the catalogue failed to load, leave the saved data untouched
   renderCats(); renderProducts(); syncCart(); renderSales(); loadPosQuotes();
   setInterval(() => { if (!document.hidden) loadPosQuotes(); }, 60000);
+  // pick up Finance's decisions on returns / voids without a page reload (skipped while a dialog is open so nothing jumps under the cashier)
+  setInterval(async () => {
+    if (document.hidden || document.querySelector('.modal-overlay.show') || !sales.some(x => x.returnPending || x.status === 'Void Pending')) return;
+    const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); if (window.refreshCashShift) window.refreshCashShift(); }
+  }, 20000);
 })();
 </script>
-<script src="cash-shift-ui.js?v=3"></script>
+<script src="cash-shift-ui.js?v=4"></script>
 </body>
 </html>
