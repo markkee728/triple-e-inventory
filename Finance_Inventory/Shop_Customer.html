@@ -545,7 +545,7 @@ async function openProductDetails(sku) {
   try { d = await api('/api/shop/product-content/' + encodeURIComponent(sku)); }
   catch (err) { if (pdSku !== sku) return; /* fall back to what the catalog already loaded, so the popup never breaks */ }
   if (pdSku !== sku) return;
-  const photos = (d.images || []).filter(i => /^https:\/\//i.test(i.url));
+  const photos = (d.images || []).filter(i => /^(https:\/\/|\/api\/shop\/images\/)/i.test(i.url));
   const specs = Object.entries(d.specs || {});
   const desc = (d.description || '').trim();
   const frac = !!p.fractional, step = frac ? 0.5 : 1;

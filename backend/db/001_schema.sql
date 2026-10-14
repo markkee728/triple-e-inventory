@@ -64,7 +64,7 @@ CREATE TABLE products (
   sku           TEXT UNIQUE NOT NULL,
   name          TEXT NOT NULL,
   department    TEXT NOT NULL CHECK (department IN
-                  ('Raw Materials','Work In Progress','Finished Goods','Finishing Supplies')),
+                  ('Raw Materials','Finished Goods','Finishing Supplies')),
   category_id   INT REFERENCES categories(category_id),
   grade         TEXT,
   form          TEXT,

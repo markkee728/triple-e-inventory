@@ -1,5 +1,8 @@
 // Mount after auth() and wrap() are declared, before app.listen().
-// This module stores image URLs (e.g. Google Cloud Storage HTTPS URLs), not image bytes.
+// Product photos are either HTTPS URLs typed in by Finance, or files uploaded from the product form.
+// Uploaded files are stored in the database (table shop_image_files) and served from /api/shop/images/:id,
+// so they survive restarts and redeploys (Cloud Run's own disk is not permanent).
+const express = require('express');
 module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
  // Self-healing schema: creates the online-shop columns/table if 004_shop_product_content.sql was never run
  // on this database (safe to run on every start). Without them the online catalog cannot save or read details.
@@ -16,6 +19,11 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
     sort_order INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT shop_image_url_length CHECK (char_length(image_url) BETWEEN 10 AND 2048))`);
+   await pool.query(`CREATE TABLE IF NOT EXISTS shop_image_files (
+    file_id BIGSERIAL PRIMARY KEY,
+    mime TEXT NOT NULL,
+    data BYTEA NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
    await pool.query('CREATE INDEX IF NOT EXISTS shop_product_images_product_idx ON shop_product_images(product_id,sort_order,image_id)');
    console.log('[shop] online product details schema ready');
   }catch(err){console.warn('[shop] could not prepare the online product details schema:',err.message);}
@@ -23,10 +31,30 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
  const whenReady=(req,res,next)=>{ready.then(()=>next(),next);};
  app.use('/api/shop',whenReady);
  app.use('/api/finance/shop-products',whenReady);
+ app.use('/api/finance/shop-images',whenReady);
  const getProduct = async sku => (await pool.query('SELECT product_id,sku,name,department,is_archived,selling_price,on_hand,shop_description,shop_specs,shop_visible FROM products WHERE sku=$1',[sku])).rows[0];
  const normalize = (r,images) => ({sku:r.sku,name:r.name,description:r.shop_description,specs:r.shop_specs,visible:r.shop_visible,images,available:Number(r.on_hand),price:Number(r.selling_price)});
  const imagesFor = async id => (await pool.query('SELECT image_id AS id,image_url AS url,alt_text AS alt,sort_order AS "order" FROM shop_product_images WHERE product_id=$1 ORDER BY sort_order,image_id',[id])).rows;
- const validUrl = v => {try {const u=new URL(v);return u.protocol==='https:' && u.username==='' && u.password==='' && v.length<=2048;}catch{return false;}};
+ const UPLOADED = /^\/api\/shop\/images\/\d{1,12}$/;   // photos uploaded through the product form
+ const validUrl = v => {if(UPLOADED.test(v))return true;try {const u=new URL(v);return u.protocol==='https:' && u.username==='' && u.password==='' && v.length<=2048;}catch{return false;}};
+ const sniff = b => b.length>12 && ((b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF)?'image/jpeg'
+   : (b[0]===0x89&&b.toString('latin1',1,4)==='PNG')?'image/png'
+   : (b.toString('latin1',0,4)==='RIFF'&&b.toString('latin1',8,12)==='WEBP')?'image/webp':null);
+ // Upload one photo (raw JPG / PNG / WEBP bytes, max 2 MB). Returns the URL to save with the product.
+ app.post('/api/finance/shop-images',auth('finance'),express.raw({type:['image/jpeg','image/png','image/webp'],limit:'2mb'}),wrap(async(req,res)=>{
+  const buf=req.body, type=Buffer.isBuffer(buf)&&sniff(buf);
+  if(!type)return res.status(400).json({error:'Choose a JPG, PNG or WEBP image (max 2 MB)'});
+  const r=await pool.query('INSERT INTO shop_image_files(mime,data) VALUES($1,$2) RETURNING file_id',[type,buf]);
+  res.status(201).json({url:'/api/shop/images/'+r.rows[0].file_id});
+ }));
+ // Public on purpose: product photos are shown on the shop page and are not secret. Ids cannot be listed.
+ app.get('/api/shop/images/:id',wrap(async(req,res)=>{
+  if(!/^\d{1,12}$/.test(req.params.id))return res.status(404).end();
+  const r=await pool.query('SELECT mime,data FROM shop_image_files WHERE file_id=$1',[req.params.id]);
+  if(!r.rowCount)return res.status(404).end();
+  res.set({'Content-Type':r.rows[0].mime,'Cache-Control':'public, max-age=31536000, immutable','X-Content-Type-Options':'nosniff'});
+  res.send(r.rows[0].data);
+ }));
  // Existing customer auth and finance roles are reused. Never expose raw supplier costs.
  app.get('/api/shop/product-content/:sku',auth('customer','finance'),wrap(async(req,res)=>{
   const r=await getProduct(String(req.params.sku).toUpperCase());
@@ -42,7 +70,7 @@ module.exports = function mountShopProductContent({app,pool,auth,wrap}) {
   if(typeof b.description!=='string'||b.description.length>5000||typeof b.visible!=='boolean'||!b.specs||typeof b.specs!=='object'||Array.isArray(b.specs)) return res.status(400).json({error:'Invalid product content'});
   const specs=Object.entries(b.specs);
   if(specs.length>30||specs.some(([k,v])=>k.length>80||!k.trim()||typeof v!=='string'||v.length>300))return res.status(400).json({error:'Invalid specifications'});
-  if(!Array.isArray(b.images)||b.images.length>8||b.images.some((im,i)=>!im||typeof im.url!=='string'||!validUrl(im.url)||typeof im.alt!=='string'||im.alt.length>200))return res.status(400).json({error:'Use up to 8 HTTPS image URLs and short alt text'});
+  if(!Array.isArray(b.images)||b.images.length>8||b.images.some((im,i)=>!im||typeof im.url!=='string'||!validUrl(im.url)||typeof im.alt!=='string'||im.alt.length>200))return res.status(400).json({error:'Use up to 8 photos (uploaded files or HTTPS image URLs) and short alt text'});
   const client=await pool.connect();
   try {
    await client.query('BEGIN');

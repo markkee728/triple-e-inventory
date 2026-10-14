@@ -346,12 +346,6 @@ const dashboardHealthMock = [
         color: "#4a90d9"
     },
     {
-        name: "Work in Progress",
-        healthy: 1,
-        total: 2,
-        color: "#d9a441"
-    },
-    {
         name: "Finished Goods",
         healthy: 2,
         total: 4,
@@ -473,14 +467,6 @@ const lowStockMockData = [
         unit: "pcs"
     },
 
-    {
-        name: "Die-Cast Mounting Bracket 207",
-        sku: "DC-BRK-207",
-        department: "Work In Progress",
-        onHand: 640,
-        reorderLevel: 900,
-        unit: "pcs"
-    },
 
     {
         name: "Machined Flange 160mm",
@@ -599,17 +585,6 @@ const recentMovementMockData = [
         department: "Raw Materials",
         handledBy: "D. Okafor",
         dateTime: "Jul 30, 06:52 AM"
-    },
-
-    {
-        ref: "MV-8839",
-        product: "Brass Forged Valve Body",
-        type: "in",
-        qty: 900,
-        unit: "pcs",
-        department: "Work In Progress",
-        handledBy: "S. Patel",
-        dateTime: "Jul 30, 06:05 AM"
     }
 
 ];
@@ -751,16 +726,6 @@ const inventoryMonitoringData = [
         location: "FG-1 / Pallet 07"
     },
 
-    {
-        name: "Die-Cast Mounting Bracket 207",
-        sku: "DC-BRK-207",
-        department: "Work In Progress",
-        onHand: 640,
-        reorderLevel: 900,
-        unit: "pcs",
-        unitCost: 7.35,
-        location: "WIP-1 / Bin 18"
-    },
 
     {
         name: "Machined Flange 160mm",
@@ -1750,7 +1715,7 @@ function renderProductSuppliers(item) {
             return `<span class="prod-supplier">${escapeHTML(item.primarySource)}</span>`;
 
         // Raw Materials / Finishing Supplies are bought in, so a missing supplier is flagged.
-        // Work In Progress / Finished Goods are made by the company itself: no supplier, the source is in-house production.
+        // Finished Goods are made by the company itself: no supplier, the source is in-house production.
         return (item.department === "Raw Materials" || item.department === "Finishing Supplies")
             ? `<span class="prod-supplier warn" title="Link a supplier in Supplier Management">No supplier yet</span>`
             : `<span class="prod-supplier inhouse" title="Made by the company, so no supplier is needed">In-house production</span>`;
@@ -2921,8 +2886,6 @@ const REPORT_DEPARTMENT_COLORS = {
 
     "Raw Materials": "#4a90d9",
 
-    "Work In Progress": "#d9a441",
-
     "Finished Goods": "#43c47a",
 
     "Finishing Supplies": "#e35b9e"
@@ -3920,14 +3883,6 @@ const dispatchProductsData = [
         onHand: 220,
         unit: "pcs",
         qcStatus: "passed"
-    },
-
-    {
-        sku: "WIP-DC-BRK",
-        name: "Die-Cast Mounting Bracket 207",
-        onHand: 640,
-        unit: "pcs",
-        qcStatus: "rework"
     }
 
 ];

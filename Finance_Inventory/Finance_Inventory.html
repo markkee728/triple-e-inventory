@@ -27,6 +27,11 @@
 #npShopSection #npShopVisible{width:auto;margin-right:8px}
 #npShopSection #npShopSaveBtn{margin-top:10px}
 #npShopStatus{margin-top:10px;min-height:20px}
+.np-thumbs{display:flex;flex-wrap:wrap;gap:10px;margin:10px 0}
+.np-thumb{position:relative;width:84px;height:84px;border-radius:8px;overflow:hidden;border:1px solid var(--border,#7775)}
+.np-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.np-thumb button{position:absolute;top:3px;right:3px;width:22px;height:22px;border:0;border-radius:50%;background:#000a;color:#fff;cursor:pointer;line-height:22px;padding:0}
+.np-thumb .cover{position:absolute;left:0;bottom:0;right:0;background:#000a;color:#fff;font-size:11px;text-align:center;padding:2px 0}
 </style>
 </head>
 
@@ -533,7 +538,7 @@
                     </h1>
 
                     <p>
-                        Real-time stock levels across Raw Materials, Work in Progress, and Finished Goods, with low-stock alerts.
+                        Real-time stock levels across Raw Materials, Finished Goods, and Finishing Supplies, with low-stock alerts.
                     </p>
 
                 </div>
@@ -648,9 +653,6 @@
                                     Raw Materials
                                 </option>
 
-                                <option value="Work In Progress">
-                                    Work In Progress
-                                </option>
 
                                 <option value="Finished Goods">
                                     Finished Goods
@@ -817,7 +819,6 @@
                                 >
                                     <option value="">All departments</option>
                                     <option value="Raw Materials">Raw Materials</option>
-                                    <option value="Work In Progress">Work In Progress</option>
                                     <option value="Finished Goods">Finished Goods</option>
                                     <option value="Finishing Supplies">Finishing Supplies</option>
                                 </select>
@@ -3326,7 +3327,6 @@
                             class="form-select"
                         >
                             <option value="Raw Materials">Raw Materials</option>
-                            <option value="Work In Progress">Work In Progress</option>
                             <option value="Finished Goods">Finished Goods</option>
                             <option value="Finishing Supplies">Finishing Supplies</option>
                         </select>
@@ -3471,7 +3471,7 @@
                             Source
                         </label>
                         <div id="npSource" class="sup-readonly"></div>
-                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Work In Progress and Finished Goods are made by the company (in-house production).</div>
+                        <div class="field-hint">View only. Raw Materials and Finishing Supplies are bought from suppliers &mdash; manage them in Supplier Management. Finished Goods are made by the company (in-house production).</div>
                     </div>
                 </div>
 
@@ -3490,13 +3490,16 @@
                         <div class="field-hint">One specification per line, using Name: Value.</div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label" for="npShopImages">Product photo URLs</label>
-                        <textarea id="npShopImages" class="form-textarea" rows="3" placeholder="https://storage.googleapis.com/your-bucket/product-photo.jpg"></textarea>
-                        <div class="field-hint">Up to 8 HTTPS image URLs, one per line. Direct file uploads require a separate storage integration.</div>
+                        <label class="form-label" for="npShopImages">Product photos</label>
+                        <input id="npShopFile" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+                        <button type="button" class="btn-secondary" id="npShopUploadBtn">Upload photo(s)</button>
+                        <div id="npShopThumbs" class="np-thumbs"></div>
+                        <div class="field-hint">Choose JPG, PNG or WEBP files from your computer (up to 8 photos; the first one is the cover). You can also paste image links (https://…), one per line, below.</div>
+                        <textarea id="npShopImages" class="form-textarea" rows="2" placeholder="Or paste image links here, one per line"></textarea>
                     </div>
                     <div class="form-group">
                         <label class="form-label" for="npShopVisible"><input id="npShopVisible" type="checkbox" checked> Show in Online Shop</label>
-                        <div class="field-hint">Visibility in the customer catalog also requires the shop API to respect this setting.</div>
+                        <div class="field-hint">Customers only see a product that is checked here, has a selling price above 0, and is not archived.</div>
                     </div>
                     <div class="form-group">
                         <button type="button" class="btn-secondary" id="npShopSaveBtn">Save Online Shop Details</button>

@@ -12,9 +12,62 @@
     $('npShopDescription').value = '';
     $('npShopSpecs').value = '';
     $('npShopImages').value = '';
-    $('npShopVisible').checked = false; // Safer default: unpublished
+    $('npShopVisible').checked = true;  // new products are shown in the shop by default (untick to hide)
+    renderThumbs();
     loadedSku = ''; dirty = false;
   }
+  // ---- photo upload: pick files, shrink them in the browser, send to the server, keep the returned links in the box ----
+  const imgBox = $('npShopImages'), thumbs = $('npShopThumbs'), fileInput = $('npShopFile'), uploadBtn = $('npShopUploadBtn');
+  const urls = () => imgBox.value.split('\n').map(s => s.trim()).filter(Boolean);
+  function setUrls(list) { imgBox.value = list.join('\n'); renderThumbs(); section.dispatchEvent(new Event('input', {bubbles: true})); }
+  function renderThumbs() {
+    if (!thumbs) return;
+    thumbs.innerHTML = '';
+    urls().forEach((u, i) => {
+      const d = document.createElement('div'); d.className = 'np-thumb';
+      const im = document.createElement('img'); im.src = u; im.alt = ''; im.onerror = () => { im.style.opacity = '.25'; };
+      const x = document.createElement('button'); x.type = 'button'; x.textContent = '×'; x.title = 'Remove photo';
+      x.addEventListener('click', () => setUrls(urls().filter((_, j) => j !== i)));
+      d.append(im, x);
+      if (i === 0) { const c = document.createElement('span'); c.className = 'cover'; c.textContent = 'Cover'; d.appendChild(c); }
+      thumbs.appendChild(d);
+    });
+  }
+  imgBox.addEventListener('input', renderThumbs);
+  function shrink(file) {   // max 1400 px, JPEG, so every photo is far below the 2 MB limit
+    return new Promise((resolve, reject) => {
+      const img = new Image(), src = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(src);
+        const k = Math.min(1, 1400 / Math.max(img.width, img.height));
+        const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        c.toBlob(b => b ? resolve(b) : reject(new Error('Could not read that image')), 'image/jpeg', 0.85);
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); reject(new Error(file.name + ' is not a readable image')); };
+      img.src = src;
+    });
+  }
+  if (uploadBtn) uploadBtn.addEventListener('click', () => fileInput.click());
+  if (fileInput) fileInput.addEventListener('change', async () => {
+    const files = [...fileInput.files]; fileInput.value = '';
+    if (!files.length) return;
+    const room = 8 - urls().length;
+    if (room <= 0) return status('You already have 8 photos. Remove one first.');
+    uploadBtn.disabled = true;
+    const list = urls(); let done = 0, failed = '';
+    for (const f of files.slice(0, room)) {
+      try {
+        status('Uploading ' + (done + 1) + ' of ' + Math.min(files.length, room) + '...');
+        const blob = await shrink(f);
+        const r = await request('/api/finance/shop-images', { method: 'POST', headers: { 'Content-Type': 'image/jpeg' }, body: blob });
+        list.push(r.url); done++;
+      } catch (e) { failed = e.message; }
+    }
+    uploadBtn.disabled = false;
+    if (done) setUrls(list);
+    status((done ? done + ' photo(s) added. ' : '') + (files.length > room ? 'Only 8 photos fit; the rest were skipped. ' : '') + (failed ? 'Failed: ' + failed + '. ' : '') + (done ? 'Click Save Product (or Save Online Shop Details) to publish them.' : ''));
+  });
   async function request(url, options) {
     const response = await fetch(url, { credentials: 'same-origin', ...options });
     const data = await response.json().catch(() => ({}));
@@ -36,7 +89,7 @@
       if (token !== pendingLoad || dept.value !== 'Finished Goods' || sku.value.trim().toUpperCase() !== key) return;
       $('npShopDescription').value = data.description || '';
       $('npShopSpecs').value = Object.entries(data.specs || {}).map(([k,v]) => `${k}: ${v}`).join('\n');
-      $('npShopImages').value = (data.images || []).map(i => i.url).join('\n');
+      $('npShopImages').value = (data.images || []).map(i => i.url).join('\n'); renderThumbs();
       $('npShopVisible').checked = !!data.visible;
       loadedSku = key;
       status('Online shop details loaded.');
