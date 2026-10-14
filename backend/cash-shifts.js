@@ -1,14 +1,85 @@
+// Cash shifts: cashier drawer reconciliation + Finance monitoring.
 // Mount from server.js AFTER auth(), wrap(), tx() are defined.
-module.exports = function mountCashShifts({app,pool,auth,wrap,tx}) {
- const fail = (res, status, error) => res.status(status).json({error});
- const money = x => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= 10000000 && Math.round(x*100) === x*100;
- const summarySql = `SELECT s.shift_id AS id, s.cashier_id AS "cashierId", s.cashier_name AS "cashierName", s.opened_at AS "openedAt", s.closed_at AS "closedAt", s.opening_cash::float8 AS "openingCash", s.closing_cash::float8 AS "closingCash", s.closing_note AS "closingNote", COALESCE(SUM(p.total) FILTER (WHERE p.status <> 'Voided' AND p.method = 'Cash'),0)::float8 AS "cashSales", COUNT(p.sale_id) FILTER (WHERE p.status <> 'Voided' AND p.method = 'Cash')::int AS "cashTransactions", (s.opening_cash + COALESCE(SUM(p.total) FILTER (WHERE p.status <> 'Voided' AND p.method = 'Cash'),0) + COALESCE((SELECT SUM(CASE WHEN m.kind='cash_in' THEN m.amount ELSE -m.amount END) FROM pos_cash_movements m WHERE m.shift_id=s.shift_id),0))::float8 AS "expectedCash", CASE WHEN s.closed_at IS NOT NULL THEN (s.closing_cash - s.opening_cash - COALESCE(SUM(p.total) FILTER (WHERE p.status <> 'Voided' AND p.method = 'Cash'),0) - COALESCE((SELECT SUM(CASE WHEN m.kind='cash_in' THEN m.amount ELSE -m.amount END) FROM pos_cash_movements m WHERE m.shift_id=s.shift_id),0))::float8 END AS "difference" FROM pos_cash_shifts s LEFT JOIN pos_sales p ON p.cash_shift_id = s.shift_id GROUP BY s.shift_id`;
+module.exports = function mountCashShifts({app,pool,auth,wrap,tx,TZ:tzIn}) {
+ const TZ = tzIn || 'Asia/Manila';
+ const VARIANCE_ALERT = Number(process.env.CASH_VARIANCE_ALERT || 100);   // |difference| at or above this needs Finance review
+ const STALE_HOURS = Number(process.env.CASH_SHIFT_STALE_HOURS || 16);    // an open shift older than this is flagged
+ const MAX_MONEY = 10000000;
+ const DENOMS = ['1000','500','200','100','50','20','10','5','1','0.25','0.05'];
+ const fail = (res, status, error, field) => res.status(status).json(field ? {error, fields:{[field]:error}} : {error});
+ // 2-decimal money check that is safe against floating point (1.10*100 is 110.00000000000001 in JS)
+ const money = x => typeof x === 'number' && Number.isFinite(x) && x >= 0 && x <= MAX_MONEY && Math.abs(x*100 - Math.round(x*100)) < 1e-6;
+ const r2 = x => Math.round(x*100)/100;
+
+ /* ---------- schema (self-healing: the movements table was never in a migration) ---------- */
+ const ready = (async()=>{
+  try {
+   await pool.query(`CREATE TABLE IF NOT EXISTS pos_cash_shifts (
+    shift_id BIGSERIAL PRIMARY KEY, cashier_id INT NOT NULL REFERENCES users(user_id), cashier_name TEXT NOT NULL,
+    opened_at TIMESTAMPTZ NOT NULL DEFAULT now(), closed_at TIMESTAMPTZ,
+    opening_cash NUMERIC(12,2) NOT NULL CHECK (opening_cash >= 0), closing_cash NUMERIC(12,2) CHECK (closing_cash >= 0),
+    closing_note TEXT NOT NULL DEFAULT '', CHECK (closed_at IS NULL OR closing_cash IS NOT NULL))`);
+   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift_per_cashier ON pos_cash_shifts(cashier_id) WHERE closed_at IS NULL');
+   await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_shift_id BIGINT REFERENCES pos_cash_shifts(shift_id)');
+   await pool.query('CREATE INDEX IF NOT EXISTS pos_sales_cash_shift_idx ON pos_sales(cash_shift_id)');
+   await pool.query(`CREATE TABLE IF NOT EXISTS pos_cash_movements (
+    movement_id BIGSERIAL PRIMARY KEY, shift_id BIGINT NOT NULL REFERENCES pos_cash_shifts(shift_id),
+    cashier_id INT NOT NULL REFERENCES users(user_id), kind TEXT NOT NULL CHECK (kind IN ('cash_in','cash_out')),
+    amount NUMERIC(12,2) NOT NULL CHECK (amount > 0), reason TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+   await pool.query('CREATE INDEX IF NOT EXISTS pos_cash_movements_shift_idx ON pos_cash_movements(shift_id, created_at)');
+   await pool.query('ALTER TABLE pos_cash_shifts ADD COLUMN IF NOT EXISTS closing_breakdown JSONB');
+   console.log('[cash] cash shift schema ready');
+  } catch(err){ console.warn('[cash] could not prepare the cash shift schema:', err.message); }
+ })();
+ const whenReady = (req,res,next)=>{ ready.then(()=>next(),next); };
+ app.use('/api/pos/cash-shifts', whenReady);
+ app.use('/api/finance/cash-shifts', whenReady);
+
+ /* ---------- one shift = one summary row (shared by cashier + Finance) ---------- */
+ const summarySql = `SELECT s.shift_id AS id, s.cashier_id AS "cashierId", s.cashier_name AS "cashierName",
+   s.opened_at AS "openedAt", s.closed_at AS "closedAt",
+   s.opening_cash::float8 AS "openingCash", s.closing_cash::float8 AS "closingCash", s.closing_note AS "closingNote",
+   s.closing_breakdown AS "closingBreakdown",
+   cs.cash_sales::float8 AS "cashSales", cs.cash_tx AS "cashTransactions",
+   cs.card_sales::float8 AS "cardSales", cs.card_tx AS "cardTransactions", cs.pending_voids AS "pendingVoids",
+   mv.cash_in::float8 AS "cashIn", mv.cash_out::float8 AS "cashOut",
+   (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out)::float8 AS "expectedCash",
+   CASE WHEN s.closed_at IS NOT NULL THEN ROUND(s.closing_cash - (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out), 2)::float8 END AS "difference"
+  FROM pos_cash_shifts s
+  LEFT JOIN LATERAL (SELECT COALESCE(SUM(p.total) FILTER (WHERE p.method='Cash'),0) AS cash_sales,
+                            COUNT(*) FILTER (WHERE p.method='Cash')::int AS cash_tx,
+                            COALESCE(SUM(p.total) FILTER (WHERE p.method='Card'),0) AS card_sales,
+                            COUNT(*) FILTER (WHERE p.method='Card')::int AS card_tx,
+                            COUNT(*) FILTER (WHERE p.status='Void Pending')::int AS pending_voids
+                       FROM pos_sales p WHERE p.cash_shift_id = s.shift_id AND p.status <> 'Voided') cs ON true
+  LEFT JOIN LATERAL (SELECT COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_in'),0) AS cash_in,
+                            COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_out'),0) AS cash_out
+                       FROM pos_cash_movements m WHERE m.shift_id = s.shift_id) mv ON true`;
+ const flagged = s => {            // review flags used by the Finance monitor
+  const flags = [];
+  if (s.difference != null && Math.abs(s.difference) >= VARIANCE_ALERT) flags.push(s.difference < 0 ? 'Large shortage' : 'Large overage');
+  if (!s.closedAt && Date.now() - new Date(s.openedAt).getTime() > STALE_HOURS*3600000) flags.push('Open too long');
+  if (s.pendingVoids) flags.push(s.pendingVoids + ' void pending');
+  return flags;
+ };
+ const movementsFor = async ids => {
+  if (!ids.length) return new Map();
+  const r = await pool.query(`SELECT movement_id AS id, shift_id AS "shiftId", kind, amount::float8 AS amount, reason, created_at AS "createdAt"
+                               FROM pos_cash_movements WHERE shift_id = ANY($1) ORDER BY created_at`, [ids]);
+  const m = new Map(); r.rows.forEach(x => { (m.get(String(x.shiftId)) || m.set(String(x.shiftId), []).get(String(x.shiftId))).push(x); }); return m;
+ };
+
+ /* ---------- cashier ---------- */
  app.get('/api/pos/cash-shifts/current',auth('cashier'),wrap(async(req,res)=>{
-  const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);res.json(r.rows[0]||null);
+  const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);
+  const s=r.rows[0]; if(!s) return res.json(null);
+  s.movements=(await movementsFor([s.id])).get(String(s.id))||[];
+  res.json(s);
  }));
+
  app.post('/api/pos/cash-shifts/open',auth('cashier'),wrap(async(req,res)=>{
   const amount=req.body?.openingCash;
-  if(!money(amount))return fail(res,400,'Enter a valid opening cash amount (0 or more, up to 2 decimals).');
+  if(!money(amount))return fail(res,400,'Enter a valid opening cash amount (0 or more, up to 2 decimals).','openingCash');
   const result=await tx(async client=>{
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
    const old=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL',[req.user.id]);
@@ -16,38 +87,104 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx}) {
    const r=await client.query('INSERT INTO pos_cash_shifts(cashier_id,cashier_name,opening_cash) VALUES ($1,$2,$3) RETURNING shift_id',[req.user.id,req.user.name,amount]);return {id:r.rows[0].shift_id};
   });if(result.error)return fail(res,409,result.error);res.status(201).json(result);
  }));
+
  app.post('/api/pos/cash-shifts/close',auth('cashier'),wrap(async(req,res)=>{
-  const amount=req.body?.closingCash, note=req.body?.note;
-  if(!money(amount))return fail(res,400,'Enter the actual cash counted (0 or more, up to 2 decimals).');
-  if(typeof note!=='string'||note.length>500)return fail(res,400,'Closing note must be at most 500 characters.');
+  const amount=req.body?.closingCash, note=req.body?.note ?? '', breakdown=req.body?.breakdown;
+  if(!money(amount))return fail(res,400,'Enter the actual cash counted (0 or more, up to 2 decimals).','closingCash');
+  if(typeof note!=='string'||note.length>500)return fail(res,400,'Closing note must be at most 500 characters.','note');
+  let bd=null;
+  if(breakdown!==undefined&&breakdown!==null){
+   if(typeof breakdown!=='object'||Array.isArray(breakdown))return fail(res,400,'Invalid cash count.','breakdown');
+   let sum=0; bd={};
+   for(const [k,v] of Object.entries(breakdown)){
+    if(!DENOMS.includes(k)||!Number.isInteger(v)||v<0||v>100000)return fail(res,400,'Invalid cash count.','breakdown');
+    if(v>0){bd[k]=v;sum+=Number(k)*v;}
+   }
+   if(Math.abs(sum-amount)>0.004)return fail(res,400,'The counted notes and coins add up to a different amount than you entered.','closingCash');
+  }
   const result=await tx(async client=>{
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
    const r=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE',[req.user.id]);
    if(!r.rowCount)return {error:'No open shift found.'};
-   await client.query('UPDATE pos_cash_shifts SET closed_at=now(),closing_cash=$2,closing_note=$3 WHERE shift_id=$1',[r.rows[0].shift_id,amount,note.trim()]);
-   const report=await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[r.rows[0].shift_id]);return report.rows[0];
-  });if(result.error)return fail(res,409,result.error);res.json(result);
+   const id=r.rows[0].shift_id;
+   const cur=(await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id])).rows[0];
+   const diff=r2(amount-cur.expectedCash);
+   if(diff!==0&&note.trim().length<5)return {error:'The count is '+(diff<0?'short':'over')+' by ₱'+Math.abs(diff).toFixed(2)+'. Please write a short explanation (at least 5 characters).',field:'note',status:400};
+   await client.query('UPDATE pos_cash_shifts SET closed_at=now(),closing_cash=$2,closing_note=$3,closing_breakdown=$4 WHERE shift_id=$1',[id,amount,note.trim(),bd?JSON.stringify(bd):null]);
+   const report=await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id]);return report.rows[0];
+  });if(result.error)return fail(res,result.status||409,result.error,result.field);res.json(result);
  }));
+
  app.post('/api/pos/cash-shifts/movements',auth('cashier'),wrap(async(req,res)=>{
   const {kind,amount,reason}=req.body||{};
-  if(!['cash_in','cash_out'].includes(kind)||!money(amount)||amount<=0||typeof reason!=='string'||reason.trim().length<5||reason.trim().length>300) return fail(res,400,'Enter a valid type, amount, and reason (5–300 characters).');
+  if(!['cash_in','cash_out'].includes(kind))return fail(res,400,'Choose cash added or cash removed.','kind');
+  if(!money(amount)||amount<=0)return fail(res,400,'Enter an amount greater than 0 (up to 2 decimals).','amount');
+  if(typeof reason!=='string'||reason.trim().length<5||reason.trim().length>300)return fail(res,400,'Write a reason (5–300 characters).','reason');
   const result=await tx(async client=>{
     await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
     const shift=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE',[req.user.id]);
     if(!shift.rowCount)return {error:'Open a cash shift first.'};
-    const r=await client.query('INSERT INTO pos_cash_movements(shift_id,cashier_id,kind,amount,reason) VALUES($1,$2,$3,$4,$5) RETURNING movement_id',[shift.rows[0].shift_id,req.user.id,kind,amount,reason.trim()]);
+    const id=shift.rows[0].shift_id;
+    if(kind==='cash_out'){   // the drawer cannot go below zero
+     const cur=(await client.query(`SELECT "expectedCash" FROM (${summarySql}) x WHERE id=$1`,[id])).rows[0];
+     if(amount>cur.expectedCash+0.004)return {error:'Only ₱'+r2(cur.expectedCash).toFixed(2)+' should be in the drawer. You cannot remove more than that.',field:'amount',status:400};
+    }
+    const dup=await client.query(`SELECT 1 FROM pos_cash_movements WHERE shift_id=$1 AND kind=$2 AND amount=$3 AND reason=$4 AND created_at > now() - interval '15 seconds'`,[id,kind,amount,reason.trim()]);
+    if(dup.rowCount)return {error:'That exact movement was just recorded.'};
+    const r=await client.query('INSERT INTO pos_cash_movements(shift_id,cashier_id,kind,amount,reason) VALUES($1,$2,$3,$4,$5) RETURNING movement_id',[id,req.user.id,kind,amount,reason.trim()]);
     return {id:r.rows[0].movement_id};
   });
-  if(result.error)return fail(res,409,result.error);res.status(201).json(result);
+  if(result.error)return fail(res,result.status||409,result.error,result.field);res.status(201).json(result);
  }));
+
  app.get('/api/pos/cash-shifts/movements',auth('cashier','finance'),wrap(async(req,res)=>{
   const finance=req.user.role==='finance';
   const r=await pool.query(`SELECT m.movement_id AS id,m.shift_id AS "shiftId",m.kind,m.amount::float8 AS amount,m.reason,m.created_at AS "createdAt",s.cashier_name AS "cashierName" FROM pos_cash_movements m JOIN pos_cash_shifts s ON s.shift_id=m.shift_id ${finance?'':'WHERE m.cashier_id=$1'} ORDER BY m.created_at DESC LIMIT 300`,finance?[]:[req.user.id]);
   res.json(r.rows);
  }));
+
  app.get('/api/pos/cash-shifts/history',auth('cashier','finance'),wrap(async(req,res)=>{
   const finance=req.user.role==='finance';
   const q=finance?`SELECT * FROM (${summarySql}) x ORDER BY "openedAt" DESC LIMIT 200`:`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 ORDER BY "openedAt" DESC LIMIT 50`;
   const r=await pool.query(q,finance?[]:[req.user.id]);res.json(r.rows);
+ }));
+
+ /* ---------- Finance monitor: shifts + payment summary (POS and online) for a date range ---------- */
+ const ymd = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v||'')) && !Number.isNaN(Date.parse(v)) ? v : null;
+ app.get('/api/finance/cash-shifts/report',auth('finance'),wrap(async(req,res)=>{
+  const from=ymd(req.query.from), to=ymd(req.query.to);
+  if(req.query.from&&!from||req.query.to&&!to) return fail(res,400,'Use dates like 2026-10-14.');
+  const today=(await pool.query('SELECT (now() AT TIME ZONE $1)::date::text AS d',[TZ])).rows[0].d;
+  const f=from||to||today, t=to||from||today;
+  if(f>t) return fail(res,400,'The start date must not be after the end date.');
+  if((Date.parse(t)-Date.parse(f))/86400000>92) return fail(res,400,'Choose a range of 92 days or less.');
+  const shifts=(await pool.query(`SELECT * FROM (${summarySql}) x WHERE ("openedAt" AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date ORDER BY "openedAt" DESC`,[TZ,f,t])).rows;
+  const mv=await movementsFor(shifts.map(s=>s.id));
+  shifts.forEach(s=>{ s.movements=mv.get(String(s.id))||[]; s.flags=flagged(s); });
+  const closed=shifts.filter(s=>s.closedAt);
+  const totals={
+   shifts:shifts.length, open:shifts.length-closed.length,
+   expectedCash:r2(shifts.reduce((n,s)=>n+s.expectedCash,0)),
+   countedCash:r2(closed.reduce((n,s)=>n+s.closingCash,0)),
+   shortage:r2(closed.reduce((n,s)=>n+Math.min(0,s.difference),0)),
+   overage:r2(closed.reduce((n,s)=>n+Math.max(0,s.difference),0)),
+   needsReview:shifts.filter(s=>s.flags.length).length
+  };
+  const pos=(await pool.query(`SELECT method, COUNT(*) FILTER (WHERE status<>'Voided')::int AS count,
+      COALESCE(SUM(total) FILTER (WHERE status<>'Voided'),0)::float8 AS total,
+      COUNT(*) FILTER (WHERE status='Voided')::int AS voided,
+      COALESCE(SUM(total) FILTER (WHERE status='Voided'),0)::float8 AS "voidedTotal"
+    FROM pos_sales WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date GROUP BY method ORDER BY method`,[TZ,f,t])).rows;
+  const online=(await pool.query(`SELECT o.payment_method AS method,
+      COUNT(*) FILTER (WHERE o.status NOT IN ('Pending Confirmation','Cancelled'))::int AS count,
+      COALESCE(SUM(o.total) FILTER (WHERE o.status NOT IN ('Pending Confirmation','Cancelled')),0)::float8 AS collected,
+      COUNT(*) FILTER (WHERE o.status='Pending Confirmation')::int AS "awaitingCount",
+      COALESCE(SUM(o.total) FILTER (WHERE o.status='Pending Confirmation'),0)::float8 AS awaiting,
+      COUNT(*) FILTER (WHERE o.status='Cancelled')::int AS cancelled,
+      COALESCE((SELECT SUM(r.amount) FROM order_refund_requests r JOIN orders o2 ON o2.order_id=r.order_id
+                 WHERE r.status='approved' AND o2.payment_method=o.payment_method
+                   AND (o2.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date),0)::float8 AS refunded
+    FROM orders o WHERE (o.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date GROUP BY o.payment_method ORDER BY o.payment_method`,[TZ,f,t])).rows;
+  res.json({from:f,to:t,varianceAlert:VARIANCE_ALERT,totals,shifts,payments:{pos,online}});
  }));
 };
