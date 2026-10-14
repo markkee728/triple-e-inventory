@@ -268,7 +268,10 @@ const dashboardMockDisplay = {
     departments: 4,
     lowStock: 6,
     movements: 6,
-    inventoryValue: 0
+    inventoryValue: 0,
+    orders: null,
+    ordersOpen: 0,
+    posSales: 0
 
 };
 
@@ -332,12 +335,16 @@ function renderDashboardStats() {
 
     if (totalOrders) {
         totalOrders.textContent =
-            "—";
+            dashboardMockDisplay.orders === null
+                ? "—"
+                : dashboardMockDisplay.orders;
     }
 
     if (totalOrdersFoot) {
         totalOrdersFoot.textContent =
-            "Data supplied by backend";
+            dashboardMockDisplay.orders === null
+                ? "Loading..."
+                : `${dashboardMockDisplay.ordersOpen} to process · ${dashboardMockDisplay.posSales} POS sales`;
     }
 
 }
@@ -4260,7 +4267,17 @@ function renderAccountsTable() {
             }`;
     }
 
-    if (userAccountsData.length === 0) {
+    const roleSel = document.getElementById("accountRoleFilter");
+    const roleWanted = roleSel ? roleSel.value : "all";
+    const visible = userAccountsData
+        .map((user, index) => ({ user, index }))
+        .filter(x => roleWanted === "all" || x.user.roleKey === roleWanted);
+
+    if (count && roleWanted !== "all") {
+        count.textContent = `${visible.length} of ${userAccountsData.length} accounts`;
+    }
+
+    if (visible.length === 0) {
 
         tableBody.innerHTML = `
             <tr class="no-results-row">
@@ -4272,7 +4289,7 @@ function renderAccountsTable() {
     }
 
     tableBody.innerHTML =
-        userAccountsData.map((user, index) => `
+        visible.map(({ user, index }) => `
 
             <tr>
 
@@ -4290,7 +4307,7 @@ function renderAccountsTable() {
                 </td>
 
                 <td>
-                    <span class="role-tag ${user.roleKey === "cashier" ? "cashier" : ""}">
+                    <span class="role-tag ${user.roleKey === "cashier" ? "cashier" : user.roleKey === "customer" ? "customer" : ""}">
                         ${escapeHTML(user.role)}
                     </span>
                 </td>
@@ -4316,13 +4333,14 @@ function renderAccountsTable() {
                             Edit
                         </button>
 
+                        ${user.roleKey === "finance" ? "" : `
                         <button
                             type="button"
                             class="btn-danger-sm user-disable-btn"
                             data-index="${index}"
                         >
-                            Disable
-                        </button>
+                            ${user.status === "active" ? "Disable" : "Enable"}
+                        </button>`}
 
                     </div>
                 </td>
@@ -4350,14 +4368,32 @@ function renderAccountsTable() {
         .querySelectorAll(".user-disable-btn")
         .forEach(button => {
 
-            button.addEventListener("click", () => {
+            button.addEventListener("click", async () => {
 
                 const user =
                     userAccountsData[Number(button.dataset.index)];
 
-                alert(
-                    `Disable user "${user.name}" is ready for backend integration.`
-                );
+                const next = user.status === "active" ? "disabled" : "active";
+
+                if (!confirm(`${next === "disabled" ? "Disable" : "Re-enable"} the account of "${user.name}"?`)) {
+                    return;
+                }
+
+                try {
+                    const res = await fetch("/api/users/" + user.id + "/status", {
+                        method: "PATCH",
+                        credentials: "same-origin",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ status: next })
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || "Request failed");
+                    user.status = next;
+                    renderAccountsTable();
+                    inviteToast(`${user.name} ${next === "disabled" ? "disabled" : "re-enabled"}`);
+                } catch (err) {
+                    inviteToast(err.message, true);
+                }
 
             });
 
@@ -4556,6 +4592,9 @@ function initUserManagement() {
     loadPendingInvites();
     initEditUserModal();
 
+    const accountRoleFilter = document.getElementById("accountRoleFilter");
+    if (accountRoleFilter) accountRoleFilter.addEventListener("change", renderAccountsTable);
+
     const pendingBody =
         document.getElementById("pendingInvitesTableBody");
 
@@ -4738,7 +4777,14 @@ function openEditUserModal(index) {
     }
 
     if (role) {
-        role.value = user.role;
+        // a customer stays a customer; staff can only be Finance-Admin or Cashier
+        const isCustomer = user.roleKey === "customer";
+        role.querySelectorAll("option").forEach(o => {
+            o.hidden = o.disabled = isCustomer ? o.value !== "Customer" : o.value === "Customer";
+        });
+        role.value = isCustomer ? "Customer"
+            : user.roleKey === "cashier" ? "Cashier" : "Finance-Admin Officer";
+        role.disabled = isCustomer;
     }
 
     overlay.classList.add("open");
@@ -4861,11 +4907,34 @@ function initEditUserModal() {
                 error.classList.remove("show");
             }
 
-            alert(
-                "User changes hehe"
-            );
+            const user = userAccountsData[editingUserIndex];
+            const roleSel = document.getElementById("editUserRole");
+            const roleKey = user.roleKey === "customer" ? "customer"
+                : roleSel.value === "Cashier" ? "cashier" : "finance";
+            const submitBtn = form.querySelector('[type="submit"]');
 
-            closeEditUserModal();
+            if (submitBtn) submitBtn.disabled = true;
+
+            fetch("/api/users/" + user.id, {
+                method: "PATCH",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name: name.value, email: email.value, roleKey })
+            })
+                .then(async res => {
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error(data.error || "Request failed");
+                    user.name = name.value.trim().replace(/\s+/g, " ");
+                    user.email = email.value.trim().toLowerCase();
+                    user.roleKey = roleKey;
+                    user.role = roleKey === "finance" ? "Finance-Admin Officer"
+                        : roleKey === "cashier" ? "Sales Staff / Cashier" : "Customer";
+                    closeEditUserModal();
+                    renderAccountsTable();
+                    inviteToast("Account updated");
+                })
+                .catch(err => inviteToast(err.message, true))
+                .finally(() => { if (submitBtn) submitBtn.disabled = false; });
 
         });
 
@@ -4943,6 +5012,7 @@ function getAuditActionClass(action) {
 
     switch (action) {
         case "Login":           return "login";
+        case "Logout":          return "login";
         case "Record added":    return "added";
         case "Record edited":   return "edited";
         case "Account created": return "account";
@@ -4989,7 +5059,7 @@ function applyAuditFilters() {
         auditLogData.filter(entry => {
 
             const roleMatch =
-                role === "all" || entry.role === role;
+                role === "all" || String(entry.role || "").toLowerCase().includes(role.toLowerCase());
 
             const actionMatch =
                 action === "all" || entry.action === action;
@@ -5035,7 +5105,7 @@ function applyAuditFilters() {
                 </td>
 
                 <td>
-                    <span class="role-tag ${entry.role === "Cashier" ? "cashier" : ""}">
+                    <span class="role-tag ${/cashier/i.test(entry.role) ? "cashier" : /customer/i.test(entry.role) ? "customer" : ""}">
                         ${escapeHTML(entry.role)}
                     </span>
                 </td>

@@ -4694,3 +4694,9 @@ html[data-theme="light"] .pager-btn:hover:not(:disabled):not(.active) { backgrou
 #profileSaveBtn:disabled { opacity: .5; cursor: not-allowed; }
 .profile-photo-msg { width: 100%; margin-top: 0; }
 .profile-photo-actions .btn-secondary:disabled { opacity: .5; cursor: not-allowed; }
+.role-tag.customer {
+    border-color: rgba(67, 196, 122, 0.35);
+    background: rgba(67, 196, 122, 0.1);
+    color: #7fe0ab;
+}
+html[data-theme="light"] .role-tag.customer { color: #146c36; background: rgba(23, 128, 63, 0.12); border-color: rgba(23, 128, 63, 0.4); }

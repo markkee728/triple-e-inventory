@@ -919,15 +919,10 @@
                                 </div>
                                 <div class="form-row">
                                     <div class="form-group">
-                                        <label class="form-label" for="movementUnitCost">Unit cost (&#8369; per unit)</label>
-                                        <input type="number" inputmode="decimal" id="movementUnitCost" class="form-input" min="0" step="any" placeholder="e.g. 240.00" autocomplete="off">
-                                    </div>
-                                    <div class="form-group">
                                         <label class="form-label" for="movementInvoice">Invoice / delivery no.</label>
                                         <input type="text" id="movementInvoice" class="form-input" maxlength="40" placeholder="Supplier&#8217;s document no." autocomplete="off">
                                     </div>
                                 </div>
-                                <div class="field-hint" id="movementCostHint"></div>
                             </div>
 
 <div class="form-group">
@@ -1464,6 +1459,15 @@
                     </div>
 
 
+                    <div class="inv-filters" style="margin:0 0 12px">
+                        <select id="accountRoleFilter" class="inv-select">
+                            <option value="all">All roles</option>
+                            <option value="finance">Finance-Admin Officer</option>
+                            <option value="cashier">Sales Staff / Cashier</option>
+                            <option value="customer">Customer</option>
+                        </select>
+                    </div>
+
                     <div class="table-wrapper">
 
                         <table>
@@ -1603,6 +1607,10 @@
                                     Cashier
                                 </option>
 
+                                <option value="Customer">
+                                    Customer
+                                </option>
+
                             </select>
 
 
@@ -1617,6 +1625,10 @@
 
                                 <option value="Login">
                                     Login
+                                </option>
+
+                                <option value="Logout">
+                                    Logout
                                 </option>
 
                                 <option value="Record added">
@@ -3216,6 +3228,10 @@
 
                         <option value="Cashier">
                             Cashier
+                        </option>
+
+                        <option value="Customer">
+                            Customer
                         </option>
 
                     </select>

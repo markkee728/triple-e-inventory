@@ -20,6 +20,7 @@
     in: {
       supplier_receipt: ['Raw Materials', 'Finishing Supplies'],
       customer_return: ['Finished Goods'],
+      produced_batch: ['Finished Goods'],
       count_correction_up: ALL_D,
       other: ALL_D
     },
@@ -122,6 +123,18 @@
   }
 
   /* ---------------- loading data ---------------- */
+  // Dashboard "Total Orders" card: online shop orders (and how many still need action) + POS sales
+  function updateOrderStats() {
+    const shop = salesCache.filter((t) => t.source === 'Shop');
+    const done = ['Delivered', 'Picked Up', 'Cancelled', 'Completed'];
+    Object.assign(dashboardMockDisplay, {
+      orders: shop.length,
+      ordersOpen: shop.filter((t) => done.indexOf(t.status) < 0).length,
+      posSales: salesCache.filter((t) => t.source === 'POS').length
+    });
+    safe(renderDashboardStats);
+  }
+
   async function load() {
     const me = await api('/auth/me');
     currentUser = me;
@@ -136,6 +149,7 @@
       soft('/users', userAccountsData.slice()), soft('/audit', auditLogData.slice()), soft('/reasons', REASONS), soft('/categories', CATEGORIES),
       soft('/sales', { sales: [] })]);
     salesCache = (salesRes && salesRes.sales) || [];
+    updateOrderStats();
     // dropdown list = categories table + any category already used by a product (so it is never empty if products exist)
     const catSet = new Map();
     (Array.isArray(categories) ? categories : []).concat(
@@ -214,6 +228,7 @@
   const REASON_HELP = {
     'in:supplier_receipt': 'New stock delivered by a supplier.',
     'in:customer_return': 'A customer sent finished goods back and they are going back on the shelf.',
+    'in:produced_batch': 'Finished goods produced in a new batch and added to stock.',
     'in:count_correction_up': 'The physical count is higher than the system. Note required: what was counted and why.',
     'in:other': 'Anything not listed. Note required: explain what happened.',
     'out:rust_corrosion': 'Stock lost to rust or corrosion.',
@@ -306,12 +321,9 @@
       rg.style.display = isReceipt ? '' : 'none';
       if (isReceipt) fillMovementSuppliers(item);
       else {
-        ['movementSupplier', 'movementUnitCost', 'movementInvoice'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
+        ['movementSupplier', 'movementInvoice'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
         rg.querySelectorAll('.field-msg').forEach((n) => n.remove());
       }
-      const ch = $('movementCostHint'), uc = Number($('movementUnitCost').value);
-      if (ch) ch.textContent = isReceipt && uc > 0 && qty > 0 ? 'Delivery value: \u20B1' + (Math.round(uc * qty * 100) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ' (' + formatNumber(qty) + ' \u00D7 \u20B1' + uc.toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ')'
-        : isReceipt ? 'Cost is optional, but it lets you see what each delivery cost.' : '';
     }
 
     // stock summary
@@ -355,7 +367,7 @@
   }
 
   const MOVE_FIELDS = { sku: 'movementProduct', quantity: 'movementQuantity', reason: 'movementReason', note: 'movementNote',
-    supplier: 'movementSupplier', unitCost: 'movementUnitCost', invoiceNo: 'movementInvoice' };
+    supplier: 'movementSupplier', invoiceNo: 'movementInvoice' };
 
   function setupMovementForm() {
     const form = $('movementForm');
@@ -370,8 +382,7 @@
       if (wasHidden && NOTE_REQUIRED.indexOf($('movementReason').value) >= 0) $('movementNote').focus();
     });
     $('movementQuantity').addEventListener('input', syncMovementForm);
-    $('movementUnitCost').addEventListener('input', syncMovementForm);
-    ['movementSupplier', 'movementUnitCost', 'movementInvoice'].forEach((id) => {       // clear an old error message as soon as the field is changed
+    ['movementSupplier', 'movementInvoice'].forEach((id) => {       // clear an old error message as soon as the field is changed
       const el = $(id); if (!el) return;
       const clear = () => { el.classList.remove('field-invalid'); const g = el.closest('.form-group'); if (g) g.querySelectorAll('.field-msg').forEach((n) => n.remove()); };
       el.addEventListener('input', clear); el.addEventListener('change', clear);
@@ -390,11 +401,10 @@
       const qty = vNum(errs, 'movementQuantity', 'Quantity', { gt: true });
       const note = vText(errs, 'movementNote', 'Note', { required: false, max: 300 });
       const isReceipt = type === 'in' && reason === 'supplier_receipt';
-      let supplier = '', unitCost = null, invoiceNo = '';
+      let supplier = '', invoiceNo = '';
       if (isReceipt) {
         supplier = $('movementSupplier').value;
         if (!supplier) errs.movementSupplier = 'Choose the supplier this delivery came from';
-        unitCost = vNum(errs, 'movementUnitCost', 'Unit cost', { required: false, max: 1e7 });
         invoiceNo = vText(errs, 'movementInvoice', 'Invoice / delivery no.', { required: false, max: 40 });
       }
       if (reason && NOTE_REQUIRED.indexOf(reason) >= 0 && note.length < 3) errs.movementNote = 'Please explain this entry in the note';
@@ -409,7 +419,7 @@
       try {
         const r = await api('/movements', {
           method: 'POST',
-          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, unitCost: unitCost === null ? undefined : unitCost, invoiceNo: invoiceNo || undefined })
+          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, invoiceNo: invoiceNo || undefined })
         });
         toast('Saved. Reference no. ' + r.ref);
         form.reset();
@@ -1198,9 +1208,8 @@
         '<td class="dim">' + esc(m.reason || '') + '</td>' +
         '<td class="dim">' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</td>' +
         '<td class="dim">' + esc(m.department) + '</td>' +
-        '<td class="dim">' + (m.supplier || m.unitCost !== undefined || m.invoiceNo
-          ? (m.supplier ? esc(m.supplier) : '') + (m.unitCost !== undefined ? '<div style="font-size:12.5px">\u20B1' + esc(Number(m.unitCost).toLocaleString('en-PH', { minimumFractionDigits: 2 })) + ' / ' + esc(m.unit) + '</div>' : '') +
-            (m.invoiceNo ? '<div style="font-size:12.5px">Inv. ' + esc(m.invoiceNo) + '</div>' : '') : '\u2014') + '</td>' +
+        '<td class="dim">' + (m.supplier || m.invoiceNo
+          ? (m.supplier ? esc(m.supplier) : '') + (m.invoiceNo ? '<div style="font-size:12.5px">Inv. ' + esc(m.invoiceNo) + '</div>' : '') : '\u2014') + '</td>' +
         '<td class="dim">' + esc(m.handledBy) + '</td>' +
         '<td class="dim">' + esc(m.dateTime) + '</td></tr>';
     }).join('');
@@ -2095,7 +2104,7 @@
     if (!$('reports')) return;
     // re-read sales each time Reports is opened, so orders confirmed or sold a moment ago are included
     document.querySelectorAll('.nav-item[data-page="reports"]').forEach((n) => n.addEventListener('click', () => {
-      api('/sales').then((r) => { salesCache = (r && r.sales) || []; renderReports(); }).catch((e) => console.warn('[api-bridge] /sales failed: ' + e.message));
+      api('/sales').then((r) => { salesCache = (r && r.sales) || []; updateOrderStats(); renderReports(); }).catch((e) => console.warn('[api-bridge] /sales failed: ' + e.message));
     }));
     // sensible defaults for the custom range: the last 7 days
     rep.to = iso(new Date()); rep.from = addDays(rep.to, -6);

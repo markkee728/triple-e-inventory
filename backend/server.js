@@ -41,6 +41,7 @@ const REASONS = {
   in: {
     supplier_receipt: 'Received from supplier',
     customer_return: 'Returned by customer',
+    produced_batch: 'Produced \u2014 new batch',
     count_correction_up: 'Stock count correction (+)',
     other: 'Other (explain in note)'
   },
@@ -67,6 +68,7 @@ const REASON_DEPTS = {
   in: {
     supplier_receipt: ['Raw Materials', 'Finishing Supplies'],
     customer_return: ['Finished Goods'],
+    produced_batch: ['Finished Goods'],
     count_correction_up: ALL_DEPTS,
     other: ALL_DEPTS
   },
@@ -211,6 +213,19 @@ async function lookupMailDomain(domain) {
   if (hasMx) return 'mail';
   const a = await dohLookup(domain, 'A');
   return a.answers.some((x) => x.type === 1) ? 'mail' : (a.status === 3 ? 'nodomain' : 'nomail');
+}
+// User accounts (customers and staff) must use a personal email from a well-known public provider.
+// Company / private-domain addresses are refused. Suppliers are companies, so they keep using assertEmailDomain only.
+const PERSONAL_EMAIL_DOMAINS = new Set(['gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.com.ph', 'ymail.com', 'rocketmail.com',
+  'outlook.com', 'outlook.ph', 'hotmail.com', 'hotmail.ph', 'live.com', 'msn.com', 'icloud.com', 'me.com', 'mac.com',
+  'proton.me', 'protonmail.com', 'aol.com', 'gmx.com', 'mail.com', 'zoho.com', 'yandex.com']
+  .concat(String(process.env.PERSONAL_EMAIL_DOMAINS || '').toLowerCase().split(/[\s,;]+/).filter(Boolean)));   // .env can add more
+async function assertPersonalEmail(email) {
+  if (!email) return;
+  const domain = String(email).toLowerCase().split('@').pop();
+  if (!PERSONAL_EMAIL_DOMAINS.has(domain))
+    throw new ValidationError({ email: 'Use a personal email (Gmail, Yahoo, Outlook, iCloud…). Company or private-domain emails are not allowed.' });
+  await assertEmailDomain(email);
 }
 async function assertEmailDomain(email) {
   if (!email) return;
@@ -597,16 +612,15 @@ function validateMovement(b) {
   const quantity = number(e, 'quantity', b.quantity, 'Quantity', { min: 0, max: 1e8, gt: true });
   const note = text(e, 'note', b.note, 'Note', { max: 300, required: false });
   if (!e.reason && NOTE_REQUIRED.includes(reason) && note.length < 3) e.note = 'Please explain this entry in the note';
-  // Deliveries from a supplier: who sent it (required), what each unit cost, and the supplier's invoice / delivery receipt number
-  let supplier = null, unitCost = null, invoiceNo = null;
+  // Deliveries from a supplier: who sent it (required) and the supplier's invoice / delivery receipt number
+  let supplier = null, invoiceNo = null;
   if (type === 'in' && reason === 'supplier_receipt') {
     supplier = str(b.supplier);
     if (!supplier) e.supplier = 'Choose the supplier this delivery came from';
-    unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { min: 0, max: 1e7, required: false });
     invoiceNo = text(e, 'invoiceNo', b.invoiceNo, 'Invoice / delivery no.', { max: 40, required: false }) || null;
   }
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, type, reason, quantity, note: note || null, supplier, unitCost, invoiceNo };
+  return { sku, type, reason, quantity, note: note || null, supplier, invoiceNo };
 }
 
 const wrap = fn => (req, res) => fn(req, res).catch(err => {
@@ -661,7 +675,14 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
   res.json(user);
 }));
-app.post('/api/auth/logout', (req, res) => { res.clearCookie('session'); res.json({ ok: true }); });
+app.post('/api/auth/logout', wrap(async (req, res) => {
+  // record the log out in the audit log (the cookie is read here because this route is open to expired sessions too)
+  try {
+    const u = jwt.verify(req.cookies.session, process.env.JWT_SECRET);
+    await audit(pool, u, 'Logout', 'Logged out');
+  } catch { /* no valid session - nothing to record */ }
+  res.clearCookie('session'); res.json({ ok: true });
+}));
 app.get('/api/auth/me', auth(), wrap(async (req, res) => {
   const { rows } = await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id]);
   res.json({ ...req.user, email: rows[0] ? rows[0].email : null });
@@ -696,7 +717,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
   // the email domain must really exist and accept mail (only checked when the email is being changed,
   // so an existing address never blocks a name / phone edit). Done before the transaction: it is a network lookup.
   const current = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
-  if (current && current.email !== email) await assertEmailDomain(email);
+  if (current && current.email !== email) await assertPersonalEmail(email);
 
   const result = await tx(async (client) => {
     const taken = await client.query('SELECT 1 FROM users WHERE email = $1 AND user_id <> $2', [email, req.user.id]);
@@ -1029,7 +1050,7 @@ app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 5000);
   const { rows } = await pool.query(
     `SELECT m.ref, m.reason, p.name AS product, m.movement_type, m.quantity, p.unit, p.department,
-            COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.unit_cost, m.invoice_no, m.note,
+            COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.invoice_no, m.note,
             to_char(m.created_at AT TIME ZONE $2, 'Mon DD, HH12:MI AM') AS dt,
             to_char(m.created_at AT TIME ZONE $2, 'YYYY-MM-DD') AS d
        FROM stock_movements m JOIN products p USING (product_id) LEFT JOIN users u ON u.user_id = m.handled_by
@@ -1038,7 +1059,7 @@ app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
   res.json(rows.map(r => ({ ref: r.ref, product: r.product, type: r.movement_type, qty: +r.quantity,
     reason: REASONS.in[r.reason] || REASONS.out[r.reason] || LEGACY_REASON_LABELS[r.reason] || r.reason,
     unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d,
-    supplier: r.supplier || undefined, unitCost: r.unit_cost === null ? undefined : +r.unit_cost, invoiceNo: r.invoice_no || undefined, note: r.note || undefined })));
+    supplier: r.supplier || undefined, invoiceNo: r.invoice_no || undefined, note: r.note || undefined })));
 }));
 
 app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
@@ -1060,25 +1081,75 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
       supplierId = sp.rows[0].supplier_id; supplierName = sp.rows[0].name;
     }
     const ins = await client.query(
-      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,supplier_id,unit_cost,invoice_no)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ref`,
-      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note, supplierId, m.unitCost, m.invoiceNo]);
+      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,supplier_id,invoice_no)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ref`,
+      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note, supplierId, m.invoiceNo]);
     await audit(client, req.user, 'Record added',
       `Stock ${m.type === 'in' ? 'In' : 'Out'} — ${ins.rows[0].ref}, ${prod.name}, ${m.type === 'in' ? '+' : '-'}${m.quantity} ${prod.unit} (${REASONS[m.type][m.reason]})` +
-      (supplierName ? `, from ${supplierName}` : '') + (m.unitCost !== null ? `, cost ${m.unitCost}/unit` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : ''));
+      (supplierName ? `, from ${supplierName}` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : ''));
     return ins.rows[0].ref;
   });
   res.status(201).json({ ref: result });
 }));
 
+/* ---------- stock count (physical inventory) ---------- */
+require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+
 /* ---------- users & audit (finance only) ---------- */
 app.get('/api/users', auth('finance'), wrap(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT u.full_name, u.username, u.email, r.label, r.role_key, u.status,
+    `SELECT u.user_id, u.full_name, u.username, u.email, r.label, r.role_key, u.status,
             to_char(u.last_login AT TIME ZONE $1, 'YYYY-MM-DD HH12:MI AM') AS last_login
        FROM users u JOIN roles r USING (role_id) ORDER BY u.full_name`, [TZ]);
-  res.json(rows.map(u => ({ name: u.full_name, username: u.username, email: u.email, role: u.label,
+  res.json(rows.map(u => ({ id: u.user_id, name: u.full_name, username: u.username, email: u.email, role: u.label,
     roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never' })));
+}));
+
+// Edit an account's name, email and role. Customer accounts keep the Customer role (they cannot become Finance or Cashier,
+// and staff cannot be turned into customers); Finance can switch staff between Finance-Admin and Cashier, but not their own role.
+app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id), b = req.body || {}, e = {};
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request' });
+  const t = (await pool.query('SELECT u.full_name, u.email, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Account not found' });
+  const name = text(e, 'name', b.name, 'Name', { min: 2, max: 80 });
+  const email = str(b.email).toLowerCase();
+  if (!email) e.email = 'Email is required';
+  else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
+  const roleKey = str(b.roleKey) || t.role_key;
+  if (!['finance', 'cashier', 'customer'].includes(roleKey)) e.role = 'Choose a valid role';
+  else if (roleKey !== t.role_key) {
+    if (t.role_key === 'customer') e.role = 'A customer account cannot be changed to Finance-Admin or Cashier';
+    else if (roleKey === 'customer') e.role = 'A staff account cannot be changed to Customer';
+    else if (id === req.user.id) e.role = 'You cannot change your own role';
+  }
+  if (Object.keys(e).length) throw new ValidationError(e);
+  if (email !== t.email) await assertPersonalEmail(email);
+  try {
+    await pool.query('UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4) WHERE user_id = $1', [id, name, email, roleKey]);
+  } catch (err) {
+    if (err.code === '23505') throw new ValidationError({ email: 'That email is already used by another account' });
+    throw err;
+  }
+  const changes = [];
+  if (name !== t.full_name) changes.push(`name ${t.full_name} → ${name}`);
+  if (email !== t.email) changes.push(`email ${t.email} → ${email}`);
+  if (roleKey !== t.role_key) changes.push(`role ${t.label} → ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
+  if (changes.length) await audit(pool, req.user, 'Record edited', `Account updated — ${t.full_name}: ${changes.join(', ')}`);
+  res.json({ ok: true });
+}));
+
+// Finance can disable / re-enable Cashier and Customer accounts (not Finance accounts, and not their own)
+app.patch('/api/users/:id/status', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  const status = str(req.body && req.body.status);
+  if (!Number.isInteger(id) || !['active', 'disabled'].includes(status)) return res.status(400).json({ error: 'Invalid request' });
+  const t = (await pool.query('SELECT u.full_name, u.status, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [id])).rows[0];
+  if (!t) return res.status(404).json({ error: 'Account not found' });
+  if (t.role_key === 'finance' || id === req.user.id) return res.status(403).json({ error: 'Finance-Admin accounts cannot be disabled here' });
+  await pool.query('UPDATE users SET status = $2 WHERE user_id = $1', [id, status]);
+  await audit(pool, req.user, 'Record edited', `${t.label} account ${status === 'disabled' ? 'disabled' : 're-enabled'} — ${t.full_name}`);
+  res.json({ ok: true, status });
 }));
 
 app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
@@ -1089,14 +1160,12 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 }));
 
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
-require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, assertEmailDomain, TZ });
+require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, assertEmailDomain: assertPersonalEmail, TZ });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./cash-shifts')({ app, pool, auth, wrap, tx, TZ });
-/* ---------- stock count (physical inventory) ---------- */
-require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');
@@ -1132,7 +1201,7 @@ async function ensureUserColumns() {
   catch (err) { console.warn('[db] could not check the users columns:', err.message); }
 }
 ensureUserColumns();
-// Stock In details (supplier / cost / invoice no.). The ledger already has supplier_id; add the other two.
+// Stock In details (supplier / invoice no.). The ledger already has supplier_id; add the other two.
 // Also lets the ledger accept every reason the form offers (older databases limited it to a short list).
 async function ensureMovementColumns() {
   try {
@@ -1141,7 +1210,7 @@ async function ensureMovementColumns() {
     await pool.query('ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS invoice_no TEXT');
     await pool.query(`DO $$ DECLARE c record; BEGIN
       FOR c IN SELECT conname FROM pg_constraint WHERE conrelid = 'stock_movements'::regclass AND contype = 'c'
-                  AND pg_get_constraintdef(oid) ILIKE '%reason%' AND pg_get_constraintdef(oid) NOT ILIKE '%count_correction_up%'
+                  AND pg_get_constraintdef(oid) ILIKE '%reason%' AND pg_get_constraintdef(oid) NOT ILIKE '%produced_batch%'
       LOOP EXECUTE format('ALTER TABLE stock_movements DROP CONSTRAINT %I', c.conname); END LOOP; END $$`);
   } catch (err) { console.warn('[db] could not check the stock movement columns:', err.message); }
 }
