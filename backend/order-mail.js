@@ -6,6 +6,7 @@
    Emails are sent through mailer.js (Gmail or Mailgun). If no email service is set up, nothing is sent and the
    message is printed in the server console instead. Sending never blocks or breaks an order: a failed email is logged only. */
 const mailer = require('./mailer');
+const sms = require('./sms');
 const { escapeHtml: esc } = mailer;
 
 const env = (k) => String(process.env[k] || '').trim();
@@ -47,6 +48,24 @@ const EVENTS = {
     msg: (o, d) => `We approved your refund of ${peso(d.amount)}. ` + (/^Cash/.test(o.payment_method) ? 'Our team will contact you to hand back this amount.' : 'It goes back to your original payment method (' + o.payment_method + ').') + (d.note ? ' Note from our team: ' + d.note : '') },
   refund_declined:  { subject: (o) => `About your refund request for ${o.order_no}`, head: 'Refund request declined',
     msg: (o, d) => 'We could not approve your refund request.' + (d.note ? ' Reason: ' + d.note : '') + ' Please contact us if you would like to discuss it.' }
+};
+
+// event -> the short text message (kept plain: no peso sign or curly quotes, so it fits in as few SMS parts as possible)
+const SMS_TEXT = {
+  placed:           (o) => `Triple E Metal: We received your order ${o.order_no}. We will confirm it shortly.`,
+  Paid:             (o) => `Triple E Metal: Order ${o.order_no} is confirmed. We will start packing it next.`,
+  Packed:           (o) => o.fulfillment === 'Delivery'
+    ? `Triple E Metal: Order ${o.order_no} is packed and waiting for the delivery run.`
+    : `Triple E Metal: Order ${o.order_no} is packed. We will text you when it is ready for pickup.`,
+  'Out for Delivery': (o) => `Triple E Metal: Order ${o.order_no} is out for delivery. Please keep your phone nearby.`,
+  'Ready for Pickup': (o, d, info) => `Triple E Metal: Order ${o.order_no} is READY FOR PICKUP. Bring your order number and a valid ID.`
+    + (info.address ? ` ${info.address}.` : '') + (info.hours ? ` Hours: ${info.hours}.` : ''),
+  Delivered:        (o) => `Triple E Metal: Order ${o.order_no} was delivered. Thank you! Questions? Check My Orders.`,
+  'Picked Up':      (o) => `Triple E Metal: Order ${o.order_no} was picked up. Thank you!`,
+  Cancelled:        (o, d) => `Triple E Metal: Order ${o.order_no} was cancelled${d.reason ? ' (' + d.reason + ')' : ''}. See your email or My Orders for details.`,
+  cancel_declined:  (o) => `Triple E Metal: We could not cancel order ${o.order_no}; it is still being processed.`,
+  refund_approved:  (o, d) => `Triple E Metal: Your refund of PHP ${Number(d.amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} for order ${o.order_no} was approved.`,
+  refund_declined:  (o) => `Triple E Metal: We could not approve the refund for order ${o.order_no}. Please check your email.`
 };
 
 function build(o, items, ev, extra, info) {
@@ -94,12 +113,29 @@ module.exports = function makeOrderMail(pool) {
       const { rows } = await pool.query(
         `SELECT o.*, u.email, u.full_name FROM orders o JOIN users u ON u.user_id = o.customer_id WHERE o.order_no = $1`, [orderNo]);
       const o = rows[0];
-      if (!o || !o.email) return;
-      const { rows: items } = await pool.query('SELECT name, qty, price FROM order_items WHERE order_id = $1 ORDER BY item_id', [o.order_id]);
-      const m = build(o, items, ev, extra, shopInfo());
-      const r = await mailer.sendMail({ to: o.email, subject: m.subject, html: m.html, text: m.text, tag: 'order-' + ev.toLowerCase().replace(/\s+/g, '-') });
-      if (!r.sent) console.warn(`[mail] order email "${ev}" for ${orderNo} not sent: ${r.reason}`);
-    } catch (err) { console.error(`[mail] order email "${ev}" for ${orderNo} failed:`, err.message); }
+      if (!o) return;
+      const info = shopInfo();
+      const d = Object.assign({ refundDays: Number(process.env.REFUND_WINDOW_DAYS) || 7 }, extra || {});
+      // email and text are separate: one failing never stops the other
+      await Promise.all([
+        (async () => {
+          if (!o.email) return;
+          try {
+            const { rows: items } = await pool.query('SELECT name, qty, price FROM order_items WHERE order_id = $1 ORDER BY item_id', [o.order_id]);
+            const m = build(o, items, ev, extra, info);
+            const r = await mailer.sendMail({ to: o.email, subject: m.subject, html: m.html, text: m.text, tag: 'order-' + ev.toLowerCase().replace(/\s+/g, '-') });
+            if (!r.sent) console.warn(`[mail] order email "${ev}" for ${orderNo} not sent: ${r.reason}`);
+          } catch (err) { console.error(`[mail] order email "${ev}" for ${orderNo} failed:`, err.message); }
+        })(),
+        (async () => {
+          if (!SMS_TEXT[ev] || !sms.eventEnabled(ev) || !o.phone) return;
+          try {
+            const r = await sms.sendSms({ to: o.phone, message: SMS_TEXT[ev](o, d, info) });
+            if (!r.sent) console.warn(`[sms] order text "${ev}" for ${orderNo} not sent: ${r.reason}`);
+          } catch (err) { console.error(`[sms] order text "${ev}" for ${orderNo} failed:`, err.message); }
+        })()
+      ]);
+    } catch (err) { console.error(`[notify] order notification "${ev}" for ${orderNo} failed:`, err.message); }
   }
   return { notify, shopInfo };
 };

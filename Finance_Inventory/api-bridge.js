@@ -1745,7 +1745,7 @@
     set('.user-chip .avatar, .dropdown-avatar', initials);
     set('.dropdown-name', u.name);
     if (u.email) set('.dropdown-email', u.email);
-    set('.brand-text .role', u.role === 'finance' ? 'Finance Admin' : (u.roleLabel || 'Staff'));
+    set('.brand-text .role', 'Product Co');
     const badge = document.querySelector('.topbar .badge');
     if (badge) badge.textContent = u.role === 'finance' ? 'Finance Admin' : (u.roleLabel || 'Staff');
     reapplyAvatar();
