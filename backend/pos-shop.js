@@ -300,13 +300,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* ---------- shared helpers ---------- */
   const CATALOG_SQL = `
     SELECT p.sku, p.name, COALESCE(c.name, 'Uncategorized') AS category, p.grade, p.form, p.unit,
-           p.selling_price, p.on_hand, p.reorder_level
+           p.selling_price, p.on_hand, p.reorder_level, p.shop_description, p.shop_specs,
+           (SELECT image_url FROM shop_product_images WHERE product_id=p.product_id ORDER BY sort_order,image_id LIMIT 1) AS image_url
       FROM products p LEFT JOIN categories c USING (category_id)
-     WHERE p.department = $1 AND NOT p.is_archived AND p.selling_price > 0
+     WHERE p.department = $1 AND NOT p.is_archived AND p.selling_price > 0 AND p.shop_visible = TRUE
      ORDER BY COALESCE(c.name, 'Uncategorized'), p.name`;
   const catalogJson = (r) => ({
     sku: r.sku, name: r.name, category: r.category, unit: r.unit,
     spec: [r.grade, r.form].filter(Boolean).join(' · '),
+    description: r.shop_description || '', specs: r.shop_specs || {}, image: r.image_url || null,
     price: +r.selling_price, available: +r.on_hand, low: +r.reorder_level, fractional: isMeasured(r.unit)
   });
   async function catalog() {
@@ -335,7 +337,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows } = await client.query(
       `SELECT product_id, sku, name, unit, selling_price, on_hand
          FROM products
-        WHERE upper(sku) = ANY($1) AND department = $2 AND NOT is_archived AND selling_price > 0
+        WHERE upper(sku) = ANY($1) AND department = $2 AND NOT is_archived AND selling_price > 0 AND shop_visible = TRUE
         ORDER BY product_id ${lock ? 'FOR UPDATE' : ''}`, [[...lines.keys()], FG]);
     const bySku = new Map(rows.map(r => [r.sku.toUpperCase(), r]));
     const out = [];

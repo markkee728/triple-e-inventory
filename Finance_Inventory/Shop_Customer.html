@@ -167,6 +167,23 @@
 <div id="toast" role="status"></div>
 
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
+
+<!-- Finished Goods product details -->
+<div class="modal-overlay" id="shopDetailsBg" role="dialog" aria-modal="true" aria-labelledby="shopDetailsTitle" style="display:none;align-items:center;justify-content:center;padding:20px;z-index:1000">
+  <div class="card shop-detail-dialog" style="width:min(760px,100%);max-height:90vh;overflow:auto;padding:24px;position:relative">
+    <button type="button" class="btn-secondary" id="shopDetailsClose" style="float:right" aria-label="Close product details">Close ×</button>
+    <div id="shopDetailsContent"></div>
+  </div>
+</div>
+<style>
+.shop-product-image{width:100%;height:100%;min-height:140px;max-height:220px;object-fit:contain;display:block;background:rgba(127,127,127,.06)}
+.shop-detail-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:20px;align-items:start;margin-top:18px}
+.shop-detail-photo{width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:rgba(127,127,127,.08)}
+.shop-detail-thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.shop-detail-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:6px;cursor:pointer}
+.shop-detail-specs{display:grid;grid-template-columns:minmax(100px,1fr) 2fr;gap:8px;margin-top:12px}.shop-detail-specs dt{font-weight:600}.shop-detail-specs dd{margin:0}
+@media(max-width:600px){.shop-detail-main{grid-template-columns:1fr}}
+</style>
+
 <script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type' };</script>
 <script src="account-menu.js"></script>
 <script src="shop-address.js"></script>
@@ -339,11 +356,11 @@ function renderCatalog() {
   const rows = filtered();
   $('resultLine').textContent = `${rows.length} of ${PRODUCTS.length} products`;
   $('grid').innerHTML = rows.map(p => { const out = p.available <= 0, n = inCart(p.sku); return `<article class="card prod">
-    <div class="prod-art">${catIcon(p.category)}${stockChip(p)}</div>
+    <div class="prod-art">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.hidden=true" />` : catIcon(p.category)}${stockChip(p)}</div>
     <div class="prod-body">
       <div class="sku">${esc(p.sku)}</div><div class="name">${esc(p.name)}</div><div class="spec">${esc(p.spec || p.category)}</div>
       <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
-      <div class="buy"><button class="btn-primary" data-add="${esc(p.sku)}" ${out ? 'disabled' : ''}>${out ? 'Unavailable' : 'Add to cart'}</button></div>
+      <div class="buy"><button class="btn-secondary" type="button" data-details="${esc(p.sku)}">View details</button><button class="btn-primary" data-add="${esc(p.sku)}" ${out ? 'disabled' : ''}>${out ? 'Unavailable' : 'Add to cart'}</button></div>
       <div class="in-cart-note">${n ? n + ' in your cart' : ''}</div>
     </div></article>`; }).join('')
     || '<div class="card empty-card" style="grid-column:1/-1"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>No products match</h3><p>Try a different search or clear the filters.</p></div>';
@@ -470,10 +487,28 @@ async function placeOrder() {
   toast(online ? 'Order placed. Payment will be confirmed by Xendit.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
 }
 
+
+async function openProductDetails(sku) {
+  const p = prod(sku); if (!p) return;
+  const bg = $('shopDetailsBg'), area = $('shopDetailsContent');
+  bg.style.display = 'flex'; area.textContent = 'Loading product details…';
+  try {
+    const d = await api('/api/shop/product-content/' + encodeURIComponent(sku));
+    const photos = (d.images || []).filter(i => /^https:\/\//i.test(i.url));
+    const specs = Object.entries(d.specs || {});
+    const img = photos.length ? `<img id="shopDetailsHero" class="shop-detail-photo" src="${esc(photos[0].url)}" alt="${esc(photos[0].alt || d.name)}">` : `<div class="prod-art" style="min-height:180px">${catIcon(p.category)}</div>`;
+    area.innerHTML = `<div class="shop-detail-main"><div>${img}<div class="shop-detail-thumbs">${photos.map((im,i)=>`<img src="${esc(im.url)}" alt="${esc(im.alt || 'Product image '+(i+1))}" data-photo="${i}" loading="lazy">`).join('')}</div></div><div><div class="sku">${esc(p.sku)}</div><h2 id="shopDetailsTitle">${esc(d.name)}</h2><div class="price">${peso(p.price)} / ${esc(p.unit)}</div><p>${esc(d.description || 'No description provided yet.')}</p><p>${stockChip(p)}</p><button type="button" class="btn-primary" data-add="${esc(p.sku)}" ${p.available<=0?'disabled':''}>Add to cart</button></div></div>${specs.length ? `<h3>Specifications</h3><dl class="shop-detail-specs">${specs.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>` : ''}`;
+    area.querySelectorAll('[data-photo]').forEach(el => el.addEventListener('click', () => { const hero = $('shopDetailsHero'); if(hero){hero.src=photos[Number(el.dataset.photo)].url;hero.alt=photos[Number(el.dataset.photo)].alt || d.name;} }));
+  } catch(err) { area.textContent = err.message || 'Could not load product details.'; }
+}
+$('shopDetailsClose').onclick = () => $('shopDetailsBg').style.display = 'none';
+$('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetailsBg')) $('shopDetailsBg').style.display='none';});
+
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit]'); if (!el) return; const d = el.dataset;
   if (d.view) show(d.view);
+  if (d.details) openProductDetails(d.details);
   if (d.xendit) {
     api('/api/shop/orders/' + encodeURIComponent(d.xendit) + '/xendit-checkout', { method: 'POST', body: '{}' })
       .then(payment => { if (payment.checkoutUrl) location.href = payment.checkoutUrl; else toast('No checkout URL was returned.', true); })
@@ -509,7 +544,7 @@ $('refundSend').onclick = async () => {
   renderOrders(); syncCounts(); toast('Refund request sent. We will review it soon.');
 };
 $('q').oninput = $('sort').onchange = $('inStock').onchange = renderCatalog;
-$('q').onkeydown = e => { if (e.key === 'Escape') { $('q').value = ''; renderCatalog(); } };
+$('q').onkeydown = e => { if (e.key === 'Escape') { $('shopDetailsBg').style.display='none'; $('q').value = ''; renderCatalog(); } };
 document.addEventListener('keydown', e => {
   if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); show('catalog'); $('q').focus(); }
   if (e.key === 'Escape') { setNav(false); closeModal('cancelBg'); closeModal('refundBg'); $('userDropdown').classList.remove('open'); }
