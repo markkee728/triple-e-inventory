@@ -1318,19 +1318,14 @@
                     <button class="btn-secondary btn-sm" id="soRefresh" type="button">Refresh</button>
                 </div>
 
+                <!-- 1. Online orders -->
                 <div class="panel sales-log-panel">
                     <div class="panel-head">
                         <div>
-                            <div class="panel-title" id="soTitle">Online Orders</div>
+                            <div class="panel-title">Online Orders</div>
                             <div class="panel-sub" id="soSub">Loading&hellip;</div>
                         </div>
                         <div class="inv-filters">
-                            <select id="soView" class="inv-select">
-                                <option value="orders">Online orders</option>
-                                <option value="pos">POS walk-in sales</option>
-                                <option value="payments">Payment summary (POS + online)</option>
-                                <option value="shifts">Cash shifts (cashier drawers)</option>
-                            </select>
                             <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
                             <select id="soStatus" class="inv-select">
                                 <option value="all">All statuses</option>
@@ -1345,13 +1340,53 @@
                             </select>
                         </div>
                     </div>
-                    <div class="table-wrapper" id="soTableWrap">
+                    <div class="table-wrapper">
                         <table>
                             <thead id="soHead"></thead>
                             <tbody id="soBody"></tbody>
                         </table>
                     </div>
-                    <div id="soCash" hidden></div>
+                </div>
+
+                <!-- 2. POS walk-in sales -->
+                <div class="panel sales-log-panel" style="margin-top:20px">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title">POS Walk-in Sales (today)</div>
+                            <div class="panel-sub" id="soPosSub">Loading&hellip;</div>
+                        </div>
+                        <div class="inv-filters">
+                            <input type="text" id="soPosSearch" class="inv-search" placeholder="Search receipt, cashier or product..." autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead id="soPosHead"></thead>
+                            <tbody id="soPosBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- 3. Payment summary -->
+                <div class="panel sales-log-panel" style="margin-top:20px">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title">Payment Summary (POS + online)</div>
+                            <div class="panel-sub" id="soPaySub">Loading&hellip;</div>
+                        </div>
+                    </div>
+                    <div id="soPay" style="padding:0 18px 18px"></div>
+                </div>
+
+                <!-- 4. Cash shifts -->
+                <div class="panel sales-log-panel" style="margin-top:20px">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title">Cash Shifts (cashier drawers)</div>
+                            <div class="panel-sub" id="soShiftSub">Loading&hellip;</div>
+                        </div>
+                    </div>
+                    <div id="soShifts" style="padding:0 18px 18px"></div>
                 </div>
 
             </section>
@@ -3545,8 +3580,8 @@
     <!-- JAVASCRIPT -->
     <script src="script.js"></script>
     <script src="api-bridge.js?v=8"></script>
-    <script src="sales-orders.js?v=2"></script>
-    <script src="cash-shift-reports.js?v=1"></script>
+    <script src="sales-orders.js?v=3"></script>
+    <script src="cash-shift-reports.js?v=2"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="finished-goods-shop.js?v=3"></script>

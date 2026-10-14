@@ -30,48 +30,44 @@
   const actionLabel = (next) => next === 'Paid' ? 'Confirm payment' : 'Mark ' + next;
 
   async function load() {
-    try {
-      const [o, p] = await Promise.all([api('/orders'), api('/pos/sales')]);
-      ORDERS = o; POS = p; render();
-    } catch (e) { $('soSub').textContent = e.message; }
+    // Each list loads on its own so one failing request doesn't blank the others.
+    const [o, p] = await Promise.allSettled([api('/orders'), api('/pos/sales')]);
+    if (o.status === 'fulfilled') ORDERS = o.value; else $('soSub').textContent = o.reason.message;
+    if (p.status === 'fulfilled') POS = p.value; else $('soPosSub').textContent = p.reason.message;
+    if (o.status === 'fulfilled') renderOrders();
+    if (p.status === 'fulfilled') renderPos();
+    if (window.CashReports) window.CashReports.show();   // payment summary + cash shifts
   }
 
-  function render() {
-    const view = $('soView').value, q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value;
-    const cashView = view === 'payments' || view === 'shifts';
-    if ($('soTableWrap')) $('soTableWrap').hidden = cashView;
-    if ($('soCash')) $('soCash').hidden = !cashView;
-    $('soSearch').style.display = cashView ? 'none' : '';
-    if (cashView) { $('soStatus').style.display = 'none'; if (window.CashReports) window.CashReports.show(view); return; }
-    $('soStatus').style.display = view === 'orders' ? '' : 'none';
-    if (view === 'orders') {
-      const rows = ORDERS.filter(o => (st === 'all' || o.status === st) &&
-        (!q || (o.id + ' ' + o.customer + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));
-      $('soTitle').textContent = 'Online Orders';
-      $('soSub').textContent = rows.length + ' of ' + ORDERS.length + ' orders';
-      $('soHead').innerHTML = '<tr><th>Order</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Type / Payment</th><th>Status</th><th>Action</th></tr>';
-      $('soBody').innerHTML = rows.length ? rows.map(o => {
-        const items = o.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>');
-        let act = '';
-        if (o.cancelRequested) act = '<button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="1">Approve cancel</button> <button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="0">Reject</button>';
-        else if (o.next) act = '<button class="btn-primary btn-sm" data-so-next="' + esc(o.id) + '" data-to="' + esc(o.next) + '">' + esc(actionLabel(o.next)) + '</button>';
-        else act = '<span class="faint">—</span>';
-        return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + esc(o.customer) +
-          (o.address ? '<div class="faint" style="font-size:12px">' + esc(o.address) + '</div>' : '') +
-          '<div class="faint" style="font-size:12px">' + esc(o.phone) + '</div></td><td>' + items + '</td><td>' + peso(o.total) +
-          '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(o.method) + '</div></td><td>' + pill(o.status) +
-          (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
-      }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';
-    } else {
-      const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
-      const live = rows.filter(s => s.status !== 'Voided');
-      $('soTitle').textContent = 'POS Walk-in Sales (today)';
-      $('soSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total, 0)) + ' collected';
-      $('soHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>';
-      $('soBody').innerHTML = rows.length ? rows.map(s => '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' +
-        s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(s.method) + '</td><td>' + pill(s.status) + '</td></tr>').join('')
-        : '<tr><td colspan="7" class="report-note">No POS sales today.</td></tr>';
-    }
+  function renderOrders() {
+    const q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value;
+    const rows = ORDERS.filter(o => (st === 'all' || o.status === st) &&
+      (!q || (o.id + ' ' + o.customer + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));
+    $('soSub').textContent = rows.length + ' of ' + ORDERS.length + ' orders';
+    $('soHead').innerHTML = '<tr><th>Order</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Type / Payment</th><th>Status</th><th>Action</th></tr>';
+    $('soBody').innerHTML = rows.length ? rows.map(o => {
+      const items = o.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>');
+      let act = '';
+      if (o.cancelRequested) act = '<button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="1">Approve cancel</button> <button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="0">Reject</button>';
+      else if (o.next) act = '<button class="btn-primary btn-sm" data-so-next="' + esc(o.id) + '" data-to="' + esc(o.next) + '">' + esc(actionLabel(o.next)) + '</button>';
+      else act = '<span class="faint">—</span>';
+      return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + esc(o.customer) +
+        (o.address ? '<div class="faint" style="font-size:12px">' + esc(o.address) + '</div>' : '') +
+        '<div class="faint" style="font-size:12px">' + esc(o.phone) + '</div></td><td>' + items + '</td><td>' + peso(o.total) +
+        '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(o.method) + '</div></td><td>' + pill(o.status) +
+        (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';
+  }
+
+  function renderPos() {
+    const q = $('soPosSearch').value.trim().toLowerCase();
+    const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
+    const live = rows.filter(s => s.status !== 'Voided');
+    $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total, 0)) + ' collected';
+    $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>';
+    $('soPosBody').innerHTML = rows.length ? rows.map(s => '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' +
+      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(s.method) + '</td><td>' + pill(s.status) + '</td></tr>').join('')
+      : '<tr><td colspan="7" class="report-note">No POS sales today.</td></tr>';
   }
 
   document.addEventListener('click', async (e) => {
@@ -89,8 +85,9 @@
     } catch (err) { toast(err.message, true); b.disabled = false; }
   });
 
-  ['soView', 'soStatus'].forEach(id => $(id) && $(id).addEventListener('change', render));
-  $('soSearch') && $('soSearch').addEventListener('input', render);
+  $('soStatus') && $('soStatus').addEventListener('change', renderOrders);
+  $('soSearch') && $('soSearch').addEventListener('input', renderOrders);
+  $('soPosSearch') && $('soPosSearch').addEventListener('input', renderPos);
   $('soRefresh') && $('soRefresh').addEventListener('click', load);
   document.querySelectorAll('.nav-item[data-page="sales"]').forEach(n => n.addEventListener('click', load));
   if ($('sales') && $('sales').classList.contains('active-page')) load();
