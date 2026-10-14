@@ -26,8 +26,11 @@ const REFUND_REASONS = {
   other: 'Other'
 };
 
+const makeOrderMail = require('./order-mail');
+
 module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
+  const { notify, shopInfo } = makeOrderMail(pool);   // customer emails (never block or fail an order)
 
   // Adds what the Sales Transactions page needs (safe to run every time the server starts).
   async function ensureSalesSchema() {
@@ -228,13 +231,16 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!rows.length) { await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true}); }
     const o = rows[0];
     if (event.status === 'PAID' && Number(event.paid_amount ?? event.amount) === Number(o.total) && o.payment_status !== 'paid' && o.status === 'Pending Confirmation') {
+      let confirmed = false;
       await tx(async (client) => {
         const locked = await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id]);
         const current = locked.rows[0];
         if (!current || current.payment_status === 'paid' || current.status !== 'Pending Confirmation') return;
         await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, `Xendit invoice ${invoiceId} paid`);
         await client.query("UPDATE orders SET payment_status = 'paid' WHERE order_id = $1", [current.order_id]);
+        confirmed = true;
       });
+      if (confirmed) notify(o.order_no, 'Paid');
     } else if (event.status === 'EXPIRED' && o.payment_status !== 'paid') {
       await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id]);
     }
@@ -557,7 +563,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
      SHOP — customer
   ===================================================== */
   app.get('/api/shop/products', auth('customer'), wrap(async (req, res) => res.json(await catalog())));
-  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS }));
+  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
+  // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
+  app.get('/api/shop/info', (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, info: shopInfo() }));
 
   /* ---------- refunds (shared by the customer and finance routes) ---------- */
   // (request_id is BIGSERIAL, which pg returns as text, hence Number())
@@ -721,6 +729,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       return orderJson(o, items, false, null);
     });
     res.status(201).json(order);
+    notify(order.id, 'placed');
   }));
 
   app.post('/api/shop/orders/:no/cancel-request', auth('customer'), wrap(async (req, res) => {
@@ -784,6 +793,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await confirmOrder(client, o, req.user);
     });
     res.json({ ok: true });
+    notify(req.params.no, 'Paid');
   }));
 
   app.post('/api/orders/:no/cancel-decision', auth('finance'), wrap(async (req, res) => {
@@ -809,6 +819,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await audit(client, req.user, 'Record edited', `Cancellation ${approve ? 'approved' : 'rejected'} for ${o.order_no}${approve && o.stock_deducted ? ' — stock restored, refund to original payment method due' : ''}`);
     });
     res.json({ ok: true });
+    notify(req.params.no, approve ? 'Cancelled' : 'cancel_declined');
   }));
   /* ---------- finance: review refund requests ---------- */
   app.get('/api/refund-requests', auth('finance'), wrap(async (req, res) => {
@@ -836,6 +847,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const approve = b.approve === true, restock = b.restock === true, note = str(b.note);
     if (note.length > 300) throw bad('note', 'The note must be 300 characters or fewer');
     if (!approve && note.length < 5) throw bad('note', 'Tell the customer why the request is declined (at least 5 characters)');
+    let refundAmount = 0;
     await tx(async (client) => {
       const r = await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [req.params.no]);
       if (!r.rowCount) throw bad('id', 'Order not found');
@@ -843,10 +855,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const q = await client.query(`SELECT * FROM order_refund_requests WHERE order_id = $1 AND status = 'pending' FOR UPDATE`, [o.order_id]);
       if (!q.rowCount) throw bad('id', 'There is no pending refund request for this order');
       let amount = +q.rows[0].amount;
+      refundAmount = amount;
       if (approve && b.amount !== undefined && b.amount !== null && b.amount !== '') {
         amount = Number(b.amount);
         if (!Number.isFinite(amount) || amount <= 0 || amount > +o.total || round2(amount) !== amount)
           throw bad('amount', `Enter a refund amount between ${peso(0.01)} and ${peso(o.total)}`);
+        refundAmount = amount;
       }
       if (approve && restock) {
         if (!o.stock_deducted) throw bad('restock', 'Stock was never taken out for this order, so there is nothing to put back');
@@ -864,6 +878,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
                 : `Refund declined for ${o.order_no}: ${note}`);
     });
     res.json({ ok: true });
+    notify(req.params.no, approve ? 'refund_approved' : 'refund_declined', { note, amount: refundAmount });
   }));
 
   /* =====================================================
@@ -961,6 +976,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
     });
     res.json({ ok: true });
+    notify(req.params.no, target);
   }));
 
   // Admin cancels an order directly (reason required). Stock goes back if it was already deducted.
@@ -985,5 +1001,6 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await audit(client, req.user, 'Record edited', `Order ${o.order_no} cancelled by admin: ${reason}${o.stock_deducted ? ' — stock restored, refund to original payment method due' : ''}`);
     });
     res.json({ ok: true });
+    notify(req.params.no, 'Cancelled', { reason });
   }));
 };

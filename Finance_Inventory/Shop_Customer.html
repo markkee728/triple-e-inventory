@@ -11,6 +11,14 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css">
 <link rel="stylesheet" href="store.css">
+<style>
+a.nav-item{text-decoration:none}
+.fulfil-note{margin:10px 0 4px;padding:10px 12px;border-radius:8px;background:var(--inset);border:1px solid var(--border);font-size:13.5px;color:var(--text-dim);line-height:1.55}
+.fulfil-note b{color:var(--text)}
+.help-line{margin-top:14px;font-size:13.5px;color:var(--text-dim)}
+.help-line a{color:var(--blue-bright);font-weight:600;text-decoration:none}
+.pd-perks .more{display:block;margin-top:2px;color:var(--text-dim);font-size:12.5px}
+</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -32,6 +40,12 @@
     <div class="nav-group">
       <div class="nav-label">Account</div>
       <button class="nav-item" data-view="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>My Orders<span class="count" id="navOrderCount">0</span></button>
+    </div>
+    <div class="nav-group">
+      <div class="nav-label">Help</div>
+      <a class="nav-item" href="Shop_Info.html#delivery"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery &amp; pickup</a>
+      <a class="nav-item" href="Shop_Info.html#refunds"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>Refunds &amp; policies</a>
+      <a class="nav-item" href="Shop_Info.html#contact"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.7 2z"/></svg>Contact us</a>
     </div>
   </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Online Shop</strong>Triple E Metal Products</div></div>
@@ -108,6 +122,7 @@
           <div class="row"><span class="dim">Items</span><span class="mono" id="cItems">0</span></div>
           <div class="row total"><span>Subtotal</span><span class="mono" id="sub">₱0.00</span></div>
           <button class="btn-primary btn-lg" id="toCheckout" style="margin-top:14px">Checkout</button>
+          <div class="help-line" data-help></div>
           <div class="perk-list"><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Delivery fee shown at checkout</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Pay online or in cash</div></div>
         </aside>
       </div>
@@ -124,6 +139,7 @@
             <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small><span data-fee>₱150</span> fee · to your address</small></span></label>
             <label class="opt" data-f="Pickup"><input type="radio" name="f"><span>Pickup at our yard<small>Free · we’ll text you when ready</small></span></label>
           </div>
+          <div class="fulfil-note" id="fulfilNote"></div>
           <div class="sec-title" id="addrTitle">Delivery address</div>
           <div id="addrBox"></div>
           <div id="contactBox">
@@ -147,6 +163,7 @@
     <section class="page" id="orders">
       <div class="page-head"><div><h1>My orders</h1><p>Track deliveries, request a cancellation, or ask for a refund after your order arrives.</p></div></div>
       <div id="orderList"></div>
+      <div class="help-line" data-help></div>
     </section>
 
   </div>
@@ -274,6 +291,7 @@ async function submitOrder(o) {            // server re-prices from the database
     items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, phone: o.phone, method: o.method,
     shipTo: o.shipTo, saveAddress: o.saveAddress, addressLabel: o.addressLabel, makeDefault: o.makeDefault }) });
 }
+let INFO = {}, REFUND_DAYS = 7;
 async function loadConfig() { try { return await api('/api/shop/config'); } catch (e) { return {}; } }     // delivery fee comes from the server so it can never disagree with the order total
 async function requestRefund(id, reason, details) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/refund-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason: why }) }); }
@@ -436,6 +454,10 @@ function renderCheckout() {
   document.querySelectorAll('[data-f]').forEach(o => { o.classList.toggle('on', o.dataset.f === fulfil); o.querySelector('input').checked = o.dataset.f === fulfil; });
   $('addrBox').hidden = $('addrTitle').hidden = fulfil !== 'Delivery'; $('contactBox').hidden = fulfil === 'Delivery';    // delivery: the mobile number is part of the address
   updateShipSummary();
+  { const i = INFO || {};
+    $('fulfilNote').innerHTML = fulfil === 'Delivery'
+      ? '<b>Delivery</b> · ' + (DELIVERY_FEE > 0 ? '₱' + DELIVERY_FEE.toLocaleString('en-PH') + ' flat fee. ' : 'Free. ') + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
+      : '<b>Pickup</b> · Free. ' + (i.address ? 'Collect at ' + esc(i.address) + '. ' : '') + (i.hours ? 'Hours: ' + esc(i.hours) + '. ' : '') + esc(i.pickupNote || '') + ' We email you when your order is ready.'; }
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${m}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
@@ -445,6 +467,43 @@ function renderCheckout() {
 function updateShipSummary() {
   const box = $('sumShip'), a = fulfil === 'Delivery' && window.ShopAddress && ShopAddress.usingSaved() ? ShopAddress.summary() : null;
   box.hidden = !a; if (a) box.innerHTML = '<b>Deliver to</b>' + esc(a.recipient) + ' · ' + esc(a.phone) + '<br>' + esc(a.full);
+}
+
+function renderHelpLines() {
+  const i = INFO || {}, bits = [];
+  if (i.phone) bits.push('<a href="tel:' + esc(i.phone.replace(/[^\d+]/g, '')) + '">' + esc(i.phone) + '</a>');
+  if (i.email) bits.push('<a href="mailto:' + esc(i.email) + '">' + esc(i.email) + '</a>');
+  document.querySelectorAll('[data-help]').forEach(el => {
+    el.innerHTML = 'Questions? ' + (bits.length ? bits.join(' · ') + ' · ' : '') + '<a href="Shop_Info.html#contact">Help &amp; contact</a>';
+  });
+}
+function printReceipt(id) {
+  const o = orders.find(x => x.id === id); if (!o) return;
+  const i = INFO || {}, w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your receipt.', true);
+  const rows = o.items.map(it => `<tr><td>${esc(it.qty)} × ${esc(it.name)}</td><td class="r">${peso(it.price)}</td><td class="r">${peso(it.qty * it.price)}</td></tr>`).join('');
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(o.id)}</title><style>
+    body{font:14px/1.5 Arial,sans-serif;color:#111;max-width:640px;margin:30px auto;padding:0 16px}
+    h1{font-size:20px;margin:0}h2{font-size:15px;margin:22px 0 6px}.muted{color:#555;font-size:13px}
+    table{width:100%;border-collapse:collapse}td,th{padding:6px 0;border-bottom:1px solid #ddd;text-align:left}.r{text-align:right}th.r{text-align:right}
+    .tot td{border-bottom:0;font-weight:bold;font-size:15px}.btn{margin-top:22px;padding:8px 16px}@media print{.btn{display:none}}
+  </style></head><body>
+    <h1>Triple E Metal Products</h1>
+    <div class="muted">${[i.address, i.phone, i.email].filter(Boolean).map(esc).join(' · ')}</div>
+    <h2>Order receipt</h2>
+    <table><tr><td>Order no.</td><td class="r"><b>${esc(o.id)}</b></td></tr>
+    <tr><td>Date</td><td class="r">${esc(new Date(o.createdAt).toLocaleString('en-PH'))}</td></tr>
+    <tr><td>Customer</td><td class="r">${esc(USER.name || '')}</td></tr>
+    <tr><td>${esc(o.fulfillment)}</td><td class="r">${esc(o.fulfillment === 'Delivery' ? (o.address || '') : 'Pickup' + (i.address ? ' at ' + i.address : ''))}</td></tr>
+    <tr><td>Payment</td><td class="r">${esc(o.method)}</td></tr><tr><td>Status</td><td class="r">${esc(o.status)}</td></tr></table>
+    <h2>Items</h2>
+    <table><tr><th>Item</th><th class="r">Price</th><th class="r">Amount</th></tr>${rows}
+    <tr><td colspan="2">Subtotal</td><td class="r">${peso(o.subtotal)}</td></tr>
+    ${o.deliveryFee ? `<tr><td colspan="2">Delivery</td><td class="r">${peso(o.deliveryFee)}</td></tr>` : ''}
+    <tr class="tot"><td colspan="2">Total</td><td class="r">${peso(o.total)}</td></tr></table>
+    <p class="muted" style="margin-top:20px">Thank you for shopping with Triple E Metal Products.</p>
+    <button class="btn" onclick="print()">Print</button>
+  </body></html>`);
+  w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 300);
 }
 
 /* ----- orders ----- */
@@ -472,6 +531,7 @@ function renderOrders() {
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
+    ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">Print receipt</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
@@ -533,7 +593,17 @@ async function placeOrder() {
 }
 
 
-const PD_PERKS = '<div class="pd-perks"><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Made by Triple E Metal, genuine factory product</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Delivery or pickup, choose at checkout</div><div><svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Refund requests accepted after delivery</div></div>';
+const CHECK = '<svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
+function pdPerks() {
+  const i = INFO || {}, fee = DELIVERY_FEE > 0 ? '₱' + DELIVERY_FEE.toLocaleString('en-PH') + ' flat fee' : 'free';
+  const row = (main, more) => '<div>' + CHECK + '<span>' + main + (more ? '<span class="more">' + more + '</span>' : '') + '</span></div>';
+  return '<div class="pd-perks">'
+    + row('Made by Triple E Metal, genuine factory product')
+    + row('Delivery (' + fee + ')' + (i.deliveryAreas ? ' · ' + esc(i.deliveryAreas) : ''), esc(i.deliveryLeadTime || ''))
+    + row('Free pickup' + (i.address ? ' at ' + esc(i.address) : ' at our yard'), i.hours ? esc(i.hours) : '')
+    + row('Refund requests accepted for ' + (REFUND_DAYS || 7) + ' days after delivery', '<a href="Shop_Info.html#refunds" target="_blank" rel="noopener" style="color:var(--blue-bright)">Read our policies</a>')
+    + '</div>';
+}
 let pdSku = null;
 function closeProductDetails() { $('shopDetailsBg').style.display = 'none'; pdSku = null; document.body.style.overflow = ''; }
 async function openProductDetails(sku) {
@@ -569,7 +639,7 @@ async function openProductDetails(sku) {
         <button type="button" class="btn-primary" id="pdAdd" ${p.available <= 0 ? 'disabled' : ''}>${p.available <= 0 ? 'Out of stock' : 'Add to cart'}</button>
       </div>
       <div class="in-cart-note" id="pdNote">${inCart(p.sku) ? inCart(p.sku) + ' already in your cart' : ''}</div>
-      ${PD_PERKS}
+      ${pdPerks()}
     </div>
     <div class="pd-tabs">
       <div class="pd-tabbar" role="tablist"><button type="button" class="pd-tab on" role="tab" data-pdtab="desc">Description</button><button type="button" class="pd-tab" role="tab" data-pdtab="specs">Specifications${specs.length ? ' (' + specs.length + ')' : ''}</button></div>
@@ -605,7 +675,8 @@ $('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetail
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit],[data-receipt]'); if (!el) return; const d = el.dataset;
+  if (d.receipt) return printReceipt(d.receipt);
   if (d.view) show(d.view);
   if (d.details) openProductDetails(d.details);
   if (d.xendit) {
@@ -661,6 +732,7 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
   if (window.AccountMenu) AccountMenu.setUser(USER);       // fills the name / email / photo and powers My Profile + Change Password
   const [cfgShop, profile] = await Promise.all([loadConfig(), api('/api/auth/profile').catch(() => ({}))]);
+  INFO = cfgShop.info || {}; REFUND_DAYS = cfgShop.refundWindowDays || 7; renderHelpLines();
   if (cfgShop.deliveryFee >= 0) { DELIVERY_FEE = cfgShop.deliveryFee; document.querySelectorAll('[data-fee]').forEach(el => el.textContent = '₱' + DELIVERY_FEE.toLocaleString('en-PH')); }
   if (profile.phone) $('phone').value = profile.phone;
   ShopAddress.init({ api, esc, toast, onChange: updateShipSummary });

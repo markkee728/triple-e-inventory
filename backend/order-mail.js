@@ -1,0 +1,106 @@
+/* Shop contact / delivery details + the emails sent to online-shop customers about their order.
+
+   Business details are NOT hard-coded: set them in backend/.env (see .env.example) and they appear on the
+   shop pages, the Help page and in every email. Anything left empty is simply not shown.
+
+   Emails are sent through mailer.js (Gmail or Mailgun). If no email service is set up, nothing is sent and the
+   message is printed in the server console instead. Sending never blocks or breaks an order: a failed email is logged only. */
+const mailer = require('./mailer');
+const { escapeHtml: esc } = mailer;
+
+const env = (k) => String(process.env[k] || '').trim();
+const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function shopInfo() {
+  return {
+    phone: env('SHOP_PHONE'), email: env('SHOP_EMAIL'), viber: env('SHOP_VIBER'), messenger: env('SHOP_MESSENGER'),
+    address: env('SHOP_ADDRESS'), hours: env('SHOP_HOURS'),
+    deliveryAreas: env('DELIVERY_AREAS'),
+    deliveryLeadTime: env('DELIVERY_LEAD_TIME') || 'We confirm the delivery schedule with you once your payment is confirmed.',
+    pickupNote: env('PICKUP_NOTE')
+  };
+}
+
+// event -> what the customer is told
+const EVENTS = {
+  placed:           { subject: (o) => `We received your order ${o.order_no}`, head: 'Thank you for your order!',
+    msg: (o) => /^Cash/.test(o.payment_method)
+      ? `We have your order. Our team will confirm it shortly. You pay in cash when you ${o.fulfillment === 'Delivery' ? 'receive' : 'collect'} it.`
+      : 'We have your order. If you have not paid yet, open My Orders and choose “Continue Online Payment”. We start preparing your order once payment is confirmed.' },
+  Paid:             { subject: (o) => `Order ${o.order_no} confirmed`, head: 'Your order is confirmed',
+    msg: () => 'Your order is confirmed and your items are reserved. We will start packing it next.' },
+  Packed:           { subject: (o) => `Order ${o.order_no} is packed`, head: 'Your order is packed',
+    msg: (o) => o.fulfillment === 'Delivery' ? 'Your items are packed and waiting for the delivery run.' : 'Your items are packed. We will let you know as soon as they are ready for pickup.' },
+  'Out for Delivery': { subject: (o) => `Order ${o.order_no} is out for delivery`, head: 'Your order is on its way',
+    msg: () => 'Your order is out for delivery. Please keep your phone nearby and have someone ready to receive it.' },
+  'Ready for Pickup': { subject: (o) => `Order ${o.order_no} is ready for pickup`, head: 'Your order is ready for pickup',
+    msg: () => 'Your order is ready. Please bring your order number and a valid ID when you collect it.' },
+  Delivered:        { subject: (o) => `Order ${o.order_no} was delivered`, head: 'Your order was delivered',
+    msg: (o, d) => `Your order was delivered${o.received_by ? ' (received by ' + o.received_by + ')' : ''}. If something is wrong, you can request a refund from My Orders within ${d.refundDays} days.` },
+  'Picked Up':      { subject: (o) => `Order ${o.order_no} was picked up`, head: 'Thank you for picking up your order',
+    msg: (o, d) => `Your order was picked up${o.received_by ? ' by ' + o.received_by : ''}. If something is wrong, you can request a refund from My Orders within ${d.refundDays} days.` },
+  Cancelled:        { subject: (o) => `Order ${o.order_no} was cancelled`, head: 'Your order was cancelled',
+    msg: (o, d) => 'Your order was cancelled' + (d.reason ? ': ' + d.reason : '.') + ' If you already paid online, the refund goes back to your original payment method; our team will contact you about the timing.' },
+  cancel_declined:  { subject: (o) => `About your cancellation request for ${o.order_no}`, head: 'Cancellation request declined',
+    msg: () => 'We could not cancel this order, so it is still being processed. Please contact us if you have questions.' },
+  refund_approved:  { subject: (o) => `Refund approved for order ${o.order_no}`, head: 'Your refund was approved',
+    msg: (o, d) => `We approved your refund of ${peso(d.amount)}. ` + (/^Cash/.test(o.payment_method) ? 'Our team will contact you to hand back this amount.' : 'It goes back to your original payment method (' + o.payment_method + ').') + (d.note ? ' Note from our team: ' + d.note : '') },
+  refund_declined:  { subject: (o) => `About your refund request for ${o.order_no}`, head: 'Refund request declined',
+    msg: (o, d) => 'We could not approve your refund request.' + (d.note ? ' Reason: ' + d.note : '') + ' Please contact us if you would like to discuss it.' }
+};
+
+function build(o, items, ev, extra, info) {
+  const base = env('APP_BASE_URL').replace(/\/$/, '');
+  const link = base ? base + '/Shop_Customer.html' : '';
+  const refundDays = Number(process.env.REFUND_WINDOW_DAYS) || 7;
+  const d = Object.assign({ refundDays }, extra || {});
+  const def = EVENTS[ev];
+  const name = (o.full_name || 'there').split(' ')[0];
+  const message = def.msg(o, d);
+  const rows = items.map(i => `<tr><td style="padding:6px 0">${esc(+i.qty + ' × ' + i.name)}</td><td style="padding:6px 0;text-align:right">${esc(peso(i.qty * i.price))}</td></tr>`).join('');
+  const where = o.fulfillment === 'Delivery' ? (o.address ? 'Deliver to: ' + o.address : '') : ('Pickup' + (info.address ? ' at: ' + info.address : '') + (info.hours ? ' (' + info.hours + ')' : ''));
+  const contact = [info.phone && 'Phone: ' + info.phone, info.email && 'Email: ' + info.email, info.viber && 'Viber: ' + info.viber, info.messenger && 'Messenger: ' + info.messenger].filter(Boolean);
+
+  const html = `<!doctype html><html><body style="margin:0;background:#f3f5f8;font-family:Arial,Helvetica,sans-serif;color:#1c2430">
+<div style="max-width:560px;margin:0 auto;padding:24px 16px">
+<div style="background:#fff;border-radius:10px;padding:28px;border:1px solid #e1e6ee">
+<div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#1f6fb8;font-weight:bold">Triple E Metal Products</div>
+<h1 style="font-size:22px;margin:10px 0 6px">${esc(def.head)}</h1>
+<p style="margin:0 0 14px;line-height:1.5">Hi ${esc(name)},<br>${esc(message)}</p>
+<div style="background:#f3f5f8;border-radius:8px;padding:12px 14px;margin-bottom:14px"><b>Order ${esc(o.order_no)}</b><br><span style="color:#5a6677;font-size:13px">${esc(o.fulfillment)} · ${esc(o.payment_method)}</span></div>
+<table style="width:100%;border-collapse:collapse;font-size:14px;border-bottom:1px solid #e1e6ee">${rows}</table>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:8px">
+${+o.delivery_fee ? `<tr><td style="padding:3px 0;color:#5a6677">Delivery</td><td style="text-align:right">${esc(peso(o.delivery_fee))}</td></tr>` : ''}
+<tr><td style="padding:3px 0"><b>Total</b></td><td style="text-align:right"><b>${esc(peso(o.total))}</b></td></tr></table>
+${where ? `<p style="font-size:13px;color:#5a6677;margin:14px 0 0">${esc(where)}</p>` : ''}
+${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1f6fb8;color:#fff;text-decoration:none;padding:10px 18px;border-radius:6px;display:inline-block;font-size:14px">View my orders</a></p>` : ''}
+</div>
+${contact.length ? `<p style="font-size:12.5px;color:#5a6677;line-height:1.6;margin:14px 4px 0"><b>Questions?</b><br>${contact.map(esc).join('<br>')}</p>` : ''}
+<p style="font-size:11.5px;color:#8b95a5;margin:14px 4px">You are receiving this because you placed an order at the Triple E Metal Products online shop.</p>
+</div></body></html>`;
+
+  const text = [`Hi ${name},`, '', message, '', `Order ${o.order_no} (${o.fulfillment}, ${o.payment_method})`,
+    ...items.map(i => `  ${+i.qty} x ${i.name}  ${peso(i.qty * i.price)}`),
+    +o.delivery_fee ? `  Delivery  ${peso(o.delivery_fee)}` : '', `  Total  ${peso(o.total)}`, '', where, link && ('View my orders: ' + link),
+    contact.length ? '\nQuestions?\n' + contact.join('\n') : '', '\nTriple E Metal Products'].filter(x => x !== '').join('\n');
+  return { subject: def.subject(o, d), html, text };
+}
+
+module.exports = function makeOrderMail(pool) {
+  // Fire-and-forget: call as  notify(orderNo, 'Packed')  AFTER the database change is committed. Never throws.
+  async function notify(orderNo, ev, extra) {
+    try {
+      if (!EVENTS[ev]) return;
+      const { rows } = await pool.query(
+        `SELECT o.*, u.email, u.full_name FROM orders o JOIN users u ON u.user_id = o.customer_id WHERE o.order_no = $1`, [orderNo]);
+      const o = rows[0];
+      if (!o || !o.email) return;
+      const { rows: items } = await pool.query('SELECT name, qty, price FROM order_items WHERE order_id = $1 ORDER BY item_id', [o.order_id]);
+      const m = build(o, items, ev, extra, shopInfo());
+      const r = await mailer.sendMail({ to: o.email, subject: m.subject, html: m.html, text: m.text, tag: 'order-' + ev.toLowerCase().replace(/\s+/g, '-') });
+      if (!r.sent) console.warn(`[mail] order email "${ev}" for ${orderNo} not sent: ${r.reason}`);
+    } catch (err) { console.error(`[mail] order email "${ev}" for ${orderNo} failed:`, err.message); }
+  }
+  return { notify, shopInfo };
+};
+module.exports.shopInfo = shopInfo;
