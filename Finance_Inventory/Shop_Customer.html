@@ -299,6 +299,7 @@ async function requestCancel(id, why) { await api('/api/shop/orders/' + encodeUR
 /* ===== App ===== */
 let DELIVERY_FEE = 150;
 const ONLINE = ['Xendit'];
+const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 const $ = id => document.getElementById(id);
 const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
@@ -459,7 +460,7 @@ function renderCheckout() {
       ? '<b>Delivery</b> · ' + (DELIVERY_FEE > 0 ? '₱' + DELIVERY_FEE.toLocaleString('en-PH') + ' flat fee. ' : 'Free. ') + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
       : '<b>Pickup</b> · Free. ' + (i.address ? 'Collect at ' + esc(i.address) + '. ' : '') + (i.hours ? 'Hours: ' + esc(i.hours) + '. ' : '') + esc(i.pickupNote || '') + ' We email you when your order is ready.'; }
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
-  $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${m}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
+  $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${payLabel(m)}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
   $('s1').textContent = peso(subtotal()); $('s2').textContent = fee() ? peso(fee()) : 'Free'; $('s3').textContent = peso(subtotal() + fee());
 }
@@ -494,7 +495,7 @@ function printReceipt(id) {
     <tr><td>Date</td><td class="r">${esc(new Date(o.createdAt).toLocaleString('en-PH'))}</td></tr>
     <tr><td>Customer</td><td class="r">${esc(USER.name || '')}</td></tr>
     <tr><td>${esc(o.fulfillment)}</td><td class="r">${esc(o.fulfillment === 'Delivery' ? (o.address || '') : 'Pickup' + (i.address ? ' at ' + i.address : ''))}</td></tr>
-    <tr><td>Payment</td><td class="r">${esc(o.method)}</td></tr><tr><td>Status</td><td class="r">${esc(o.status)}</td></tr></table>
+    <tr><td>Payment</td><td class="r">${esc(payLabel(o.method))}</td></tr><tr><td>Status</td><td class="r">${esc(o.status)}</td></tr></table>
     <h2>Items</h2>
     <table><tr><th>Item</th><th class="r">Price</th><th class="r">Amount</th></tr>${rows}
     <tr><td colspan="2">Subtotal</td><td class="r">${peso(o.subtotal)}</td></tr>
@@ -515,7 +516,7 @@ function refundBlock(o) {
     const why = `<div class="refund-why">${esc(r.reasonLabel)} — ${esc(r.details)}</div>`;
     const note = r.decisionNote ? `<div class="refund-why">Note from our team: ${esc(r.decisionNote)}</div>` : '';
     if (r.status === 'pending') return `<div class="refund-box warn"><b>Refund requested · ${peso(r.amount)}</b>Waiting for our team to review it.${why}</div>`;
-    if (r.status === 'approved') return `<div class="refund-box ok"><b>Refund approved · ${peso(r.amount)}</b>${cash ? 'Our team will contact you to hand back this amount.' : 'This amount goes back to your original payment method (' + esc(o.method) + ').'}${note}</div>`;
+    if (r.status === 'approved') return `<div class="refund-box ok"><b>Refund approved · ${peso(r.amount)}</b>${cash ? 'Our team will contact you to hand back this amount.' : 'This amount goes back to your original payment method (' + esc(payLabel(o.method)) + ').'}${note}</div>`;
     return `<div class="refund-box bad"><b>Refund request declined</b>${why}${note}</div>`;
   }
   if (!closed) return '';
@@ -527,7 +528,7 @@ function renderOrders() {
   $('orderList').innerHTML = orders.length ? orders.map(o => { const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
     return `<div class="card order">
     <div class="order-head"><span class="id">${o.id}</span><span class="chip-pill ${o.status === 'Cancelled' ? 'bad' : done ? 'ok' : o.status === 'Pending Confirmation' ? 'warn' : ''}">${o.status}</span></div>
-    <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${o.method}</div>
+    <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${esc(payLabel(o.method))}</div>
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
@@ -589,7 +590,7 @@ async function placeOrder() {
   $('place').disabled = false; orders.unshift(order); renderCart();
   try { PRODUCTS = await loadProducts(); } catch (e) {}
   renderCatalog(); show('orders');
-  toast(online ? 'Order placed. Payment will be confirmed by Xendit.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
+  toast(online ? 'Order placed. Your online payment will be confirmed automatically.' : 'Order placed. Pay in cash on ' + (fulfil === 'Delivery' ? 'delivery.' : 'pickup.'));
 }
 
 

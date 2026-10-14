@@ -119,7 +119,7 @@
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
-              <button class="seg-btn" data-m="Xendit">QR / Bank (Xendit)</button>
+              <button class="seg-btn" data-m="Xendit">Online payment (QR / Bank)</button>
             </div>
             <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" inputmode="decimal" placeholder="0.00">
               <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
@@ -127,7 +127,7 @@
             <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
               <div class="faint" style="font-size:12.5px;margin-top:6px">The customer pays the total from their own phone (bank / card / e-wallet app). Check that the payment really went through, then type the reference number shown on their confirmation screen.</div>
               <label class="chk" style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13.5px"><input type="checkbox" id="cardOk" style="width:auto"> I saw the payment confirmation for the full amount</label></div>
-            <div id="xenditBox" hidden style="margin:10px 0;font-size:13px">Create a secure Xendit payment link. Customer can scan its QR or open the link and select available bank, wallet, or other supported channels. Sale completes only after verified payment.</div>
+            <div id="xenditBox" hidden style="margin:10px 0;font-size:13px">Create a secure online payment link. Customer can scan its QR or open the link and select available bank, wallet, or other supported channels. Sale completes only after verified payment.</div>
             <div id="xenditPending" hidden style="padding:12px;border:1px solid #aaa;border-radius:8px;margin:8px 0;text-align:center">
               <strong id="xenditState">Waiting for payment</strong><div id="xenditQR" style="display:flex;justify-content:center;margin:12px"></div>
               <a id="xenditLink" href="#" target="_blank" rel="noopener noreferrer">Open secure checkout</a>
@@ -499,7 +499,7 @@ function renderSales() {
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
   $('stSplit').textContent = pesoShort(sum(live.filter(s => s.method === 'Cash'))) + ' / ' + pesoShort(sum(live.filter(s => s.method === 'Card')));
   $('saleRows').innerHTML = sales.map(s => `<tr><td class="mono">${s.receiptNo}</td><td class="dim">${new Date(s.createdAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</td>
-    <td class="r">${s.items.reduce((n, i) => n + i.qty, 0)}</td><td class="r mono">${peso(s.total)}</td><td>${s.method}</td>
+    <td class="r">${s.items.reduce((n, i) => n + i.qty, 0)}</td><td class="r mono">${peso(s.total)}</td><td>${s.method === 'Xendit' ? 'Online payment' : s.method}</td>
     <td><span class="status-pill ${s.status === 'Completed' ? 'ok' : s.status === 'Voided' ? 'bad' : 'warn'}">${s.status}</span></td>
     <td class="r" style="white-space:nowrap"><button class="btn-secondary btn-sm" data-reprint="${s.id}">Reprint</button>
     ${s.status === 'Completed' ? ` <button class="btn-danger btn-sm" data-void="${s.id}">Void…</button>` : ''}</td></tr>`).join('');
@@ -584,7 +584,7 @@ async function checkXenditPayment() {
     if (p.status === 'paid') {
       clearInterval(xenditPoll); xenditPoll = null; xenditPayment = null;
       $('xenditPending').hidden = true; busy = false; resetSale(); updatePay();
-      toast('Xendit payment verified. Sale completed.');
+      toast('Online payment verified. Sale completed.');
       PRODUCTS = await loadProducts(); renderCats();
       const fresh = await loadTodaySales(); if (fresh) { sales = fresh; renderSales(); }
     } else if (['expired','review','error'].includes(p.status)) {
@@ -605,7 +605,7 @@ async function beginXendit(draft) {
     if (window.QRCode) new QRCode($('xenditQR'),{text:p.checkoutUrl,width:192,height:192});
     else $('xenditState').textContent = 'QR unavailable. Use checkout link below.';
     xenditPoll = setInterval(checkXenditPayment,4000);
-  } catch(e) { busy = false; toast(e.message || 'Xendit checkout failed',true); }
+  } catch(e) { busy = false; toast(e.message || 'Online payment checkout failed',true); }
   updatePay();
 }
 $('xenditCheck').onclick = checkXenditPayment;

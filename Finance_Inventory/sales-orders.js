@@ -8,6 +8,7 @@
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const when = (t) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   let ORDERS = [], POS = [];
+  const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 
   function toast(msg, err) {
     const el = document.createElement('div');
@@ -66,7 +67,7 @@
       return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + esc(o.customer) +
         (o.address ? '<div class="faint" style="font-size:12px">' + esc(o.address) + '</div>' : '') +
         '<div class="faint" style="font-size:12px">' + esc(o.phone) + '</div></td><td>' + items + '</td><td>' + peso(o.total) +
-        '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(o.method) + '</div></td><td>' + pill(o.status) +
+        '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(payLabel(o.method)) + '</div></td><td>' + pill(o.status) +
         (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + tracker(o) + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
     }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';
   }
@@ -78,7 +79,7 @@
     $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total, 0)) + ' collected';
     $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th></tr>';
     $('soPosBody').innerHTML = rows.length ? rows.map(s => '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' +
-      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(s.method) + '</td><td>' + pill(s.status) + '</td></tr>').join('')
+      s.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '</td><td>' + peso(s.total) + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' + pill(s.status) + '</td></tr>').join('')
       : '<tr><td colspan="7" class="report-note">No POS sales today.</td></tr>';
   }
 

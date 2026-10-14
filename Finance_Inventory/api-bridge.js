@@ -1849,6 +1849,7 @@
   /* Sales that count as real revenue in a period: POS sales that are not voided, and online orders that were
      confirmed (not pending / cancelled) and not refunded. One row per product line. Dates use Manila time. */
   const SALE_TZ = 'Asia/Manila';
+  const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
   const saleDay = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: SALE_TZ });
   function repSales(range) {
     if (range.invalid) return [];
@@ -2039,7 +2040,7 @@
         '<td class="dim">' + esc(niceDate(r.date)) + '</td><td>' + esc(r.product) + '</td>' +
         '<td>' + esc(num(r.qty)) + ' ' + esc(r.unit || '') + '</td><td class="dim">' + esc(money(r.price)) + '</td>' +
         '<td>' + esc(money(r.revenue)) + '</td><td class="' + (r.profit < 0 ? 'qty-out' : 'qty-in') + '">' + esc(money(r.profit)) + '</td>' +
-        '<td class="dim">' + esc(r.customer) + '</td><td class="dim">' + esc(r.method) + '</td><td class="dim">' + esc(r.handledBy) + '</td></tr>').join('')
+        '<td class="dim">' + esc(r.customer) + '</td><td class="dim">' + esc(payLabel(r.method)) + '</td><td class="dim">' + esc(r.handledBy) + '</td></tr>').join('')
         : '<tr><td colspan="10" class="report-note">' + (range.invalid ? 'Fix the date range above.' : 'No sales in this period. Voided, cancelled, unconfirmed and refunded sales are not counted.') + '</td></tr>';
     }
     if (slFoot) slFoot.innerHTML = sales.length ? '<tr class="report-foot-row"><td colspan="5">' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 ' + sales.length + ' line' + (sales.length === 1 ? '' : 's') +
@@ -2080,7 +2081,7 @@
     lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online, excludes voided / cancelled / unconfirmed / refunded)')]),
       row(['Sales ref', 'Source', 'Date', 'Product', 'Quantity', 'Unit', 'Unit price', 'Revenue', 'Profit', 'Customer', 'Payment', 'Handled by']));
     repSales(range).forEach((r) => lines.push(row([T(r.ref), T(r.source === 'POS' ? 'POS walk-in' : 'Online shop'), r.date, T(r.product), r.qty, T(r.unit || ''),
-      r.price.toFixed(2), r.revenue.toFixed(2), r.profit.toFixed(2), T(r.customer), T(r.method), T(r.handledBy)])));
+      r.price.toFixed(2), r.revenue.toFixed(2), r.profit.toFixed(2), T(r.customer), T(payLabel(r.method)), T(r.handledBy)])));
     const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
