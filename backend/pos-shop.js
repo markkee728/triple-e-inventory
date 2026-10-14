@@ -780,7 +780,13 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows: cr } = ids.length ? await pool.query(`SELECT DISTINCT order_id FROM order_cancel_requests WHERE order_id = ANY($1) AND status = 'pending'`, [ids]) : { rows: [] };
     const pending = new Set(cr.map(r => r.order_id));
     const refunds = await refundsFor(ids);
-    res.json(orders.map(o => ({ ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer })));
+    res.json(orders.map(o => {
+      const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status);
+      return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
+        flow,                                                            // the steps this order goes through (Delivery or Pickup)
+        next: at >= 0 && at < flow.length - 1 ? flow[at + 1] : null,     // the one step Finance can do next
+        canCancel: ADMIN_CANCELLABLE.includes(o.status) };
+    }));
   }));
 
   // Confirm = payment received (online: gateway confirmed / COD: cash collected). Posts the stock-out.

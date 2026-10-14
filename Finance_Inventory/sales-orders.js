@@ -27,7 +27,16 @@
       : ['Pending Confirmation', 'Void Pending'].includes(st) ? 'low' : 'watch';
     return '<span class="status-pill ' + c + '">' + esc(st) + '</span>';
   };
-  const actionLabel = (next) => next === 'Paid' ? 'Confirm payment' : 'Mark ' + next;
+  const LABELS = { Paid: 'Confirm payment', Packed: 'Mark packed', 'Out for Delivery': 'Out for delivery', 'Ready for Pickup': 'Ready for pickup', Delivered: 'Mark delivered', 'Picked Up': 'Mark picked up' };
+  const actionLabel = (next) => LABELS[next] || 'Mark ' + next;
+  const FINAL = ['Delivered', 'Picked Up'];
+  // Small progress line under the status: done steps, the current step in bold, steps still to come in grey.
+  const tracker = (o) => {
+    const flow = o.flow || []; const at = flow.indexOf(o.status);
+    if (!flow.length || o.status === 'Cancelled') return '';
+    return '<div style="font-size:11.5px;margin-top:6px;line-height:1.5">' + flow.map((st, i) =>
+      i < at ? '<span class="faint">' + esc(st) + '</span>' : i === at ? '<b>' + esc(st) + '</b>' : '<span class="faint" style="opacity:.55">' + esc(st) + '</span>').join(' <span class="faint">›</span> ') + '</div>';
+  };
 
   async function load() {
     // Each list loads on its own so one failing request doesn't blank the others.
@@ -49,13 +58,16 @@
       const items = o.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>');
       let act = '';
       if (o.cancelRequested) act = '<button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="1">Approve cancel</button> <button class="btn-secondary btn-sm" data-so-cancel="' + esc(o.id) + '" data-ok="0">Reject</button>';
-      else if (o.next) act = '<button class="btn-primary btn-sm" data-so-next="' + esc(o.id) + '" data-to="' + esc(o.next) + '">' + esc(actionLabel(o.next)) + '</button>';
-      else act = '<span class="faint">—</span>';
+      else {
+        if (o.next) act = '<button class="btn-primary btn-sm" data-so-next="' + esc(o.id) + '" data-to="' + esc(o.next) + '">' + esc(actionLabel(o.next)) + '</button>';
+        if (o.canCancel) act += (act ? ' ' : '') + '<button class="btn-secondary btn-sm" data-so-abort="' + esc(o.id) + '">Cancel order</button>';
+        if (!act) act = '<span class="faint">—</span>';
+      }
       return '<tr><td>' + esc(o.id) + '</td><td>' + esc(when(o.createdAt)) + '</td><td>' + esc(o.customer) +
         (o.address ? '<div class="faint" style="font-size:12px">' + esc(o.address) + '</div>' : '') +
         '<div class="faint" style="font-size:12px">' + esc(o.phone) + '</div></td><td>' + items + '</td><td>' + peso(o.total) +
         '</td><td>' + esc(o.fulfillment) + '<div class="faint" style="font-size:12px">' + esc(o.method) + '</div></td><td>' + pill(o.status) +
-        (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
+        (o.cancelRequested ? '<div class="faint" style="font-size:12px">Cancel requested</div>' : '') + tracker(o) + '</td><td style="white-space:nowrap">' + act + '</td></tr>';
     }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';
   }
 
@@ -71,12 +83,23 @@
   }
 
   document.addEventListener('click', async (e) => {
-    const b = e.target.closest('[data-so-next],[data-so-cancel]'); if (!b) return;
+    const b = e.target.closest('[data-so-next],[data-so-cancel],[data-so-abort]'); if (!b) return;
     b.disabled = true;
     try {
       if (b.dataset.soNext) {
-        const r = await api('/orders/' + encodeURIComponent(b.dataset.soNext) + '/advance', { method: 'POST', body: JSON.stringify({ status: b.dataset.to }) });
-        toast(b.dataset.soNext + ' is now ' + r.status + '. The customer can see it.');
+        const no = b.dataset.soNext, to = b.dataset.to, body = { status: to };
+        if (FINAL.includes(to)) {                         // the server needs the name of the person who received the order
+          const who = window.prompt('Who ' + (to === 'Delivered' ? 'received the delivery' : 'picked up the order') + '? (2–80 characters)');
+          if (who === null) { b.disabled = false; return; }
+          body.receivedBy = who.trim();
+        }
+        await api('/orders/' + encodeURIComponent(no) + '/status', { method: 'POST', body: JSON.stringify(body) });
+        toast(no + ' is now ' + to + '. The customer can see it.');
+      } else if (b.dataset.soAbort) {
+        const why = window.prompt('Why is this order being cancelled? (5–300 characters)\nStock is put back if it was already deducted.');
+        if (why === null) { b.disabled = false; return; }
+        await api('/orders/' + encodeURIComponent(b.dataset.soAbort) + '/cancel', { method: 'POST', body: JSON.stringify({ reason: why.trim() }) });
+        toast(b.dataset.soAbort + ' was cancelled.');
       } else {
         await api('/orders/' + encodeURIComponent(b.dataset.soCancel) + '/cancel-decision', { method: 'POST', body: JSON.stringify({ approve: b.dataset.ok === '1' }) });
         toast(b.dataset.ok === '1' ? 'Cancellation approved. Stock restored.' : 'Cancellation rejected.');
