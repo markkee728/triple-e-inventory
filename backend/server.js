@@ -21,7 +21,7 @@ const app = express();
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 // Low-stock alerts (email + text). Registered this early so it also sees every change made by the routes below.
-require('./low-stock')(app, pool);
+app.locals.lowStock = require('./low-stock')(app, pool);
 
 const TZ = 'Asia/Manila';
 
@@ -1193,6 +1193,9 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
 
 /* ---------- stock count (physical inventory) ---------- */
 require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+
+/* ---------- in-app Notification Center (bell, history, role-based events) ---------- */
+app.locals.notifications = require('./notifications')({ app, pool, auth, wrap, TZ });
 
 /* ---------- production (material requirements, produced-internally Stock In, production history) ---------- */
 productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });

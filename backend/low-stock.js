@@ -70,13 +70,16 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
   }
 
   async function check() {
-    if (off('LOW_STOCK_ALERTS') || running) return { checked: false };
+    if (running) return { checked: false };
     running = true;
     try {
       await ensureSchema();
       // products that are back above their level (or archived / no level) can alert again next time they drop
-      await pool.query(`DELETE FROM low_stock_alerts a USING products p WHERE p.product_id = a.product_id
-                          AND (p.on_hand > p.reorder_level OR p.reorder_level <= 0 OR p.is_archived)`);
+      const recovered = await pool.query(`DELETE FROM low_stock_alerts a USING products p WHERE p.product_id = a.product_id
+                          AND (p.on_hand > p.reorder_level OR p.reorder_level <= 0 OR p.is_archived)
+                          RETURNING a.product_id`);
+      if (recovered.rowCount && app.locals.notifications)
+        await app.locals.notifications.resolveLowStock(recovered.rows.map((r) => r.product_id));
       // claim the newly low products; if two servers run at once only one of them gets each product
       const claimed = await pool.query(
         `INSERT INTO low_stock_alerts (product_id, on_hand)
@@ -85,8 +88,11 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
       if (!claimed.rowCount) return { checked: true, alerted: 0 };
       const ids = claimed.rows.map((r) => r.product_id);
       const { rows: items } = await pool.query(
-        `SELECT sku, name, unit, on_hand, reorder_level FROM products WHERE product_id = ANY($1)
+        `SELECT product_id, sku, name, unit, department, on_hand, reorder_level FROM products WHERE product_id = ANY($1)
           ORDER BY (on_hand <= 0) DESC, on_hand / NULLIF(reorder_level, 0), name`, [ids]);
+      // in-app Notification Center always records the drop (email/SMS can still be switched off)
+      if (app.locals.notifications) await app.locals.notifications.notifyLowStock(items);
+      if (off('LOW_STOCK_ALERTS')) return { checked: true, alerted: items.length, inApp: true };
       const to = await recipients();
       const m = build(items);
       let delivered = 0;
@@ -98,12 +104,8 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
         const r = await sms.sendSms({ to: phone, message: m.message }).catch((e) => ({ sent: false, reason: e.message }));
         if (r.sent) delivered++; else console.warn(`[low-stock] text to ${phone} not sent: ${r.reason}`);
       }
-      if (!delivered) {   // nobody could be told: forget the claim so the next check tries again
-        await pool.query('DELETE FROM low_stock_alerts WHERE product_id = ANY($1)', [ids]);
-        console.warn(`[low-stock] ${items.length} low product(s) found but no alert could be delivered; will retry.`);
-        return { checked: true, alerted: 0, retry: true };
-      }
-      console.log(`[low-stock] alerted ${to.emails.length} email(s) / ${to.phones.length} number(s) about ${items.length} product(s)`);
+      if (!delivered) console.warn(`[low-stock] ${items.length} low product(s) posted in-app; email/SMS not delivered.`);
+      else console.log(`[low-stock] alerted ${to.emails.length} email(s) / ${to.phones.length} number(s) about ${items.length} product(s)`);
       return { checked: true, alerted: items.length };
     } catch (err) {
       console.error('[low-stock] check failed:', err.message);

@@ -124,7 +124,7 @@ ${contact.length ? `<p style="font-size:12.5px;color:#5a6677;line-height:1.6;mar
   return { subject: def.subject(o, d), html, text };
 }
 
-module.exports = function makeOrderMail(pool) {
+module.exports = function makeOrderMail(pool, getNc) {
   // Fire-and-forget: call as  notify(orderNo, 'Packed')  AFTER the database change is committed. Never throws.
   async function notify(orderNo, ev, extra) {
     try {
@@ -135,8 +135,14 @@ module.exports = function makeOrderMail(pool) {
       if (!o) return;
       const info = shopInfo();
       const d = Object.assign({ refundDays: Number(process.env.REFUND_WINDOW_DAYS) || 7 }, extra || {});
-      // email and text are separate: one failing never stops the other
+      // email, text and in-app are separate: one failing never stops the others
       await Promise.all([
+        (async () => {
+          const nc = typeof getNc === 'function' ? getNc() : null;
+          if (!nc || !nc.notifyOrder) return;
+          try { await nc.notifyOrder(o, ev, extra); }
+          catch (err) { console.warn(`[notify] in-app order "${ev}" for ${orderNo}:`, err.message); }
+        })(),
         (async () => {
           if (!o.email) return;
           try {

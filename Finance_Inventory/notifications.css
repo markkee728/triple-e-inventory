@@ -1,0 +1,100 @@
+/* Notification Center — shared by Finance, Cashier, and Customer headers. */
+
+.nc-wrap { position: relative; flex: none; }
+.nc-bell {
+  position: relative;
+  width: 42px; height: 42px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+html[data-theme="light"] .nc-bell { background: #fff; }
+.nc-bell:hover, .nc-bell[aria-expanded="true"] {
+  border-color: var(--blue-bright);
+  background: rgba(74,144,217,.12);
+}
+.nc-bell .ico { width: 18px; height: 18px; }
+.nc-count {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 99px;
+  background: var(--red); color: #fff;
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+.nc-count[hidden] { display: none !important; }
+
+.nc-drop {
+  display: none;
+  position: absolute; top: calc(100% + 10px); right: 0;
+  width: min(420px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 88px));
+  overflow: hidden;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow, 0 12px 32px rgba(0,0,0,.35));
+  z-index: 70;
+}
+.nc-drop.open { display: flex; flex-direction: column; }
+.nc-drop-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 14px 16px 12px; border-bottom: 1px solid var(--border);
+}
+.nc-drop-head h2 { font-size: 16px; font-weight: 600; }
+.nc-drop-head p { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; }
+.nc-drop-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.nc-link {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--blue-bright); font-size: 13px; font-weight: 600;
+}
+.nc-link:hover { text-decoration: underline; }
+.nc-list { overflow: auto; flex: 1; }
+.nc-empty { padding: 28px 18px; text-align: center; color: var(--text-dim); font-size: 14.5px; }
+.nc-item {
+  width: 100%; display: grid; grid-template-columns: 8px 1fr; gap: 10px;
+  text-align: left; background: none; border: 0; border-bottom: 1px solid var(--row-line, rgba(128,150,175,.2));
+  padding: 12px 16px; cursor: pointer; color: inherit;
+}
+.nc-item:hover { background: var(--hover, rgba(74,144,217,.08)); }
+.nc-item.unread { background: rgba(74,144,217,.07); }
+html[data-theme="light"] .nc-item.unread { background: rgba(31,111,184,.06); }
+.nc-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: transparent; }
+.nc-item.unread .nc-dot { background: var(--blue-bright); }
+.nc-item.warn .nc-dot { background: var(--amber); }
+.nc-item.critical .nc-dot { background: var(--red); }
+.nc-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.nc-cat {
+  font-family: "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 11px; letter-spacing: .8px; text-transform: uppercase;
+  color: var(--blue-bright);
+}
+.nc-when { font-size: 12px; color: var(--text-faint); margin-left: auto; }
+.nc-title { font-size: 14.5px; font-weight: 600; line-height: 1.3; }
+.nc-body { font-size: 13px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+.nc-tag {
+  font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 99px; border: 1px solid var(--border); color: var(--text-faint);
+}
+.nc-drop-foot { padding: 12px 16px; border-top: 1px solid var(--border); }
+
+.nc-page-tools { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 0 0 16px; }
+.nc-chips { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; }
+.nc-chip {
+  border: 1px solid var(--border); background: var(--field, rgba(255,255,255,.04));
+  color: var(--text-dim); border-radius: 99px; padding: 6px 12px; cursor: pointer; font-size: 13.5px; font-weight: 600;
+}
+.nc-chip.on { border-color: var(--blue-bright); color: var(--text); background: rgba(74,144,217,.12); }
+.nc-page-list { display: flex; flex-direction: column; }
+.nc-page-list .nc-item { border-radius: 8px; border: 1px solid var(--border); margin-bottom: 8px; }
+.nc-more { margin-top: 8px; }
+
+@media (max-width: 700px) {
+  .nc-bell { width: 42px; height: 42px; }
+  .nc-drop { right: -40px; }
+}

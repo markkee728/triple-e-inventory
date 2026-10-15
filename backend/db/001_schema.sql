@@ -51,7 +51,7 @@ CREATE TABLE categories (
 
 CREATE TABLE suppliers (
   supplier_id SERIAL PRIMARY KEY,
-  code        TEXT UNIQUE NOT NULL,          -- slug, e.g. andes-copper
+  code        TEXT UNIQUE NOT NULL,         
   name        TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
   location    TEXT,

@@ -295,6 +295,10 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
 
     const rec = (await history(result.id, 1))[0];
     res.status(result.duplicate ? 200 : 201).json({ ...rec, duplicate: result.duplicate });
+    if (!result.duplicate && rec && app.locals.notifications)
+      app.locals.notifications.notifyProduction(rec).catch((err) => console.warn('[notify] production:', err.message));
+    if (!result.duplicate && app.locals.lowStock && typeof app.locals.lowStock.check === 'function')
+      app.locals.lowStock.check().catch((err) => console.warn('[notify] production low-stock:', err.message));
   }));
 
   /* ---------- production history ---------- */

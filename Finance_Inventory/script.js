@@ -43,6 +43,16 @@ const pageInformation = {
         subtitle: "Overview"
     },
 
+    notifications: {
+        title: "Notifications",
+        subtitle: "Inbox"
+    },
+
+    sales: {
+        title: "Sales Transactions",
+        subtitle: "Orders and POS"
+    },
+
     inventory: {
         title: "Inventory Monitoring",
         subtitle: "Finance Admin Officer Access"
@@ -320,7 +330,7 @@ function renderDashboardStats() {
 
     if (lowStockFoot) {
         lowStockFoot.textContent =
-            "Needs action now";
+            "At or below reorder";
     }
 
     if (dashMovements) {
@@ -713,10 +723,6 @@ function loadDashboard() {
     renderQuickActions();
 
     renderStockHealthRings();
-
-    renderLowStockProducts(
-        lowStockMockData
-    );
 
     renderRecentMovements(
         recentMovementMockData

@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css">
 <link rel="stylesheet" href="cash-shift.css?v=1">
+<link rel="stylesheet" href="notifications.css?v=2">
 <style>
 .qty input{width:64px;height:30px;border:0;border-radius:0;background:transparent;text-align:center;padding:0 2px;font-family:"IBM Plex Mono",monospace;font-size:14px;box-shadow:none}
 .qty input:focus{background:var(--field);box-shadow:inset 0 0 0 1px var(--blue-bright)}
@@ -92,6 +93,20 @@
     </button>
     <div class="topbar-titlewrap"><span class="topbar-crumb">Counter</span><div class="topbar-title" id="topbarTitle">Point of Sale</div></div>
     <div class="topbar-right">
+      <div class="nc-wrap" id="ncWrap">
+        <button type="button" class="nc-bell" id="ncBell" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="nc-count" id="ncCount" hidden>0</span>
+        </button>
+        <div class="nc-drop" id="ncDrop">
+          <div class="nc-drop-head">
+            <div><h2>Notifications</h2><p>POS updates and request results</p></div>
+            <button type="button" class="nc-link" id="ncMarkAll">Mark all as read</button>
+          </div>
+          <div class="nc-list" id="ncDropList"></div>
+          <div class="nc-drop-foot"><button type="button" class="nc-link" id="ncViewAll">View all notifications</button></div>
+        </div>
+      </div>
       <div class="clock" id="clockWrap"><span class="live"></span><span id="clock"></span></div>
       <button type="button" class="theme-toggle" id="themeToggle" aria-label="Switch colour theme">
         <span id="themeIcon"></span><span id="themeLabel" class="tt-label">Light mode</span>
@@ -201,6 +216,27 @@
     </section>
 
     <!-- ===== PAGE: WALK-IN QUOTE REQUESTS ===== -->
+    <section class="page" id="page-notifications">
+      <div class="welcome"><h1>Notification Center</h1><p id="ncPageSub">POS transaction updates and void / return request results.</p></div>
+      <div class="nc-page-tools">
+        <div class="nc-chips">
+          <button type="button" class="nc-chip on" data-nc-cat="">All</button>
+          <button type="button" class="nc-chip" data-nc-cat="inventory" data-nc-roles="x">Inventory</button>
+          <button type="button" class="nc-chip" data-nc-cat="production" data-nc-roles="x">Production</button>
+          <button type="button" class="nc-chip" data-nc-cat="orders" data-nc-roles="x">Orders</button>
+          <button type="button" class="nc-chip" data-nc-cat="payment" data-nc-roles="cashier">Payments</button>
+          <button type="button" class="nc-chip" data-nc-cat="delivery" data-nc-roles="x">Delivery</button>
+          <button type="button" class="nc-chip" data-nc-cat="pos" data-nc-roles="cashier">POS</button>
+        </div>
+        <button type="button" class="nc-chip" id="ncUnreadOnly">All statuses</button>
+        <button type="button" class="btn-secondary" id="ncPageMarkAll">Mark all as read</button>
+      </div>
+      <div class="panel">
+        <div class="nc-page-list" id="ncPageList"></div>
+        <button type="button" class="btn-secondary nc-more" id="ncMore" hidden>Load more</button>
+      </div>
+    </section>
+
     <section class="page" id="page-quotes">
       <div class="welcome"><h1>Quote Requests</h1><p>For walk-in or phone customers who want a price on a bulk order or a custom size. Finance replies with the quote.</p></div>
       <div class="pq-layout">
@@ -341,7 +377,7 @@ const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDig
 const pesoShort = n => '₱' + Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 let PRODUCTS = [], cart = [], sales = [], method = 'Cash', voidId = null, cat = '', view = 'grid';
-const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift', quotes: 'Quote Requests' };
+const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift', quotes: 'Quote Requests', notifications: 'Notifications' };
 const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
@@ -451,7 +487,7 @@ function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
   if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
-  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
+  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : p === 'notifications' ? 'Inbox' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
 }
 $('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
 document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });
@@ -937,5 +973,6 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 })();
 </script>
 <script src="cash-shift-ui.js?v=4"></script>
+<script src="notification-center.js?v=2"></script>
 </body>
 </html>

@@ -62,7 +62,12 @@ const makeOrderMail = require('./order-mail');
 
 module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
-  const { notify, shopInfo } = makeOrderMail(pool);   // customer emails (never block or fail an order)
+  const { notify, shopInfo } = makeOrderMail(pool, () => app.locals.notifications);
+  const later = (fn) => { Promise.resolve().then(fn).catch((e) => console.warn('[notify]', e.message)); };
+  const nc = () => app.locals.notifications;
+  const asPeso = (n) => (nc() && nc().peso ? nc().peso(n) : ('\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
+  function pingFinance(n) { return nc() ? nc().notifyRole('finance', n) : Promise.resolve(0); }
+  function pingUser(id, n, role) { return nc() ? nc().notifyUser(id, n, role) : Promise.resolve(0); }
 
   // Adds what the Sales Transactions page needs (safe to run every time the server starts).
   async function ensureSalesSchema() {
@@ -207,12 +212,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     await posPaymentsReady;
     const {rows} = await pool.query('SELECT payment_id FROM pos_xendit_payments WHERE external_id=$1 AND invoice_id=$2', [externalId,invoiceId]);
     if (!rows.length) return false;
+    let kind = null, info = null;
     await tx(async client => {
       const {rows: locked} = await client.query('SELECT * FROM pos_xendit_payments WHERE payment_id=$1 FOR UPDATE', [rows[0].payment_id]);
       const p = locked[0];
       if (p.status === 'paid') return;
-      if (event.status === 'EXPIRED' && p.status === 'pending') {
-        await client.query("UPDATE pos_xendit_payments SET status='expired' WHERE payment_id=$1",[p.payment_id]); return;
+      if ((event.status === 'EXPIRED' || event.status === 'FAILED') && p.status === 'pending') {
+        await client.query("UPDATE pos_xendit_payments SET status='expired' WHERE payment_id=$1",[p.payment_id]);
+        kind = 'expired'; info = p; return;
       }
       if ((event.status === 'SETTLED' ? 'PAID' : event.status) !== 'PAID') return;
       if (Math.round(Number(event.paid_amount ?? event.amount)*100) !== Math.round(Number(p.amount)*100) || event.currency && event.currency !== 'PHP')
@@ -222,7 +229,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const currentTotal = round2(items.reduce((sum,i)=>sum+lineCents(i.price,i.qty),0)/100);
       if (Math.round(currentTotal*100)!==Math.round(Number(p.amount)*100)) {
         await client.query("UPDATE pos_xendit_payments SET status='review',error_message='Price changed after payment; manual reconciliation required' WHERE payment_id=$1",[p.payment_id]);
-        return;
+        kind = 'review'; info = p; return;
       }
       const vat = round2(currentTotal * VAT_RATE / (1+VAT_RATE));
       const {rows:sales} = await client.query(`INSERT INTO pos_sales
@@ -236,6 +243,33 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await postMovement(client,{productId:i.product_id,type:'out',reason:'sale',qty:i.qty,userId:p.cashier_id,sourceType:'pos_sale',sourceId:sale.sale_id,note:sale.receipt_no});
       }
       await client.query("UPDATE pos_xendit_payments SET status='paid',sale_id=$1 WHERE payment_id=$2",[sale.sale_id,p.payment_id]);
+      kind = 'paid'; info = Object.assign({}, p, { receiptNo: sale.receipt_no });
+    });
+    if (kind && info) later(() => {
+      if (kind === 'paid') return Promise.all([
+        pingUser(info.cashier_id, { category: 'pos', title: 'Online POS payment completed',
+          body: 'Receipt ' + info.receiptNo + ' for ' + asPeso(info.amount) + ' was recorded.',
+          link: 'POS_Cashier.html#sales', entityType: 'sale', entityId: info.receiptNo, dedupeKey: 'pos_pay_ok:' + info.payment_id }, 'cashier'),
+        pingFinance({ category: 'payment', title: 'POS online payment received',
+          body: 'Cashier ' + (info.cashier_name || '') + ' — receipt ' + info.receiptNo + ' (' + asPeso(info.amount) + ').',
+          link: 'Finance_Inventory.html#sales', entityType: 'sale', entityId: info.receiptNo, dedupeKey: 'pos_pay_fin:' + info.payment_id })
+      ]);
+      if (kind === 'review') return Promise.all([
+        pingFinance({ category: 'payment', title: 'POS online payment needs review',
+          body: 'Paid amount no longer matches the cart for cashier ' + (info.cashier_name || '') + ' (' + asPeso(info.amount) + '). Manual reconciliation is required.',
+          link: 'Finance_Inventory.html#sales', severity: 'warn', entityType: 'pos_payment', entityId: String(info.payment_id), dedupeKey: 'pos_pay_review:' + info.payment_id }),
+        pingUser(info.cashier_id, { category: 'pos', title: 'Online payment needs review',
+          body: 'The payment of ' + asPeso(info.amount) + ' was received but the cart total changed. Finance must reconcile it.',
+          link: 'POS_Cashier.html#sales', severity: 'warn', entityType: 'pos_payment', entityId: String(info.payment_id), dedupeKey: 'pos_pay_review_c:' + info.payment_id }, 'cashier')
+      ]);
+      return Promise.all([
+        pingFinance({ category: 'payment', title: 'POS online payment failed',
+          body: 'Cashier ' + (info.cashier_name || '') + ' — hosted checkout of ' + asPeso(info.amount) + ' expired or failed.',
+          link: 'Finance_Inventory.html#sales', severity: 'warn', entityType: 'pos_payment', entityId: String(info.payment_id), dedupeKey: 'pos_pay_fail:' + info.payment_id }),
+        pingUser(info.cashier_id, { category: 'pos', title: 'Online payment failed',
+          body: 'The customer checkout of ' + asPeso(info.amount) + ' did not complete.',
+          link: 'POS_Cashier.html#terminal', severity: 'warn', entityType: 'pos_payment', entityId: String(info.payment_id), dedupeKey: 'pos_pay_fail_c:' + info.payment_id }, 'cashier')
+      ]);
     });
     return true;
   }
@@ -287,8 +321,16 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         confirmed = true;
       });
       if (confirmed) notify(o.order_no, 'Paid');
-    } else if (event.status === 'EXPIRED' && o.payment_status !== 'paid') {
-      await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id]);
+    } else if ((event.status === 'EXPIRED' || event.status === 'FAILED') && o.payment_status !== 'paid') {
+      const up = await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid' RETURNING order_id", [o.order_id]);
+      if (up.rowCount) later(() => Promise.all([
+        pingFinance({ category: 'payment', title: 'Online payment failed',
+          body: o.order_no + ' — Xendit payment ' + String(event.status).toLowerCase() + '. The order still needs attention.',
+          link: 'Finance_Inventory.html#sales', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pay_fail:' + o.order_no }),
+        pingUser(o.customer_id, { category: 'payment', title: 'Payment failed',
+          body: 'Payment for order ' + o.order_no + ' did not complete. You can try again from My Orders.',
+          link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pay_cust_fail:' + o.order_no }, 'customer')
+      ]));
     }
   }
 
@@ -703,18 +745,27 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const reason = VOID_REASONS[code] + (details ? ' \u2014 ' + details : '');
     if (!/^\d{1,18}$/.test(req.params.id)) throw bad('id', 'Sale not found');
     await posReturnsReady;
-    await tx(async (client) => {
+    const info = await tx(async (client) => {
       const r = await client.query('SELECT sale_id, receipt_no, status FROM pos_sales WHERE sale_id = $1 FOR UPDATE', [req.params.id]);
       if (!r.rowCount) throw bad('id', 'Sale not found');
       if (r.rows[0].status !== 'Completed') throw bad('id', 'This sale already has a void request or is voided');
       // a void puts every item back in stock and removes the whole sale, which would count returned items twice
       const rt = await client.query(`SELECT 1 FROM pos_return_requests WHERE sale_id = $1 AND status IN ('pending','approved') LIMIT 1`, [r.rows[0].sale_id]);
       if (rt.rowCount) throw bad('id', 'Some items of this sale were already returned (or a return is waiting for Finance), so it cannot be voided. Return the remaining items instead.');
-      await client.query('INSERT INTO void_requests (sale_id, reason, requested_by) VALUES ($1,$2,$3)', [r.rows[0].sale_id, reason, req.user.id]);
+      const ins = await client.query('INSERT INTO void_requests (sale_id, reason, requested_by) VALUES ($1,$2,$3) RETURNING request_id', [r.rows[0].sale_id, reason, req.user.id]);
       await client.query(`UPDATE pos_sales SET status = 'Void Pending' WHERE sale_id = $1`, [r.rows[0].sale_id]);
       await audit(client, req.user, 'Record edited', `Void requested for ${r.rows[0].receipt_no}: ${reason}`);
+      return { receipt: r.rows[0].receipt_no, requestId: ins.rows[0].request_id };
     });
     res.status(201).json({ ok: true });
+    later(() => Promise.all([
+      pingFinance({ category: 'pos', title: 'POS void approval requested',
+        body: info.receipt + ' — ' + reason + ' (cashier ' + req.user.name + ').',
+        link: 'Finance_Inventory.html#sales', entityType: 'void', entityId: String(info.requestId), severity: 'warn', dedupeKey: 'void_req:' + info.requestId }),
+      pingUser(req.user.id, { category: 'pos', title: 'Void request sent',
+        body: 'Finance was asked to void ' + info.receipt + '.',
+        link: 'POS_Cashier.html#sales', entityType: 'void', entityId: String(info.requestId), dedupeKey: 'void_sent:' + info.requestId }, 'cashier')
+    ]));
   }));
 
   /* ---------- finance: decide void requests ---------- */
@@ -729,12 +780,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   app.post('/api/pos/void-requests/:id/decision', auth('finance'), wrap(async (req, res) => {
     const approve = (req.body || {}).approve === true;
-    await tx(async (client) => {
+    const decided = await tx(async (client) => {
       const r = await client.query(
-        `SELECT v.request_id, v.sale_id, s.receipt_no FROM void_requests v JOIN pos_sales s USING (sale_id)
+        `SELECT v.request_id, v.sale_id, v.requested_by, s.receipt_no FROM void_requests v JOIN pos_sales s USING (sale_id)
           WHERE v.request_id = $1 AND v.status = 'pending' FOR UPDATE OF v, s`, [req.params.id]);
       if (!r.rowCount) throw bad('id', 'No pending void request with that id');
-      const { sale_id, receipt_no } = r.rows[0];
+      const { sale_id, receipt_no, requested_by } = r.rows[0];
       if (approve) {
         const { rows: items } = await client.query('SELECT product_id, qty FROM pos_sale_items WHERE sale_id = $1 ORDER BY product_id', [sale_id]);
         for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'return', qty: +i.qty,
@@ -744,8 +795,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await client.query(`UPDATE void_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
         [r.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
       await audit(client, req.user, 'Record edited', `Void ${approve ? 'approved' : 'rejected'} for ${receipt_no}${approve ? ' — stock restored' : ''}`);
+      return { receipt_no, requested_by };
     });
     res.json({ ok: true });
+    later(() => pingUser(decided.requested_by, {
+      category: 'pos', title: approve ? 'Void request approved' : 'Void request rejected',
+      body: decided.receipt_no + ' was ' + (approve ? 'voided. Stock was restored.' : 'not voided. The sale stays completed.'),
+      link: 'POS_Cashier.html#sales', entityType: 'void', entityId: req.params.id, severity: approve ? 'info' : 'warn',
+      dedupeKey: 'void_dec:' + req.params.id + ':' + (approve ? 'ok' : 'no')
+    }, 'cashier'));
   }));
 
   /* ---------- partial returns: cashier requests, Finance approves ---------- */
@@ -809,9 +867,17 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await client.query(`INSERT INTO pos_return_items (return_id, sale_item_id, product_id, qty, unit_price, amount) VALUES ($1,$2,$3,$4,$5,$6)`,
           [returnId, c.item_id, c.product_id, c.qty, c.price, c.amount]);
       await audit(client, req.user, 'Return', `Return RT-${returnId} requested for ${sale.receipt_no}: ${lineText(chosen)} — refund ${peso(amount)} (${sale.method === 'Cash' ? 'cash from drawer' : 'to the original payment'}). ${reason}`);
-      return { id: Number(returnId), returnNo: 'RT-' + returnId, amount };
+      return { id: Number(returnId), returnNo: 'RT-' + returnId, amount, receipt: sale.receipt_no };
     });
     res.status(201).json(result);
+    later(() => Promise.all([
+      pingFinance({ category: 'pos', title: 'POS return approval requested',
+        body: result.returnNo + ' for ' + result.receipt + ' — refund ' + asPeso(result.amount) + '. Cashier: ' + req.user.name + '.',
+        link: 'Finance_Inventory.html#sales', entityType: 'return', entityId: String(result.id), severity: 'warn', dedupeKey: 'ret_req:' + result.id }),
+      pingUser(req.user.id, { category: 'pos', title: 'Return request sent',
+        body: result.returnNo + ' for ' + result.receipt + ' is waiting for Finance.',
+        link: 'POS_Cashier.html#sales', entityType: 'return', entityId: String(result.id), dedupeKey: 'ret_sent:' + result.id }, 'cashier')
+    ]));
   }));
 
   const returnJson = (r, items) => ({
@@ -840,7 +906,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
     if (!approve && note.length < 5) throw bad('note', 'Please tell the cashier why the return is rejected (at least 5 characters)');
     if (!/^\d{1,18}$/.test(req.params.id)) throw bad('id', 'No pending return with that id');
-    await tx(async (client) => {
+    const retDec = await tx(async (client) => {
       const r = await client.query(
         `SELECT r.*, s.receipt_no, s.status AS sale_status, s.method, u.full_name AS requester
            FROM pos_return_requests r JOIN pos_sales s USING (sale_id) LEFT JOIN users u ON u.user_id = r.requested_by
@@ -868,8 +934,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await audit(client, req.user, 'Return', approve
         ? `Return ${no} approved for ${ret.receipt_no}: ${lineText(items)} — refund ${peso(ret.amount)} (${ret.method === 'Cash' ? 'cash, from ' + ret.requester + "'s shift #" + shiftId : 'to the original payment method'}), ${restock ? 'stock restored' : 'not put back in stock'}${note ? '. ' + note : ''}`
         : `Return ${no} rejected for ${ret.receipt_no}: ${note}`);
+      return { no, receipt: ret.receipt_no, requested_by: ret.requested_by, amount: +ret.amount };
     });
     res.json({ ok: true });
+    later(() => pingUser(retDec.requested_by, {
+      category: 'pos', title: approve ? 'Return request approved' : 'Return request rejected',
+      body: retDec.no + ' for ' + retDec.receipt + (approve ? ' was approved. Refund ' + asPeso(retDec.amount) + '.' : ' was rejected' + (note ? ': ' + note : '.')),
+      link: 'POS_Cashier.html#sales', entityType: 'return', entityId: req.params.id, severity: approve ? 'info' : 'warn',
+      dedupeKey: 'ret_dec:' + req.params.id + ':' + (approve ? 'ok' : 'no')
+    }, 'cashier'));
   }));
 
   /* =====================================================
@@ -1093,6 +1166,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     });
     res.status(201).json({ ok: true, cancelled: instant });
     if (instant) notify(req.params.no, 'Cancelled', { reason });
+    else later(() => Promise.all([
+      pingFinance({ category: 'orders', title: 'Cancellation requested',
+        body: req.params.no + ' — ' + reason + ' (customer ' + req.user.name + '). Approve or reject it on Sales Transactions.',
+        link: 'Finance_Inventory.html#sales', entityType: 'order', entityId: req.params.no, severity: 'warn',
+        dedupeKey: 'cancel_req:' + req.params.no }),
+      pingUser(req.user.id, { category: 'orders', title: 'Cancellation request sent',
+        body: 'We received your request to cancel order ' + req.params.no + '. Finance will review it.',
+        link: 'Shop_Customer.html#orders', entityType: 'order', entityId: req.params.no, dedupeKey: 'cancel_sent:' + req.params.no }, 'customer')
+    ]));
   }));
 
   // Customer asks for a refund on a finished order (Delivered / Picked Up) inside the refund window. One request per order.
@@ -1116,6 +1198,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await audit(client, req.user, 'Record edited', `Refund requested for ${o.order_no} (${peso(o.total)}): ${REFUND_REASONS[code]} — ${details}`);
     });
     res.status(201).json({ ok: true });
+    later(() => Promise.all([
+      pingFinance({ category: 'payment', title: 'Refund request received',
+        body: req.params.no + ' — customer ' + req.user.name + ' asked for a refund. Review it on Sales Transactions.',
+        link: 'Finance_Inventory.html#sales', entityType: 'order', entityId: req.params.no, severity: 'warn',
+        dedupeKey: 'refund_req:' + req.params.no }),
+      pingUser(req.user.id, { category: 'payment', title: 'Refund request received',
+        body: 'We received your refund request for order ' + req.params.no + '. We will update you when Finance decides.',
+        link: 'Shop_Customer.html#orders', entityType: 'order', entityId: req.params.no, dedupeKey: 'refund_sent:' + req.params.no }, 'customer')
+    ]));
   }));
 
   /* ---------- finance: confirm orders, decide cancellations ---------- */

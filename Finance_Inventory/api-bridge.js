@@ -1307,82 +1307,17 @@
   function renderStockAlerts() {
     alertList = computeAlerts();
     const el = alertBanner();
-    const crit = alertList.filter((a) => a.critical).length, low = alertList.length - crit;
-
-    // red count on the sidebar buttons where the problem is seen and fixed
+    if (el) { el.hidden = true; el.className = 'stock-alert'; el.innerHTML = ''; }
     ['inventory', 'stockflow'].forEach((page) => {
       const nav = document.querySelector('.nav-item[data-page="' + page + '"]');
       if (!nav) return;
-      let badge = nav.querySelector('.nav-alert');
-      if (!alertList.length) { if (badge) badge.remove(); return; }
-      if (!badge) { badge = document.createElement('span'); badge.className = 'nav-alert'; nav.appendChild(badge); }
-      badge.textContent = alertList.length;
+      const badge = nav.querySelector('.nav-alert');
+      if (badge) badge.remove();
     });
-
-    // a product that just became low after the first load: sound and a toast straight away
-    const now = new Set(alertList.map((a) => a.item.sku));
-    if (alertSeen) {
-      const fresh = alertList.filter((a) => !alertSeen.has(a.item.sku));
-      if (fresh.length) {
-        toast((fresh[0].critical ? 'Out of stock: ' : 'Low stock: ') + fresh[0].item.name + (fresh.length > 1 ? ' and ' + (fresh.length - 1) + ' more' : ''), 'error');
-        alertBeep(fresh.some((a) => a.critical));
-        alertLast[fresh.some((a) => a.critical) ? 'critical' : 'low'] = Date.now();
-      }
-    }
-    alertSeen = now;
-
-    if (!el) return;
-    if (!alertList.length) { el.hidden = true; el.className = 'stock-alert'; el.innerHTML = ''; return; }
-    el.hidden = false;
-    el.className = 'stock-alert' + (crit ? ' critical' : '');
-    const shown = alertExpanded ? alertList : alertList.slice(0, 3);
-    const parts = [];
-    if (crit) parts.push(crit + ' out of stock');
-    if (low) parts.push(low + ' low');
-    el.innerHTML =
-      '<div class="sa-head">' +
-        '<div class="sa-icon" aria-hidden="true">!</div>' +
-        '<div class="sa-text"><div class="sa-title">' + (crit ? 'Out of stock: act now' : 'Low stock: action needed') + '</div>' +
-        '<div class="sa-sub">' + alertList.length + (alertList.length === 1 ? ' product needs' : ' products need') + ' stock (' + parts.join(', ') +
-        '). This stays until stock is added.</div></div>' +
-        '<div class="sa-tools">' +
-          '<button type="button" class="sa-btn" data-sa="sound" title="Sound repeats while stock is low. Click anywhere on the page once to allow sound.">' + (alertSoundOn() ? 'Sound on' : 'Sound off') + '</button>' +
-          (alertList.length > 3 ? '<button type="button" class="sa-btn" data-sa="toggle">' + (alertExpanded ? 'Show less' : 'Show all ' + alertList.length) + '</button>' : '') +
-        '</div>' +
-      '</div>' +
-      '<div class="sa-list">' + shown.map((a) => {
-        const i = a.item;
-        return '<div class="sa-row' + (a.critical ? ' crit' : '') + '">' +
-          '<span class="sa-tag">' + (a.critical ? 'OUT' : 'LOW') + '</span>' +
-          '<span class="sa-name">' + esc(i.name) + ' <span class="sa-sku">' + esc(i.sku) + '</span></span>' +
-          '<span class="sa-qty">' + esc(formatNumber(i.onHand)) + ' ' + esc(i.unit) + ' left (reorder at ' + esc(formatNumber(i.reorderLevel)) + ')</span>' +
-          '<span class="sa-act">' + esc(alertAction(i)) + '</span>' +
-          '<button type="button" class="sa-btn primary" data-sa="stockin" data-sku="' + esc(i.sku) + '">Stock In</button>' +
-        '</div>';
-      }).join('') + '</div>';
   }
 
   function setupStockAlerts() {
-    alertBaseTitle = document.title;
-    // sound can only start after the person has clicked or typed once
-    const unlock = () => {
-      if (!alertCtx) { try { alertCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return; } }
-      if (alertCtx.state === 'suspended') alertCtx.resume();
-    };
-    ['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, unlock, { passive: true }));
-    // repeat the sound while the problem is still there (critical often, low now and then)
-    setInterval(() => {
-      if (document.hidden || !alertList.length) return;
-      const t = Date.now();
-      if (alertList.some((a) => a.critical) && t - alertLast.critical >= ALERT_EVERY.critical) { alertLast.critical = t; alertBeep(true); }
-      else if (t - alertLast.low >= ALERT_EVERY.low) { alertLast.low = t; alertBeep(false); }
-    }, 5000);
-    // blink the browser tab title so it is noticed from another tab
-    setInterval(() => {
-      if (!alertList.length) { if (document.title !== alertBaseTitle) document.title = alertBaseTitle; return; }
-      alertFlip = !alertFlip;
-      document.title = alertFlip ? '(' + alertList.length + ') STOCK ALERT' : alertBaseTitle;
-    }, 1500);
+    /* Low-stock banners/sounds moved to the Notification Center. Detection stays on the server. */
   }
 
   /* ---- keep data live: refresh every 10 s and whenever the tab is shown again ---- */
