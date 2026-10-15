@@ -326,7 +326,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (up.rowCount) later(() => Promise.all([
         pingFinance({ category: 'payment', title: 'Online payment failed',
           body: o.order_no + ' — Xendit payment ' + String(event.status).toLowerCase() + '. The order still needs attention.',
-          link: 'Finance_Inventory.html#sales', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pay_fail:' + o.order_no }),
+          link: 'Finance_Inventory.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pay_fail:' + o.order_no }),
         pingUser(o.customer_id, { category: 'payment', title: 'Payment failed',
           body: 'Payment for order ' + o.order_no + ' did not complete. You can try again from My Orders.',
           link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pay_cust_fail:' + o.order_no }, 'customer')

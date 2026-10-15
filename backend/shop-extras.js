@@ -118,7 +118,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const quantity = str(b.quantity);
     if (!quantity) throw bad('quantity', 'Tell us how much you need, e.g. 200 sheets');
     if (quantity.length > 60) throw bad('quantity', 'Please keep the quantity short, e.g. 200 sheets');
-    if (!(parseFloat(quantity.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0] > 0)) throw bad('quantity', 'Start with a number greater than 0, e.g. 200 sheets');
+    if (!(parseFloat((quantity.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]) > 0)) throw bad('quantity', 'Start with a number greater than 0, e.g. 200 sheets');
     const details = str(b.details);
     if (details.length < 10 || details.length > 2000) throw bad('details', 'Describe what you need (sizes, thickness, finish) in at least 10 characters');
     let neededBy = null;

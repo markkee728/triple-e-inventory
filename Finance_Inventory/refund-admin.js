@@ -1,7 +1,7 @@
 /* refund-admin.js — Finance Admin: review customer refund requests.
-   Adds a "Refund Requests" panel to the top of the Sales Transactions page and a small counter on the
-   "Sales" menu item. Works next to either sales script (sales-orders.js or sales-admin.js) because it only
-   needs the #sales section.  Load it last in Finance_Inventory.html:
+   Adds a "Refund Requests" panel to the top of the Online Orders page and a small counter on the
+   "Online Orders" menu item. Works next to either sales script (sales-orders.js or sales-admin.js) because it only
+   needs the #orders section.  Load it last in Finance_Inventory.html:
        <script src="refund-admin.js?v=1"></script>
    Server routes: GET /api/refund-requests · POST /api/orders/:no/refund-decision
    The server checks every rule again; the checks here only give faster feedback. */
@@ -67,7 +67,7 @@
 
   /* ---------------- panel on the Sales page ---------------- */
   function build() {
-    var section = $('sales');
+    var section = $('orders');
     if (!section || built) return;
     built = true;
     var panel = document.createElement('div');
@@ -99,7 +99,7 @@
   }
 
   function paintBadge() {
-    var nav = document.querySelector('.nav-item[data-page="sales"]');
+    var nav = document.querySelector('.nav-item[data-page="orders"]');
     if (!nav) return;
     var n = pending().length, b = nav.querySelector('.ra-badge');
     if (!n) { if (b) b.remove(); return; }
@@ -213,13 +213,13 @@
 
   /* ---------------- start ---------------- */
   function start() {
-    if (!$('sales')) return;
+    if (!$('orders')) return;
     addStyles();
     build();
     load();
-    var section = $('sales');
+    var section = $('orders');
     new MutationObserver(function () { if (section.classList.contains('active-page')) load(); }).observe(section, { attributes: true, attributeFilter: ['class'] });
-    var refreshBtn = $('soRefresh'); if (refreshBtn) refreshBtn.addEventListener('click', load);
+    var refreshBtn = null;  // refresh buttons are wired in sales-orders.js
     setInterval(function () { if (!document.hidden && !busy && !openId) load(); }, 15000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden && !openId) load(); });
   }

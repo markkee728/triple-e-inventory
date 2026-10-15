@@ -123,28 +123,18 @@
             </div>
 
 
-            <!-- SALES -->
-            <div class="nav-group">
-
+            <!-- SALES & TRANSACTIONS: overview and distinct operational pages -->
+            <div class="nav-group sales-nav-group">
                 <div class="nav-label">Sales</div>
-
-                <button class="nav-item" data-page="sales">
-                    <span class="dot"></span>
-                    Sales Transactions
+                <button class="nav-item sales-parent" data-page="sales-overview" type="button" aria-label="Sales and Transactions overview">
+                    <span class="nav-symbol" aria-hidden="true">▥</span> Sales &amp; Transactions
                 </button>
-
-                <button class="nav-item" data-page="quotes">
-                    <span class="dot"></span>
-                    Quote Requests
-                </button>
-
-                <button class="nav-item" data-page="reviews">
-                    <span class="dot"></span>
-                    Product Reviews
-                </button>
-
+                <div class="sales-subnav">
+                    <button class="nav-item" data-page="sales" type="button"><span class="nav-symbol" aria-hidden="true">▤</span> POS History</button>
+                    <button class="nav-item" data-page="orders" type="button"><span class="nav-symbol" aria-hidden="true">▣</span> Online Orders</button>
+                    <button class="nav-item" data-page="quotes" type="button"><span class="nav-symbol" aria-hidden="true">▧</span> Quotation Requests</button>
+                </div>
             </div>
-
 
             <!-- ADMINISTRATION -->
             <div class="nav-group">
@@ -1321,23 +1311,36 @@
 
 
             <!-- =================================================
+                 SALES & TRANSACTIONS OVERVIEW
+            ================================================== -->
+            <section id="sales-overview" class="page">
+                <div class="catalog-header"><div><div class="catalog-eyebrow">Sales Management</div>
+                    <h1 class="catalog-title">Sales &amp; Transactions</h1>
+                    <p class="catalog-sub">Consolidated POS and online sales. Use the sidebar for channel-specific operations.</p>
+                </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
+                <div id="salesAdminRoot"></div>
+                <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div></div><div id="soPay" style="padding:0 18px 18px"></div></div>
+                <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Cash Shifts</div><div class="panel-sub" id="soShiftSub">Loading…</div></div></div><div id="soShifts" style="padding:0 18px 18px"></div></div>
+            </section>
+
+            <!-- =================================================
                  SALES TRANSACTIONS
             ================================================== -->
 
-            <section id="sales" class="page">
+            <section id="orders" class="page">
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Sales</div>
-                        <h1 class="catalog-title">Sales Transactions</h1>
+                        <div class="catalog-eyebrow">Sales &amp; Transactions / Online</div>
+                        <h1 class="catalog-title">Online Orders</h1>
                         <p class="catalog-sub">
-                            Online orders from the shop and walk-in sales from the POS. Update an order&rsquo;s status here and the customer sees it on their orders page.
+                            Orders placed in the online shop, for delivery or pickup. Update an order&rsquo;s status here and the customer sees it on their orders page.
                         </p>
                     </div>
-                    <button class="btn-secondary btn-sm" id="soRefresh" type="button">Refresh</button>
+                    <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
 
-                <!-- 1. Online orders -->
+                <div class="sales-page-tabs"><button type="button" class="sales-tab active" data-page="orders">Online Orders</button><button type="button" class="sales-tab" data-page="reviews">Online Reviews</button></div>
                 <div class="panel sales-log-panel">
                     <div class="panel-head">
                         <div>
@@ -1346,6 +1349,11 @@
                         </div>
                         <div class="inv-filters">
                             <input type="text" id="soSearch" class="inv-search" placeholder="Search order, customer or product..." autocomplete="off">
+                            <select id="soType" class="inv-select">
+                                <option value="all">Delivery &amp; pickup</option>
+                                <option value="Delivery">Delivery only</option>
+                                <option value="Pickup">Pickup only</option>
+                            </select>
                             <select id="soStatus" class="inv-select">
                                 <option value="all">All statuses</option>
                                 <option value="Pending Confirmation">Pending Confirmation</option>
@@ -1367,11 +1375,27 @@
                     </div>
                 </div>
 
+            </section>
+
+
+            <section id="sales" class="page">
+
+                <div class="catalog-header">
+                    <div>
+                        <div class="catalog-eyebrow">Sales &amp; Transactions / POS</div>
+                        <h1 class="catalog-title">POS History</h1>
+                        <p class="catalog-sub">
+                            Walk-in receipts, cashier details, payment records, returns and void requests. Online orders are managed separately.
+                        </p>
+                    </div>
+                    <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
+                </div>
+
                 <!-- 2. POS walk-in sales -->
                 <div class="panel sales-log-panel" style="margin-top:20px">
                     <div class="panel-head">
                         <div>
-                            <div class="panel-title">POS Walk-in Sales (today)</div>
+                            <div class="panel-title">POS Transaction History</div>
                             <div class="panel-sub" id="soPosSub">Loading&hellip;</div>
                         </div>
                         <div class="inv-filters">
@@ -1386,28 +1410,6 @@
                     </div>
                 </div>
 
-                <!-- 3. Payment summary -->
-                <div class="panel sales-log-panel" style="margin-top:20px">
-                    <div class="panel-head">
-                        <div>
-                            <div class="panel-title">Payment Summary (POS + online)</div>
-                            <div class="panel-sub" id="soPaySub">Loading&hellip;</div>
-                        </div>
-                    </div>
-                    <div id="soPay" style="padding:0 18px 18px"></div>
-                </div>
-
-                <!-- 4. Cash shifts -->
-                <div class="panel sales-log-panel" style="margin-top:20px">
-                    <div class="panel-head">
-                        <div>
-                            <div class="panel-title">Cash Shifts (cashier drawers)</div>
-                            <div class="panel-sub" id="soShiftSub">Loading&hellip;</div>
-                        </div>
-                    </div>
-                    <div id="soShifts" style="padding:0 18px 18px"></div>
-                </div>
-
             </section>
             <!-- =================================================
                  USER MANAGEMENT
@@ -1415,7 +1417,7 @@
 
             <!-- Quote requests and product reviews: filled in by shop-extras-admin.js -->
             <section id="quotes" class="page"></section>
-            <section id="reviews" class="page"></section>
+            <section id="reviews" class="page"><div class="sales-page-tabs"><button type="button" class="sales-tab" data-page="orders">Online Orders</button><button type="button" class="sales-tab active" data-page="reviews">Online Reviews</button></div></section>
 
             <section id="usermgmt" class="page">
 
@@ -1714,7 +1716,7 @@
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Inbox</div>
+                        <div class="catalog-eyebrow">Alerts</div>
                         <h1 class="catalog-title">Notification Center</h1>
                         <p class="catalog-sub" id="ncPageSub">Low stock, orders, payments, production, and other alerts for Finance.</p>
                     </div>
@@ -3673,10 +3675,12 @@
 
 
     <!-- JAVASCRIPT -->
-    <script src="script.js"></script>
+    <script src="script.js?v=9"></script>
     <script src="api-bridge.js?v=11"></script>
-    <script src="sales-orders.js?v=8"></script>
-    <script src="cash-shift-reports.js?v=4"></script>
+    <script src="sales-orders.js?v=9"></script>
+    <link rel="stylesheet" href="sales-admin.css?v=9">
+    <script src="sales-admin.js?v=9"></script>
+    <script src="cash-shift-reports.js?v=9"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="production-admin.js?v=1"></script>

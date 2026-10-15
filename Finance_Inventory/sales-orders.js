@@ -52,8 +52,8 @@
   }
 
   function renderOrders() {
-    const q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value;
-    const rows = ORDERS.filter(o => (st === 'all' || o.status === st) &&
+    const q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value, ty = $('soType') ? $('soType').value : 'all';
+    const rows = ORDERS.filter(o => (st === 'all' || o.status === st) && (ty === 'all' || o.fulfillment === ty) &&
       (!q || (o.id + ' ' + o.customer + ' ' + (o.customerPhone || '') + ' ' + (o.phone || '') + ' ' + (o.recipient || '') + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));
     $('soSub').textContent = rows.length + ' of ' + ORDERS.length + ' orders';
     $('soHead').innerHTML = '<tr><th>Order</th><th>Date</th><th>Customer</th><th>Items</th><th>Total</th><th>Type / Payment</th><th>Status</th><th>Action</th></tr>';
@@ -160,7 +160,8 @@
   $('soStatus') && $('soStatus').addEventListener('change', renderOrders);
   $('soSearch') && $('soSearch').addEventListener('input', renderOrders);
   $('soPosSearch') && $('soPosSearch').addEventListener('input', renderPos);
-  $('soRefresh') && $('soRefresh').addEventListener('click', load);
-  document.querySelectorAll('.nav-item[data-page="sales"]').forEach(n => n.addEventListener('click', load));
-  if ($('sales') && $('sales').classList.contains('active-page')) load();
+  $('soType') && $('soType').addEventListener('change', renderOrders);
+  document.querySelectorAll('.so-refresh').forEach(b => b.addEventListener('click', load));
+  document.querySelectorAll('.nav-item[data-page="sales"], .nav-item[data-page="orders"]').forEach(n => n.addEventListener('click', load));
+  if (['orders', 'sales'].some(id => $(id) && $(id).classList.contains('active-page'))) load();
 })();

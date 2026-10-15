@@ -487,7 +487,7 @@ function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
   if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
-  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : p === 'notifications' ? 'Inbox' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
+  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : p === 'notifications' ? 'Alerts' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
 }
 $('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
 document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });

@@ -45,12 +45,19 @@ const pageInformation = {
 
     notifications: {
         title: "Notifications",
-        subtitle: "Inbox"
+        subtitle: "Alerts"
+    },
+
+    "sales-overview": { title: "Sales & Transactions", subtitle: "Combined sales summary and transaction ledger" },
+
+    orders: {
+        title: "Online Orders",
+        subtitle: "Shop orders, delivery and pickup"
     },
 
     sales: {
-        title: "Sales Transactions",
-        subtitle: "Orders and POS"
+        title: "POS Sales",
+        subtitle: "Walk-in sales at the counter"
     },
 
     inventory: {
@@ -112,11 +119,11 @@ function navigateToPage(pageId) {
     const pages = document.querySelectorAll(".page");
 
     navItems.forEach(item => {
-        item.classList.toggle(
-            "active",
-            item.dataset.page === pageId
-        );
+        item.classList.toggle("active", item.dataset.page === pageId);
     });
+    const parent = document.querySelector('.sales-parent');
+    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes','reviews'].includes(pageId));
+    document.querySelectorAll('.sales-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.page === pageId));
 
     pages.forEach(page => {
         page.classList.toggle(
@@ -147,7 +154,7 @@ function navigateToPage(pageId) {
 
 function initNavigation() {
 
-    document.querySelectorAll(".nav-item").forEach(item => {
+    document.querySelectorAll(".nav-item, .sales-tab").forEach(item => {
 
         item.addEventListener("click", () => {
             navigateToPage(item.dataset.page);

@@ -189,7 +189,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     const reason = extra && extra.reason ? String(extra.reason) : '';
     const note = extra && extra.note ? String(extra.note) : '';
     const shop = 'Shop_Customer.html#orders';
-    const sales = 'Finance_Inventory.html#sales';
+    const sales = 'Finance_Inventory.html#orders';
     const map = {
       placed: {
         customer: { category: 'orders', title: 'Order confirmation',

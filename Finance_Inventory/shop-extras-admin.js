@@ -60,14 +60,14 @@
   function build() {
     var q = $('quotes'), r = $('reviews');
     if (q) q.innerHTML =
-      '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Quote Requests</h1>' +
+      '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Quote Requests</h1>' +
       '<p class="catalog-sub">Customers ask for a price on bulk orders or custom sizes. Reply with the quote and they get it by email and on their Request a Quote page.</p></div>' +
       '<button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
       '<div class="inv-filters"><select id="sxqFilter" class="inv-select"><option value="open">Waiting for a reply</option><option value="all">All requests</option><option value="quoted">Quoted</option><option value="closed">Closed</option></select></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
-      '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Product Reviews</h1>' +
+      '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '<p class="catalog-sub">Only customers whose order is Delivered or Picked Up can review a product. Hide a review that is abusive, spam or off-topic; you can restore it later.</p></div>' +
       '<button class="btn-secondary btn-sm" id="sxrRefresh" type="button">Refresh</button></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Reviews</div><div class="panel-sub" id="sxrSub">Loading\u2026</div></div>' +
