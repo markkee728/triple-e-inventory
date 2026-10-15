@@ -130,7 +130,7 @@
                     <span class="nav-symbol" aria-hidden="true">▥</span> Sales &amp; Transactions
                 </button>
                 <div class="sales-subnav">
-                    <button class="nav-item" data-page="sales" type="button"><span class="nav-symbol" aria-hidden="true">▤</span> POS History</button>
+                    <button class="nav-item" data-page="sales" type="button"><span class="nav-symbol" aria-hidden="true">▤</span> POS Management</button>
                     <button class="nav-item" data-page="orders" type="button"><span class="nav-symbol" aria-hidden="true">▣</span> Online Orders</button>
                     <button class="nav-item" data-page="quotes" type="button"><span class="nav-symbol" aria-hidden="true">▧</span> Quotation Requests</button>
                 </div>
@@ -1320,7 +1320,6 @@
                 </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
                 <div id="salesAdminRoot"></div>
                 <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div></div><div id="soPay" style="padding:0 18px 18px"></div></div>
-                <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Cash Shifts</div><div class="panel-sub" id="soShiftSub">Loading…</div></div></div><div id="soShifts" style="padding:0 18px 18px"></div></div>
             </section>
 
             <!-- =================================================
@@ -1383,14 +1382,16 @@
                 <div class="catalog-header">
                     <div>
                         <div class="catalog-eyebrow">Sales &amp; Transactions / POS</div>
-                        <h1 class="catalog-title">POS History</h1>
+                        <h1 class="catalog-title">POS Management</h1>
                         <p class="catalog-sub">
-                            Walk-in receipts, cashier details, payment records, returns and void requests. Online orders are managed separately.
+                            Manage walk-in POS sales and cashier cash shifts in separate tabs. Online orders are managed separately.
                         </p>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
 
+                <div class="pos-management-tabs" role="tablist" aria-label="POS Management sections"><button type="button" class="pos-management-tab active" data-pos-tab="transactions" role="tab" aria-selected="true">POS Sales</button><button type="button" class="pos-management-tab" data-pos-tab="shifts" role="tab" aria-selected="false">Cash Shifts</button></div>
+                <div id="posTransactionsPanel" role="tabpanel">
                 <!-- 2. POS walk-in sales -->
                 <div class="panel sales-log-panel" style="margin-top:20px">
                     <div class="panel-head">
@@ -1410,6 +1411,10 @@
                     </div>
                 </div>
 
+                </div>
+                <div id="posShiftsPanel" role="tabpanel" hidden>
+                    <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Cash Shifts</div><div class="panel-sub" id="soShiftSub">Loading…</div></div></div><div id="soShifts" style="padding:0 18px 18px"></div></div>
+                </div>
             </section>
             <!-- =================================================
                  USER MANAGEMENT
@@ -3681,6 +3686,7 @@
     <link rel="stylesheet" href="sales-admin.css?v=9">
     <script src="sales-admin.js?v=9"></script>
     <script src="cash-shift-reports.js?v=9"></script>
+    <script src="pos-management-tabs.js?v=1"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="production-admin.js?v=1"></script>

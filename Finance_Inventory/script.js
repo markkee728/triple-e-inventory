@@ -56,8 +56,8 @@ const pageInformation = {
     },
 
     sales: {
-        title: "POS Sales",
-        subtitle: "Walk-in sales at the counter"
+        title: "POS Management",
+        subtitle: "POS sales and cashier cash shifts"
     },
 
     inventory: {
