@@ -80,34 +80,55 @@
   }
 
   function localISO(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
-  function posUrl() {
-    const mode = $('soPosPeriod')?.value || 'today', now = new Date();
-    let from = '', to = localISO(now);
+  let posPeriodMode = 'week';
+  function setPosRange(mode) {
+    posPeriodMode = mode;
+    const now = new Date(); let from = '', to = localISO(now);
     if (mode === 'today') from = to;
     else if (mode === 'yesterday') { now.setDate(now.getDate()-1); from = to = localISO(now); }
     else if (mode === 'week') { now.setDate(now.getDate()-6); from = localISO(now); }
     else if (mode === 'month') from = localISO(new Date(now.getFullYear(),now.getMonth(),1));
     else if (mode === 'year') from = localISO(new Date(now.getFullYear(),0,1));
-    else if (mode === 'custom') { from = $('soPosFrom').value; to = $('soPosTo').value; if (!from || !to || from > to) return null; }
-    else return '/pos/sales?all=1';
+    $('soPosFrom').value = from;
+    $('soPosTo').value = mode === 'all' ? '' : to;
+    document.querySelectorAll('[data-pos-period]').forEach(b => {
+      const active = b.dataset.posPeriod === mode;
+      b.classList.toggle('active',active);
+      b.setAttribute('aria-pressed',String(active));
+    });
+  }
+  function posUrl() {
+    const from = $('soPosFrom')?.value || '', to = $('soPosTo')?.value || '';
+    if (posPeriodMode === 'all') return '/pos/sales?all=1';
+    if (!from || !to || from > to) return null;
     return '/pos/sales?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
   }
   async function reloadPos() {
     const url = posUrl();
-    if (!url) { $('soPosSub').textContent = 'Choose a valid date range.'; return; }
+    if (!url) { $('soPosSub').textContent = 'Choose a valid date range (From must not exceed To).'; return; }
     const seq = ++posLoadSeq;
     $('soPosSub').textContent = 'Loading sales history…';
     try { const rows = await api(url); if (seq !== posLoadSeq) return; POS = rows; renderPos(); }
     catch (e) { if (seq === posLoadSeq) $('soPosSub').textContent = e.message; }
   }
-  const posPeriod = $('soPosPeriod');
-  if (posPeriod) {
-    posPeriod.addEventListener('change', () => {
-      const custom = posPeriod.value === 'custom';
-      document.querySelectorAll('.pos-custom-date').forEach(el => el.hidden = !custom);
-      if (!custom) reloadPos();
+  if ($('soPosFrom') && $('soPosTo')) {
+    setPosRange('week');
+    document.querySelectorAll('[data-pos-period]').forEach(b => b.addEventListener('click', () => { setPosRange(b.dataset.posPeriod); reloadPos(); }));
+    ['soPosFrom','soPosTo'].forEach(id => $(id).addEventListener('change', () => {
+      posPeriodMode = 'custom';
+      document.querySelectorAll('[data-pos-period]').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed','false'); });
+      if ($('soPosFrom').value && $('soPosTo').value) reloadPos();
+    }));
+    $('soPosExport')?.addEventListener('click', () => {
+      const q = $('soPosSearch').value.trim().toLowerCase();
+      const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + (s.items||[]).map(i=>i.name).join(' ')).toLowerCase().includes(q));
+      const fields = ['Receipt','Date','Cashier','Items','Total','Refunded','Net','Payment','Status'];
+      const csv = [fields,...rows.map(s => [s.receiptNo,s.createdAt,s.cashierName,(s.items||[]).map(i=>i.qty+' x '+i.name).join('; '),s.total,s.refunded||0,s.status==='Voided'?0:Number(s.total)-Number(s.refunded||0),s.method,s.status])]
+        .map(row => row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
+      const url = URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
+      const link = document.createElement('a'); link.href=url; link.download='pos-sales-'+(posPeriodMode==='all'?'all':($('soPosFrom').value+'-to-'+$('soPosTo').value))+'.csv';
+      document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
     });
-    ['soPosFrom','soPosTo'].forEach(id => $(id)?.addEventListener('change', reloadPos));
   }
 
   function renderPos() {

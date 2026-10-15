@@ -1405,12 +1405,21 @@
                             <div class="panel-title">POS Sales</div>
                             <div class="panel-sub" id="soPosSub">Loading&hellip;</div>
                         </div>
-                        <div class="inv-filters pos-history-filters">
-                            <label class="pos-filter-label" for="soPosPeriod">Period</label>
-                            <select id="soPosPeriod" aria-label="POS sales period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">Last 7 days</option><option value="month">This month</option><option value="year">This year</option><option value="all">All history</option><option value="custom">Custom dates</option></select>
-                            <label class="pos-custom-date" hidden>From <input type="date" id="soPosFrom"></label>
-                            <label class="pos-custom-date" hidden>To <input type="date" id="soPosTo"></label>
-                            <input type="text" id="soPosSearch" class="inv-search" placeholder="Search receipt, cashier or product..." autocomplete="off">
+                        <div class="pos-history-toolbar" aria-label="Filter POS sales by date">
+                            <div class="pos-date-fields">
+                                <label for="soPosFrom">FROM <input type="date" id="soPosFrom"></label>
+                                <label for="soPosTo">TO <input type="date" id="soPosTo"></label>
+                            </div>
+                            <div class="pos-quick-periods" role="group" aria-label="Quick date ranges">
+                                <button type="button" class="pos-period-btn" data-pos-period="today">Today</button>
+                                <button type="button" class="pos-period-btn" data-pos-period="yesterday">Yesterday</button>
+                                <button type="button" class="pos-period-btn" data-pos-period="week">Last 7 days</button>
+                                <button type="button" class="pos-period-btn" data-pos-period="month">This month</button>
+                                <button type="button" class="pos-period-btn" data-pos-period="year">This year</button>
+                                <button type="button" class="pos-period-btn" data-pos-period="all">All history</button>
+                                <button type="button" class="pos-export-btn" id="soPosExport">Download CSV</button>
+                            </div>
+                            <input type="search" id="soPosSearch" class="inv-search pos-history-search" placeholder="Search receipt, cashier or product..." autocomplete="off" aria-label="Search POS sales">
                         </div>
                     </div>
                     <div class="table-wrapper">
