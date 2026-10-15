@@ -1201,10 +1201,21 @@ productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, Vali
 app.get('/api/users', auth('finance'), wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT u.user_id, u.full_name, u.username, u.email, r.label, r.role_key, u.status,
-            to_char(u.last_login AT TIME ZONE $1, 'YYYY-MM-DD HH12:MI AM') AS last_login
+            to_char(u.last_login AT TIME ZONE $1, 'YYYY-MM-DD HH12:MI AM') AS last_login,
+            (u.avatar IS NOT NULL) AS has_avatar
        FROM users u JOIN roles r USING (role_id) ORDER BY u.full_name`, [TZ]);
   res.json(rows.map(u => ({ id: u.user_id, name: u.full_name, username: u.username, email: u.email, role: u.label,
-    roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never' })));
+    roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never', hasAvatar: !!u.has_avatar })));
+}));
+
+// profile photo of any account, for the User Management list (finance only). Same photo the person uploaded in My Profile.
+app.get('/api/users/:id/avatar', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(404).json({ error: 'No photo' });
+  const { rows } = await pool.query('SELECT avatar, avatar_type FROM users WHERE user_id = $1', [id]);
+  if (!rows[0] || !rows[0].avatar) return res.status(404).json({ error: 'No photo' });
+  res.set({ 'Content-Type': rows[0].avatar_type === 'image/png' ? 'image/png' : 'image/jpeg', 'Cache-Control': 'private, no-cache', 'X-Content-Type-Options': 'nosniff' });
+  res.send(rows[0].avatar);          // Express adds an ETag, so the browser only re-downloads a photo that changed
 }));
 
 // Edit an account's name, email and role. Customer accounts keep the Customer role (they cannot become Finance or Cashier,

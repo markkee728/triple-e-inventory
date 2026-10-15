@@ -4297,6 +4297,7 @@ function renderAccountsTable() {
                     <div class="user-row-name">
                         <div class="user-row-avatar">
                             ${escapeHTML(getInitials(user.name))}
+                            ${user.hasAvatar ? `<img class="user-row-photo" src="/api/users/${encodeURIComponent(user.id)}/avatar" alt="" loading="lazy" decoding="async">` : ""}
                         </div>
                         ${escapeHTML(user.name)}
                     </div>
