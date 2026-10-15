@@ -127,13 +127,20 @@
             <div class="nav-group sales-nav-group">
                 <div class="nav-label">Sales</div>
                 <button class="nav-item sales-parent" data-page="sales-overview" type="button" aria-label="Sales and Transactions overview">
-                    <span class="nav-symbol" aria-hidden="true">▥</span> Sales &amp; Transactions
+                    <span class="nav-symbol icon-chart" aria-hidden="true"></span> Sales &amp; Transactions
                 </button>
                 <div class="sales-subnav">
-                    <button class="nav-item" data-page="sales" type="button"><span class="nav-symbol" aria-hidden="true">▤</span> POS Management</button>
-                    <button class="nav-item" data-page="orders" type="button"><span class="nav-symbol" aria-hidden="true">▣</span> Online Orders</button>
-                    <button class="nav-item" data-page="quotes" type="button"><span class="nav-symbol" aria-hidden="true">▧</span> Quotation Requests</button>
+                    <button class="nav-item" data-page="sales" type="button"><span class="nav-symbol icon-pos" aria-hidden="true"></span> POS Management</button>
+                    <button class="nav-item" data-page="orders" type="button"><span class="nav-symbol icon-bag" aria-hidden="true"></span> Online Orders</button>
+                    <button class="nav-item" data-page="quotes" type="button"><span class="nav-symbol icon-quote" aria-hidden="true"></span> Quotation Requests</button>
                 </div>
+            </div>
+
+            <!-- CUSTOMER MANAGEMENT: same section-heading layout as Inventory -->
+            <div class="nav-group customer-nav-group">
+                <div class="nav-label">Customer Management</div>
+                <button class="nav-item" data-page="customers" type="button"><span class="nav-symbol icon-profile" aria-hidden="true"></span> Customer Profiles</button>
+                <button class="nav-item" data-page="reviews" type="button"><span class="nav-symbol icon-star" aria-hidden="true"></span> Product Reviews</button>
             </div>
 
             <!-- ADMINISTRATION -->
@@ -1398,7 +1405,11 @@
                             <div class="panel-title">POS Sales</div>
                             <div class="panel-sub" id="soPosSub">Loading&hellip;</div>
                         </div>
-                        <div class="inv-filters">
+                        <div class="inv-filters pos-history-filters">
+                            <label class="pos-filter-label" for="soPosPeriod">Period</label>
+                            <select id="soPosPeriod" aria-label="POS sales period"><option value="today">Today</option><option value="yesterday">Yesterday</option><option value="week">Last 7 days</option><option value="month">This month</option><option value="year">This year</option><option value="all">All history</option><option value="custom">Custom dates</option></select>
+                            <label class="pos-custom-date" hidden>From <input type="date" id="soPosFrom"></label>
+                            <label class="pos-custom-date" hidden>To <input type="date" id="soPosTo"></label>
                             <input type="text" id="soPosSearch" class="inv-search" placeholder="Search receipt, cashier or product..." autocomplete="off">
                         </div>
                     </div>
@@ -1421,8 +1432,14 @@
 
             <!-- Quote requests and product reviews: filled in by shop-extras-admin.js -->
             <section id="quotes" class="page"></section>
-            <section id="reviews" class="page"><div class="sales-page-tabs"><button type="button" class="sales-tab" data-page="orders">Online Orders</button><button type="button" class="sales-tab active" data-page="reviews">Online Reviews</button></div></section>
+            <section id="reviews" class="page"></section>
 
+            <section id="customers" class="page">
+              <div class="catalog-header"><div><div class="catalog-eyebrow">Customer Management</div><h1 class="catalog-title">Customer Profiles</h1><p class="catalog-sub">Registered customer accounts and their contact details. Customer records are separate from staff user management.</p></div></div>
+              <div class="panel"><div class="panel-head"><div><div class="panel-title">Registered Customers</div><div class="panel-sub" id="customerCount">Loading customers…</div></div><button type="button" class="btn-secondary" id="customerRefresh">Refresh</button></div>
+              <div class="inv-filters"><input class="inv-search" id="customerSearch" placeholder="Search customer name, email or username" autocomplete="off"></div>
+              <div class="table-wrapper"><table><thead><tr><th>Customer</th><th>Email</th><th>Username</th><th>Status</th><th>Last Login</th></tr></thead><tbody id="customerRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div></div>
+            </section>
             <section id="usermgmt" class="page">
 
                 <div class="catalog-header">
@@ -3690,7 +3707,8 @@
     <script src="stock-count-admin.js?v=1"></script>
     <script src="production-admin.js?v=1"></script>
     <script src="finished-goods-shop.js?v=5"></script>
-    <script src="shop-extras-admin.js?v=1"></script>
+    <script src="shop-extras-admin.js?v=2"></script>
+    <script src="customer-profiles-admin.js?v=1"></script>
     <script src="notification-center.js?v=2"></script>
 
 </body>

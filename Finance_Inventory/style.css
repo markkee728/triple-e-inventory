@@ -4768,3 +4768,23 @@ html:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indic
 
 /* Read-only sales overview: source tabs and row-based detail access */
 .sa-source-tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.sa-source-tab{padding:10px 18px;border:1px solid #cbd5e1;background:transparent;color:inherit;border-radius:9px;cursor:pointer;font:inherit;font-weight:600}.sa-source-tab.active{background:#1d5fa8;color:white;border-color:#1d5fa8}.sa-source-tab:focus-visible,.sa-table tbody tr[data-ref]:focus-visible{outline:3px solid #7bb4f1;outline-offset:2px}.sa-table tbody tr[data-ref]{cursor:pointer}.sa-table tbody tr[data-ref]:hover{background:rgba(70,130,190,.09)}
+
+/* Unified sidebar icons: clean stroke SVG masks, never font glyphs. */
+.sales-nav-group .nav-symbol,.customer-nav-group .nav-symbol{display:inline-block;flex:0 0 19px;width:19px;height:19px;min-width:19px;background:currentColor;mask:var(--side-icon) center/contain no-repeat;-webkit-mask:var(--side-icon) center/contain no-repeat;font-size:0;vertical-align:middle}
+.icon-pos{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='3' width='18' height='14' rx='2'/%3E%3Cpath d='M8 21h8M12 17v4M7 7h10M7 11h6'/%3E%3C/svg%3E")}
+.icon-bag{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 8h14l1 13H4L5 8Z'/%3E%3Cpath d='M9 9V6a3 3 0 0 1 6 0v3'/%3E%3C/svg%3E")}
+.icon-quote,.icon-profile{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z'/%3E%3Cpath d='M14 3v6h5M9 13h6M9 17h6'/%3E%3C/svg%3E")}
+.icon-chart{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3v18h18M7 16v-4M12 16V8M17 16V5'/%3E%3C/svg%3E")}
+.icon-customers{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='9' cy='8' r='3'/%3E%3Cpath d='M3 20v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M18 14a5 5 0 0 1 3 5v1'/%3E%3C/svg%3E")}
+.icon-star{--side-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3-6.2 3.3L7 14.2 2 9.3l6.9-1L12 2Z'/%3E%3C/svg%3E")}
+
+/* Customer Management uses the same flat section-heading hierarchy as Inventory. */
+.customer-nav-group .nav-label { text-transform:uppercase; }
+/* POS history controls: responsive, aligned and readable. */
+.pos-history-filters { display:flex; flex-wrap:wrap; align-items:center; gap:9px; }
+.pos-history-filters select,.pos-history-filters input[type=date] { min-height:38px; border:1px solid var(--border, #ccd5df); border-radius:8px; padding:7px 10px; background:var(--card,#fff); color:var(--text,#263547); }
+.pos-history-filters .pos-filter-label { font-size:12px; font-weight:600; }
+.pos-history-filters .pos-custom-date { font-size:12px; }
+.pos-history-filters .pos-custom-date[hidden] { display:none!important; }
+.pos-management-section .table-wrapper { overflow-x:auto; }
+@media(max-width:850px){.pos-history-filters {width:100%;}.pos-history-filters .inv-search{flex:1;min-width:190px;}}

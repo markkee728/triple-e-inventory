@@ -95,6 +95,8 @@ const pageInformation = {
         subtitle: "Verified customer reviews"
     },
 
+    customers: { title: "Customer Profiles", subtitle: "Registered customer directory" },
+
     usermgmt: {
         title: "User Management",
         subtitle: "Manage user accounts"
@@ -122,7 +124,7 @@ function navigateToPage(pageId) {
         item.classList.toggle("active", item.dataset.page === pageId);
     });
     const parent = document.querySelector('.sales-parent');
-    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes','reviews'].includes(pageId));
+    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes'].includes(pageId));
     document.querySelectorAll('.sales-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.page === pageId));
 
     pages.forEach(page => {

@@ -7,7 +7,7 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const when = (t) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  let ORDERS = [], POS = [], VOIDS = {}, RETURNS = {};   // VOIDS / RETURNS: receipt no. -> pending void request {id, reason} / pending partial return {id, items, amount, ...}
+  let ORDERS = [], POS = [], VOIDS = {}, RETURNS = {}, posLoadSeq = 0;   // VOIDS / RETURNS: receipt no. -> pending void request {id, reason} / pending partial return {id, items, amount, ...}
   const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 
   function toast(msg, err) {
@@ -41,7 +41,7 @@
 
   async function load() {
     // Each list loads on its own so one failing request doesn't blank the others.
-    const [o, p, v, rt] = await Promise.allSettled([api('/orders'), api('/pos/sales'), api('/pos/void-requests'), api('/pos/return-requests')]);
+    const [o, p, v, rt] = await Promise.allSettled([api('/orders'), api(posUrl()), api('/pos/void-requests'), api('/pos/return-requests')]);
     VOIDS = {}; if (v.status === 'fulfilled') v.value.forEach(r => { VOIDS[r.receiptNo] = r; });
     RETURNS = {}; if (rt.status === 'fulfilled') rt.value.forEach(r => { RETURNS[r.receiptNo] = r; });
     if (o.status === 'fulfilled') ORDERS = o.value; else $('soSub').textContent = o.reason.message;
@@ -79,6 +79,37 @@
     }).join('') : '<tr><td colspan="8" class="report-note">No orders yet. Orders placed in the shop appear here.</td></tr>';
   }
 
+  function localISO(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); }
+  function posUrl() {
+    const mode = $('soPosPeriod')?.value || 'today', now = new Date();
+    let from = '', to = localISO(now);
+    if (mode === 'today') from = to;
+    else if (mode === 'yesterday') { now.setDate(now.getDate()-1); from = to = localISO(now); }
+    else if (mode === 'week') { now.setDate(now.getDate()-6); from = localISO(now); }
+    else if (mode === 'month') from = localISO(new Date(now.getFullYear(),now.getMonth(),1));
+    else if (mode === 'year') from = localISO(new Date(now.getFullYear(),0,1));
+    else if (mode === 'custom') { from = $('soPosFrom').value; to = $('soPosTo').value; if (!from || !to || from > to) return null; }
+    else return '/pos/sales?all=1';
+    return '/pos/sales?from=' + encodeURIComponent(from) + '&to=' + encodeURIComponent(to);
+  }
+  async function reloadPos() {
+    const url = posUrl();
+    if (!url) { $('soPosSub').textContent = 'Choose a valid date range.'; return; }
+    const seq = ++posLoadSeq;
+    $('soPosSub').textContent = 'Loading sales history…';
+    try { const rows = await api(url); if (seq !== posLoadSeq) return; POS = rows; renderPos(); }
+    catch (e) { if (seq === posLoadSeq) $('soPosSub').textContent = e.message; }
+  }
+  const posPeriod = $('soPosPeriod');
+  if (posPeriod) {
+    posPeriod.addEventListener('change', () => {
+      const custom = posPeriod.value === 'custom';
+      document.querySelectorAll('.pos-custom-date').forEach(el => el.hidden = !custom);
+      if (!custom) reloadPos();
+    });
+    ['soPosFrom','soPosTo'].forEach(id => $(id)?.addEventListener('change', reloadPos));
+  }
+
   function renderPos() {
     const q = $('soPosSearch').value.trim().toLowerCase();
     const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
@@ -102,7 +133,7 @@
         '<tr><td>' + esc(r.receiptNo) + '</td><td colspan="2"><span class="faint">Earlier sale</span></td><td>' + r.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '<div class="faint" style="font-size:12px">being returned</div></td><td>' + peso(r.amount) +
         '<div class="faint" style="font-size:12px">refund</div></td><td>' + esc(r.refundMethod === 'Xendit' ? 'Online payment' : r.refundMethod) + '</td><td>' + pill('Return Pending') + small('<b>' + esc(r.returnNo) + '</b> · ' + esc(r.reason)) +
         '</td><td><button class="btn-primary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="1">Approve return</button> <button class="btn-secondary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="0">Reject</button></td></tr>').join('')
-      : '<tr><td colspan="8" class="report-note">No POS sales today.</td></tr>';
+      : '<tr><td colspan="8" class="report-note">No POS sales for this period.</td></tr>';
   }
 
   document.addEventListener('click', async (e) => {

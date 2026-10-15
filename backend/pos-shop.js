@@ -712,13 +712,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.status(201).json(sale);
   }));
 
-  // Today's sales (Manila time). Finance may pass ?date=YYYY-MM-DD for a daily summary.
+  // Finance can inspect POS history across date ranges; cashiers remain limited to today.
   app.get('/api/pos/sales', auth('cashier', 'finance'), wrap(async (req, res) => {
-    const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') && req.user.role === 'finance' ? req.query.date : null;
-    const { rows: sales } = await pool.query(
-      `SELECT * FROM pos_sales
-        WHERE (created_at AT TIME ZONE $1)::date = COALESCE($2::date, (now() AT TIME ZONE $1)::date)
-        ORDER BY created_at DESC`, [TZ, date]);
+    const valid = (v) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(Date.parse(v));
+    const finance = req.user.role === 'finance';
+    const all = finance && req.query.all === '1';
+    const from = finance && valid(req.query.from) ? req.query.from : (finance && valid(req.query.date) ? req.query.date : null);
+    const to = finance && valid(req.query.to) ? req.query.to : (from || null);
+    if (finance && ((req.query.from && !valid(req.query.from)) || (req.query.to && !valid(req.query.to)) || (from && to && from > to)))
+      return res.status(400).json({ error: 'Invalid POS date range' });
+    const where = all ? '' : from ? `WHERE (created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date` : `WHERE (created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`;
+    const params = all ? [] : from ? [TZ, from, to] : [TZ];
+    const { rows: sales } = await pool.query(`SELECT * FROM pos_sales ${where} ORDER BY created_at DESC`, params);
     const { rows: items } = sales.length
       ? await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = ANY($1) ORDER BY item_id', [sales.map(s => s.sale_id)])
       : { rows: [] };
