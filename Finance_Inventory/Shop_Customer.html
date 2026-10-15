@@ -153,7 +153,7 @@ a.nav-item{text-decoration:none}
         <div class="card" style="padding:20px">
           <div class="sec-title">Fulfilment</div>
           <div class="opt-grid">
-            <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small><span data-fee>₱150</span> fee · to your address</small></span></label>
+            <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small><span data-fee>₱150</span> fee · depends on your region / province</small></span></label>
             <label class="opt" data-f="Pickup"><input type="radio" name="f"><span>Pickup at our yard<small>Free · we’ll text you when ready</small></span></label>
           </div>
           <div class="fulfil-note" id="fulfilNote"></div>
@@ -411,7 +411,8 @@ async function requestRefund(id, reason, details) { await api('/api/shop/orders/
 async function requestCancel(id, reason, details) { return api('/api/shop/orders/' + encodeURIComponent(id) + '/cancel-request', { method: 'POST', body: JSON.stringify({ reason, details }) }); }
 
 /* ===== App ===== */
-let DELIVERY_FEE = 150;
+let DELIVERY_FEE = 150, FEE_FROM = null;                 // DELIVERY_FEE: fallback rate; FEE_FROM: the lowest rate (for the "from ₱…" labels)
+let shipFee = null, shipRate = '', feeSeq = 0;            // fee for the chosen delivery address (null until a region is chosen)
 const ONLINE = ['Xendit'];
 const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 const $ = id => document.getElementById(id);
@@ -424,7 +425,7 @@ const prod = sku => PRODUCTS.find(p => p.sku === sku);
 const inCart = sku => (cart.find(l => l.sku === sku) || {}).qty || 0;
 const units = () => cart.reduce((n, l) => n + l.qty, 0);
 const subtotal = () => cart.reduce((s, l) => s + prod(l.sku).price * l.qty, 0);
-const fee = () => fulfil === 'Delivery' ? DELIVERY_FEE : 0;
+const fee = () => fulfil === 'Delivery' ? (shipFee == null ? 0 : shipFee) : 0;
 const cashMethod = () => fulfil === 'Delivery' ? 'Cash on Delivery' : 'Cash on Pickup';
 const TITLES = { catalog: ['Shop', 'Catalog'], cart: ['Shop', 'My Cart'], checkout: ['Shop', 'Checkout'], orders: ['Account', 'My Orders'], quote: ['Shop', 'Request a Quote'], notifications: ['Account', 'Notifications'] };
 const CAT_ICON = {
@@ -591,17 +592,37 @@ function renderCheckout() {
   updateShipSummary();
   { const i = INFO || {};
     $('fulfilNote').innerHTML = fulfil === 'Delivery'
-      ? '<b>Delivery</b> · ' + (DELIVERY_FEE > 0 ? '₱' + DELIVERY_FEE.toLocaleString('en-PH') + ' flat fee. ' : 'Free. ') + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
+      ? '<b>Delivery</b> · ' + (shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
       : '<b>Pickup</b> · Free. ' + (i.address ? 'Collect at ' + esc(i.address) + '. ' : '') + (i.hours ? 'Hours: ' + esc(i.hours) + '. ' : '') + esc(i.pickupNote || '') + ' We email you when your order is ready.'; }
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${payLabel(m)}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
-  $('s1').textContent = peso(subtotal()); $('s2').textContent = fee() ? peso(fee()) : 'Free'; $('s3').textContent = peso(subtotal() + fee());
+  $('s1').textContent = peso(subtotal()); $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? 'Choose address' : (fee() ? peso(fee()) : 'Free'); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
 }
 
 function updateShipSummary() {
   const box = $('sumShip'), a = fulfil === 'Delivery' && window.ShopAddress && ShopAddress.usingSaved() ? ShopAddress.summary() : null;
   box.hidden = !a; if (a) box.innerHTML = '<b>Deliver to</b>' + esc(a.recipient) + ' · ' + esc(a.phone) + '<br>' + esc(a.full);
+  refreshFee();
+}
+/* The delivery fee depends on where the order goes. Ask the server whenever the region / province changes (the server repeats the calculation when the order is placed). */
+async function refreshFee() {
+  if (fulfil !== 'Delivery' || !window.ShopAddress) return;
+  const place = ShopAddress.place(), seq = ++feeSeq;
+  if (!place.region && !place.province) { if (shipFee != null) { shipFee = null; shipRate = ''; renderTotals(); } return; }
+  try {
+    const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(place.region) + '&province=' + encodeURIComponent(place.province));
+    if (seq !== feeSeq) return;                                   // a newer choice is already on its way
+    shipFee = q.fee; shipRate = q.rate || '';
+  } catch (e) { if (seq !== feeSeq) return; shipFee = DELIVERY_FEE; shipRate = ''; }   // could not ask: show the standard fee; the server still sets the real one
+  renderTotals();
+}
+function renderTotals() {
+  if (view !== 'checkout') return;
+  const i = INFO || {};
+  if (fulfil === 'Delivery') $('fulfilNote').innerHTML = '<b>Delivery</b> · ' + (shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>';
+  $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? 'Choose address' : (fee() ? peso(fee()) : 'Free');
+  $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
 }
 
 function renderHelpLines() {
@@ -779,7 +800,7 @@ async function placeOrder() {
 
 const CHECK = '<svg class="ico" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>';
 function pdPerks() {
-  const i = INFO || {}, fee = DELIVERY_FEE > 0 ? '₱' + DELIVERY_FEE.toLocaleString('en-PH') + ' flat fee' : 'free';
+  const i = INFO || {}, base = FEE_FROM != null ? FEE_FROM : DELIVERY_FEE, fee = base > 0 ? 'from ₱' + base.toLocaleString('en-PH') + ', depends on your region / province' : 'free';
   const row = (main, more) => '<div>' + CHECK + '<span>' + main + (more ? '<span class="more">' + more + '</span>' : '') + '</span></div>';
   return '<div class="pd-perks">'
     + row('Made by Triple E Metal, genuine factory product')
@@ -1126,7 +1147,11 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   if (window.AccountMenu) AccountMenu.setUser(USER);       // fills the name / email / photo and powers My Profile + Change Password
   const [cfgShop, profile] = await Promise.all([loadConfig(), api('/api/auth/profile').catch(() => ({}))]);
   INFO = cfgShop.info || {}; REFUND_DAYS = cfgShop.refundWindowDays || 7; renderHelpLines();
-  if (cfgShop.deliveryFee >= 0) { DELIVERY_FEE = cfgShop.deliveryFee; document.querySelectorAll('[data-fee]').forEach(el => el.textContent = '₱' + DELIVERY_FEE.toLocaleString('en-PH')); }
+  if (cfgShop.deliveryFee >= 0) {
+    DELIVERY_FEE = cfgShop.deliveryFee; FEE_FROM = cfgShop.deliveryFeeFrom >= 0 ? cfgShop.deliveryFeeFrom : DELIVERY_FEE;
+    const tag = FEE_FROM < (cfgShop.deliveryFeeTo || FEE_FROM) ? 'from ₱' + FEE_FROM.toLocaleString('en-PH') : '₱' + FEE_FROM.toLocaleString('en-PH');   // rates differ by region -> "from"
+    document.querySelectorAll('[data-fee]').forEach(el => el.textContent = tag);
+  }
   if (profile.phone) $('phone').value = profile.phone;
   ShopAddress.init({ api, esc, toast, onChange: updateShipSummary });
   // My Profile > Delivery Addresses borrows the address box; when it closes, redraw the checkout one

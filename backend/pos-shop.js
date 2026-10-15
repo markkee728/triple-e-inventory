@@ -6,7 +6,35 @@ const MEASURED_UNIT = /^(kg|g|tonne|ton|lb|m|meter|metre|ft|foot|feet|liter|litr
 const isMeasured = (unit) => MEASURED_UNIT.test(String(unit || '').trim());
 const OVERRIDE_MINUTES = 10;     // how long a supervisor approval stays valid at the counter
 const VAT_RATE = 0.12;
+// Fallback delivery fee, used only when no delivery rate matches the address (rates are managed by Finance: Sales > Orders > Delivery rates).
 const DELIVERY_FEE = Number(process.env.DELIVERY_FEE) || 150;
+// Starting rates, written to the delivery_rates table the first time the server runs. Finance can change every one of them afterwards.
+const DEFAULT_DELIVERY_RATES = [
+  ['default', 'All other areas', DELIVERY_FEE],
+  ['region', 'NCR - National Capital Region', 150],
+  ['region', 'Region III - Central Luzon', 250],
+  ['region', 'Region IV-A - CALABARZON', 250],
+  ['region', 'CAR - Cordillera Administrative Region', 350],
+  ['region', 'Region I - Ilocos Region', 350],
+  ['region', 'Region II - Cagayan Valley', 350],
+  ['region', 'MIMAROPA - Region IV-B', 350],
+  ['region', 'Region V - Bicol Region', 350],
+  ['region', 'Region VI - Western Visayas', 450],
+  ['region', 'NIR - Negros Island Region', 450],
+  ['region', 'Region VII - Central Visayas', 450],
+  ['region', 'Region VIII - Eastern Visayas', 450],
+  ['region', 'Region IX - Zamboanga Peninsula', 550],
+  ['region', 'Region X - Northern Mindanao', 550],
+  ['region', 'Region XI - Davao Region', 550],
+  ['region', 'Region XII - SOCCSKSARGEN', 550],
+  ['region', 'Region XIII - Caraga', 550],
+  ['region', 'BARMM - Bangsamoro Autonomous Region', 550]
+];
+// "Region IV-A - CALABARZON" and "region iv-a" are the same region; provinces compare on their plain name
+const rateKey = (scope, name) => {
+  const t = String(name || '').toLowerCase();
+  return (scope === 'region' ? t.split(' - ')[0] : t).replace(/\b(province|city) of\b/g, '').replace(/[^a-z0-9]/g, '');
+};
 const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card', 'Xendit'];
 // Order life-cycle. An order can only move one step forward; the last step ends it.
 const FLOW = {
@@ -498,6 +526,44 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }
   const addressSchemaReady = ensureAddressSchema();
 
+  /* ---------- delivery rates (fee depends on where the order is delivered) ---------- */
+  async function ensureDeliveryRates() {
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS delivery_rates (
+        rate_id    SERIAL PRIMARY KEY,
+        scope      TEXT NOT NULL CHECK (scope IN ('default','region','province')),
+        name       TEXT NOT NULL,
+        fee        NUMERIC(10,2) NOT NULL CHECK (fee >= 0),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_rates ON delivery_rates (scope, lower(name))');
+      const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM delivery_rates');
+      if (!rows[0].n) for (const [scope, name, fee] of DEFAULT_DELIVERY_RATES)
+        await pool.query('INSERT INTO delivery_rates (scope, name, fee) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [scope, name, fee]);
+    } catch (err) { console.warn('[db] could not prepare the delivery rates table:', err.message); }
+  }
+  const deliveryRatesReady = ensureDeliveryRates();
+  const rateRows = async (db) => { await deliveryRatesReady; try { return (await (db || pool).query('SELECT rate_id, scope, name, fee FROM delivery_rates ORDER BY scope, name')).rows; } catch { return []; } };
+  // Most specific rate wins: province, then region, then the "all other areas" rate, then DELIVERY_FEE from .env
+  async function deliveryFeeFor(db, { region, province } = {}) {
+    const rows = await rateRows(db);
+    const hit = (scope, name) => name ? rows.find((r) => r.scope === scope && rateKey(scope, r.name) === rateKey(scope, name)) : null;
+    const prov = hit('province', province);
+    if (prov) return { fee: +prov.fee, rate: prov.name, scope: 'province' };
+    const reg = hit('region', region);
+    if (reg) return { fee: +reg.fee, rate: reg.name, scope: 'region' };
+    const def = rows.find((r) => r.scope === 'default');
+    return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default' };
+  }
+  const ratesSummary = async () => {
+    const rows = await rateRows();
+    const fees = rows.map((r) => +r.fee);
+    return { fallback: (rows.find((r) => r.scope === 'default') || {}).fee != null ? +rows.find((r) => r.scope === 'default').fee : DELIVERY_FEE,
+      from: fees.length ? Math.min(...fees) : DELIVERY_FEE, to: fees.length ? Math.max(...fees) : DELIVERY_FEE,
+      defaultRate: rows.filter((r) => r.scope === 'default').map((r) => ({ name: r.name, fee: +r.fee }))[0] || { name: 'All other areas', fee: DELIVERY_FEE },
+      regions: rows.filter((r) => r.scope === 'region').map((r) => ({ name: r.name, fee: +r.fee })),
+      provinces: rows.filter((r) => r.scope === 'province').map((r) => ({ name: r.name, fee: +r.fee })) };
+  };
+
   /* ---------- shared helpers ---------- */
   const CATALOG_SQL = `
     SELECT p.sku, p.name, COALESCE(c.name, 'Uncategorized') AS category, p.grade, p.form, p.unit,
@@ -974,9 +1040,51 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     // adds minimum order, star rating and "notify me" info (shop-extras.js); the catalog still works if that module is off
     res.json(app.locals.shopExtras ? await app.locals.shopExtras.decorate(rows, req.user) : rows);
   }));
-  app.get('/api/shop/config', auth('customer'), (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() }));
+  app.get('/api/shop/config', auth('customer'), wrap(async (req, res) => {
+    const d = await ratesSummary();
+    res.json({ deliveryFee: d.fallback, deliveryFeeFrom: d.from, deliveryFeeTo: d.to, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() });
+  }));
+  // Fee for one delivery address: the customer sees it at checkout before placing the order (the server recalculates it when the order is placed)
+  app.get('/api/shop/delivery-fee', auth('customer'), wrap(async (req, res) => {
+    const region = str(req.query.region), province = str(req.query.province);
+    if (!region && !province) throw bad('region', 'Choose the delivery region first');
+    const q = await deliveryFeeFor(pool, { region, province });
+    res.json({ fee: q.fee, rate: q.rate, scope: q.scope });
+  }));
   // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
-  app.get('/api/shop/info', (req, res) => res.json({ deliveryFee: DELIVERY_FEE, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() }));
+  app.get('/api/shop/info', wrap(async (req, res) => {
+    const d = await ratesSummary();
+    res.json({ deliveryFee: d.fallback, deliveryFeeFrom: d.from, deliveryFeeTo: d.to, deliveryRates: d, refundWindowDays: REFUND_WINDOW_DAYS, cancelAutoHours: CANCEL_AUTO_HOURS, cancelReasons: CANCEL_REASONS, info: shopInfo() });
+  }));
+
+  /* ---------- delivery rates: Finance manages them ---------- */
+  app.get('/api/delivery-rates', auth('finance'), wrap(async (req, res) => {
+    const rows = await rateRows();
+    res.json(rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee })));
+  }));
+  // Replaces the whole rate list in one go (the admin table sends every row)
+  app.put('/api/delivery-rates', auth('finance'), wrap(async (req, res) => {
+    const list = Array.isArray(req.body && req.body.rates) ? req.body.rates : null;
+    if (!list || !list.length || list.length > 300) throw bad('rates', 'Send between 1 and 300 delivery rates');
+    const seen = new Set(), clean = [];
+    for (const r of list) {
+      const scope = str(r && r.scope), name = str(r && r.name).replace(/\s+/g, ' '), fee = Number(r && r.fee);
+      if (!['default', 'region', 'province'].includes(scope)) throw bad('rates', 'Each rate must be for a region, a province, or "all other areas"');
+      if (name.length < 2 || name.length > 100) throw bad('rates', 'Each rate needs a place name (2–100 characters)');
+      if (!Number.isFinite(fee) || fee < 0 || fee > 100000) throw bad('rates', 'The fee for ' + name + ' must be between 0 and 100,000');
+      const key = scope + '|' + rateKey(scope, name);
+      if (seen.has(key)) throw bad('rates', name + ' is listed twice');
+      seen.add(key); clean.push({ scope, name, fee: round2(fee) });
+    }
+    if (clean.filter((r) => r.scope === 'default').length !== 1) throw bad('rates', 'There must be exactly one "all other areas" rate');
+    await deliveryRatesReady;
+    await tx(async (client) => {
+      await client.query('DELETE FROM delivery_rates');
+      for (const r of clean) await client.query('INSERT INTO delivery_rates (scope, name, fee) VALUES ($1,$2,$3)', [r.scope, r.name, r.fee]);
+      await audit(client, req.user, 'Record edited', 'Delivery rates updated (' + clean.length + ' rates)');
+    });
+    res.json(await rateRows().then((rows) => rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee }))));
+  }));
 
   /* ---------- refunds (shared by the customer and finance routes) ---------- */
   // (request_id is BIGSERIAL, which pg returns as text, hence Number())
@@ -1128,7 +1236,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const items = await loadSellable(client, lines, { lock: false });
       if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);   // minimum order per product
       const subtotal = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
-      const fee = fulfillment === 'Delivery' ? DELIVERY_FEE : 0;
+      const fee = fulfillment === 'Delivery' ? (await deliveryFeeFor(client, ship)).fee : 0;   // by the delivery address' province / region
       const ins = await client.query(
         `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
                              recipient_name, address_line, landmark, barangay, city, province, region, zip_code)

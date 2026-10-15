@@ -145,6 +145,7 @@
 
   async function onRegion() {
     resetBelow('province'); setErr('region', ''); setErr('province', '');
+    cfg && cfg.onChange && cfg.onChange();                                       // the delivery fee depends on the region
     const reg = regions.find((r) => r.name === $('ae_region').value); if (!reg) return;
     const t = ++tokens.prov, psel = $('ae_province');
     setOptions(psel, [], 'Loading provinces…', { disabled: true });
@@ -154,11 +155,13 @@
       if (rows.length) { provinces = rows; setOptions(psel, rows, 'Choose a province…'); return; }
       provinces = [{ code: 'NCR', name: 'Metro Manila' }];                    // NCR has no provinces
       setOptions(psel, provinces, 'Metro Manila', { disabled: true }); psel.value = 'Metro Manila';
+      cfg && cfg.onChange && cfg.onChange();
       await loadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
     } catch (e) { if (t === tokens.prov) { setOptions(psel, [], 'Could not load — choose the region again', { disabled: true }); setErr('province', e.message); } }
   }
   async function onProvince() {
     resetBelow('city'); setErr('province', '');
+    cfg && cfg.onChange && cfg.onChange();                                       // the delivery fee can differ by province
     const prov = provinces.find((p) => p.name === $('ae_province').value); if (!prov) return;
     await loadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
   }
@@ -339,6 +342,11 @@
     // true when the customer picked a saved address
     usingSaved() { return !formOpen && saved.some((a) => a.id === selectedId); },
     phone() { if (this.usingSaved()) return saved.find((a) => a.id === selectedId).phone; return formOpen ? read().phone : ''; },
+    // where the order would be delivered: { region, province } of the chosen saved address or of the form (empty strings until chosen)
+    place() {
+      if (this.usingSaved()) { const a = saved.find((x) => x.id === selectedId); return { region: a.region || '', province: a.province || '' }; }
+      return formOpen ? { region: val('ae_region'), province: val('ae_province') } : { region: '', province: '' };
+    },
     summary() { const a = saved.find((x) => x.id === selectedId); return a ? { recipient: a.recipient, phone: a.phone, full: a.fullAddress || fullOf(a) } : null; },
     /* Returns { shipTo, phone, saveAddress, addressLabel, makeDefault } for POST /api/shop/orders, or throws { message }. */
     collect() {

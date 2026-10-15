@@ -146,7 +146,18 @@ document.querySelectorAll('.info-body section').forEach(s => io.observe(s));
 
 fetch('/api/shop/info').then(r => r.ok ? r.json() : Promise.reject()).then(d => {
   const i = d.info || {};
-  $('vFee').textContent = d.deliveryFee > 0 ? peso(d.deliveryFee) + ' flat fee per order' : 'Free';
+  const R = d.deliveryRates;
+  if (R && (R.regions.length || R.provinces.length)) {
+    const esc = (v) => String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
+    const fee = (n) => n > 0 ? peso(n) : 'Free';
+    const line = (r) => '<tr><td style="padding:2px 14px 2px 0">' + esc(r.name) + '</td><td style="text-align:right;font-variant-numeric:tabular-nums">' + fee(r.fee) + '</td></tr>';
+    $('vFee').innerHTML = 'Per order. The fee depends on where we deliver (your province first, then your region).'
+      + '<table style="margin-top:8px;border-collapse:collapse">'
+      + (R.provinces.length ? '<tr><th colspan="2" style="text-align:left;padding-top:4px">By province</th></tr>' + R.provinces.map(line).join('') : '')
+      + '<tr><th colspan="2" style="text-align:left;padding-top:6px">By region</th></tr>' + R.regions.map(line).join('')
+      + '<tr><th colspan="2" style="text-align:left;padding-top:6px">Anywhere else</th></tr>' + line(R.defaultRate)
+      + '</table>';
+  } else $('vFee').textContent = d.deliveryFee > 0 ? peso(d.deliveryFee) + ' per order' : 'Free';
   if (i.deliveryAreas) $('vAreas').textContent = i.deliveryAreas;
   if (i.deliveryLeadTime) $('vLead').textContent = i.deliveryLeadTime;
   const pick = ['Free.', i.address && 'Collect at: ' + i.address + '.', i.hours && 'Hours: ' + i.hours + '.', i.pickupNote, 'We tell you when your order is ready.'].filter(Boolean).join(' ');
