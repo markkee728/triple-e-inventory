@@ -1384,19 +1384,18 @@
                         <div class="catalog-eyebrow">Sales &amp; Transactions / POS</div>
                         <h1 class="catalog-title">POS Management</h1>
                         <p class="catalog-sub">
-                            Manage walk-in POS sales and cashier cash shifts in separate tabs. Online orders are managed separately.
+                            Monitor walk-in POS sales and cashier cash shifts together. Online orders are managed separately.
                         </p>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
 
-                <div class="pos-management-tabs" role="tablist" aria-label="POS Management sections"><button type="button" class="pos-management-tab active" data-pos-tab="transactions" role="tab" aria-selected="true">POS Sales</button><button type="button" class="pos-management-tab" data-pos-tab="shifts" role="tab" aria-selected="false">Cash Shifts</button></div>
-                <div id="posTransactionsPanel" role="tabpanel">
+                <div id="posTransactionsPanel" class="pos-management-section" aria-label="POS Sales">
                 <!-- 2. POS walk-in sales -->
                 <div class="panel sales-log-panel" style="margin-top:20px">
                     <div class="panel-head">
                         <div>
-                            <div class="panel-title">POS Transaction History</div>
+                            <div class="panel-title">POS Sales</div>
                             <div class="panel-sub" id="soPosSub">Loading&hellip;</div>
                         </div>
                         <div class="inv-filters">
@@ -1412,7 +1411,7 @@
                 </div>
 
                 </div>
-                <div id="posShiftsPanel" role="tabpanel" hidden>
+                <div id="posShiftsPanel" class="pos-management-section" aria-label="Cash Shifts">
                     <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Cash Shifts</div><div class="panel-sub" id="soShiftSub">Loading…</div></div></div><div id="soShifts" style="padding:0 18px 18px"></div></div>
                 </div>
             </section>
@@ -3684,9 +3683,9 @@
     <script src="api-bridge.js?v=11"></script>
     <script src="sales-orders.js?v=9"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">
-    <script src="sales-admin.js?v=9"></script>
+    <script src="sales-admin.js?v=10"></script>
     <script src="cash-shift-reports.js?v=9"></script>
-    <script src="pos-management-tabs.js?v=1"></script>
+
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="production-admin.js?v=1"></script>

@@ -4758,3 +4758,13 @@ html:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indic
 .pos-management-tab.active{background:var(--primary,#1c5c9d);border-color:var(--primary,#1c5c9d);color:#fff}
 .pos-management-tab:focus-visible{outline:3px solid #e9ac45;outline-offset:2px}
 #posShiftsPanel[hidden],#posTransactionsPanel[hidden]{display:none!important}
+
+/* POS Management: stacked POS Sales and Cash Shifts, always visible */
+#sales .pos-management-section{display:block!important;visibility:visible;margin-bottom:24px}
+#sales .pos-management-section[hidden]{display:block!important}
+#sales .pos-management-section .panel{margin-top:16px}
+#sales .pos-management-section .table-wrapper{overflow-x:auto}
+#sales .pos-management-section .panel-head{gap:12px;flex-wrap:wrap}
+
+/* Read-only sales overview: source tabs and row-based detail access */
+.sa-source-tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.sa-source-tab{padding:10px 18px;border:1px solid #cbd5e1;background:transparent;color:inherit;border-radius:9px;cursor:pointer;font:inherit;font-weight:600}.sa-source-tab.active{background:#1d5fa8;color:white;border-color:#1d5fa8}.sa-source-tab:focus-visible,.sa-table tbody tr[data-ref]:focus-visible{outline:3px solid #7bb4f1;outline-offset:2px}.sa-table tbody tr[data-ref]{cursor:pointer}.sa-table tbody tr[data-ref]:hover{background:rgba(70,130,190,.09)}

@@ -19,6 +19,7 @@
     Delivered: 'ok', 'Picked Up': 'ok', Cancelled: 'bad', Completed: 'ok', 'Void Pending': 'warn', Voided: 'bad' };
   const STATUSES = ['Pending Confirmation', 'Paid', 'Packed', 'Out for Delivery', 'Ready for Pickup', 'Delivered', 'Picked Up', 'Cancelled', 'Completed', 'Void Pending', 'Voided'];
 
+  let sourceTab = 'POS';
   let sales = [], FLOW = {}, quick = 'all', shown = 100, openRef = null, busy = false, pendingErr = null, built = false, loading = false;
 
   /* ---------- small helpers ---------- */
@@ -37,8 +38,8 @@
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 4500);
   }
-  const pageActive = () => { const s = $('sales'); return !!(s && s.classList.contains('active-page')); };
-  const hasRequest = (s) => !!(s.cancelRequest || s.voidRequest);
+  const pageActive = () => { const s = $('sales-overview'); return !!(s && s.classList.contains('active-page')); };
+  const hasRequest = (s) => !!(s.cancelRequest || s.voidRequest || s.returnRequest);
   const inProgress = (s) => s.source === 'Shop' && !!s.next && s.status !== 'Pending Confirmation';
   // money only counts once it is real: POS sale not voided, online order confirmed and not cancelled
   const realized = (s) => (s.source === 'POS' ? ['Completed', 'Void Pending'].includes(s.status) : !['Pending Confirmation', 'Cancelled'].includes(s.status));
@@ -52,12 +53,13 @@
     built = true;
     root.innerHTML =
       '<div class="sa-kpis" id="saKpis"></div>' +
+      '<div class="sa-source-tabs" role="tablist" aria-label="Transaction source"><button type="button" class="sa-source-tab active" data-source-tab="POS" role="tab" aria-selected="true">POS Transactions</button><button type="button" class="sa-source-tab" data-source-tab="Shop" role="tab" aria-selected="false">Online Orders</button></div>' +
       '<div class="panel sales-log-panel">' +
         '<div class="panel-head">' +
-          '<div><div class="panel-title">Sales &amp; Orders</div><div class="panel-sub" id="saSub">Loading…</div></div>' +
+          '<div><div class="panel-title">Combined Transaction Ledger</div><div class="panel-sub" id="saSub">Loading…</div></div>' +
           '<div class="sa-filters">' +
             '<input type="text" id="saSearch" class="inv-search" placeholder="Search ref, customer, product, phone…" autocomplete="off">' +
-            '<select id="saSource" class="inv-select"><option value="all">All sources</option><option value="POS">POS (cashier)</option><option value="Shop">Online shop</option></select>' +
+            
             '<select id="saStatus" class="inv-select"><option value="all">All statuses</option>' + STATUSES.map((s) => '<option>' + s + '</option>').join('') + '</select>' +
             '<label class="sa-date">From <input type="date" id="saFrom"></label>' +
             '<label class="sa-date">To <input type="date" id="saTo"></label>' +
@@ -68,16 +70,16 @@
         '</div>' +
         '<div class="table-wrapper"><table class="sa-table"><thead><tr>' +
           '<th>Ref</th><th>Date</th><th>Source</th><th>Customer</th><th>Items</th><th>Type</th><th>Payment</th>' +
-          '<th class="sa-num">Total</th><th class="sa-num">Est. profit</th><th>Status</th><th></th>' +
+          '<th class="sa-num">Total</th><th class="sa-num">Est. profit</th><th>Status</th>' +
         '</tr></thead><tbody id="saBody"></tbody></table></div>' +
         '<div class="sa-foot"><span id="saCount"></span><button type="button" class="btn-secondary btn-sm" id="saMore" style="display:none">Show more</button></div>' +
       '</div>';
 
-    ['saSearch', 'saSource', 'saStatus', 'saFrom', 'saTo'].forEach((id) => {
+    ['saSearch', 'saStatus', 'saFrom', 'saTo'].forEach((id) => {
       $(id).addEventListener(id === 'saSearch' ? 'input' : 'change', () => { shown = 100; render(); });
     });
     $('saReset').addEventListener('click', () => {
-      $('saSearch').value = ''; $('saSource').value = 'all'; $('saStatus').value = 'all'; $('saFrom').value = ''; $('saTo').value = '';
+      $('saSearch').value = ''; $('saStatus').value = 'all'; $('saFrom').value = ''; $('saTo').value = '';
       quick = 'all'; shown = 100; render();
     });
     $('saMore').addEventListener('click', () => { shown += 100; render(); });
@@ -86,15 +88,24 @@
       const b = e.target.closest('[data-quick]'); if (!b) return;
       quick = quick === b.dataset.quick ? 'all' : b.dataset.quick; shown = 100; render();
     });
+    root.querySelectorAll('[data-source-tab]').forEach((tab) => tab.addEventListener('click', () => {
+      sourceTab = tab.dataset.sourceTab; shown = 100;
+      root.querySelectorAll('[data-source-tab]').forEach((b) => { const active = b === tab; b.classList.toggle('active', active); b.setAttribute('aria-selected', String(active)); });
+      render();
+    }));
     $('saBody').addEventListener('click', (e) => {
       const tr = e.target.closest('tr[data-ref]'); if (tr) openModal(tr.dataset.ref);
+    });
+    $('saBody').addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const tr = e.target.closest('tr[data-ref]'); if (tr) { e.preventDefault(); openModal(tr.dataset.ref); }
     });
   }
 
   /* ---------- list ---------- */
   function filtered() {
     const term = $('saSearch').value.trim().toLowerCase();
-    const src = $('saSource').value, st = $('saStatus').value, from = $('saFrom').value, to = $('saTo').value;
+    const src = sourceTab, st = $('saStatus').value, from = $('saFrom').value, to = $('saTo').value;
     const today = dayKey(Date.now());
     const msg = $('saFilterMsg');
     const badRange = !!(from && to && from > to);
@@ -132,7 +143,7 @@
       card('today', 'Today\u2019s sales', peso(todays.reduce((n, s) => n + s.revenue, 0)), todays.length + ' confirmed transaction' + (todays.length === 1 ? '' : 's')) +
       card('pending', 'Awaiting payment confirmation', pending, 'online orders to confirm', pending ? 'warn' : '') +
       card('progress', 'Being fulfilled', prog, 'paid, packed or on the way') +
-      card('decision', 'Needs your decision', dec, 'cancel / void requests', dec ? 'bad' : '');
+      card('decision', 'Needs your decision', dec, 'cancel, void or return requests', dec ? 'bad' : '');
     updateBadge();
   }
 
@@ -152,14 +163,10 @@
     renderKpis();
     const rows = filtered();
     const part = rows.slice(0, shown);
-    $('saSub').textContent = 'Every POS sale and online order, newest first';
+    $('saSub').textContent = sourceTab === 'POS' ? 'POS transactions — select a row to view details' : 'Online orders — select a row to view details';
     $('saBody').innerHTML = part.length ? part.map((s) => {
       const count = s.items.reduce((n, i) => n + i.qty, 0);
-      let act;
-      if (hasRequest(s)) act = '<button type="button" class="btn-danger btn-sm sa-row-btn">Review request</button>';
-      else if (s.source === 'Shop' && s.next) act = '<button type="button" class="btn-primary btn-sm sa-row-btn">' + esc(STEP_LABEL[s.next] || 'Update') + '</button>';
-      else act = '<button type="button" class="btn-secondary btn-sm sa-row-btn">View</button>';
-      return '<tr data-ref="' + esc(s.ref) + '">' +
+      return '<tr tabindex="0" role="button" aria-label="View transaction ' + esc(s.ref) + '" data-ref="' + esc(s.ref) + '">' +
         '<td class="sa-ref">' + esc(s.ref) + '</td>' +
         '<td>' + esc(fmtDate(s.createdAt)) + '</td>' +
         '<td><span class="sa-src ' + (s.source === 'POS' ? 'pos' : 'shop') + '">' + (s.source === 'POS' ? 'POS' : 'SHOP') + '</span></td>' +
@@ -169,9 +176,9 @@
         '<td>' + esc(s.method) + '</td>' +
         '<td class="sa-num">' + peso(s.total) + '</td>' +
         '<td class="sa-num">' + (realized(s) ? peso(s.profit) : '\u2014') + '</td>' +
-        '<td>' + pill(s.status) + (hasRequest(s) ? '<span class="sa-flag">' + (s.cancelRequest ? 'Cancel requested' : 'Void requested') + '</span>' : '') + '</td>' +
-        '<td>' + act + '</td></tr>';
-    }).join('') : '<tr><td colspan="11" class="sa-empty">' + (sales.length ? 'No transactions match these filters.' : 'No sales yet. Sales made at the POS and orders placed in the shop appear here automatically.') + '</td></tr>';
+        '<td>' + pill(s.status) + (hasRequest(s) ? '<span class="sa-flag">' + (s.cancelRequest ? 'Cancel requested' : s.voidRequest ? 'Void requested' : 'Return requested') + '</span>' : '') + '</td>' +
+        '</tr>';
+    }).join('') : '<tr><td colspan="10" class="sa-empty">' + (sales.length ? 'No transactions match these filters.' : 'No sales yet. Sales made at the POS and orders placed in the shop appear here automatically.') + '</td></tr>';
     $('saCount').textContent = rows.length ? 'Showing ' + part.length + ' of ' + rows.length + ' transaction' + (rows.length === 1 ? '' : 's') : '';
     $('saMore').style.display = rows.length > part.length ? '' : 'none';
   }
@@ -201,7 +208,7 @@
       else updateBadge();
     } catch (e) {
       if (e.message === 'Not signed in') return;
-      if (built && !sales.length) $('saBody').innerHTML = '<tr><td colspan="11" class="sa-empty">Could not load sales: ' + esc(e.message) + ' <button type="button" class="btn-secondary btn-sm" id="saRetry">Try again</button></td></tr>';
+      if (built && !sales.length) $('saBody').innerHTML = '<tr><td colspan="10" class="sa-empty">Could not load sales: ' + esc(e.message) + ' <button type="button" class="btn-secondary btn-sm" id="saRetry">Try again</button></td></tr>';
       const r = $('saRetry'); if (r) r.addEventListener('click', () => load(true));
     } finally { loading = false; }
   }
@@ -251,17 +258,24 @@
       '</tbody></table><div class="sa-totals"><div><span>Subtotal</span><span>' + peso(s.subtotal) + '</span></div>' +
       (s.deliveryFee ? '<div><span>Delivery fee</span><span>' + peso(s.deliveryFee) + '</span></div>' : '') +
       (s.vat ? '<div><span>VAT included (12%)</span><span>' + peso(s.vat) + '</span></div>' : '') +
-      '<div class="grand"><span>Total</span><span>' + peso(s.total) + '</span></div>' +
+      (s.refunded ? '<div><span>Originally sold for</span><span>' + peso(s.originalTotal) + '</span></div><div><span>Returned and refunded</span><span>\u2212' + peso(s.refunded) + '</span></div>' : '') +
+      '<div class="grand"><span>' + (s.refunded ? 'Net total (after returns)' : 'Total') + '</span><span>' + peso(s.total) + '</span></div>' +
       '<div><span>Est. cost of goods</span><span>' + peso(s.cost) + '</span></div><div><span>Est. profit</span><span>' + peso(s.profit) + '</span></div></div>';
+
+    if (s.returns && s.returns.length)
+      h += '<div class="sa-h">Returns</div><ul class="sa-hist">' + s.returns.map((r) =>
+        '<li><strong>' + esc(r.returnNo) + ' \u2014 ' + esc(r.status === 'approved' ? 'Approved' : r.status === 'rejected' ? 'Rejected' : 'Waiting for Finance') + '</strong> \u00B7 ' + peso(r.amount) +
+        '<br>' + r.items.map((i) => esc(i.qty + ' ' + i.unit + ' ' + i.name)).join(', ') +
+        '<br>' + esc(r.reason) + (r.status === 'approved' ? ' \u00B7 ' + (r.restock ? 'put back in stock' : 'not put back in stock') : '') + (r.note ? ' \u00B7 Finance: ' + esc(r.note) : '') +
+        '<small>' + esc(fmtDate(r.requestedAt)) + ' \u00B7 requested by ' + esc(r.requestedBy || 'cashier') + '</small></li>').join('') + '</ul>';
 
     if (s.history && s.history.length)
       h += '<div class="sa-h">Status history</div><ul class="sa-hist">' + s.history.map((x) =>
         '<li><strong>' + esc(x.from && x.from !== x.to ? x.from + ' \u2192 ' + x.to : x.to) + '</strong>' + (x.note ? ' \u2014 ' + esc(x.note) : '') +
         '<small>' + esc(fmtDate(x.at)) + ' \u00B7 ' + esc(x.by) + '</small></li>').join('') + '</ul>';
 
-    h += '<div class="sa-h">Actions</div><div id="saActions">' + actionsHtml(s) + '</div><div class="sa-banner bad sa-modal-err" id="saModalErr" role="alert"></div>';
+    h += '<div class="sa-banner ok">Read-only transaction details. Use POS Management or Online Orders to process transactions.</div>';
     $('saModalBody').innerHTML = h;
-    wireActions(s);
     if (pendingErr) { showErr(pendingErr); pendingErr = null; }
   }
 
@@ -270,11 +284,20 @@
       return '<div class="sa-banner warn"><strong>The customer asked to cancel this order.</strong><br>Reason: ' + esc(s.cancelRequest.reason) + '</div>' +
         '<div class="sa-actions"><button type="button" class="btn-danger" id="saApproveCancel">Approve cancellation</button><button type="button" class="btn-secondary" id="saRejectCancel">Reject request</button></div>' +
         '<p class="sa-count" style="text-align:left;margin-top:8px">Approving cancels the order' + (s.status === 'Pending Confirmation' ? '.' : ' and puts the stock back. A refund to the original payment method is then due.') + ' Rejecting keeps the order going.</p>';
+    if (s.returnRequest) {
+      const r = s.returnRequest;
+      return '<div class="sa-banner warn"><strong>The cashier sent a return (' + esc(r.returnNo) + ').</strong><br>' + r.items.map((i) => esc(i.qty + ' ' + i.unit + ' ' + i.name + ' \u2014 ' + peso(i.amount))).join('<br>') +
+        '<br>Refund: <strong>' + peso(r.amount) + '</strong> (' + (r.refundMethod === 'Cash' ? 'cash from ' + esc(r.requestedBy || 'the cashier') + '\u2019s drawer' : 'back to the original payment method \u2014 do this outside the POS') + ')<br>Reason: ' + esc(r.reason) + '</div>' +
+        '<div class="sa-form"><label class="sa-check"><input type="checkbox" id="saRestock" checked> The items are in resellable condition \u2014 put them back in stock</label>' +
+        '<label for="saNote" style="margin-top:8px">Note (required if you reject)</label><textarea id="saNote" class="sa-in" maxlength="200" placeholder="Shown in the audit log"></textarea><div class="sa-count"><span id="saNoteN">0</span> / 200</div><div class="sa-err" id="saNoteErr"></div></div>' +
+        '<div class="sa-actions"><button type="button" class="btn-primary" id="saApproveReturn">Approve return</button><button type="button" class="btn-secondary" id="saRejectReturn">Reject request</button></div>' +
+        '<p class="sa-count" style="text-align:left;margin-top:8px">Approving records the refund' + (r.refundMethod === 'Cash' ? ' against the cashier\u2019s open cash shift' : '') + ' and keeps the rest of the sale as it is. Everything is written to the audit log.</p>';
+    }
     if (s.voidRequest)
       return '<div class="sa-banner warn"><strong>The cashier asked to void this sale.</strong><br>Reason: ' + esc(s.voidRequest.reason) + '</div>' +
         '<div class="sa-actions"><button type="button" class="btn-danger" id="saApproveVoid">Approve void</button><button type="button" class="btn-secondary" id="saRejectVoid">Reject request</button></div>' +
         '<p class="sa-count" style="text-align:left;margin-top:8px">Approving voids the sale and puts every item back in stock.</p>';
-    if (s.source === 'POS') return '<div class="sa-banner ok">POS sales are completed at the counter. If something went wrong, the cashier sends a void request and it shows up here for you to approve.</div>';
+    if (s.source === 'POS') return '<div class="sa-banner ok">POS sales are completed at the counter. If something went wrong, the cashier sends a void request; if a customer brings back some items, the cashier sends a return. Both show up here for you to approve.</div>';
     if (s.status === 'Cancelled') return '<div class="sa-banner bad">Closed: cancelled orders cannot be changed.</div>';
     if (FINAL.includes(s.status)) return '<div class="sa-banner ok">Completed: this order is closed' + (s.receivedBy ? ' (received by ' + esc(s.receivedBy) + ')' : '') + '.</div>';
     if (!s.next) return '';
@@ -362,6 +385,19 @@
     on('saApproveCancel', () => ask('Approve the cancellation of ' + s.ref + '? This cannot be undone.', 'Yes, approve',
       () => run('Cancellation approved.', () => post('/orders/' + encodeURIComponent(s.ref) + '/cancel-decision', { approve: true }))));
     on('saRejectCancel', () => run('Cancellation request rejected.', () => post('/orders/' + encodeURIComponent(s.ref) + '/cancel-decision', { approve: false })));
+    on('saApproveReturn', () => {
+      clearErr();
+      const nt = note ? note.value.trim() : '', restock = !!($('saRestock') && $('saRestock').checked), r = s.returnRequest;
+      if (nt.length > 200) return fieldErr('saNote', 'saNoteErr', 'The note must be 200 characters or fewer');
+      ask('Approve ' + r.returnNo + ' and refund ' + peso(r.amount) + '? ' + (restock ? 'The items go back into stock.' : 'The items will NOT go back into stock.') + ' This cannot be undone.', 'Yes, approve return',
+        () => run('Return approved' + (restock ? ' and stock restored.' : '.'), () => post('/pos/return-requests/' + encodeURIComponent(r.id) + '/decision', { approve: true, restock, note: nt })));
+    });
+    on('saRejectReturn', () => {
+      clearErr();
+      const nt = note ? note.value.trim() : '';
+      if (nt.length < 5 || nt.length > 200) return fieldErr('saNote', 'saNoteErr', 'Tell the cashier why (5 to 200 characters)');
+      run('Return rejected.', () => post('/pos/return-requests/' + encodeURIComponent(s.returnRequest.id) + '/decision', { approve: false, note: nt }));
+    });
     on('saApproveVoid', () => ask('Void sale ' + s.ref + '? All items go back into stock. This cannot be undone.', 'Yes, void sale',
       () => run('Sale voided and stock returned.', () => post('/pos/void-requests/' + encodeURIComponent(s.voidRequest.id) + '/decision', { approve: true }))));
     on('saRejectVoid', () => run('Void request rejected.', () => post('/pos/void-requests/' + encodeURIComponent(s.voidRequest.id) + '/decision', { approve: false })));
@@ -369,7 +405,7 @@
 
   /* ---------- start ---------- */
   function start() {
-    const section = $('sales');
+    const section = $('sales-overview');
     if (!section || !$('salesAdminRoot')) return;
     build();
     new MutationObserver(() => { if (pageActive()) load(true); }).observe(section, { attributes: true, attributeFilter: ['class'] });
