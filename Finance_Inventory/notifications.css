@@ -98,3 +98,5 @@ html[data-theme="light"] .nc-item.unread { background: rgba(31,111,184,.06); }
   .nc-bell { width: 42px; height: 42px; }
   .nc-drop { right: -40px; }
 }
+
+.nc-chip[hidden], .nc-chip[style*="display: none"] { display: none !important; }

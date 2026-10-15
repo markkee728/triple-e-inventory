@@ -85,6 +85,8 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
         `INSERT INTO low_stock_alerts (product_id, on_hand)
          SELECT product_id, on_hand FROM products WHERE NOT is_archived AND reorder_level > 0 AND on_hand <= reorder_level
          ON CONFLICT (product_id) DO NOTHING RETURNING product_id`);
+      if (app.locals.notifications && app.locals.notifications.syncLowStock)
+        await app.locals.notifications.syncLowStock();
       if (!claimed.rowCount) return { checked: true, alerted: 0 };
       const ids = claimed.rows.map((r) => r.product_id);
       const { rows: items } = await pool.query(
@@ -132,6 +134,6 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
 
   const every = Math.max(1, Number(env('LOW_STOCK_CHECK_MINUTES')) || 15) * 60000;
   timer = setInterval(check, every); timer.unref && timer.unref();
-  const first = setTimeout(check, 30000); first.unref && first.unref();
+  const first = setTimeout(check, 5000); first.unref && first.unref();
   return { check };
 };

@@ -76,6 +76,18 @@
     el.textContent = n > 99 ? '99+' : String(n);
   }
 
+  function applyRole(role) {
+    if (!role) return;
+    document.querySelectorAll('[data-nc-roles]').forEach(function (chip) {
+      var allow = (chip.getAttribute('data-nc-roles') || '').split(',');
+      var hide = allow.indexOf(role) < 0;
+      chip.hidden = hide;
+      chip.style.display = hide ? 'none' : '';
+      // if the active filter belongs to a hidden chip, fall back to All
+      if (hide && chip.classList.contains('on')) { chip.classList.remove('on'); pageCat = ''; }
+    });
+  }
+
   function setStat(n) {
     var v = $('ncStatValue'), foot = $('ncStatFoot');
     if (v) v.textContent = String(n || 0);
@@ -86,6 +98,7 @@
     try {
       var d = await api('/notifications/unread-count');
       setCount(d.unread || 0);
+      applyRole(d.role);
     } catch (e) { /* stay quiet if the API is down */ }
   }
 
@@ -124,11 +137,7 @@
       pageOffset += d.items.length;
       var more = $('ncMore');
       if (more) more.hidden = d.items.length < PAGE_LIMIT;
-      var role = d.role;
-      if (role) document.querySelectorAll('[data-nc-roles]').forEach(function (chip) {
-        var allow = (chip.getAttribute('data-nc-roles') || '').split(',');
-        chip.hidden = allow.length && allow.indexOf(role) < 0;
-      });
+      applyRole(d.role);
     } catch (e) {
       if (!pageOffset) host.innerHTML = '<div class="nc-empty">Could not load notifications.</div>';
     }

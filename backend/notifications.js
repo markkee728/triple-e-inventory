@@ -121,6 +121,34 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     return n;
   }
 
+  /* Make sure every product that is low RIGHT NOW has an open alert for each Finance user.
+     Covers products that were already low before the Notification Center existed, new Finance
+     users, and alerts that were missed. Existing open alerts are never duplicated (unique index). */
+  async function syncLowStock() {
+    try {
+      await ensure();
+      const { rows } = await pool.query(
+        `SELECT p.product_id, p.sku, p.name, p.unit, p.department, p.on_hand, p.reorder_level
+           FROM products p
+          WHERE NOT p.is_archived AND p.reorder_level > 0 AND p.on_hand <= p.reorder_level
+            AND (SELECT COUNT(*) FROM users u JOIN roles r ON r.role_id = u.role_id
+                  WHERE r.role_key = 'finance' AND u.status = 'active')
+              > (SELECT COUNT(*) FROM notifications n
+                  WHERE n.dedupe_key = 'low_stock:' || p.product_id AND NOT n.is_resolved)`);
+      const n = await notifyLowStock(rows);
+      // anything that has recovered since must not stay open
+      await pool.query(
+        `UPDATE notifications n SET is_resolved = TRUE, resolved_at = now()
+           FROM products p
+          WHERE NOT n.is_resolved AND n.dedupe_key = 'low_stock:' || p.product_id
+            AND (p.on_hand > p.reorder_level OR p.reorder_level <= 0 OR p.is_archived)`);
+      return n;
+    } catch (err) {
+      console.warn('[notify] sync low stock:', err.message);
+      return 0;
+    }
+  }
+
   async function resolveLowStock(productIds) {
     if (!productIds || !productIds.length) return 0;
     try {
@@ -257,6 +285,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
 
   app.get('/api/notifications', auth(), wrap(async (req, res) => {
     await ensure();
+    if (req.user.role === 'finance') await syncLowStock();
     const unread = String(req.query.unread || '') === '1';
     const category = String(req.query.category || '').trim();
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
@@ -290,9 +319,10 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
 
   app.get('/api/notifications/unread-count', auth(), wrap(async (req, res) => {
     await ensure();
+    if (req.user.role === 'finance') await syncLowStock();
     const { rows } = await pool.query(
       `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read`, [req.user.id]);
-    res.json({ unread: rows[0].n });
+    res.json({ unread: rows[0].n, role: req.user.role });
   }));
 
   app.post('/api/notifications/:id/read', auth(), wrap(async (req, res) => {
@@ -314,5 +344,5 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     res.json({ ok: true, updated: r.rowCount });
   }));
 
-  return { notifyRole, notifyUser, notifyLowStock, resolveLowStock, notifyProduction, notifyOrder, peso, ensure };
+  return { notifyRole, notifyUser, notifyLowStock, resolveLowStock, syncLowStock, notifyProduction, notifyOrder, peso, ensure };
 };
