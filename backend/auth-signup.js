@@ -14,7 +14,9 @@ const mailer = require('./mailer');
 const INVITE_TTL_HOURS = Math.min(Math.max(Number(process.env.INVITE_TTL_HOURS) || 72, 1), 24 * 14);
 const INVITE_ROLES = { finance: 'Finance-Admin Officer', cashier: 'Sales Staff / Cashier' };
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
+const NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;          // letters and spaces only (no digits, symbols, dots, dashes)
+const titleCase = (v) => String(v || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase());
+const ADULT_AGE = 18;
 const BAD_LINK = 'This sign-up link is invalid or has expired. Ask your administrator to send a new one.';
 
 const SUFFIXES = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V'];
@@ -67,12 +69,17 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
       middle = text(e, 'middleName', b.middleName, label.middleName, { max: 50, required: false });
       last = text(e, 'lastName', b.lastName, label.lastName, { min: 2, max: 50 });
       for (const [k, v] of [['firstName', first], ['middleName', middle], ['lastName', last]])
-        if (v && !e[k] && !NAME_RE.test(v)) e[k] = label[k] + ' can only have letters, spaces, . \' and -';
+        if (v && !e[k] && !NAME_RE.test(v)) e[k] = label[k] + ' can only have letters and spaces';
+      // stored in Title Case ("juan DELA cruz" -> "Juan Dela Cruz")
+      if (!e.firstName) first = titleCase(first);
+      if (!e.middleName) middle = titleCase(middle);
+      if (!e.lastName) last = titleCase(last);
       suffix = str(b.suffix);
       if (suffix && !SUFFIXES.includes(suffix)) e.suffix = 'Choose a valid suffix';
     } else {
       first = text(e, 'name', b.name, 'Full name', { min: 2, max: 100 });
-      if (first && !e.name && !NAME_RE.test(first)) e.name = 'Full name can only have letters, spaces, . \' and -';
+      if (first && !e.name && !NAME_RE.test(first)) e.name = 'Full name can only have letters and spaces';
+      if (first && !e.name) first = titleCase(first);
     }
     const full = [first, middle, last, suffix].filter(Boolean).join(' ');
     if (structured && full.length > 100 && !e.firstName && !e.lastName) e.lastName = 'Full name is too long';
@@ -88,11 +95,22 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     if (s > today) return 'Birthdate cannot be in the future';
     return '';
   }
-  // optional personal details: birthdate + gender
-  function optionalDetails(e, b) {
+  // latest birthdate that is still 18 or older today (Feb 29 -> Feb 28 in non-leap years)
+  function adultCutoff(today) {
+    const y = +today.slice(0, 4) - ADULT_AGE, md = today.slice(5);
+    const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    return y + '-' + (md === '02-29' && !leap ? '02-28' : md);
+  }
+  // personal details: birthdate + gender. { adult: true } (sign-up) = birthdate is required and the person must be 18 or older.
+  function optionalDetails(e, b, { adult = false } = {}) {
     const today = new Date().toLocaleDateString('en-CA', { timeZone: TZ });
     const birthdate = str(b.birthdate);
-    if (birthdate) { const m = birthdateError(birthdate, today); if (m) e.birthdate = m; }
+    if (!birthdate && adult) e.birthdate = 'Birthdate is required';
+    if (birthdate) {
+      const m = birthdateError(birthdate, today);
+      if (m) e.birthdate = m;
+      else if (adult && birthdate > adultCutoff(today)) e.birthdate = `You must be at least ${ADULT_AGE} years old to register`;
+    }
     const g = str(b.gender);
     let gender = null;
     if (g) { gender = GENDERS.find((x) => x.toLowerCase() === g.toLowerCase()) || null; if (!gender) e.gender = 'Choose one of the listed options'; }
@@ -236,7 +254,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     if (asked && asked !== 'customer') throw new ValidationError({ role: 'Staff accounts are created by invitation only.' });   // the role is never chosen here
     const e = {};
     const parts = nameParts(e, b);
-    const details = optionalDetails(e, b);
+    const details = optionalDetails(e, b, { adult: true });
     const email = str(b.email).toLowerCase();
     if (!email) e.email = 'Email is required';
     else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
@@ -420,7 +438,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const e = {};
     await ready;
     const parts = nameParts(e, b);
-    const details = optionalDetails(e, b);
+    const details = optionalDetails(e, b, { adult: true });
     const name = parts.full;
     const phone = mobileField(e, b.phone);
     const pw = passwordProblem(b.password, { names: [parts.first, parts.last] });

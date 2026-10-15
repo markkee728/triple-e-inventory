@@ -761,7 +761,7 @@
             </div>
             <div class="field-row">
               <div class="field">
-                <label for="suBirth">Birthdate <span class="opt">(optional)</span></label>
+                <label for="suBirth">Birthdate<span class="req">*</span></label>
                 <div class="input-shell"><input type="date" id="suBirth" min="1900-01-01" autocomplete="bday"></div>
                 <p class="error-text" id="e_suBirth"></p>
               </div>
@@ -988,7 +988,15 @@
   ===================================================== */
   let mode = 'customer', inviteToken = '', step = 1;
   const MIN_STEP_NAME = { 1: 'Personal', 2: 'Contact', 3: 'Security' };
-  const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
+  const NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;            // letters and spaces only
+  const NAME_MSG = 'Letters and spaces only \u2014 no numbers or symbols';
+  // "juan DELA cruz" -> "Juan Dela Cruz" (a space typed at the end is kept so the next word can be typed)
+  const titleCase = (v) => String(v).replace(/^\s+/, '').replace(/\s{2,}/g, ' ').toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase());
+  // 18+: latest birthdate allowed today (Feb 29 -> Feb 28 when the year 18 years ago is not a leap year)
+  const adultCutoffISO = () => {
+    const t = todayISO(), y = +t.slice(0, 4) - 18, md = t.slice(5), leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    return y + '-' + (md === '02-29' && !leap ? '02-28' : md);
+  };
   const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 
   /* error helpers: ids are su<Name>; the message sits in #e_<id> */
@@ -1008,15 +1016,16 @@
 
   function validators(){
     return {
-      suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (v.length < 2) return 'First name must be at least 2 characters'; if (!NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
-      suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (v.length < 2) return 'Last name must be at least 2 characters'; if (!NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
-      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
+      suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'First name must be at least 2 letters'; if (v.length > 50) return 'First name can be 50 characters at most'; return ''; },
+      suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'Last name must be at least 2 letters'; if (v.length > 50) return 'Last name can be 50 characters at most'; return ''; },
+      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
       suBirth(){
-        const v = $('suBirth').value; if (!v) return '';
+        const v = $('suBirth').value; if (!v) return 'Birthdate is required';
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return 'Enter a valid birthdate';
         const d = new Date(+m[1], +m[2] - 1, +m[3]);
         if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3] || +m[1] < 1900) return 'Enter a valid birthdate';
         if (v > todayISO()) return 'Birthdate cannot be in the future';
+        if (v > adultCutoffISO()) return 'You must be at least 18 years old to register';
         return '';
       },
       suEmail(){
@@ -1087,12 +1096,29 @@
 
   /* ---------- little input niceties ---------- */
   $('suPhone').addEventListener('input', function(){ const n = this.value.replace(/[^\d+\s().-]/g, ''); if (n !== this.value) this.value = n; setErr('suPhone', ''); });
-  ['suFirst','suLast','suMiddle'].forEach(id => $(id).addEventListener('input', () => setErr(id, '')));
-  ['suBirth','suSuffix','suGender'].forEach(id => $(id).addEventListener('change', () => { setErr(id, ''); $(id).classList.toggle('placeholder', !$(id).value); }));
+  // Names: Title Case while typing + a message the moment something wrong is typed (and it stays until it is fixed)
+  ['suFirst','suLast','suMiddle'].forEach(id => {
+    const el = $(id);
+    el.addEventListener('input', () => {
+      const before = el.value, caret = el.selectionStart;
+      const fixed = titleCase(before);
+      if (fixed !== before){
+        const left = titleCase(before.slice(0, caret));                 // keep the cursor where the person is typing
+        el.value = fixed;
+        try { el.setSelectionRange(left.length, left.length); } catch (_) {}
+      }
+      setErr(id, el.value === '' ? '' : V[id]());
+    });
+    el.addEventListener('blur', () => { el.value = clean(el.value); setErr(id, id === 'suMiddle' && !el.value ? '' : V[id]()); });
+  });
+  ['suSuffix','suGender'].forEach(id => $(id).addEventListener('change', () => { setErr(id, ''); $(id).classList.toggle('placeholder', !$(id).value); }));
+  // Birthdate: required, 18 or older. Checked as soon as a full date is typed or picked, and again when the field is left.
+  ['input','change'].forEach(ev => $('suBirth').addEventListener(ev, () => { setErr('suBirth', $('suBirth').value ? V.suBirth() : ''); }));
+  $('suBirth').addEventListener('blur', () => setErr('suBirth', V.suBirth()));
   ['suTerms','suPrivacy'].forEach(id => $(id).addEventListener('change', () => setErr(id, '')));
-  $('suBirth').max = todayISO();
+  $('suBirth').max = adultCutoffISO();                 // the date picker stops at "18 years ago"
   // show a field's problem as soon as the person leaves it
-  Object.keys(V).forEach(id => { if (['suTerms','suPrivacy','suEmail','suConfirm'].includes(id)) return; $(id).addEventListener('blur', () => { if ($(id).value !== '') setErr(id, V[id]()); }); });
+  Object.keys(V).forEach(id => { if (['suTerms','suPrivacy','suEmail','suConfirm','suFirst','suLast','suMiddle','suBirth'].includes(id)) return; $(id).addEventListener('blur', () => { if ($(id).value !== '') setErr(id, V[id]()); }); });
   $('suConfirm').addEventListener('blur', () => { if ($('suConfirm').value) setErr('suConfirm', V.suConfirm()); });
 
   /* ---------- steps ---------- */
@@ -1156,7 +1182,7 @@
     if (!(await validateStep(3))) return;
 
     const body = {
-      firstName: clean($('suFirst').value), middleName: clean($('suMiddle').value), lastName: clean($('suLast').value), suffix: $('suSuffix').value,
+      firstName: titleCase(clean($('suFirst').value)), middleName: titleCase(clean($('suMiddle').value)), lastName: titleCase(clean($('suLast').value)), suffix: $('suSuffix').value,
       birthdate: $('suBirth').value, gender: $('suGender').value, phone: clean($('suPhone').value),
       password: $('suPass').value, confirmPassword: $('suConfirm').value, acceptTerms: $('suTerms').checked, acceptPrivacy: $('suPrivacy').checked
     };
