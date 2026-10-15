@@ -341,6 +341,19 @@
   }
   .otp-error.show{ display:block; }
 
+  /* account verification (email + mobile) */
+  .vstep{ border:1px solid var(--steel); border-radius:8px; padding:14px 16px; margin:0 0 14px; background:rgba(10,14,18,0.35); }
+  .vstep.done{ border-color:rgba(60,170,110,0.55); }
+  .vstep .vhead{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:14px; }
+  .vbadge{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:1px; text-transform:uppercase; padding:3px 8px; border-radius:20px; border:1px solid var(--steel); color:var(--text-dim); }
+  .vstep.done .vbadge{ color:#5fd18f; border-color:rgba(60,170,110,0.55); }
+  .vstep .hint{ margin:8px 0 10px; }
+  .vstep .otp-row{ margin:14px 0 8px; }
+  .vstep .otp-meta{ margin-bottom:12px; }
+  .vstep .otp-error{ margin:0 0 10px; }
+  .link-btn{ background:none; border:0; padding:0; color:var(--blue-bright); font:inherit; font-size:12px; cursor:pointer; text-decoration:underline; }
+  .link-btn:disabled{ color:var(--text-dim); cursor:default; text-decoration:none; }
+
   .divider{
     display:flex;
     align-items:center;
@@ -834,21 +847,42 @@
         <p class="back-row" id="signupBackRow">Already have an account? <a href="#" class="link" id="signupBackToLogin">Sign in instead</a></p>
       </div>
 
-      <!-- ===== CHECK YOUR EMAIL ===== -->
+      <!-- ===== VERIFY YOUR ACCOUNT (email link + mobile code) ===== -->
       <div class="screen" id="checkEmailScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Email Verification</span>
+          <span class="eyebrow">Account Verification</span>
         </div>
-        <div class="mail-icon" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
-        </div>
-        <h1 style="margin-top:10px">Check your email</h1>
-        <p class="sub">We sent a verification link to <b id="ceEmail">your email</b>. Open it to activate your account, then sign in.</p>
+        <h1 style="margin-top:10px">Verify your account</h1>
+        <p class="sub" id="vSub">Confirm your email and mobile number. Both are needed before you can sign in.</p>
         <p class="form-error" id="ceMsg" role="status"></p>
-        <p class="hint" style="margin-top:-12px">Can&rsquo;t find it? Check your spam folder. The link works once and expires in 24 hours.</p>
-        <div class="center-actions">
+
+        <div class="vstep" id="vsEmail">
+          <div class="vhead"><b>1. Email</b><span class="vbadge" id="vsEmailBadge">Pending</span></div>
+          <p class="hint">We sent a verification link to <b id="ceEmail">your email</b>. Open it, then come back here. Can&rsquo;t find it? Check your spam folder. The link works once and expires in 24 hours.</p>
           <button type="button" class="submit alt-btn" id="ceResend">Resend verification email</button>
+        </div>
+
+        <div class="vstep" id="vsPhone">
+          <div class="vhead"><b>2. Mobile number</b><span class="vbadge" id="vsPhoneBadge">Pending</span></div>
+          <p class="hint">We texted a 6-digit code to <b id="cpPhone">your phone</b>.</p>
+          <div class="otp-row" id="otpRow">
+            <input class="otp-digit" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 2">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 3">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 4">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 5">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 6">
+          </div>
+          <p class="otp-error" id="otpError" role="alert"></p>
+          <div class="otp-meta">
+            <span>Code expires in <span class="timer" id="otpTimer">--:--</span></span>
+            <button type="button" class="link-btn" id="cpResend">Resend code</button>
+          </div>
+          <button type="button" class="submit" id="cpVerify">Verify code</button>
+        </div>
+
+        <div class="center-actions">
           <button type="button" class="submit" id="ceToLogin">Go to sign in</button>
         </div>
       </div>
@@ -971,7 +1005,11 @@
         window.location.replace(home);                       // go straight to this role's page
         return;
       }
-      if (r.status === 403 && r.data.code === 'EMAIL_NOT_VERIFIED') showLoginError(r.data.error, true);
+      if (r.status === 403 && r.data.code === 'VERIFICATION_REQUIRED'){
+        $('password').value = '';
+        openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified, message: r.data.error, codeSent: false });
+        return;
+      }
       else if (r.status === 401 || r.status === 400){
         emailField.classList.add('invalid'); passwordField.classList.add('invalid');
         showLoginError('Invalid email or password. Please try again.');
@@ -1198,9 +1236,9 @@
       const email = body.email || clean($('suEmail').value);
       inviteToken = '';
       if (mode === 'customer' && r.data.verificationRequired){
-        $('ceEmail').textContent = email; pendingEmail = email;
-        const m = $('ceMsg'); m.classList.toggle('show', !!r.data.message); m.textContent = r.data.message || '';
-        resetSignup(); showScreen('checkEmailScreen'); startResendCooldown(60);
+        resetSignup();
+        openVerifyScreen({ email, token: r.data.pendingToken, emailVerified: !r.data.emailRequired, phoneVerified: !r.data.phoneRequired,
+                           message: r.data.message, codeSent: true });
         return;
       }
       resetSignup();
@@ -1220,20 +1258,117 @@
   $('goToSignupLink').addEventListener('click', (e) => { e.preventDefault(); inviteToken = ''; startSignup('customer'); });
   $('signupBackToLogin').addEventListener('click', (e) => { e.preventDefault(); showScreen('loginScreen'); });
 
-  /* ---------- check-your-email screen ---------- */
-  let pendingEmail = '', cdTimer = null;
-  function startResendCooldown(sec){
+  /* ---------- verify-your-account screen: email link (+ resend) and mobile code ---------- */
+  let pendingEmail = '', pendingToken = '', cdTimer = null, otpCd = null, otpExp = null, pollTimer = null;
+  let needEmail = true, needPhone = true;
+  const otpBoxes = Array.from(document.querySelectorAll('#otpRow .otp-digit'));
+
+  function startResendCooldown(sec){                    // email resend button
     const b = $('ceResend'); clearInterval(cdTimer); b.disabled = true;
     let left = sec; b.textContent = 'Resend verification email (' + left + 's)';
     cdTimer = setInterval(() => { left--; if (left <= 0){ clearInterval(cdTimer); b.disabled = false; b.textContent = 'Resend verification email'; } else b.textContent = 'Resend verification email (' + left + 's)'; }, 1000);
   }
+  function startOtpCooldown(sec){                       // phone resend link
+    const b = $('cpResend'); clearInterval(otpCd); b.disabled = true;
+    let left = sec; b.textContent = 'Resend code (' + left + 's)';
+    otpCd = setInterval(() => { left--; if (left <= 0){ clearInterval(otpCd); b.disabled = false; b.textContent = 'Resend code'; } else b.textContent = 'Resend code (' + left + 's)'; }, 1000);
+  }
+  function startOtpExpiry(sec){
+    const t = $('otpTimer'); clearInterval(otpExp); t.classList.remove('expired');
+    let left = sec;
+    const draw = () => { t.textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0'); };
+    draw();
+    otpExp = setInterval(() => { left--; if (left <= 0){ clearInterval(otpExp); t.textContent = 'expired'; t.classList.add('expired'); } else draw(); }, 1000);
+  }
+  const otpValue = () => otpBoxes.map(i => i.value).join('');
+  function otpError(msg){ const e = $('otpError'); e.textContent = msg || ''; e.classList.toggle('show', !!msg); $('otpRow').classList.toggle('invalid', !!msg); }
+  function otpClear(){ otpBoxes.forEach(i => { i.value = ''; i.classList.remove('filled'); }); otpError(''); }
+  otpBoxes.forEach((box, i) => {
+    box.addEventListener('input', () => {
+      box.value = box.value.replace(/\D/g, '').slice(-1); box.classList.toggle('filled', !!box.value); otpError('');
+      if (box.value && i < 5) otpBoxes[i + 1].focus();
+      if (otpValue().length === 6) $('cpVerify').click();
+    });
+    box.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !box.value && i > 0){ otpBoxes[i - 1].focus(); } });
+    box.addEventListener('paste', (e) => {
+      const d = ((e.clipboardData || window.clipboardData).getData('text') || '').replace(/\D/g, '').slice(0, 6);
+      if (!d) return; e.preventDefault();
+      otpBoxes.forEach((b, k) => { b.value = d[k] || ''; b.classList.toggle('filled', !!b.value); });
+      (otpBoxes[Math.min(d.length, 5)]).focus();
+      if (d.length === 6) $('cpVerify').click();
+    });
+  });
+
+  function showVerifyMsg(text){ const m = $('ceMsg'); m.classList.toggle('show', !!text); m.textContent = text || ''; }
+  // update the two cards from the server's status; stop checking once everything is verified
+  function paintStatus(s){
+    const emailDone = !!s.emailVerified, phoneDone = !!s.phoneVerified;
+    $('vsEmail').hidden = !needEmail && emailDone; $('vsPhone').hidden = !needPhone && phoneDone;
+    $('vsEmail').classList.toggle('done', emailDone); $('vsEmailBadge').textContent = emailDone ? 'Verified' : 'Pending';
+    $('vsPhone').classList.toggle('done', phoneDone); $('vsPhoneBadge').textContent = phoneDone ? 'Verified' : 'Pending';
+    $('ceResend').hidden = emailDone; $('otpRow').hidden = phoneDone; $('cpVerify').hidden = phoneDone;
+    $('cpResend').hidden = phoneDone; document.querySelector('#vsPhone .otp-meta').hidden = phoneDone;
+    if (s.phoneMasked) $('cpPhone').textContent = s.phoneMasked;
+    if (s.email){ $('ceEmail').textContent = s.email; pendingEmail = s.email; }
+    const both = emailDone && phoneDone;
+    $('vSub').textContent = both ? 'All set. Your account is verified, so you can sign in now.' : 'Confirm your email and mobile number. Both are needed before you can sign in.';
+    $('ceToLogin').textContent = both ? 'Sign in' : 'Go to sign in';
+    if (both){ clearInterval(pollTimer); showVerifyMsg(''); }
+    return both;
+  }
+  async function refreshStatus(){
+    if (!pendingToken) return;
+    const r = await api('POST', '/api/auth/verification-status', { token: pendingToken }).catch(() => null);
+    if (!r) return;
+    if (r.status === 401){ clearInterval(pollTimer); showVerifyMsg(r.data.error || 'This session expired. Please sign in again.'); return; }
+    if (r.ok) paintStatus(r.data);
+  }
+
+  /* d = { email, token, emailVerified, phoneVerified, message, codeSent }.  codeSent = a text was just sent (sign-up), otherwise ask for one. */
+  async function openVerifyScreen(d){
+    pendingEmail = d.email || ''; pendingToken = d.token || '';
+    needEmail = !d.emailVerified; needPhone = !d.phoneVerified;
+    otpClear(); showVerifyMsg(d.message || '');
+    $('ceEmail').textContent = pendingEmail || 'your email';
+    paintStatus({ emailVerified: !!d.emailVerified, phoneVerified: !!d.phoneVerified, email: pendingEmail });
+    showScreen('checkEmailScreen');
+    clearInterval(pollTimer); pollTimer = setInterval(refreshStatus, 5000); refreshStatus();   // picks up the email link being opened in another tab
+    if (!d.emailVerified) startResendCooldown(d.codeSent ? 60 : 0.01);
+    if (!d.phoneVerified){
+      if (d.codeSent){ startOtpCooldown(60); startOtpExpiry(300); }
+      else await sendOtp(true);
+      otpBoxes[0].focus();
+    }
+  }
+  async function sendOtp(){
+    const b = $('cpResend'); b.disabled = true; otpError('');
+    const r = await api('POST', '/api/auth/phone-otp/send', { token: pendingToken }).catch(() => null);
+    if (!r){ b.disabled = false; otpError('Could not reach the server. Try again.'); return; }
+    if (r.ok){
+      if (r.data.alreadyVerified){ refreshStatus(); return; }
+      showVerifyMsg(r.data.message || ''); otpClear(); startOtpCooldown(r.data.waitSeconds || 60); startOtpExpiry(300); otpBoxes[0].focus();
+    } else if (r.status === 429){ otpError(r.data.error); startOtpCooldown(Math.min(r.data.waitSeconds || 60, 3600)); }
+    else { b.disabled = false; otpError(r.data.error || 'Could not send the code.'); if (r.status === 401) clearInterval(pollTimer); }
+  }
+  $('cpResend').addEventListener('click', sendOtp);
+  $('cpVerify').addEventListener('click', async () => {
+    const code = otpValue();
+    if (code.length !== 6){ otpError('Enter the 6-digit code.'); return; }
+    const b = $('cpVerify'); if (b.disabled) return; b.disabled = true; b.textContent = 'Checking…';
+    const r = await api('POST', '/api/auth/phone-otp/verify', { token: pendingToken, code }).catch(() => null);
+    b.disabled = false; b.textContent = 'Verify code';
+    if (!r){ otpError('Could not reach the server. Try again.'); return; }
+    if (r.ok){ paintStatus(r.data); return; }
+    otpError(r.data.error || 'That code did not work.');
+    otpBoxes.forEach(i => { i.value = ''; i.classList.remove('filled'); }); otpBoxes[0].focus();
+  });
   $('ceResend').addEventListener('click', async () => {
     const m = $('ceMsg'); $('ceResend').disabled = true;
     const r = await api('POST', '/api/auth/resend-verification', { email: pendingEmail }).catch(() => null);
     m.classList.add('show'); m.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
     startResendCooldown(60);
   });
-  $('ceToLogin').addEventListener('click', () => { $('email').value = pendingEmail; $('password').value = ''; clearLoginState(); showScreen('loginScreen'); });
+  $('ceToLogin').addEventListener('click', () => { clearInterval(pollTimer); $('email').value = pendingEmail; $('password').value = ''; clearLoginState(); showScreen('loginScreen'); });
 
   /* ---------- generic notice screen ---------- */
   function notice(eyebrow, title, text, buttonText){
@@ -1253,7 +1388,7 @@
       try {
         const r = await api('POST', '/api/auth/verify-email', { token: verify });
         $('noticeBtn').hidden = false;
-        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your account is active. You can sign in now.');
+        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your email is verified. Sign in to continue. If your mobile number is not verified yet, you will be asked for the code we text you.');
         else notice('Email Verification', 'This link can\u2019t be used', r.data.error || 'This verification link is invalid or has expired. Sign in to request a new one.');
       } catch (err){ $('noticeBtn').hidden = false; notice('Email Verification', 'Could not verify', 'Could not reach the server. Check your connection and open the link again.'); }
       return;

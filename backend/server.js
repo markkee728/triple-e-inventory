@@ -134,6 +134,8 @@ function phMobile(raw) {
 }
 // New customer accounts must confirm their email before signing in. EMAIL_VERIFICATION=off in .env turns this off (e.g. no email service on a test PC).
 const EMAIL_VERIFICATION_ON = String(process.env.EMAIL_VERIFICATION || 'on').toLowerCase() !== 'off';
+// ...and confirm their mobile number with a 6-digit text-message code (phone-otp.js). PHONE_VERIFICATION=off in .env turns this off.
+const PHONE_VERIFICATION_ON = String(process.env.PHONE_VERIFICATION || 'on').toLowerCase() !== 'off';
 const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 function zipError(zip, region) {
   if (region === OUTSIDE_PH) return /^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$/.test(zip) ? '' : 'ZIP / postal code must be 3-10 letters or numbers';
@@ -684,9 +686,20 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const u = rows[0];
   if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash)))
     return res.status(401).json({ error: 'Invalid email or password' });
-  // customers must have confirmed their email (only said after the password is right). Older accounts were marked verified when this was added.
-  if (EMAIL_VERIFICATION_ON && u.role_key === 'customer' && 'email_verified_at' in u && !u.email_verified_at)
-    return res.status(403).json({ code: 'EMAIL_NOT_VERIFIED', error: 'Please verify your email address first. Check your inbox for the verification link.' });
+  // customers must have confirmed BOTH their email and their mobile number (only said after the password is right).
+  // Older accounts were marked verified when these checks were added.
+  if (u.role_key === 'customer') {
+    await app.locals.phoneReady;
+    const fresh = (await pool.query('SELECT email_verified_at, phone_verified_at FROM users WHERE user_id = $1', [u.user_id])).rows[0] || {};
+    const emailOk = !EMAIL_VERIFICATION_ON || !!fresh.email_verified_at;
+    const phoneOk = !PHONE_VERIFICATION_ON || !!fresh.phone_verified_at;
+    if (!emailOk || !phoneOk) {
+      const missing = !emailOk && !phoneOk ? 'your email address and your mobile number' : !emailOk ? 'your email address' : 'your mobile number';
+      return res.status(403).json({ code: 'VERIFICATION_REQUIRED', emailVerified: emailOk, phoneVerified: phoneOk, email: u.email,
+        pendingToken: app.locals.phoneOtp.issuePendingToken(u.user_id),
+        error: 'Please verify ' + missing + ' before signing in.' });
+    }
+  }
   await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
   const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
   await audit(pool, user, 'Login', 'Successful login');
@@ -785,6 +798,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
     const sets = ['full_name = $1', 'phone = $2'], vals = [name, phone || null];
     const add = (col, v) => { vals.push(v); sets.push(col + ' = $' + vals.length); };
     if (!needsConfirm) add('email', email);
+    if (isCustomer && PHONE_VERIFICATION_ON && (before.phone || '') !== (phone || '')) sets.push('phone_verified_at = NULL');   // new number: confirm it at the next sign-in
     if (parts) { add('first_name', parts.first); add('middle_name', parts.middle || null); add('last_name', parts.last); add('suffix', parts.suffix || null); }
     if (more) {
       add('birthdate', more.birthdate); add('gender', more.gender);
@@ -1248,7 +1262,8 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 }));
 
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
-require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, TZ });
+require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
+require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
