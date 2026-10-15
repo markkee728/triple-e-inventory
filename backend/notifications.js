@@ -290,25 +290,31 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     const category = String(req.query.category || '').trim();
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
     const offset = Math.min(Math.max(parseInt(req.query.offset, 10) || 0, 0), 5000);
+    // list query: $1 = user, $2 = time zone, [$3 = category], then limit / offset
     const args = [req.user.id, TZ];
     let where = 'user_id = $1';
     if (unread) where += ' AND NOT is_read';
-    if (category) { args.push(category); where += ' AND category = $' + args.length; }
-    const countArgs = args.slice();
+    // count query uses its own parameters (an unused parameter makes Postgres reject the query)
+    const cArgs = [req.user.id];
+    let cWhere = 'user_id = $1';
+    if (unread) cWhere += ' AND NOT is_read';
+    if (category) {
+      args.push(category); where += ' AND category = $' + args.length;
+      cArgs.push(category); cWhere += ' AND category = $' + cArgs.length;
+    }
     args.push(limit, offset);
     const { rows } = await pool.query(
       `SELECT notification_id, category, title, body, link, entity_type, entity_id, severity,
               is_read, is_resolved, created_at, meta,
-              to_char(created_at AT TIME ZONE $2, 'Mon DD, YYYY HH12:MI AM') AS when_label
+              to_char(created_at AT TIME ZONE $2::text, 'Mon DD, YYYY HH12:MI AM') AS when_label
          FROM notifications WHERE ` + where + `
          ORDER BY created_at DESC, notification_id DESC
          LIMIT $` + (args.length - 1) + ` OFFSET $` + args.length,
       args);
-    const count = await pool.query(
-      `SELECT COUNT(*)::int AS n,
-              (SELECT COUNT(*)::int FROM notifications WHERE user_id = $1 AND NOT is_read) AS unread
-         FROM notifications WHERE ` + where,
-      countArgs);
+    const total = await pool.query(`SELECT COUNT(*)::int AS n FROM notifications WHERE ` + cWhere, cArgs);
+    const unreadQ = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read`, [req.user.id]);
+    const count = { rows: [{ n: total.rows[0].n, unread: unreadQ.rows[0].n }] };
     res.json({
       items: rows.map(shape),
       total: count.rows[0].n,
