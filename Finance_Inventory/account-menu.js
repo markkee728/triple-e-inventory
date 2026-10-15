@@ -13,7 +13,8 @@
 (function () {
   'use strict';
 
-  var CFG = Object.assign({ roleLabel: 'User', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' }, window.ACCOUNT_CFG || {});
+  var CFG = Object.assign({ roleLabel: 'User', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department', customer: false }, window.ACCOUNT_CFG || {});
+  var CUST = !!CFG.customer;             // customers also edit name parts, birthdate, gender, company info and delivery addresses
   var $ = function (id) { return document.getElementById(id); };
   var EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
   var NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
@@ -23,6 +24,7 @@
   var user = null;                       // { name, email, role, roleLabel } from /api/auth/me
   var saved = null;                      // what the database holds for the profile
   var avatar = { has: false, v: 0 };
+  var savedVals = '';
   var saving = false, loadError = '', touched = {}, emailInfo = null, emailTimer = null;
 
   var clean = function (v) { return String(v == null ? '' : v).trim().replace(/\s+/g, ' '); };
@@ -66,6 +68,36 @@
     el.closest('.acct-group').querySelectorAll('.acct-msg[data-for="' + id + '"]').forEach(function (n) { n.remove(); });
   }
 
+  var field = function (id, label, extra, req) {
+    return '<div class="acct-group"><label class="acct-label" for="' + id + '">' + label + (req ? ' <span class="acct-req" aria-hidden="true">*</span>' : ' <span class="acct-hint" style="display:inline">(optional)</span>') + '</label>' + extra + '</div>';
+  };
+  var inp = function (id, attrs) { return '<input type="text" class="acct-input" id="' + id + '" autocomplete="off" ' + (attrs || '') + '>'; };
+  function custFields() {
+    return '<div class="acct-row">' +
+        field('acctFirst', 'First Name', inp('acctFirst', 'maxlength="50"'), true) +
+        field('acctLast', 'Last Name', inp('acctLast', 'maxlength="50"'), true) + '</div>' +
+      '<div class="acct-row">' +
+        field('acctMiddle', 'Middle Name', inp('acctMiddle', 'maxlength="50"')) +
+        field('acctSuffix', 'Suffix', '<select class="acct-input" id="acctSuffix"><option value="">None</option><option>Jr.</option><option>Sr.</option><option>II</option><option>III</option><option>IV</option><option>V</option></select>') + '</div>' +
+      '<div class="acct-row">' +
+        field('acctBirth', 'Birthdate', '<input type="date" class="acct-input" id="acctBirth" min="1900-01-01">') +
+        field('acctGender', 'Gender', '<select class="acct-input" id="acctGender"><option value="">Select…</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer Not to Say</option></select>') + '</div>' +
+      '<div class="acct-row">' +
+        field('acctEmail', 'Email', '<input type="email" class="acct-input" id="acctEmail" maxlength="254" autocomplete="off"><div class="acct-hint" id="acctEmailNote"></div>', true) +
+        field('acctPhone', 'Mobile Number', '<input type="tel" class="acct-input" id="acctPhone" maxlength="20" placeholder="0917 123 4567" autocomplete="off">', true) + '</div>' +
+      '<div class="acct-row">' +
+        field('acctEmpId', CFG.idLabel, '<input type="text" class="acct-input" id="acctEmpId" readonly autocomplete="off">', true).replace(/ <span class="acct-req"[^>]*>\*<\/span>/, '') + '<div></div></div>';
+  }
+  function companyFields() {
+    return '<div class="acct-divider"></div>' +
+      '<div class="acct-label" style="margin-bottom:10px">Company information <span class="acct-hint" style="display:inline">(optional — for business customers)</span></div>' +
+      '<div class="acct-row">' +
+        field('acctCompany', 'Company Name', inp('acctCompany', 'maxlength="120"')) +
+        field('acctPosition', 'Your Position', inp('acctPosition', 'maxlength="80"')) + '</div>' +
+      '<div class="acct-row">' +
+        field('acctTin', 'Company TIN', inp('acctTin', 'maxlength="20" placeholder="123-456-789-000"')) + '<div></div></div>';
+  }
+
   /* ---------------- build the window ---------------- */
   function buildModal() {
     var wrap = document.createElement('div');
@@ -78,6 +110,7 @@
         '<h2 class="acct-title" id="acctTitle">My Account</h2>' +
         '<div class="acct-tabs">' +
           '<button type="button" class="acct-tab active" data-tab="profile">My Profile</button>' +
+          (CUST ? '<button type="button" class="acct-tab" data-tab="addresses">Delivery Addresses</button>' : '') +
           '<button type="button" class="acct-tab" data-tab="password">Change Password</button>' +
         '</div>' +
 
@@ -92,6 +125,7 @@
             '<div class="acct-hint">JPG or PNG, up to 2MB</div>' +
           '</div>' +
           '<div class="acct-divider"></div>' +
+          (CUST ? custFields() : (
           '<div class="acct-row">' +
             '<div class="acct-group"><label class="acct-label" for="acctName">Full Name <span class="acct-req" aria-hidden="true">*</span></label>' +
               '<input type="text" class="acct-input" id="acctName" maxlength="100" autocomplete="off"></div>' +
@@ -103,7 +137,8 @@
               '<input type="email" class="acct-input" id="acctEmail" maxlength="254" autocomplete="off"></div>' +
             '<div class="acct-group"><label class="acct-label" for="acctPhone">Phone <span class="acct-req" aria-hidden="true">*</span></label>' +
               '<input type="tel" class="acct-input" id="acctPhone" maxlength="30" placeholder="+63 917 123 4567" autocomplete="off"></div>' +
-          '</div>' +
+          '</div>'
+          )) +
           '<div class="acct-row">' +
             '<div class="acct-group"><label class="acct-label" for="acctDept">' + CFG.deptLabel + '</label>' +
               '<input type="text" class="acct-input" id="acctDept" readonly autocomplete="off"></div>' +
@@ -113,12 +148,19 @@
           '<div class="acct-group"><label class="acct-label">Role</label>' +
             '<div class="acct-role-row"><span class="badge" id="acctRoleBadge">' + CFG.roleLabel + '</span>' +
             '<span class="acct-role-note">Assigned by system — contact your Admin to change roles</span></div></div>' +
+          (CUST ? companyFields() : '') +
           '<div class="acct-banner" id="acctProfileBanner">Please fix the highlighted fields.</div>' +
           '<div class="acct-footer">' +
             '<button type="button" class="btn-secondary" id="acctProfileCancel">Cancel</button>' +
             '<button type="button" class="btn-primary" id="acctProfileSave">Save Changes</button>' +
           '</div>' +
         '</div>' +
+
+        /* ---- DELIVERY ADDRESSES (customers) ---- */
+        (CUST ? '<div class="acct-panel" id="acctAddressPanel">' +
+          '<div class="acct-hint" style="margin-bottom:12px">Saved addresses are offered at checkout. You can keep up to 5.</div>' +
+          '<div id="acctAddrBox"></div>' +
+        '</div>' : '') +
 
         /* ---- CHANGE PASSWORD ---- */
         '<div class="acct-panel" id="acctPasswordPanel">' +
@@ -185,13 +227,18 @@
     document.querySelectorAll('.acct-tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab); });
     $('acctProfilePanel').classList.toggle('active', tab === 'profile');
     $('acctPasswordPanel').classList.toggle('active', tab === 'password');
+    if (CUST) {
+      $('acctAddressPanel').classList.toggle('active', tab === 'addresses');
+      if (tab === 'addresses' && window.ShopAddress) ShopAddress.openIn('acctAddrBox');
+      else if (window.ShopAddress) ShopAddress.closeEmbedded();
+    }
   }
   function openModal(tab) {
     $('acctOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
     switchTab(tab || 'profile');
-    if (tab !== 'password') loadProfile();
-    var first = tab === 'password' ? $('acctCurPw') : $('acctName');
+    if (tab !== 'password' && tab !== 'addresses') loadProfile();
+    var first = tab === 'password' ? $('acctCurPw') : (CUST ? $('acctFirst') : $('acctName'));
     setTimeout(function () { if (first) first.focus(); }, 30);
   }
   function closeModal() {
@@ -200,11 +247,43 @@
     resetPassword();
     if (saved) fill(saved);
     $('acctProfileBanner').classList.remove('show');
+    if (CUST && window.ShopAddress) ShopAddress.closeEmbedded();
+    window.dispatchEvent(new CustomEvent('accountmenu:close'));          // lets the shop redraw its checkout address box
   }
 
   /* ---------------- profile form ---------------- */
-  var fields = ['acctName', 'acctEmail', 'acctPhone'];
-  var values = function () { return { name: clean($('acctName').value), email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value) }; };
+  var fields = CUST ? ['acctFirst', 'acctMiddle', 'acctLast', 'acctBirth', 'acctEmail', 'acctPhone', 'acctCompany', 'acctPosition', 'acctTin']
+                    : ['acctName', 'acctEmail', 'acctPhone'];
+  var values = function () {
+    if (!CUST) return { name: clean($('acctName').value), email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value) };
+    return { firstName: clean($('acctFirst').value), middleName: clean($('acctMiddle').value), lastName: clean($('acctLast').value), suffix: $('acctSuffix').value,
+      birthdate: $('acctBirth').value, gender: $('acctGender').value, email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value),
+      companyName: clean($('acctCompany').value), companyPosition: clean($('acctPosition').value), companyTin: clean($('acctTin').value) };
+  };
+  function mobileProblem(raw) {
+    if (/[^\d+\s().-]/.test(raw)) return 'Mobile number can only have digits, +, spaces and dashes';
+    var p = raw.replace(/[\s().-]/g, '');
+    if (p.indexOf('+63') === 0) p = p.slice(3); else if (p.indexOf('63') === 0) p = p.slice(2); else if (p.indexOf('09') === 0) p = p.slice(1);
+    else if (p[0] !== '9') return 'Enter a valid Philippine mobile number, e.g. 0917 123 4567';
+    return /^9\d{9}$/.test(p) ? '' : 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
+  }
+  function custProblems(v) {
+    var e = {};
+    var nm = function (id, val, label, req) {
+      if (!val) { if (req) e[id] = label + ' is required'; return; }
+      if (req && val.length < 2) e[id] = label + ' must be at least 2 characters';
+      else if (val.length > 50) e[id] = label + ' must be at most 50 characters';
+      else if (!NAME_RE.test(val)) e[id] = "Letters, spaces, . ' and - only";
+    };
+    nm('acctFirst', v.firstName, 'First name', true); nm('acctLast', v.lastName, 'Last name', true); nm('acctMiddle', v.middleName, 'Middle name', false);
+    if (v.birthdate) {
+      var today = new Date(), iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+      if (v.birthdate > iso) e.acctBirth = 'Birthdate cannot be in the future'; else if (v.birthdate < '1900-01-01') e.acctBirth = 'Enter a valid birthdate';
+    }
+    if (v.companyTin && !/^\d{3}-?\d{3}-?\d{3}(-?\d{3,5})?$/.test(v.companyTin)) e.acctTin = 'TIN must be 9 or 12 digits, e.g. 123-456-789-000';
+    if (v.companyName && v.companyName.length < 2) e.acctCompany = 'Company name must be at least 2 characters';
+    return e;
+  }
 
   function phoneError(raw) {
     if (/[^\d+\s().-]/.test(raw)) return 'Phone number can only have digits, +, spaces and dashes';
@@ -220,16 +299,17 @@
   }
 
   function problems(v) {
-    var e = {};
-    if (!v.name) e.acctName = 'Full name is required';
-    else if (v.name.length < 2) e.acctName = 'Full name must be at least 2 characters';
-    else if (v.name.length > 100) e.acctName = 'Full name must be at most 100 characters';
-    else if (!NAME_RE.test(v.name)) e.acctName = "Full name can only have letters, spaces, . ' and -";
+    var e = CUST ? custProblems(v) : {};
+    if (!CUST && !v.name) e.acctName = 'Full name is required';
+    else if (!CUST && v.name.length < 2) e.acctName = 'Full name must be at least 2 characters';
+    else if (!CUST && v.name.length > 100) e.acctName = 'Full name must be at most 100 characters';
+    else if (!CUST && !NAME_RE.test(v.name)) e.acctName = "Full name can only have letters, spaces, . ' and -";
     if (!v.email) e.acctEmail = 'Email is required';
     else if (v.email.length > 254 || !EMAIL_FORMAT.test(v.email)) e.acctEmail = 'Enter a valid email address';
     else if (emailInfo && emailInfo.email === v.email && emailInfo.taken) e.acctEmail = 'That email is already used by another account';
     else if (emailInfo && emailInfo.email === v.email && emailInfo.domainMsg) e.acctEmail = emailInfo.domainMsg;
-    if (!v.phone) e.acctPhone = 'Phone number is required';
+    if (!v.phone) e.acctPhone = CUST ? 'Mobile number is required' : 'Phone number is required';
+    else if (CUST) { var mm = mobileProblem(v.phone); if (mm) e.acctPhone = mm; }
     else if (v.phone.length < 7) e.acctPhone = 'Phone number must be at least 7 characters';
     else { var m = phoneError(v.phone); if (m) e.acctPhone = m; }
     return e;
@@ -274,7 +354,16 @@
 
   function fill(p) {
     saved = p;
-    $('acctName').value = p.name || '';
+    if (CUST) {
+      $('acctFirst').value = p.firstName || ''; $('acctMiddle').value = p.middleName || ''; $('acctLast').value = p.lastName || '';
+      $('acctSuffix').value = p.suffix || ''; $('acctBirth').value = p.birthdate || ''; $('acctGender').value = p.gender || '';
+      $('acctCompany').value = p.companyName || ''; $('acctPosition').value = p.companyPosition || ''; $('acctTin').value = p.companyTin || '';
+      $('acctBirth').max = new Date().toISOString().slice(0, 10);
+      var note = $('acctEmailNote');
+      note.textContent = p.pendingEmail ? 'Waiting for you to confirm ' + p.pendingEmail + ' — check that inbox. Your current email still works.'
+        : (p.emailVerified ? '✓ Verified' : 'Not verified yet');
+      note.style.color = !p.pendingEmail && p.emailVerified ? 'var(--green)' : '';
+    } else $('acctName').value = p.name || '';
     $('acctEmail').value = p.email || '';
     $('acctPhone').value = p.phone || '';
     var digits = String(p.employeeId || '').replace(/\D/g, '');
@@ -285,6 +374,7 @@
     avatar = { has: !!p.hasAvatar, v: avatar.v || Date.now() };
     fields.forEach(function (id) { touched[id] = false; });
     emailInfo = null; emailStatus('');
+    savedVals = JSON.stringify(values());
     paintAvatar();
     paintForm(true);
   }
@@ -320,7 +410,7 @@
       return;
     }
     var v = values();
-    if (v.name === saved.name && v.email === saved.email.toLowerCase() && v.phone === (saved.phone || '')) { toast('No changes to save'); return; }
+    if (JSON.stringify(v) === savedVals) { toast('No changes to save'); return; }
     var btn = $('acctProfileSave'), label = btn.textContent;
     saving = true; btn.disabled = true; btn.textContent = 'Saving…';
     try {
@@ -328,13 +418,14 @@
       fill(p);
       user = Object.assign({}, user, { name: p.name, email: p.email });
       paintUser();
-      toast('Profile saved');
+      toast(p.message || 'Profile saved', !!p.message && /could not/i.test(p.message));
       closeModal();
     } catch (err) {
       if (err.message === 'Not signed in') return;
-      var map = { name: 'acctName', email: 'acctEmail', phone: 'acctPhone' };
+      var map = { name: 'acctName', email: 'acctEmail', phone: 'acctPhone', firstName: 'acctFirst', middleName: 'acctMiddle', lastName: 'acctLast',
+        birthdate: 'acctBirth', companyName: 'acctCompany', companyPosition: 'acctPosition', companyTin: 'acctTin' };
       var any = false;
-      Object.keys(err.fields || {}).forEach(function (k) { if (map[k]) { setError(map[k], err.fields[k]); any = true; } });
+      Object.keys(err.fields || {}).forEach(function (k) { if (map[k] && $(map[k])) { setError(map[k], err.fields[k]); any = true; } });
       banner.textContent = any ? 'Please fix the highlighted fields.' : err.message;
       banner.classList.add('show');
     } finally {
@@ -471,7 +562,8 @@
       $(id).addEventListener('input', function () { touched[id] = true; if (id === 'acctEmail') checkEmailSoon(); paintForm(true); });
       $(id).addEventListener('blur', function () { touched[id] = true; paintForm(true); });
     });
-    $('acctName').addEventListener('blur', function () { this.value = clean(this.value); });
+    if (!CUST) $('acctName').addEventListener('blur', function () { this.value = clean(this.value); });
+    if (CUST) ['acctSuffix', 'acctGender'].forEach(function (id) { $(id).addEventListener('change', function () { paintForm(true); }); });
     $('acctEmail').addEventListener('blur', function () { this.value = clean(this.value).toLowerCase(); });
     $('acctProfileSave').addEventListener('click', saveProfile);
 

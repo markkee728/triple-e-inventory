@@ -20,6 +20,9 @@
   let selectedId = null;                // chosen saved address (null = the form below is being used)
   let editingId = null;                 // saved address being edited in the form (null = adding a new one)
   let formOpen = false;
+  let hostId = 'addrBox';               // where the address book is drawn: the checkout box, or the My Profile tab (embedded)
+  let embedded = false;
+  const host = () => $(hostId);
   let regions = [], provinces = [], cities = [], barangays = [];
   let tokens = { prov: 0, city: 0, bgy: 0, zip: 0 };
   let zipState = { ok: null, key: '' }; // result of the last ZIP check
@@ -82,19 +85,19 @@
         ${['Home', 'Work', 'Other'].map((l, i) => `<label class="addr-lbl"><input type="radio" name="aeLabel" value="${l}" ${i === 0 ? 'checked' : ''}>${l}</label>`).join('')}
       </div>
       <div class="addr-checks">
-        ${adding ? `<label class="switch"><input type="checkbox" id="ae_save" ${saved.length < MAX_SAVED ? 'checked' : 'disabled'}> Save to my address book${saved.length >= MAX_SAVED ? ` (full — ${MAX_SAVED} max)` : ''}</label>` : ''}
+        ${adding && !embedded ? `<label class="switch"><input type="checkbox" id="ae_save" ${saved.length < MAX_SAVED ? 'checked' : 'disabled'}> Save to my address book${saved.length >= MAX_SAVED ? ` (full — ${MAX_SAVED} max)` : ''}</label>` : ''}
         <label class="switch"><input type="checkbox" id="ae_default" ${!saved.length ? 'checked' : ''}> Make this my default address</label>
       </div>
-      ${adding ? '' : '<div class="addr-form-actions"><button type="button" class="btn-primary" data-addr-saveedit>Save changes</button><button type="button" class="btn-secondary" data-addr-cancel>Cancel</button></div><div class="err-text" id="aeFormErr"></div>'}
+      ${adding && !embedded ? '' : `<div class="addr-form-actions"><button type="button" class="btn-primary" ${adding ? 'data-addr-saveadd' : 'data-addr-saveedit'}>${adding ? 'Save address' : 'Save changes'}</button><button type="button" class="btn-secondary" data-addr-cancel>Cancel</button></div><div class="err-text" id="aeFormErr"></div>`}
     </div>`;
   }
 
   function render() {
-    const host = $('addrBox'); if (!host) return;
+    const box = host(); if (!box) return;
     if (!saved.length) formOpen = true;
-    host.innerHTML = (saved.length ? `<div class="addr-list" role="radiogroup" aria-label="Saved addresses">${saved.map(cardHtml).join('')}
+    box.innerHTML = (saved.length ? `<div class="addr-list" role="radiogroup" aria-label="Saved addresses">${saved.map(cardHtml).join('')}
       <div class="addr-card addr-new ${formOpen && editingId == null ? 'on' : ''}" data-addr-new role="radio" tabindex="0" aria-checked="${formOpen && editingId == null}">
-        <span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><b>+ Deliver to a different address</b><div class="addr-sub">${saved.length >= MAX_SAVED ? 'Your address book is full — it will be used for this order only.' : 'Add a new address'}</div></div></div></div>` : '') +
+        <span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><b>${embedded ? '+ Add a new address' : '+ Deliver to a different address'}</b><div class="addr-sub">${saved.length >= MAX_SAVED ? 'Your address book is full — it will be used for this order only.' : 'Add a new address'}</div></div></div></div>` : '') +
       (formOpen ? formHtml() : '');
     if (formOpen) { bindForm(); fillForm(editingId == null ? null : saved.find((a) => a.id === editingId)); }
   }
@@ -280,12 +283,23 @@
       selectedId = editingId; await refresh(); render(); cfg.toast('Address updated.');
     } catch (er) { if (!showServerFields(er)) $('aeFormErr').textContent = er.message; }
   }
+  // My Profile: add a new address to the address book right away (at checkout it is saved together with the order)
+  async function saveAdd() {
+    const s = read(); if (!validateForm(s)) return;
+    $('aeFormErr').textContent = '';
+    try {
+      const body = Object.assign(toBody(s), { phone: s.phone, label: label(), isDefault: $('ae_default').checked });
+      await cfg.api('/api/shop/addresses', { method: 'POST', body: JSON.stringify(body) });
+      await refresh(); render(); cfg.toast('Address saved.');
+    } catch (er) { if (!showServerFields(er)) $('aeFormErr').textContent = er.message; }
+  }
   async function act(d) {
     if (d.addrPick) { selectedId = Number(d.addrPick); formOpen = false; editingId = null; render(); cfg.onChange && cfg.onChange(); }
     else if (d.addrNew !== undefined) { selectedId = null; editingId = null; formOpen = true; render(); cfg.onChange && cfg.onChange(); }
     else if (d.addrEdit) { editingId = Number(d.addrEdit); selectedId = editingId; formOpen = true; render(); }
     else if (d.addrCancel !== undefined) { formOpen = !saved.length; editingId = null; if (!selectedId) selectedId = (saved.find((a) => a.isDefault) || saved[0] || {}).id || null; render(); }
     else if (d.addrSaveedit !== undefined) await saveEdit();
+    else if (d.addrSaveadd !== undefined) await saveAdd();
     else if (d.addrDefault) { try { await cfg.api('/api/shop/addresses/' + d.addrDefault + '/default', { method: 'POST' }); await refresh(); render(); } catch (er) { cfg.toast(er.message, true); } }
     else if (d.addrDel) {
       if (!confirm('Delete this saved address?')) return;
@@ -299,17 +313,28 @@
     init(options) {
       cfg = options;
       document.addEventListener('click', (e) => {
-        const el = e.target.closest('[data-addr-pick],[data-addr-new],[data-addr-edit],[data-addr-cancel],[data-addr-saveedit],[data-addr-default],[data-addr-del],.zip-chip');
-        if (!el || !$('addrBox') || !$('addrBox').contains(el)) return;
+        const el = e.target.closest('[data-addr-pick],[data-addr-new],[data-addr-edit],[data-addr-cancel],[data-addr-saveedit],[data-addr-saveadd],[data-addr-default],[data-addr-del],.zip-chip');
+        if (!el || !host() || !host().contains(el)) return;
         e.preventDefault();
         act(el.matches('.zip-chip') ? { zip: el.dataset.zip } : Object.assign({}, el.dataset));
       });
       document.addEventListener('keydown', (e) => {
-        if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.addr-card') && $('addrBox').contains(e.target)) { e.preventDefault(); e.target.click(); }
+        if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('.addr-card') && host() && host().contains(e.target)) { e.preventDefault(); e.target.click(); }
       });
     },
     setDefaults(d) { defaults = Object.assign(defaults, d); },
-    async open() { await refresh(); render(); },       // call when the checkout page is shown
+    async open() {                                      // call when the checkout page is shown
+      hostId = 'addrBox'; embedded = false;
+      const other = $('acctAddrBox'); if (other) other.innerHTML = '';
+      await refresh(); render();
+    },
+    // My Profile > Delivery Addresses: draw the same address book into another box (the checkout box is emptied so ids never clash)
+    async openIn(id) {
+      hostId = id; embedded = true;
+      const co = $('addrBox'); if (co) co.innerHTML = '';
+      await refresh(); selectedId = null; render();
+    },
+    closeEmbedded() { if (embedded) { const b = host(); if (b) b.innerHTML = ''; hostId = 'addrBox'; embedded = false; } },
     // true when the customer picked a saved address
     usingSaved() { return !formOpen && saved.some((a) => a.id === selectedId); },
     phone() { if (this.usingSaved()) return saved.find((a) => a.id === selectedId).phone; return formOpen ? read().phone : ''; },

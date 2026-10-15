@@ -320,7 +320,7 @@ a.nav-item{text-decoration:none}
 }
 </style>
 
-<script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type' };</script>
+<script>window.ACCOUNT_CFG = { roleLabel: 'Customer', idLabel: 'Customer ID', idPrefix: 'CUS', deptLabel: 'Account Type', customer: true };</script>
 <script src="account-menu.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
@@ -1090,6 +1090,8 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   if (cfgShop.deliveryFee >= 0) { DELIVERY_FEE = cfgShop.deliveryFee; document.querySelectorAll('[data-fee]').forEach(el => el.textContent = '₱' + DELIVERY_FEE.toLocaleString('en-PH')); }
   if (profile.phone) $('phone').value = profile.phone;
   ShopAddress.init({ api, esc, toast, onChange: updateShipSummary });
+  // My Profile > Delivery Addresses borrows the address box; when it closes, redraw the checkout one
+  window.addEventListener('accountmenu:close', () => { if (view === 'checkout') ShopAddress.open().then(updateShipSummary); });
   ['input', 'change', 'click'].forEach(ev => $('addrBox').addEventListener(ev, () => { $('coErr').textContent = ''; }));
   ShopAddress.setDefaults({ name: USER.name || '', phone: profile.phone || '' });
   PRODUCTS = await loadProducts(); orders = await loadOrders(); loadMyReviews().then(() => { if (view === 'orders') renderOrders(); }); loadQuotes();

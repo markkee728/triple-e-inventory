@@ -1,0 +1,18 @@
+TRIPLE E METAL PRODUCTS — VERIFY YOUR EMAIL
+
+Hi {{recipientName}},
+
+{{intro}}
+
+  Email to verify: {{toEmail}}
+  Link expires:    in {{expiresIn}} (one-time use)
+
+Verify your email here:
+{{verifyUrl}}
+
+This link is personal to you — please don't forward it. If you didn't create
+a Triple E Metal Products account, ignore this email.
+
+--
+Quality Metal Products Since 1999
+Triple E Metal Products

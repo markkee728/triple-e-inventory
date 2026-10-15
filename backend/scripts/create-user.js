@@ -30,6 +30,8 @@ if (problems.length) { console.error('Cannot create user:\n - ' + problems.join(
     `INSERT INTO users (full_name, username, email, password_hash, role_id)
      VALUES ($1,$2,lower($3),$4,(SELECT role_id FROM roles WHERE role_key=$5)) RETURNING user_id`,
     [name.trim(), username, email, hash, roleKey]);
+  // accounts made by an administrator with this script count as verified (needs the column from db/008 or a server start)
+  await pool.query('UPDATE users SET email_verified_at = now() WHERE user_id = $1', [r.rows[0].user_id]).catch(() => {});
   console.log('Created user', r.rows[0].user_id);
   await pool.end();
 })().catch(e => {

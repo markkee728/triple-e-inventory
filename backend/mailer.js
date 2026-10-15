@@ -117,4 +117,23 @@ function sendCashierInvite({ to, recipientName, roleLabel, inviterName, signupUr
   });
 }
 
-module.exports = { sendMail, sendCashierInvite, renderTemplate, isConfigured, escapeHtml };
+// Customer email verification. `change` = a signed-in customer is moving to a new address (the old one stays active until this link is used).
+function sendVerificationEmail({ to, recipientName, verifyUrl, expiresHours, change }) {
+  const hours = Number(expiresHours) || 24;
+  const expiresIn = hours % 24 === 0 ? (hours / 24) + (hours === 24 ? ' day' : ' days') : hours + ' hours';
+  const vars = {
+    recipientName: recipientName || 'there', verifyUrl, expiresIn, toEmail: to,
+    intro: change ? 'Please confirm this new email address for your Triple E Metal Products account. Your current email keeps working until you do.'
+                  : 'Thanks for creating a Triple E Metal Products account. Please confirm your email address to activate it.',
+    year: new Date().getFullYear()
+  };
+  return sendMail({
+    to,
+    subject: change ? 'Confirm your new email — Triple E Metal Products' : 'Verify your email — Triple E Metal Products',
+    html: renderTemplate('verify-email.html', vars),
+    text: renderTemplate('verify-email.txt', vars, { html: false }),
+    tag: 'email-verification'
+  });
+}
+
+module.exports = { sendMail, sendCashierInvite, sendVerificationEmail, renderTemplate, isConfigured, escapeHtml };

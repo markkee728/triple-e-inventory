@@ -1,4 +1,3 @@
-
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -220,7 +219,7 @@
     display:block;
   }
 
-  input#password{ padding-right:42px; }
+  .has-toggle input{ padding-right:42px; }
 
   .toggle-vis{
     position:absolute;
@@ -533,20 +532,6 @@
   }
   .outer-footer.show{ display:block; }
 
-  /* ---------- compact spacing for the profile step (has more fields) ---------- */
-  #signupProfileScreen .brand-mark{ margin-bottom:2px; }
-  #signupProfileScreen h1{ margin-top:8px; font-size:22px; }
-  #signupProfileScreen .signup-progress{ margin:10px 0 14px; }
-  #signupProfileScreen .sub{ margin-bottom:16px; font-size:12.5px; }
-  #signupProfileScreen .field{ margin-bottom:10px; }
-  #signupProfileScreen label{ margin-bottom:4px; font-size:10.5px; }
-  #signupProfileScreen input{ padding:8px 12px; font-size:13.5px; }
-  #signupProfileScreen .field-row{ gap:10px; }
-  #signupProfileScreen .role-box{ padding:8px 12px; }
-  #signupProfileScreen .otp-error{ margin:-4px 0 10px; }
-  #signupProfileScreen .submit{ padding:11px; margin-top:2px; }
-  #signupProfileScreen .back-row{ margin-top:10px; }
-
   .signup-row.staff-note{ margin-top:6px; font-size:11.5px; color:var(--steel-light); }
   .notice{
     display:none;
@@ -561,11 +546,109 @@
   }
   .notice.show{ display:block; }
   [hidden]{ display:none !important; }
+
+  /* ---------- registration (3 steps) ---------- */
+  .wrap.wide{ max-width:500px; }
+  select{
+    width:100%; appearance:none; -webkit-appearance:none;
+    background:rgba(10,14,18,0.5) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' fill='none' stroke='%238fa3b8' stroke-width='2'/></svg>") no-repeat right 14px center;
+    border:1px solid var(--steel); border-radius:4px; padding:12px 38px 12px 14px;
+    font-size:14.5px; color:var(--text); font-family:'Inter',sans-serif; outline:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  select:focus{ border-color:var(--blue-bright); box-shadow:0 0 0 3px rgba(74,144,217,0.15); }
+  select option{ background:#0f2942; color:var(--text); }
+  select:invalid, select.placeholder{ color:#5c7086; }
+  input[type="date"]{ color-scheme:dark; min-height:46px; }
+  .field.invalid select{ border-color:var(--red); }
+  .req{ color:#ef7a7a; margin-left:2px; }
+  .opt{ color:var(--steel-light); text-transform:none; letter-spacing:0; font-family:'Inter',sans-serif; font-size:11px; }
+  .hint{ font-size:11.5px; color:var(--text-dim); margin-top:7px; }
+  .hint.ok{ color:var(--green); }
+  .hint.bad{ color:#ef7a7a; }
+
+  .stepper{ list-style:none; display:flex; gap:8px; margin:18px 0 22px; }
+  .stepper li{
+    flex:1; display:flex; align-items:center; gap:8px; padding-top:10px; position:relative;
+    border-top:3px solid var(--steel); font-family:'IBM Plex Mono',monospace; font-size:10.5px;
+    letter-spacing:1px; text-transform:uppercase; color:var(--steel-light);
+  }
+  .stepper li span{
+    width:20px; height:20px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--steel-light); font-size:10.5px;
+  }
+  .stepper li.active{ border-top-color:var(--blue-bright); color:var(--text); }
+  .stepper li.active span{ border-color:var(--blue-bright); color:var(--blue-bright); }
+  .stepper li.done{ border-top-color:var(--blue-bright); color:var(--text-dim); }
+  .stepper li.done span{ background:var(--blue-bright); border-color:var(--blue-bright); color:#08131f; }
+  .step-panel{ display:none; }
+  .step-panel.active{ display:block; }
+
+  .strength{ height:4px; border-radius:2px; background:var(--steel); opacity:.9; margin-top:10px; overflow:hidden; }
+  .strength i{ display:block; height:100%; width:0; transition:width .2s, background .2s; }
+  .strength-label{ font-size:11.5px; color:var(--text-dim); margin-top:6px; }
+  .checklist-box{ margin:12px 0 18px; padding:12px 14px; gap:8px; }
+  .checklist-row{ font-size:12px; }
+
+  .check{ display:flex; gap:10px; align-items:flex-start; font-family:'Inter',sans-serif; font-size:13px; line-height:1.45; letter-spacing:0; text-transform:none; color:var(--text-dim); cursor:pointer; margin-bottom:4px; }
+  .check input{ width:17px; height:17px; flex:none; margin-top:2px; padding:0; accent-color:var(--blue-bright); box-shadow:none; }
+  .check-wrap{ margin:4px 0 14px; }
+  .check-wrap .error-text{ margin:2px 0 8px 27px; }
+  .check-wrap.invalid .error-text{ display:block; }
+  .check-wrap.invalid .check span{ color:#ef7a7a; }
+
+  .form-error{
+    display:none; margin:0 0 14px; padding:10px 12px; border:1px solid rgba(224,86,86,.45);
+    background:rgba(224,86,86,.08); color:#ef9a9a; border-radius:4px; font-size:12.5px; line-height:1.5;
+  }
+  .form-error.show{ display:block; }
+  .form-error button{ background:none; border:none; padding:0; color:var(--blue-bright); cursor:pointer; font:inherit; text-decoration:underline; }
+  button.linkish{ background:none; border:none; padding:0; color:var(--blue-bright); cursor:pointer; font:inherit; }
+  button.linkish:hover{ text-decoration:underline; }
+  button.linkish:disabled{ color:var(--steel-light); cursor:default; text-decoration:none; }
+  .mail-icon{
+    width:46px; height:46px; border-radius:50%; margin:18px 0 4px; display:flex; align-items:center; justify-content:center;
+    background:rgba(74,144,217,.12); border:1px solid rgba(74,144,217,.4); color:var(--blue-bright);
+  }
+  .center-actions{ display:grid; gap:10px; margin-top:20px; }
+
+  /* terms / privacy window */
+  .legal-overlay{
+    position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center; padding:18px;
+    background:rgba(5,8,12,.78); backdrop-filter:blur(2px);
+  }
+  .legal-overlay.open{ display:flex; }
+  .legal-box{
+    width:100%; max-width:640px; max-height:86vh; display:flex; flex-direction:column;
+    background:linear-gradient(180deg,var(--panel-blue),var(--dark-blue)); border:1px solid var(--steel); border-radius:6px;
+    box-shadow:0 30px 60px -20px rgba(0,0,0,.8);
+  }
+  .legal-head{ display:flex; justify-content:space-between; align-items:center; padding:18px 22px 12px; border-bottom:1px solid var(--steel); }
+  .legal-head h2{ font-family:'Oswald',sans-serif; font-weight:600; font-size:19px; letter-spacing:.5px; text-transform:uppercase; color:var(--text); }
+  .legal-head button{ background:none; border:none; color:var(--text-dim); font-size:26px; line-height:1; cursor:pointer; }
+  .legal-body{ padding:16px 22px; overflow-y:auto; font-size:13px; line-height:1.65; color:var(--text-dim); }
+  .legal-body h3{ font-size:13px; color:var(--text); margin:16px 0 4px; font-weight:600; }
+  .legal-body h3:first-of-type{ margin-top:4px; }
+  .legal-body p, .legal-body li{ margin-bottom:6px; }
+  .legal-body ul{ padding-left:18px; }
+  .legal-foot{ padding:12px 22px 18px; border-top:1px solid var(--steel); }
+
+  .login-actions{ display:flex; justify-content:space-between; align-items:center; margin:2px 0 22px; font-size:12.5px; }
+
+  @media (max-width:520px){
+    body{ padding:14px; align-items:flex-start; }
+    .card{ padding:28px 20px 24px; }
+    .field-row{ grid-template-columns:1fr; gap:0; }
+    .stepper li{ font-size:0; gap:0; justify-content:center; }
+    .stepper li span{ font-size:11px; }
+    .stepper li.active{ font-size:10px; gap:6px; }
+    h1{ font-size:23px; }
+  }
 </style>
 </head>
 <body>
 
-  <div class="wrap">
+  <div class="wrap" id="wrap">
     <div class="ticks">
       <span></span><span></span><span></span><span></span><span></span>
       <span></span><span></span><span></span><span></span><span></span>
@@ -580,15 +663,16 @@
       <div class="rivet bl"></div>
       <div class="rivet br"></div>
 
+      <!-- ===== SIGN IN ===== -->
       <div class="screen active" id="loginScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Inventory Access</span>
         </div>
         <h1>Triple E Metal Products</h1>
-        <p class="sub">Inventory Management System</p>
+        <p class="sub">Sign in to your account</p>
 
         <p class="notice" id="loginNotice" role="status"></p>
+        <p class="form-error" id="loginError" role="alert"></p>
 
         <form id="loginForm" novalidate>
           <div class="field" id="emailField">
@@ -596,558 +680,628 @@
             <div class="input-shell">
               <input type="email" id="email" name="email" placeholder="Enter your email" autocomplete="username" required>
             </div>
-            <p class="error-text" id="emailError">We couldn't find an account with that email.</p>
+            <p class="error-text" id="emailError">Enter a valid email address.</p>
           </div>
 
           <div class="field" id="passwordField">
             <label for="password">Password</label>
-            <div class="input-shell">
+            <div class="input-shell has-toggle">
               <input type="password" id="password" name="password" placeholder="Enter your password" autocomplete="current-password" required>
               <button type="button" class="toggle-vis" id="toggleVis" aria-label="Show password">
                 <svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>
-                <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-6.06M9.9 4.24A10.9 10.9 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.61 3.81M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                <svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-3.17 4.19"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
               </button>
             </div>
-            <p class="error-text" id="passwordError">Invalid password. Try again.</p>
+            <p class="error-text" id="passwordError">Enter your password.</p>
           </div>
 
           <div class="row-end">
             <a href="#" class="link">Forgot password?</a>
           </div>
 
-          <button type="submit" class="submit">Proceed to Inventory</button>
+          <button type="submit" class="submit" id="loginBtn">SIGN IN</button>
         </form>
 
         <p class="signup-row">New customer? <a href="#" class="link" id="goToSignupLink">Create an account</a></p>
-        <p class="signup-row staff-note">Staff member? Use the sign-up link your administrator emailed you.</p>
       </div>
 
-      <div class="screen" id="otpScreen">
-        <div class="brand-mark">
-          <div class="mark mini">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#08131f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
-          </div>
-          <span class="eyebrow">Security Verification</span>
-        </div>
-        <h1>Enter verification code</h1>
-        <p class="sub" id="otpSubtext">We sent a 6-digit code to <b id="otpEmail">your email</b>. Enter it below to finish signing in.</p>
-
-        <form id="otpForm" novalidate>
-          <div class="otp-row" id="otpRow">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="0" autocomplete="one-time-code">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="1">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="2">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="3">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="4">
-            <input class="otp-digit" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="1" data-idx="5">
-          </div>
-          <p class="otp-error" id="otpError">That code isn't right. Check and try again.</p>
-
-          <div class="otp-meta">
-            <span>Code expires in <span class="timer" id="otpTimer">05:00</span></span>
-            <span>Didn't get it? <a href="#" class="link" id="resendLink">Resend code</a></span>
-          </div>
-
-          <button type="submit" class="submit" id="verifyBtn" disabled>Verify &amp; Continue</button>
-        </form>
-
-        <div class="divider">Or use another method</div>
-
-        <button type="button" class="alt" id="smsAlt">
-          <span class="dot"></span>
-          Send code via SMS instead
-        </button>
-
-        <p class="back-row">Wrong account? <a href="#" class="link" id="backToLogin">Sign in again</a></p>
-      </div>
-
-      <!-- ===== SIGNUP — STEP 1: PROFILE (customers sign up directly; staff arrive from the emailed link) ===== -->
-      <div class="screen" id="signupProfileScreen">
+      <!-- ===== REGISTRATION: 3 STEPS ===== -->
+      <div class="screen" id="signupScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
           <span class="eyebrow" id="signupEyebrow">Create Account</span>
         </div>
-
-        <div class="signup-progress">
-          <span class="seg" data-step="1"></span>
-          <span class="seg" data-step="2"></span>
-        </div>
-
         <h1 id="signupTitle">Create your account</h1>
-        <p class="sub" id="signupSub">Sign up to browse and order from Triple E Metal Products.</p>
+        <p class="sub" id="signupSub" style="margin-bottom:0">Sign up to browse and order from Triple E Metal Products.</p>
 
-        <form id="signupProfileForm" novalidate>
+        <ol class="stepper" id="stepper" aria-label="Registration progress">
+          <li data-step="1" class="active"><span>1</span>Personal</li>
+          <li data-step="2"><span>2</span>Contact</li>
+          <li data-step="3"><span>3</span>Security</li>
+        </ol>
 
-          <div class="field">
-            <label for="signupFullName">Full Name</label>
-            <div class="input-shell">
-              <input type="text" id="signupFullName" placeholder="Enter your full name" autocomplete="name">
-            </div>
-          </div>
+        <div class="role-box" id="inviteRoleBox" hidden style="margin-bottom:18px">
+          <span class="role-badge" id="signupRoleBadge">Role</span>
+          <span class="role-note">Assigned by Admin</span>
+        </div>
 
-          <div class="field">
-            <label for="signupEmail">Email</label>
-            <div class="input-shell">
-              <input type="email" id="signupEmail" placeholder="Enter your email" autocomplete="email">
-            </div>
-          </div>
+        <p class="form-error" id="signupError" role="alert"></p>
 
-          <div class="field">
-            <label for="signupPhone">Phone Number</label>
-            <div class="input-shell">
-              <input type="text" id="signupPhone" placeholder="e.g. +63 917 000 0000" autocomplete="tel">
-            </div>
-          </div>
+        <form id="signupForm" novalidate autocomplete="off">
 
-          <div id="signupStaffFields" hidden>
-            <div class="field">
-              <label for="signupDept">Department</label>
-              <div class="input-shell">
-                <input type="text" id="signupDept" readonly>
+          <!-- Step 1 -->
+          <div class="step-panel active" data-step="1">
+            <div class="field-row">
+              <div class="field">
+                <label for="suFirst">First name<span class="req">*</span></label>
+                <div class="input-shell"><input type="text" id="suFirst" maxlength="50" autocomplete="given-name" placeholder="Juan"></div>
+                <p class="error-text" id="e_suFirst"></p>
+              </div>
+              <div class="field">
+                <label for="suLast">Last name<span class="req">*</span></label>
+                <div class="input-shell"><input type="text" id="suLast" maxlength="50" autocomplete="family-name" placeholder="Dela Cruz"></div>
+                <p class="error-text" id="e_suLast"></p>
               </div>
             </div>
-
-            <div class="field">
-              <label>Role</label>
-              <div class="role-box">
-                <span class="role-badge" id="signupRoleBadge">Role</span>
-                <span class="role-note">Assigned by Admin</span>
+            <div class="field-row">
+              <div class="field">
+                <label for="suMiddle">Middle name <span class="opt">(optional)</span></label>
+                <div class="input-shell"><input type="text" id="suMiddle" maxlength="50" autocomplete="additional-name"></div>
+                <p class="error-text" id="e_suMiddle"></p>
+              </div>
+              <div class="field">
+                <label for="suSuffix">Suffix <span class="opt">(optional)</span></label>
+                <div class="input-shell">
+                  <select id="suSuffix" class="placeholder">
+                    <option value="">None</option><option>Jr.</option><option>Sr.</option><option>II</option><option>III</option><option>IV</option><option>V</option>
+                  </select>
+                </div>
+                <p class="error-text" id="e_suSuffix"></p>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field">
+                <label for="suBirth">Birthdate <span class="opt">(optional)</span></label>
+                <div class="input-shell"><input type="date" id="suBirth" min="1900-01-01" autocomplete="bday"></div>
+                <p class="error-text" id="e_suBirth"></p>
+              </div>
+              <div class="field">
+                <label for="suGender">Gender <span class="opt">(optional)</span></label>
+                <div class="input-shell">
+                  <select id="suGender" class="placeholder">
+                    <option value="">Select…</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer Not to Say</option>
+                  </select>
+                </div>
+                <p class="error-text" id="e_suGender"></p>
               </div>
             </div>
           </div>
 
-          <p class="otp-error" id="signupProfileError">Full name and phone number are required.</p>
-
-          <button type="submit" class="submit">Continue</button>
-        </form>
-
-        <p class="back-row" id="signupBackRow">Already have an account? <a href="#" class="link" id="signupBackToLogin1">Sign in instead</a></p>
-      </div>
-
-      <!-- ===== SIGNUP — STEP 2: SET PASSWORD ===== -->
-      <div class="screen" id="signupPasswordScreen">
-        <div class="brand-mark">
-          <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow" id="signupEyebrow2">Create Account</span>
-        </div>
-
-        <div class="signup-progress step-2">
-          <span class="seg" data-step="1"></span>
-          <span class="seg" data-step="2"></span>
-        </div>
-
-        <h1>Set your password</h1>
-        <p class="sub">Choose a password for <b id="signupPasswordEmail">your email</b>.</p>
-
-        <form id="signupPasswordForm" novalidate>
-
-          <div class="field">
-            <label for="signupPassword">Password</label>
-            <div class="input-shell">
-              <input type="password" id="signupPassword" placeholder="Enter your password" autocomplete="new-password">
+          <!-- Step 2 -->
+          <div class="step-panel" data-step="2">
+            <div class="field">
+              <label for="suEmail">Email address<span class="req">*</span></label>
+              <div class="input-shell"><input type="email" id="suEmail" maxlength="254" autocomplete="email" placeholder="you@gmail.com"></div>
+              <p class="error-text" id="e_suEmail"></p>
+              <p class="hint" id="suEmailHint">We&rsquo;ll send a verification link to this address.</p>
+            </div>
+            <div class="field">
+              <label for="suPhone">Mobile number<span class="req">*</span></label>
+              <div class="input-shell"><input type="tel" id="suPhone" maxlength="20" inputmode="tel" autocomplete="tel" placeholder="0917 123 4567"></div>
+              <p class="error-text" id="e_suPhone"></p>
+              <p class="hint">Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567.</p>
             </div>
           </div>
 
-          <div class="field">
-            <label for="signupConfirmPassword">Confirm Password</label>
-            <div class="input-shell">
-              <input type="password" id="signupConfirmPassword" placeholder="Re-enter your password" autocomplete="new-password">
+          <!-- Step 3 -->
+          <div class="step-panel" data-step="3">
+            <div class="field">
+              <label for="suPass">Password<span class="req">*</span></label>
+              <div class="input-shell has-toggle"><input type="password" id="suPass" maxlength="72" autocomplete="new-password" placeholder="Create a password"></div>
+              <div class="strength"><i id="suStrengthBar"></i></div>
+              <div class="strength-label" id="suStrengthLabel">Strength: &mdash;</div>
+              <p class="error-text" id="e_suPass"></p>
+            </div>
+            <div class="field">
+              <label for="suConfirm">Confirm password<span class="req">*</span></label>
+              <div class="input-shell has-toggle"><input type="password" id="suConfirm" maxlength="72" autocomplete="new-password" placeholder="Re-enter your password"></div>
+              <p class="error-text" id="e_suConfirm"></p>
+            </div>
+            <div class="checklist-box" id="signupChecklist">
+              <div class="checklist-row" data-rule="length"><span class="check-circle"></span>At least 8 characters</div>
+              <div class="checklist-row" data-rule="upper"><span class="check-circle"></span>One uppercase letter (A&ndash;Z)</div>
+              <div class="checklist-row" data-rule="lower"><span class="check-circle"></span>One lowercase letter (a&ndash;z)</div>
+              <div class="checklist-row" data-rule="number"><span class="check-circle"></span>One number (0&ndash;9)</div>
+              <div class="checklist-row" data-rule="special"><span class="check-circle"></span>One special character (!@#$%^&amp;* etc.)</div>
+              <div class="checklist-row" data-rule="match"><span class="check-circle"></span>Passwords match</div>
+            </div>
+            <div class="check-wrap" id="w_suTerms">
+              <label class="check"><input type="checkbox" id="suTerms"><span>I agree to the <a href="#" class="link" data-legal="terms">Terms and Conditions</a>.</span></label>
+              <p class="error-text" id="e_suTerms"></p>
+            </div>
+            <div class="check-wrap" id="w_suPrivacy">
+              <label class="check"><input type="checkbox" id="suPrivacy"><span>I acknowledge the <a href="#" class="link" data-legal="privacy">Privacy Policy</a> and how my personal information is used.</span></label>
+              <p class="error-text" id="e_suPrivacy"></p>
             </div>
           </div>
 
-          <div class="checklist-box" id="signupChecklist">
-            <div class="checklist-row" data-rule="length"><span class="check-circle"></span>At least 8 characters</div>
-            <div class="checklist-row" data-rule="upper"><span class="check-circle"></span>One uppercase letter (A–Z)</div>
-            <div class="checklist-row" data-rule="lower"><span class="check-circle"></span>One lowercase letter (a–z)</div>
-            <div class="checklist-row" data-rule="number"><span class="check-circle"></span>One number (0–9)</div>
-            <div class="checklist-row" data-rule="special"><span class="check-circle"></span>One special character (!@#$%^&amp;* etc.)</div>
-            <div class="checklist-row" data-rule="match"><span class="check-circle"></span>Passwords match</div>
+          <div class="button-row" id="stepButtons" style="margin-top:20px">
+            <button type="button" class="submit alt-btn" id="suBack">Back</button>
+            <button type="submit" class="submit" id="suNext">Next</button>
           </div>
-
-          <p class="otp-error" id="signupPasswordError"></p>
-
-          <div class="button-row">
-            <button type="button" class="submit alt-btn" id="signupBackToProfile">Back</button>
-            <button type="submit" class="submit" id="createAccountBtn" disabled>Create Account</button>
-          </div>
-
         </form>
+
+        <p class="back-row" id="signupBackRow">Already have an account? <a href="#" class="link" id="signupBackToLogin">Sign in instead</a></p>
       </div>
 
-      <!-- ===== INVITE LINK NOT VALID ===== -->
-      <div class="screen" id="inviteBadScreen">
+      <!-- ===== CHECK YOUR EMAIL ===== -->
+      <div class="screen" id="checkEmailScreen">
         <div class="brand-mark">
           <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Sign-up Link</span>
+          <span class="eyebrow">Email Verification</span>
         </div>
-        <h1>This link can&rsquo;t be used</h1>
-        <p class="sub" id="inviteBadText">This sign-up link is invalid or has expired. Ask your administrator to send you a new one.</p>
-        <button type="button" class="submit" id="inviteBadBack">Go to sign in</button>
+        <div class="mail-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 6L2 7"/></svg>
+        </div>
+        <h1 style="margin-top:10px">Check your email</h1>
+        <p class="sub">We sent a verification link to <b id="ceEmail">your email</b>. Open it to activate your account, then sign in.</p>
+        <p class="form-error" id="ceMsg" role="status"></p>
+        <p class="hint" style="margin-top:-12px">Can&rsquo;t find it? Check your spam folder. The link works once and expires in 24 hours.</p>
+        <div class="center-actions">
+          <button type="button" class="submit alt-btn" id="ceResend">Resend verification email</button>
+          <button type="button" class="submit" id="ceToLogin">Go to sign in</button>
+        </div>
       </div>
 
-      <p class="footnote" id="cardFootnote">Authorized Personnel Only</p>
+      <!-- ===== VERIFY RESULT / LINK PROBLEMS ===== -->
+      <div class="screen" id="noticeScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow" id="noticeEyebrow">Triple E</span>
+        </div>
+        <h1 id="noticeTitle">&nbsp;</h1>
+        <p class="sub" id="noticeText"></p>
+        <button type="button" class="submit" id="noticeBtn">Go to sign in</button>
+      </div>
+
+      <p class="footnote" id="cardFootnote">Quality Metal Products Since 1999</p>
     </div>
+  </div>
 
-    <p class="outer-footer" id="outerFooter">Triple E Metal Products · Inventory Management System</p>
+  <!-- Terms / Privacy window -->
+  <div class="legal-overlay" id="legalOverlay" role="dialog" aria-modal="true" aria-labelledby="legalTitle">
+    <div class="legal-box">
+      <div class="legal-head"><h2 id="legalTitle"></h2><button type="button" id="legalX" aria-label="Close">&times;</button></div>
+      <div class="legal-body" id="legalBody"></div>
+      <div class="legal-foot"><button type="button" class="submit" id="legalOk">Close</button></div>
+    </div>
   </div>
 
 <script>
+(function(){
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const clean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+
+  /* ---------- where each role lands after signing in ---------- */
+  const HOME_BY_ROLE = {
+    finance:  'Finance_Inventory.html',   // Finance / Admin Officer -> Admin Dashboard
+    cashier:  'POS_Cashier.html',         // Sales Staff / Cashier   -> POS Dashboard
+    customer: 'Shop_Customer.html'        // Customer                -> Customer Shop
+  };
+
   function showScreen(id){
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-    document.getElementById(id).classList.add('active');
-
-    const signupScreens = ['signupProfileScreen', 'signupPasswordScreen'];
-    document.getElementById('outerFooter').classList.toggle('show', signupScreens.includes(id));
+    $(id).classList.add('active');
+    $('wrap').classList.toggle('wide', id === 'signupScreen');
+    window.scrollTo(0, 0);
   }
-
-  const toggle = document.getElementById('toggleVis');
-  const pwd = document.getElementById('password');
-  toggle.addEventListener('click', () => {
-    const isText = pwd.type === 'text';
-    pwd.type = isText ? 'password' : 'text';
-    toggle.classList.toggle('showing', !isText);
-    toggle.setAttribute('aria-label', isText ? 'Show password' : 'Hide password');
-  });
-
-
-  const emailField = document.getElementById('emailField');
-  const emailInput = document.getElementById('email');
-  const passwordField = document.getElementById('passwordField');
-  const passwordInput = document.getElementById('password');
-
-  const passwordPattern = /^(?=.*[0-9])(?=.*[!@#$%^&*()_\-+=\[\]{};:'",.<>\/?\\|`~]).{8,}$/;
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-  function clearFieldError(fieldEl){ fieldEl.classList.remove('invalid'); }
-  function setFieldError(fieldEl){ fieldEl.classList.add('invalid'); }
-
-  emailInput.addEventListener('input', () => clearFieldError(emailField));
-  passwordInput.addEventListener('input', () => clearFieldError(passwordField));
-
-  document.getElementById('loginForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    clearFieldError(emailField);
-    clearFieldError(passwordField);
-
-    const emailValue = emailInput.value.trim();
-    const passwordValue = passwordInput.value;
-    let valid = true;
-    if (!emailPattern.test(emailValue)) { setFieldError(emailField); valid = false; }
-    if (!passwordValue) { setFieldError(passwordField); valid = false; }
-    if (!valid) return;
-
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailValue, password: passwordValue })
-      });
-      if (!res.ok) { setFieldError(emailField); setFieldError(passwordField); return; }
-      try { loginRole = (await res.json()).role || 'finance'; } catch (e) {}
-    } catch (err) { setFieldError(emailField); return; }
-
-    document.getElementById('otpEmail').textContent = emailValue.toLowerCase();
-    goToOtpScreen();
-  });
-
-  const otpScreen = document.getElementById('otpScreen');
-  const otpRow = document.getElementById('otpRow');
-  const otpDigits = Array.from(document.querySelectorAll('#otpRow .otp-digit'));
-  const otpError = document.getElementById('otpError');
-  const verifyBtn = document.getElementById('verifyBtn');
-  const timerEl = document.getElementById('otpTimer');
-  const resendLink = document.getElementById('resendLink');
-  const smsAlt = document.getElementById('smsAlt');
-  const backToLogin = document.getElementById('backToLogin');
-
-  let loginRole = 'finance';
-  const HOME_BY_ROLE = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
-  const DEMO_CODE = '000000'.slice(0, 6);
-  let countdownId = null;
-  let secondsLeft = 300;
-
-  function goToOtpScreen(){
-    showScreen('otpScreen');
-    resetOtpInputs();
-    startTimer();
-    setTimeout(() => otpDigits[0].focus(), 50);
-  }
-
-  function resetOtpInputs(){
-    otpDigits.forEach(d => { d.value = ''; d.classList.remove('filled'); });
-    otpRow.classList.remove('invalid');
-    otpError.classList.remove('show');
-    updateVerifyState();
-  }
-
-  function updateVerifyState(){
-    const allFilled = otpDigits.every(d => d.value.length === 1);
-    verifyBtn.disabled = !allFilled;
-  }
-
-  function formatTime(s){
-    const m = Math.floor(s / 60).toString().padStart(2, '0');
-    const ss = (s % 60).toString().padStart(2, '0');
-    return m + ':' + ss;
-  }
-
-  function startTimer(){
-    secondsLeft = 300;
-    timerEl.textContent = formatTime(secondsLeft);
-    timerEl.classList.remove('expired');
-    clearInterval(countdownId);
-    countdownId = setInterval(() => {
-      secondsLeft--;
-      if (secondsLeft <= 0){
-        secondsLeft = 0;
-        timerEl.classList.add('expired');
-        clearInterval(countdownId);
-      }
-      timerEl.textContent = formatTime(secondsLeft);
-    }, 1000);
-  }
-
-  otpDigits.forEach((digit, i) => {
-    digit.addEventListener('input', () => {
-      digit.value = digit.value.replace(/[^0-9]/g, '').slice(0, 1);
-      digit.classList.toggle('filled', digit.value.length === 1);
-      otpRow.classList.remove('invalid');
-      otpError.classList.remove('show');
-      if (digit.value && i < otpDigits.length - 1){
-        otpDigits[i + 1].focus();
-      }
-      updateVerifyState();
-    });
-
-    digit.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !digit.value && i > 0){
-        otpDigits[i - 1].focus();
-      }
-    });
-
-    digit.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const pasted = (e.clipboardData.getData('text') || '').replace(/[^0-9]/g, '').slice(0, otpDigits.length);
-      pasted.split('').forEach((char, idx) => {
-        if (otpDigits[idx]){
-          otpDigits[idx].value = char;
-          otpDigits[idx].classList.add('filled');
-        }
-      });
-      const next = Math.min(pasted.length, otpDigits.length - 1);
-      otpDigits[next].focus();
-      updateVerifyState();
-    });
-  });
-
-  document.getElementById('otpForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const entered = otpDigits.map(d => d.value).join('');
-
-    if (secondsLeft <= 0 || entered !== DEMO_CODE){
-      otpRow.classList.add('invalid');
-      otpError.classList.add('show');
-      otpDigits[0].focus();
-      return;
-    }
-
-    console.log('OTP verified:', entered);
-    window.location.href = HOME_BY_ROLE[loginRole] || 'Finance_Inventory.html';
-  });
-
-  resendLink.addEventListener('click', (e) => {
-    e.preventDefault();
-    resetOtpInputs();
-    startTimer();
-    otpDigits[0].focus();
-    console.log('Resent OTP code');
-  });
-
-  smsAlt.addEventListener('click', () => {
-    console.log('Switch to SMS delivery');
-  });
-
-  backToLogin.addEventListener('click', (e) => {
-    e.preventDefault();
-    clearInterval(countdownId);
-    showScreen('loginScreen');
-  });
-
-  /* =====================================================
-     SIGN-UP
-       Customers : "Create an account" on this page -> POST /api/signup/customer (no code)
-       Staff     : the administrator emails a one-time link  Login_Inventory.html?invite=<token>
-                   -> GET /api/signup/invite/<token> fills the form, POST /api/signup/invite/<token> creates the account
-  ===================================================== */
-
-  let signupMode = 'customer';      // 'customer' | 'invite'
-  let inviteToken = '';
-  const $ = (id) => document.getElementById(id);
-  const profileError = $('signupProfileError');
-  const passwordError = $('signupPasswordError');
-  const loginNotice = $('loginNotice');
-
-  async function postJson(url, body){
+  async function api(method, url, body){
     const res = await fetch(url, {
-      method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+      method, credentials: 'same-origin',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   }
-
-  function showProfileError(msg){ profileError.textContent = msg; profileError.classList.add('show'); }
-
-  function startSignup(mode, invitation){
-    signupMode = mode;
-    profileError.classList.remove('show');
-    passwordError.classList.remove('show');
-    $('signupPassword').value = ''; $('signupConfirmPassword').value = '';
-    updateSignupChecklist();
-    const staff = mode === 'invite';
-    $('signupStaffFields').hidden = !staff;
-    $('signupBackRow').hidden = staff;
-    $('signupEmail').readOnly = staff;
-    $('signupEyebrow').textContent = $('signupEyebrow2').textContent = staff ? 'Team Invitation' : 'Create Account';
-    $('signupTitle').textContent = staff ? 'Welcome to the team' : 'Create your account';
-    $('signupSub').textContent = staff
-      ? 'Your administrator set up your role. Confirm your details, then choose a password.'
-      : 'Sign up to browse and order from Triple E Metal Products.';
-    if (staff){
-      $('signupFullName').value = invitation.name || '';
-      $('signupEmail').value = invitation.email || '';
-      $('signupDept').value = invitation.department || '';
-      $('signupRoleBadge').textContent = invitation.roleLabel || '';
-    } else {
-      ['signupFullName', 'signupEmail', 'signupPhone'].forEach(id => { $(id).value = ''; });
-    }
-    showScreen('signupProfileScreen');
-    setTimeout(() => $(staff ? 'signupPhone' : 'signupFullName').focus(), 50);
+  const EYE = '<svg class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>' +
+    '<svg class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-5.94"/><path d="M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-3.17 4.19"/><path d="M14.12 14.12A3 3 0 1 1 9.88 9.88"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+  function eyeToggle(input, btn){
+    btn.addEventListener('click', () => {
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      btn.classList.toggle('showing', show);
+      btn.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+    });
   }
 
-  /* ---------- navigation ---------- */
-  $('goToSignupLink').addEventListener('click', (e) => { e.preventDefault(); startSignup('customer'); });
-  $('signupBackToLogin1').addEventListener('click', (e) => { e.preventDefault(); showScreen('loginScreen'); });
-  $('signupBackToProfile').addEventListener('click', () => showScreen('signupProfileScreen'));
-  $('inviteBadBack').addEventListener('click', () => showScreen('loginScreen'));
-
-  /* ---------- the emailed staff link ---------- */
-  (async function openInviteLink(){
-    const token = new URLSearchParams(location.search).get('invite');
-    if (!token) return;
-    history.replaceState(null, '', location.pathname);     // keep the token out of the address bar / history
-    try {
-      const res = await fetch('/api/signup/invite/' + encodeURIComponent(token), { credentials: 'same-origin' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (data.error) $('inviteBadText').textContent = data.error;
-        return showScreen('inviteBadScreen');
-      }
-      inviteToken = token;
-      startSignup('invite', data);
-    } catch (err) {
-      $('inviteBadText').textContent = 'Could not reach the server. Check your connection and open the link again.';
-      showScreen('inviteBadScreen');
-    }
-  })();
-
-  /* ---------- step 1: profile ---------- */
-  $('signupProfileForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const fullName = $('signupFullName').value.trim();
-    const phone = $('signupPhone').value.trim();
-    const email = $('signupEmail').value.trim();
-
-    if (!fullName) return showProfileError('Full name is required.');
-    if (fullName.length < 2) return showProfileError('Full name must be at least 2 characters.');
-    if (!emailPattern.test(email)) return showProfileError('Enter a valid email address.');
-    if (!phone) return showProfileError('Phone number is required.');
-
-    profileError.classList.remove('show');
-    $('signupPasswordEmail').textContent = email;
-    showScreen('signupPasswordScreen');
-    setTimeout(() => $('signupPassword').focus(), 50);
+  /* =====================================================
+     SIGN IN
+  ===================================================== */
+  eyeToggle($('password'), $('toggleVis'));
+  ['suPass', 'suConfirm'].forEach(id => {            // same show / hide button on the sign-up password fields
+    const input = $(id), b = document.createElement('button');
+    b.type = 'button'; b.className = 'toggle-vis'; b.setAttribute('aria-label', 'Show password'); b.innerHTML = EYE;
+    input.parentNode.appendChild(b); eyeToggle(input, b);
   });
 
-  /* ---------- step 2: set password ---------- */
-  const signupPasswordInput = $('signupPassword');
-  const signupConfirmInput = $('signupConfirmPassword');
-  const createAccountBtn = $('createAccountBtn');
-  const signupChecklistRows = Array.from(document.querySelectorAll('#signupChecklist .checklist-row'));
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const emailField = $('emailField'), passwordField = $('passwordField');
+  const loginNotice = $('loginNotice'), loginError = $('loginError');
 
-  function evaluateSignupPasswordRules(){
-    const pw = signupPasswordInput.value;
-    const confirm = signupConfirmInput.value;
+  function clearLoginState(){
+    emailField.classList.remove('invalid'); passwordField.classList.remove('invalid');
+    loginError.classList.remove('show'); loginNotice.classList.remove('show');
+  }
+  $('email').addEventListener('input', clearLoginState);
+  $('password').addEventListener('input', clearLoginState);
+
+  function showLoginError(msg, withResend){
+    loginError.textContent = msg + ' ';
+    if (withResend){
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Resend verification email';
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        const r = await api('POST', '/api/auth/resend-verification', { email: clean($('email').value).toLowerCase() }).catch(() => null);
+        loginError.classList.remove('show');
+        loginNotice.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
+        loginNotice.classList.add('show');
+      });
+      loginError.appendChild(b);
+    }
+    loginError.classList.add('show');
+  }
+
+  $('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearLoginState();
+    const emailValue = clean($('email').value), passwordValue = $('password').value;
+    let valid = true;
+    if (!emailPattern.test(emailValue)){ emailField.classList.add('invalid'); valid = false; }
+    if (!passwordValue){ passwordField.classList.add('invalid'); valid = false; }
+    if (!valid) return;
+
+    const btn = $('loginBtn'); btn.disabled = true; btn.textContent = 'SIGNING IN…';
+    try {
+      const r = await api('POST', '/api/auth/login', { email: emailValue, password: passwordValue });
+      if (r.ok){
+        const home = HOME_BY_ROLE[r.data.role];
+        if (!home){ showLoginError('Your account has no access set up yet. Please contact the store.'); return; }
+        window.location.replace(home);                       // go straight to this role's page
+        return;
+      }
+      if (r.status === 403 && r.data.code === 'EMAIL_NOT_VERIFIED') showLoginError(r.data.error, true);
+      else if (r.status === 401 || r.status === 400){
+        emailField.classList.add('invalid'); passwordField.classList.add('invalid');
+        showLoginError('Invalid email or password. Please try again.');
+      } else showLoginError('Something went wrong. Please try again.');
+    } catch (err){
+      showLoginError('Could not reach the server. Check your connection and try again.');
+    } finally { btn.disabled = false; btn.textContent = 'SIGN IN'; }
+  });
+
+  /* =====================================================
+     REGISTRATION (3 steps)
+       Customers : "Create an account" -> POST /api/signup/customer, then verify the email
+       Cashiers  : by invitation only (emailed one-time link ?invite=...) -> POST /api/signup/invite/<token>
+  ===================================================== */
+  let mode = 'customer', inviteToken = '', step = 1;
+  const MIN_STEP_NAME = { 1: 'Personal', 2: 'Contact', 3: 'Security' };
+  const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
+  const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+
+  /* error helpers: ids are su<Name>; the message sits in #e_<id> */
+  function setErr(id, msg){
+    const el = $(id), box = $('e_' + id);
+    const holder = el.closest('.field') || el.closest('.check-wrap');
+    if (holder) holder.classList.toggle('invalid', !!msg);
+    if (box) box.textContent = msg || '';
+  }
+  const clearAllErr = () => ['suFirst','suLast','suMiddle','suSuffix','suBirth','suGender','suEmail','suPhone','suPass','suConfirm','suTerms','suPrivacy'].forEach(id => setErr(id, ''));
+  const signupError = $('signupError');
+  const showSignupError = (m) => { signupError.textContent = m; signupError.classList.add('show'); };
+
+  const STEP_OF = { suFirst:1, suLast:1, suMiddle:1, suSuffix:1, suBirth:1, suGender:1, suEmail:2, suPhone:2, suPass:3, suConfirm:3, suTerms:3, suPrivacy:3 };
+  const SERVER_FIELD = { firstName:'suFirst', lastName:'suLast', middleName:'suMiddle', suffix:'suSuffix', name:'suFirst', birthdate:'suBirth', gender:'suGender',
+    email:'suEmail', phone:'suPhone', password:'suPass', confirmPassword:'suConfirm', acceptTerms:'suTerms', acceptPrivacy:'suPrivacy' };
+
+  function validators(){
     return {
-      length: pw.length >= 8,
-      upper: /[A-Z]/.test(pw),
-      lower: /[a-z]/.test(pw),
-      number: /[0-9]/.test(pw),
-      special: /[^A-Za-z0-9]/.test(pw),
-      match: pw.length > 0 && pw === confirm
+      suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (v.length < 2) return 'First name must be at least 2 characters'; if (!NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
+      suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (v.length < 2) return 'Last name must be at least 2 characters'; if (!NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
+      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return "Letters, spaces, . ' and - only"; return ''; },
+      suBirth(){
+        const v = $('suBirth').value; if (!v) return '';
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return 'Enter a valid birthdate';
+        const d = new Date(+m[1], +m[2] - 1, +m[3]);
+        if (d.getFullYear() !== +m[1] || d.getMonth() !== +m[2] - 1 || d.getDate() !== +m[3] || +m[1] < 1900) return 'Enter a valid birthdate';
+        if (v > todayISO()) return 'Birthdate cannot be in the future';
+        return '';
+      },
+      suEmail(){
+        const v = clean($('suEmail').value).toLowerCase(); if (!v) return 'Email address is required';
+        if (v.length > 254 || !emailPattern.test(v)) return 'Enter a valid email address, e.g. name@gmail.com';
+        if (emailCheck.email === v && emailCheck.ok === false) return emailCheck.msg;
+        return '';
+      },
+      suPhone(){ const m = mobileProblem($('suPhone').value); return m; },
+      suPass(){ const p = $('suPass').value; if (!p) return 'Create a password'; return Object.values(pwRules()).slice(0, 5).every(Boolean) ? '' : 'Password does not meet all the requirements'; },
+      suConfirm(){ const c = $('suConfirm').value; if (!c) return 'Re-enter your password'; return c === $('suPass').value ? '' : 'Passwords do not match'; },
+      suTerms(){ return $('suTerms').checked ? '' : 'You must agree to the Terms and Conditions to continue'; },
+      suPrivacy(){ return $('suPrivacy').checked ? '' : 'Please acknowledge the Privacy Policy to continue'; }
     };
   }
+  const V = validators();
+  const STEP_FIELDS = { 1: ['suFirst','suLast','suMiddle','suBirth'], 2: ['suEmail','suPhone'], 3: ['suPass','suConfirm','suTerms','suPrivacy'] };
 
-  function updateSignupChecklist(){
-    const rules = evaluateSignupPasswordRules();
-    signupChecklistRows.forEach(row => row.classList.toggle('met', !!rules[row.dataset.rule]));
-    createAccountBtn.disabled = !Object.values(rules).every(Boolean);
+  function mobileProblem(raw){
+    const s = String(raw || '').trim(); if (!s) return 'Mobile number is required';
+    if (/[^\d+\s().-]/.test(s)) return 'Digits, +, spaces and dashes only';
+    let p = s.replace(/[\s().-]/g, '');
+    if (p.startsWith('+63')) p = p.slice(3); else if (p.startsWith('63')) p = p.slice(2); else if (p.startsWith('09')) p = p.slice(1);
+    else if (!p.startsWith('9')) return 'Enter a valid Philippine mobile number, e.g. 0917 123 4567';
+    return /^9\d{9}$/.test(p) ? '' : 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
   }
 
-  signupPasswordInput.addEventListener('input', updateSignupChecklist);
-  signupConfirmInput.addEventListener('input', updateSignupChecklist);
+  /* ---------- password rules + strength ---------- */
+  function pwRules(){
+    const pw = $('suPass').value, c = $('suConfirm').value;
+    return { length: pw.length >= 8, upper: /[A-Z]/.test(pw), lower: /[a-z]/.test(pw), number: /[0-9]/.test(pw), special: /[^A-Za-z0-9]/.test(pw), match: pw.length > 0 && pw === c };
+  }
+  const rows = Array.from(document.querySelectorAll('#signupChecklist .checklist-row'));
+  function paintPassword(){
+    const r = pwRules(), pw = $('suPass').value;
+    rows.forEach(row => row.classList.toggle('met', !!r[row.dataset.rule]));
+    const n = ['length','upper','lower','number','special'].filter(k => r[k]).length + (pw.length >= 12 ? 1 : 0);
+    const levels = [['—','0%','var(--red)'], ['Weak','20%','var(--red)'], ['Weak','35%','var(--red)'], ['Fair','55%','#e0a84a'], ['Good','75%','var(--blue-bright)'], ['Strong','90%','var(--green)'], ['Very strong','100%','var(--green)']];
+    const lv = pw ? levels[Math.max(1, n)] : levels[0];
+    $('suStrengthBar').style.width = lv[1]; $('suStrengthBar').style.background = lv[2];
+    $('suStrengthLabel').textContent = 'Strength: ' + lv[0];
+  }
+  ['suPass','suConfirm'].forEach(id => $(id).addEventListener('input', () => { paintPassword(); setErr(id, ''); if (id === 'suPass' && $('suConfirm').value) setErr('suConfirm', ''); }));
 
-  $('signupPasswordForm').addEventListener('submit', async (e) => {
+  /* ---------- duplicate-email check (while typing) ---------- */
+  let emailCheck = { email: '', ok: null, msg: '' }, emailTimer = null, emailPending = null;
+  const hint = $('suEmailHint');
+  function checkEmailNow(){
+    const v = clean($('suEmail').value).toLowerCase();
+    if (!v || !emailPattern.test(v)){ emailCheck = { email: '', ok: null, msg: '' }; return Promise.resolve(); }
+    if (emailCheck.email === v && emailCheck.ok !== null) return Promise.resolve();
+    hint.className = 'hint'; hint.textContent = 'Checking this email…';
+    const p = api('GET', '/api/signup/check-email?email=' + encodeURIComponent(v)).then(r => {
+      if (clean($('suEmail').value).toLowerCase() !== v) return;
+      if (r.status === 429){ emailCheck = { email: '', ok: null, msg: '' }; hint.textContent = 'We\u2019ll send a verification link to this address.'; return; }
+      emailCheck = { email: v, ok: !!r.data.available, msg: r.data.message || '' };
+      if (emailCheck.ok){ hint.className = 'hint ok'; hint.textContent = '\u2713 This email is available.'; setErr('suEmail', ''); }
+      else { hint.className = 'hint'; hint.textContent = 'We\u2019ll send a verification link to this address.'; setErr('suEmail', emailCheck.msg || 'That email cannot be used'); }
+    }).catch(() => { emailCheck = { email: '', ok: null, msg: '' }; hint.className = 'hint'; hint.textContent = 'We\u2019ll send a verification link to this address.'; });
+    emailPending = p; return p;
+  }
+  $('suEmail').addEventListener('input', () => {
+    setErr('suEmail', ''); hint.className = 'hint'; hint.textContent = 'We\u2019ll send a verification link to this address.';
+    emailCheck = { email: '', ok: null, msg: '' };
+    clearTimeout(emailTimer); emailTimer = setTimeout(checkEmailNow, 600);
+  });
+  $('suEmail').addEventListener('blur', () => { $('suEmail').value = clean($('suEmail').value).toLowerCase(); clearTimeout(emailTimer); checkEmailNow(); });
+
+  /* ---------- little input niceties ---------- */
+  $('suPhone').addEventListener('input', function(){ const n = this.value.replace(/[^\d+\s().-]/g, ''); if (n !== this.value) this.value = n; setErr('suPhone', ''); });
+  ['suFirst','suLast','suMiddle'].forEach(id => $(id).addEventListener('input', () => setErr(id, '')));
+  ['suBirth','suSuffix','suGender'].forEach(id => $(id).addEventListener('change', () => { setErr(id, ''); $(id).classList.toggle('placeholder', !$(id).value); }));
+  ['suTerms','suPrivacy'].forEach(id => $(id).addEventListener('change', () => setErr(id, '')));
+  $('suBirth').max = todayISO();
+  // show a field's problem as soon as the person leaves it
+  Object.keys(V).forEach(id => { if (['suTerms','suPrivacy','suEmail','suConfirm'].includes(id)) return; $(id).addEventListener('blur', () => { if ($(id).value !== '') setErr(id, V[id]()); }); });
+  $('suConfirm').addEventListener('blur', () => { if ($('suConfirm').value) setErr('suConfirm', V.suConfirm()); });
+
+  /* ---------- steps ---------- */
+  function goStep(n){
+    step = n;
+    document.querySelectorAll('#signupForm .step-panel').forEach(p => p.classList.toggle('active', +p.dataset.step === n));
+    document.querySelectorAll('#stepper li').forEach(li => {
+      const s = +li.dataset.step; li.classList.toggle('active', s === n); li.classList.toggle('done', s < n);
+    });
+    $('suBack').style.visibility = n === 1 ? 'hidden' : 'visible';
+    $('suNext').textContent = n === 3 ? 'Create Account' : 'Next';
+    signupError.classList.remove('show');
+    const first = { 1: 'suFirst', 2: mode === 'invite' ? 'suPhone' : 'suEmail', 3: 'suPass' }[n];
+    setTimeout(() => $(first).focus({ preventScroll: true }), 40);
+  }
+  async function validateStep(n){
+    if (n === 2 && mode === 'customer'){ clearTimeout(emailTimer); await checkEmailNow(); }
+    let firstBad = null;
+    STEP_FIELDS[n].forEach(id => {
+      if (n === 2 && id === 'suEmail' && mode === 'invite') return;
+      const m = V[id](); setErr(id, m); if (m && !firstBad) firstBad = id;
+    });
+    if (firstBad) $(firstBad).focus({ preventScroll: false });
+    return !firstBad;
+  }
+
+  function resetSignup(){
+    $('signupForm').reset(); clearAllErr(); signupError.classList.remove('show');
+    emailCheck = { email: '', ok: null, msg: '' }; hint.className = 'hint'; hint.textContent = 'We\u2019ll send a verification link to this address.';
+    ['suSuffix','suGender'].forEach(id => $(id).classList.add('placeholder'));
+    ['suPass','suConfirm'].forEach(id => { $(id).type = 'password'; const b = $(id).parentNode.querySelector('.toggle-vis'); if (b){ b.classList.remove('showing'); b.setAttribute('aria-label', 'Show password'); } });
+    paintPassword();
+  }
+
+  function startSignup(kind, invitation){
+    mode = kind; resetSignup();
+    const staff = kind === 'invite';
+    $('inviteRoleBox').hidden = !staff;
+    $('signupBackRow').hidden = staff;
+    $('suEmail').readOnly = staff;
+    $('signupEyebrow').textContent = staff ? 'Team Invitation' : 'Create Account';
+    $('signupTitle').textContent = staff ? 'Welcome to the team' : 'Create your account';
+    $('signupSub').textContent = staff ? 'Your administrator set up your role. Complete the 3 steps to finish your account.' : 'Sign up to browse and order from Triple E Metal Products.';
+    if (staff){
+      const w = clean(invitation.name).split(' ').filter(Boolean);
+      $('suFirst').value = w.length > 1 ? w.slice(0, -1).join(' ') : (w[0] || '');
+      $('suLast').value = w.length > 1 ? w[w.length - 1] : '';
+      $('suEmail').value = invitation.email || '';
+      $('signupRoleBadge').textContent = invitation.roleLabel || '';
+      hint.textContent = 'This is the address your invitation was sent to.';
+    }
+    showScreen('signupScreen'); goStep(1);
+  }
+
+  $('suBack').addEventListener('click', () => { if (step > 1) goStep(step - 1); });
+  $('signupForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (!Object.values(evaluateSignupPasswordRules()).every(Boolean)) return;
-    passwordError.classList.remove('show');
+    if (step < 3){ if (await validateStep(step)) goStep(step + 1); return; }
+    // last step: re-check everything, then create the account
+    for (const n of [1, 2]){ if (!(await validateStep(n))){ goStep(n); await validateStep(n); return; } }
+    if (!(await validateStep(3))) return;
 
     const body = {
-      name: $('signupFullName').value.trim(),
-      phone: $('signupPhone').value.trim(),
-      password: signupPasswordInput.value
+      firstName: clean($('suFirst').value), middleName: clean($('suMiddle').value), lastName: clean($('suLast').value), suffix: $('suSuffix').value,
+      birthdate: $('suBirth').value, gender: $('suGender').value, phone: clean($('suPhone').value),
+      password: $('suPass').value, confirmPassword: $('suConfirm').value, acceptTerms: $('suTerms').checked, acceptPrivacy: $('suPrivacy').checked
     };
     let url = '/api/signup/invite/' + encodeURIComponent(inviteToken);
-    if (signupMode === 'customer'){ url = '/api/signup/customer'; body.email = $('signupEmail').value.trim(); }
+    if (mode === 'customer'){ url = '/api/signup/customer'; body.email = clean($('suEmail').value).toLowerCase(); }
 
-    createAccountBtn.disabled = true;
-    const original = createAccountBtn.textContent;
-    createAccountBtn.textContent = 'Creating…';
+    const btn = $('suNext'); btn.disabled = true; $('suBack').disabled = true; btn.textContent = 'Creating…';
     let r;
-    try { r = await postJson(url, body); }
-    catch (err) { r = { ok: false, status: 0, data: { error: 'Could not reach the server. Try again.' } }; }
-    createAccountBtn.textContent = original;
-    updateSignupChecklist();
+    try { r = await api('POST', url, body); } catch (err){ r = { ok: false, status: 0, data: { error: 'Could not reach the server. Try again.' } }; }
+    btn.disabled = false; $('suBack').disabled = false; btn.textContent = 'Create Account';
 
     if (r.ok){
-      const email = $('signupEmail').value.trim();
+      const email = body.email || clean($('suEmail').value);
       inviteToken = '';
-      ['signupPassword', 'signupConfirmPassword'].forEach(id => { $(id).value = ''; });
-      updateSignupChecklist();
-      loginNotice.textContent = 'Account created. Sign in with ' + email + ' to continue.';
-      loginNotice.classList.add('show');
-      emailInput.value = email;
-      passwordInput.value = '';
-      showScreen('loginScreen');
-      setTimeout(() => passwordInput.focus(), 50);
+      if (mode === 'customer' && r.data.verificationRequired){
+        $('ceEmail').textContent = email; pendingEmail = email;
+        const m = $('ceMsg'); m.classList.toggle('show', !!r.data.message); m.textContent = r.data.message || '';
+        resetSignup(); showScreen('checkEmailScreen'); startResendCooldown(60);
+        return;
+      }
+      resetSignup();
+      $('email').value = email; $('password').value = '';
+      loginNotice.textContent = 'Account created. Sign in with ' + email + ' to continue.'; loginNotice.classList.add('show');
+      showScreen('loginScreen'); setTimeout(() => $('password').focus(), 50);
       return;
     }
-    if (r.status === 404 && signupMode === 'invite'){        // link was used, cancelled or expired meanwhile
-      $('inviteBadText').textContent = r.data.error || 'This sign-up link is invalid or has expired.';
-      return showScreen('inviteBadScreen');
-    }
-    const f = r.data.fields || {};
-    const msg = r.data.error || 'Could not create the account. Try again.';
-    if (f.name || f.phone || f.email){                       // a detail from step 1 was refused: go back and show why
-      showScreen('signupProfileScreen');
-      return showProfileError(msg);
-    }
-    passwordError.textContent = f.password || msg;
-    passwordError.classList.add('show');
+    if (r.status === 404 && mode === 'invite'){ return notice('Sign-up link', 'This link can\u2019t be used', r.data.error || 'This sign-up link is invalid or has expired. Ask your administrator to send a new one.'); }
+    // show the server's messages on the right fields, jumping back to the step that holds the first one
+    const f = r.data.fields || {}; let jump = 0, any = false;
+    Object.keys(f).forEach(k => { const id = SERVER_FIELD[k]; if (id){ setErr(id, f[k]); any = true; const s = STEP_OF[id]; if (!jump || s < jump) jump = s; } });
+    if (jump){ goStep(jump); }
+    showSignupError(any ? 'Please fix the highlighted fields.' : (r.data.error || 'Could not create the account. Try again.'));
   });
 
-  ['email', 'password'].forEach(id => $(id).addEventListener('input', () => loginNotice.classList.remove('show')));
+  $('goToSignupLink').addEventListener('click', (e) => { e.preventDefault(); inviteToken = ''; startSignup('customer'); });
+  $('signupBackToLogin').addEventListener('click', (e) => { e.preventDefault(); showScreen('loginScreen'); });
+
+  /* ---------- check-your-email screen ---------- */
+  let pendingEmail = '', cdTimer = null;
+  function startResendCooldown(sec){
+    const b = $('ceResend'); clearInterval(cdTimer); b.disabled = true;
+    let left = sec; b.textContent = 'Resend verification email (' + left + 's)';
+    cdTimer = setInterval(() => { left--; if (left <= 0){ clearInterval(cdTimer); b.disabled = false; b.textContent = 'Resend verification email'; } else b.textContent = 'Resend verification email (' + left + 's)'; }, 1000);
+  }
+  $('ceResend').addEventListener('click', async () => {
+    const m = $('ceMsg'); $('ceResend').disabled = true;
+    const r = await api('POST', '/api/auth/resend-verification', { email: pendingEmail }).catch(() => null);
+    m.classList.add('show'); m.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
+    startResendCooldown(60);
+  });
+  $('ceToLogin').addEventListener('click', () => { $('email').value = pendingEmail; $('password').value = ''; clearLoginState(); showScreen('loginScreen'); });
+
+  /* ---------- generic notice screen ---------- */
+  function notice(eyebrow, title, text, buttonText){
+    $('noticeEyebrow').textContent = eyebrow; $('noticeTitle').textContent = title; $('noticeText').textContent = text;
+    $('noticeBtn').textContent = buttonText || 'Go to sign in'; showScreen('noticeScreen');
+  }
+  $('noticeBtn').addEventListener('click', () => { clearLoginState(); showScreen('loginScreen'); });
+
+  /* ---------- links from emails:  ?invite=<token> (cashier)   ?verify=<token> (customer email) ---------- */
+  (async function openEmailLinks(){
+    const q = new URLSearchParams(location.search);
+    const invite = q.get('invite'), verify = q.get('verify');
+    if (!invite && !verify) return;
+    history.replaceState(null, '', location.pathname);       // keep the token out of the address bar / history
+    if (verify){
+      notice('Email Verification', 'Verifying your email…', 'One moment please.'); $('noticeBtn').hidden = true;
+      try {
+        const r = await api('POST', '/api/auth/verify-email', { token: verify });
+        $('noticeBtn').hidden = false;
+        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your account is active. You can sign in now.');
+        else notice('Email Verification', 'This link can\u2019t be used', r.data.error || 'This verification link is invalid or has expired. Sign in to request a new one.');
+      } catch (err){ $('noticeBtn').hidden = false; notice('Email Verification', 'Could not verify', 'Could not reach the server. Check your connection and open the link again.'); }
+      return;
+    }
+    try {
+      const r = await api('GET', '/api/signup/invite/' + encodeURIComponent(invite));
+      if (!r.ok) return notice('Sign-up link', 'This link can\u2019t be used', r.data.error || 'This sign-up link is invalid or has expired. Ask your administrator to send you a new one.');
+      inviteToken = invite; startSignup('invite', r.data);
+    } catch (err){ notice('Sign-up link', 'This link can\u2019t be used', 'Could not reach the server. Check your connection and open the link again.'); }
+  })();
+
+  /* =====================================================
+     TERMS AND CONDITIONS / PRIVACY POLICY
+  ===================================================== */
+  const LEGAL = {
+    terms: { title: 'Terms and Conditions', html: `
+      <p><i>Version 2026-10</i></p>
+      <h3>1. Using your account</h3>
+      <p>You must give accurate information when you register and keep it up to date in My Profile. You are responsible for keeping your password private and for activity under your account. Tell us right away if you think someone else has used it.</p>
+      <h3>2. Orders and prices</h3>
+      <p>Products, prices, stock and delivery fees shown in the online shop can change. An order is confirmed only when Triple E Metal Products accepts it. We may cancel or adjust an order if an item is out of stock, a price was listed incorrectly, or the delivery address cannot be served; any payment already made for the cancelled part is refunded.</p>
+      <h3>3. Payment, delivery and pick-up</h3>
+      <p>Payments are processed through the payment options offered at checkout. Delivery is limited to the areas and schedules we serve, and delivery times are estimates. You must provide a correct delivery address and a mobile number we can reach.</p>
+      <h3>4. Returns and refunds</h3>
+      <p>Returns and refunds follow the return window and conditions shown in the shop. Custom-cut or made-to-order items may not be returnable unless they are defective or not as ordered.</p>
+      <h3>5. Acceptable use</h3>
+      <p>Do not misuse the website, attempt to access other accounts or staff areas, interfere with its operation, or use it for unlawful purposes. We may suspend an account that breaks these terms.</p>
+      <h3>6. Staff accounts</h3>
+      <p>Cashier and other staff accounts cannot be created on this page. They are issued by invitation from the company&rsquo;s Finance/Admin team, who assign the role.</p>
+      <h3>7. Liability</h3>
+      <p>We provide the website and products with reasonable care. To the extent allowed by law, Triple E Metal Products is not liable for indirect or consequential losses arising from use of the website.</p>
+      <h3>8. Changes</h3>
+      <p>We may update these terms. If we make a significant change we will ask you to accept the new version. Continued use of your account after a change means you accept it.</p>
+      <h3>9. Governing law</h3>
+      <p>These terms are governed by the laws of the Republic of the Philippines.</p>` },
+    privacy: { title: 'Privacy Policy', html: `
+      <p><i>Version 2026-10</i></p>
+      <p>Triple E Metal Products respects your privacy and processes personal information in line with the Data Privacy Act of 2012 (Republic Act No. 10173).</p>
+      <h3>What we collect</h3>
+      <ul>
+        <li>Name, email address and mobile number (required to create an account).</li>
+        <li>Birthdate and gender (optional), and company information (optional, added in My Profile).</li>
+        <li>Delivery addresses you save, and your order, payment status and quote history.</li>
+      </ul>
+      <h3>Why we use it</h3>
+      <ul>
+        <li>To create and secure your account, and to verify your email address.</li>
+        <li>To process, deliver and support your orders, returns and refunds.</li>
+        <li>To send order updates and account messages by email or SMS.</li>
+      </ul>
+      <h3>Who we share it with</h3>
+      <p>Only service providers needed to run your orders &mdash; for example payment processing, email and SMS delivery, and couriers. We do not sell your personal information.</p>
+      <h3>How we protect it</h3>
+      <p>Passwords are stored only as secure hashes. Access to customer records is limited to authorized staff.</p>
+      <h3>How long we keep it</h3>
+      <p>We keep your information while your account is active and as long as needed for order, tax and accounting records.</p>
+      <h3>Your rights</h3>
+      <p>You may access and correct your information in My Profile, and you may ask us to stop processing, delete your information where allowed, or give you a copy. You may also complain to the National Privacy Commission if you believe your rights were violated. To make a request, contact the store using the details on the shop&rsquo;s Help page.</p>
+      <h3>Changes</h3>
+      <p>If we change this policy in a significant way we will tell you and ask you to acknowledge the new version.</p>` }
+  };
+  let legalReturnFocus = null;
+  function openLegal(kind){
+    $('legalTitle').textContent = LEGAL[kind].title; $('legalBody').innerHTML = LEGAL[kind].html; $('legalBody').scrollTop = 0;
+    legalReturnFocus = document.activeElement; $('legalOverlay').classList.add('open'); $('legalOk').focus();
+  }
+  function closeLegal(){ $('legalOverlay').classList.remove('open'); if (legalReturnFocus) legalReturnFocus.focus(); }
+  document.querySelectorAll('[data-legal]').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); openLegal(a.dataset.legal); }));
+  $('legalOk').addEventListener('click', closeLegal); $('legalX').addEventListener('click', closeLegal);
+  $('legalOverlay').addEventListener('mousedown', (e) => { if (e.target === $('legalOverlay')) closeLegal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('legalOverlay').classList.contains('open')) closeLegal(); });
+
+  paintPassword();
+})();
 </script>
 
 </body>

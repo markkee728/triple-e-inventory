@@ -118,6 +118,22 @@ function phoneError(raw) {
   if (p.startsWith('09')) return /^09\d{9}$/.test(p) ? '' : 'A 09 mobile number needs 11 digits, e.g. 0917 123 4567';
   return PHONE_MSG;
 }
+// Philippine MOBILE number (required at registration): 0917 123 4567, +63 917 123 4567, 63917... -> { value: '+63 917 123 4567' }
+const MOBILE_MSG = 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
+function phMobile(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return { error: 'Mobile number is required' };
+  if (/[^\d+\s().-]/.test(s)) return { error: 'Mobile number can only have digits, +, spaces and dashes' };
+  let p = s.replace(/[\s().-]/g, '');
+  if (p.startsWith('+63')) p = p.slice(3);
+  else if (p.startsWith('63')) p = p.slice(2);
+  else if (p.startsWith('09')) p = p.slice(1);
+  else if (!p.startsWith('9')) return { error: MOBILE_MSG };
+  if (!/^9\d{9}$/.test(p)) return { error: MOBILE_MSG };
+  return { value: '+63 ' + p.slice(0, 3) + ' ' + p.slice(3, 6) + ' ' + p.slice(6) };
+}
+// New customer accounts must confirm their email before signing in. EMAIL_VERIFICATION=off in .env turns this off (e.g. no email service on a test PC).
+const EMAIL_VERIFICATION_ON = String(process.env.EMAIL_VERIFICATION || 'on').toLowerCase() !== 'off';
 const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 function zipError(zip, region) {
   if (region === OUTSIDE_PH) return /^[A-Za-z0-9][A-Za-z0-9 -]{1,8}[A-Za-z0-9]$/.test(zip) ? '' : 'ZIP / postal code must be 3-10 letters or numbers';
@@ -668,6 +684,9 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const u = rows[0];
   if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash)))
     return res.status(401).json({ error: 'Invalid email or password' });
+  // customers must have confirmed their email (only said after the password is right). Older accounts were marked verified when this was added.
+  if (EMAIL_VERIFICATION_ON && u.role_key === 'customer' && 'email_verified_at' in u && !u.email_verified_at)
+    return res.status(403).json({ code: 'EMAIL_NOT_VERIFIED', error: 'Please verify your email address first. Check your inbox for the verification link.' });
   await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
   const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
   await audit(pool, user, 'Login', 'Successful login');
@@ -689,55 +708,110 @@ app.get('/api/auth/me', auth(), wrap(async (req, res) => {
 }));
 /* ---------- my profile (any signed-in user edits only their own row) ---------- */
 const PROFILE_SQL = `SELECT u.user_id, u.full_name, u.username, u.email, u.phone, r.label AS role_label, r.role_key,
-       to_char(u.created_at AT TIME ZONE $2, 'Mon DD, YYYY') AS joined, (u.avatar IS NOT NULL) AS has_avatar
+       to_char(u.created_at AT TIME ZONE $2, 'Mon DD, YYYY') AS joined, (u.avatar IS NOT NULL) AS has_avatar,
+       u.first_name, u.middle_name, u.last_name, u.suffix, to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate, u.gender,
+       u.company_name, u.company_position, u.company_tin, (u.email_verified_at IS NOT NULL) AS email_verified,
+       (SELECT v.new_email FROM email_verifications v WHERE v.user_id = u.user_id AND v.used_at IS NULL AND v.new_email IS NOT NULL
+           AND v.expires_at > now() ORDER BY v.created_at DESC LIMIT 1) AS pending_email
   FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1`;
-const profileJson = (u) => ({
-  name: u.full_name, username: u.username, email: u.email, phone: u.phone || '',
-  employeeId: 'TEM-' + String(u.user_id).padStart(4, '0'),
-  department: u.role_key === 'finance' ? 'Finance' : u.role_label,
-  roleLabel: u.role_label, role: u.role_key, joined: u.joined, hasAvatar: !!u.has_avatar
-});
+// accounts made before the name was split have only full_name: split it so My Profile can show the parts
+function splitFullName(full) {
+  const w = String(full || '').trim().split(/\s+/).filter(Boolean);
+  let suffix = '';
+  if (w.length > 2 && /^(jr\.?|sr\.?|ii|iii|iv|v)$/i.test(w[w.length - 1])) {
+    const s = w.pop().replace(/\.$/, '').toLowerCase();
+    suffix = { jr: 'Jr.', sr: 'Sr.', ii: 'II', iii: 'III', iv: 'IV', v: 'V' }[s];
+  }
+  return { first: w.length > 1 ? w.slice(0, -1).join(' ') : (w[0] || ''), last: w.length > 1 ? w[w.length - 1] : '', suffix };
+}
+const profileJson = (u) => {
+  const guess = u.first_name == null ? splitFullName(u.full_name) : null;
+  return {
+    name: u.full_name, username: u.username, email: u.email, phone: u.phone || '',
+    firstName: guess ? guess.first : u.first_name, middleName: u.middle_name || '', lastName: guess ? guess.last : (u.last_name || ''),
+    suffix: guess ? guess.suffix : (u.suffix || ''), birthdate: u.birthdate || '', gender: u.gender || '',
+    companyName: u.company_name || '', companyPosition: u.company_position || '', companyTin: u.company_tin || '',
+    emailVerified: !!u.email_verified, pendingEmail: u.pending_email || '',
+    employeeId: 'TEM-' + String(u.user_id).padStart(4, '0'),
+    department: u.role_key === 'finance' ? 'Finance' : u.role_label,
+    roleLabel: u.role_label, role: u.role_key, joined: u.joined, hasAvatar: !!u.has_avatar
+  };
+};
 app.get('/api/auth/profile', auth(), wrap(async (req, res) => {
+  await app.locals.accountReady;
   const { rows } = await pool.query(PROFILE_SQL, [req.user.id, TZ]);
   if (!rows[0]) return res.status(404).json({ error: 'Account not found' });
   res.json(profileJson(rows[0]));
 }));
 app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
+  await app.locals.accountReady;
+  const H = app.locals.accountHelpers;
   const b = req.body || {};
   const e = {};
-  const name = text(e, 'name', b.name, 'Full name', { min: 2, max: 100 });
-  if (name && !e.name && !/^[\p{L}][\p{L}\p{M}\s.'’-]*$/u.test(name)) e.name = 'Full name can only have letters, spaces, . \' and -';
+  const isCustomer = req.user.role === 'customer';
+  // customers send firstName / middleName / lastName / suffix; staff (and older pages) send one `name`
+  let name, parts = null;
+  if (isCustomer && (b.firstName !== undefined || b.lastName !== undefined)) { parts = H.nameParts(e, b); name = parts.full; }
+  else {
+    name = text(e, 'name', b.name, 'Full name', { min: 2, max: 100 });
+    if (name && !e.name && !/^[\p{L}][\p{L}\p{M}\s.'’-]*$/u.test(name)) e.name = 'Full name can only have letters, spaces, . \' and -';
+  }
   const email = str(b.email).toLowerCase();
   if (!email) e.email = 'Email is required';
   else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
-  const phone = text(e, 'phone', b.phone, 'Phone number', { min: 7, max: 30 });          // required
-  if (phone && !e.phone) { const m = phoneError(phone); if (m) e.phone = m; }
+  let phone;
+  if (isCustomer) phone = H.mobileField(e, b.phone);                                  // customers: Philippine mobile number
+  else {
+    phone = text(e, 'phone', b.phone, 'Phone number', { min: 7, max: 30 });          // staff: required, mobile or landline
+    if (phone && !e.phone) { const m = phoneError(phone); if (m) e.phone = m; }
+  }
+  let more = null;                                                                    // customer-only extras (birthdate, gender, company)
+  if (isCustomer && parts) more = { ...H.optionalDetails(e, b), ...H.companyDetails(e, b) };
   if (Object.keys(e).length) throw new ValidationError(e);
 
   // the email domain must really exist and accept mail (only checked when the email is being changed,
   // so an existing address never blocks a name / phone edit). Done before the transaction: it is a network lookup.
   const current = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
-  if (current && current.email !== email) await assertPersonalEmail(email);
+  const emailChanged = !!current && current.email !== email;
+  if (emailChanged) await assertPersonalEmail(email);
+  // a customer's new email only replaces the old one after they click the link sent to it
+  const needsConfirm = isCustomer && emailChanged && EMAIL_VERIFICATION_ON;
 
   const result = await tx(async (client) => {
     const taken = await client.query('SELECT 1 FROM users WHERE email = $1 AND user_id <> $2', [email, req.user.id]);
     if (taken.rowCount) throw new ValidationError({ email: 'That email is already used by another account' });
-    const before = (await client.query('SELECT full_name, email, phone FROM users WHERE user_id = $1 FOR UPDATE', [req.user.id])).rows[0];
+    const before = (await client.query("SELECT *, to_char(birthdate, 'YYYY-MM-DD') AS birthdate_s FROM users WHERE user_id = $1 FOR UPDATE", [req.user.id])).rows[0];
     if (!before) throw new ValidationError({ name: 'Account not found' });
-    await client.query('UPDATE users SET full_name = $1, email = $2, phone = $3 WHERE user_id = $4',
-      [name, email, phone || null, req.user.id]);
+    const sets = ['full_name = $1', 'phone = $2'], vals = [name, phone || null];
+    const add = (col, v) => { vals.push(v); sets.push(col + ' = $' + vals.length); };
+    if (!needsConfirm) add('email', email);
+    if (parts) { add('first_name', parts.first); add('middle_name', parts.middle || null); add('last_name', parts.last); add('suffix', parts.suffix || null); }
+    if (more) {
+      add('birthdate', more.birthdate); add('gender', more.gender);
+      add('company_name', more.companyName); add('company_position', more.companyPosition); add('company_tin', more.companyTin);
+    }
+    vals.push(req.user.id);
+    await client.query('UPDATE users SET ' + sets.join(', ') + ' WHERE user_id = $' + vals.length, vals);
     const changed = [];
     if (before.full_name !== name) changed.push('name');
-    if (before.email !== email) changed.push('email');
-    if ((before.phone || '') !== phone) changed.push('phone');
+    if (emailChanged) changed.push(needsConfirm ? 'email (awaiting verification)' : 'email');
+    if ((before.phone || '') !== (phone || '')) changed.push('phone');
+    if (more && ((before.birthdate_s || '') !== (more.birthdate || '') || (before.gender || null) !== more.gender)) changed.push('personal details');
+    if (more && ((before.company_name || null) !== more.companyName || (before.company_position || null) !== more.companyPosition || (before.company_tin || null) !== more.companyTin)) changed.push('company details');
     if (changed.length) await audit(client, { ...req.user, name }, 'Profile updated', 'Changed ' + changed.join(', '));
     return (await client.query(PROFILE_SQL, [req.user.id, TZ])).rows[0];
   });
+  let message = '';
+  if (needsConfirm) {
+    const sent = await app.locals.startEmailVerification(req, { userId: req.user.id, name: (parts && parts.first) || name, to: email, change: true });
+    message = sent.sent ? 'We sent a confirmation link to ' + email + '. Your email changes once you click it.'
+      : 'Your other details were saved, but the confirmation email could not be sent (' + sent.reason + '). Try again later.';
+  }
   // the session cookie carries the display name, so refresh it
   const user = { id: req.user.id, name: result.full_name, role: req.user.role, roleLabel: req.user.roleLabel };
   res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
     httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
-  res.json(profileJson(result));
+  res.json({ ...profileJson(result), message });
 }));
 // change password: any signed-in user, must prove the current password first
 app.put('/api/auth/password', auth(), wrap(async (req, res) => {
@@ -1174,7 +1248,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 }));
 
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
-require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, assertEmailDomain: assertPersonalEmail, TZ });
+require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, TZ });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
