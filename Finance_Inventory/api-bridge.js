@@ -173,7 +173,7 @@
     movementCache = movements;
     safe(renderMovementLog);
     safe(renderReports);
-    replace(userAccountsData, users);
+    replace(userAccountsData, users.filter((u) => u.roleKey !== 'customer'));   // User Management lists staff only; customers live under Customer Profiles
     replace(auditLogData, audit);
 
     const low = inventory.filter((i) => getStockStatus(i) === 'low');

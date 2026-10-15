@@ -4277,19 +4277,22 @@ function renderAccountsTable() {
 
     if (count) {
         count.textContent =
-            `${userAccountsData.length} account${
-                userAccountsData.length === 1 ? "" : "s"
+            `${userAccountsData.filter(u => u.roleKey !== "customer").length} account${
+                userAccountsData.filter(u => u.roleKey !== "customer").length === 1 ? "" : "s"
             }`;
     }
 
     const roleSel = document.getElementById("accountRoleFilter");
     const roleWanted = roleSel ? roleSel.value : "all";
+    // User Management is for staff only (Finance-Admin and Cashier); customers are managed under Customer Profiles
+    const staffCount = userAccountsData.filter(u => u.roleKey !== "customer").length;
     const visible = userAccountsData
         .map((user, index) => ({ user, index }))
+        .filter(x => x.user.roleKey !== "customer")
         .filter(x => roleWanted === "all" || x.user.roleKey === roleWanted);
 
     if (count && roleWanted !== "all") {
-        count.textContent = `${visible.length} of ${userAccountsData.length} accounts`;
+        count.textContent = `${visible.length} of ${staffCount} accounts`;
     }
 
     if (visible.length === 0) {
@@ -4318,8 +4321,8 @@ function renderAccountsTable() {
                     </div>
                 </td>
 
-                <td class="mono">
-                    ${escapeHTML(user.username)}
+                <td class="dim">
+                    ${escapeHTML(user.email || "")}
                 </td>
 
                 <td>
