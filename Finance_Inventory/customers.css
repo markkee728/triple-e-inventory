@@ -1,0 +1,213 @@
+/* customers.css — Customer Profiles page (table + details window), Finance_Inventory.html
+   Uses the system's own table, avatar (.user-row-*), status pill and button styles, so it matches
+   User Management. Every colour comes from the theme variables, so light and dark both work. */
+
+/* breathing room between the page description and the panel */
+#customers .customer-directory { margin-top: 20px; }
+
+/* ---------- toolbar ---------- */
+#customers .customer-toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin: 0 0 14px;
+    padding: 0;
+}
+#customers .customer-search-label {      /* the placeholder already says it; keep the label for screen readers */
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+#customers .customer-toolbar .inv-search { flex: 1 1 260px; max-width: 460px; }
+#customers .customer-toolbar .inv-select { flex: none; min-width: 150px; }
+
+/* ---------- table ---------- */
+#customers .customer-table-scroll { overflow-x: auto; }
+#customers .customer-click-row { cursor: pointer; transition: background .15s; }
+#customers .customer-click-row:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
+#customers .customer-empty { text-align: center; padding: 28px 10px; color: var(--text-dim); }
+#customers .customer-table-foot {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 14px 4px 0;
+    font-size: 13.5px;
+    color: var(--text-faint);
+}
+
+/* ---------- details window ---------- */
+#customers .customer-modal[hidden] { display: none !important; }
+#customers .customer-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+}
+#customers .customer-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(3, 9, 15, 0.66);
+    backdrop-filter: blur(3px);
+}
+html[data-theme="light"] #customers .customer-modal-backdrop { background: rgba(20, 35, 50, 0.45); }
+
+#customers .customer-modal-card {
+    position: relative;
+    width: min(760px, 100%);
+    max-height: min(90vh, 900px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    background: var(--panel);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+html[data-theme="light"] #customers .customer-modal-card { box-shadow: 0 24px 70px rgba(20, 45, 70, 0.28); }
+
+/* header stays in view while the details scroll, so the close button is always reachable */
+#customers .customer-modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+}
+#customers .customer-modal-head h2 {
+    margin: 4px 0 0;
+    font-family: "Oswald", sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    color: var(--text);
+}
+#customers .customer-modal-close {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 26px;
+    line-height: 1;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+}
+#customers .customer-modal-close:hover,
+#customers .customer-modal-close:focus-visible {
+    color: var(--text);
+    border-color: var(--blue-bright);
+    background: color-mix(in srgb, var(--blue-bright) 12%, transparent);
+    outline: none;
+}
+#customers .customer-modal-content { padding: 22px 24px 26px; }
+#customers .customer-loading { color: var(--text-dim); }
+#customers .customer-profile-error { color: var(--red); }
+
+/* person banner */
+#customers .customer-profile-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--text) 4%, var(--panel));
+}
+#customers .customer-profile-banner > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+#customers .customer-profile-banner > div strong { font-size: 19px; font-weight: 600; color: var(--text); line-height: 1.25; }
+#customers .customer-profile-banner > div span { font-size: 14.5px; color: var(--text-dim); }
+
+/* round avatar with optional photo (same pattern as .user-row-avatar) */
+#customers .customer-avatar-large {
+    position: relative;
+    flex: none;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #16283b;
+    border: 1px solid rgba(74, 144, 217, 0.35);
+    color: var(--blue-bright);
+    font-family: "Oswald", sans-serif;
+    font-weight: 600;
+    font-size: 24px;
+}
+html[data-theme="light"] #customers .customer-avatar-large { background: #dbe6f0; color: var(--blue); }
+
+/* sections + fields */
+#customers .customer-profile-section { margin-top: 26px; }
+#customers .customer-profile-section h3 {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 0 12px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px;
+    font-weight: 500;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+#customers .customer-profile-section h3::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+#customers .customer-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#customers .customer-profile-field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-height: 66px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--text) 3%, var(--panel));
+    overflow-wrap: anywhere;
+}
+#customers .customer-profile-field span { font-size: 12.5px; color: var(--text-dim); }
+#customers .customer-profile-field strong { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.4; }
+#customers .customer-profile-field.is-empty strong { font-weight: 400; color: var(--text-faint); }
+
+#customers .customer-modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 24px;
+    border-top: 1px solid var(--border);
+    font-size: 13.5px;
+    color: var(--text-faint);
+    background: var(--panel);
+}
+
+@media (max-width: 560px) {
+    #customers .customer-modal { padding: 10px; }
+    #customers .customer-modal-card { max-height: 94vh; border-radius: 12px; }
+    #customers .customer-modal-head,
+    #customers .customer-modal-content,
+    #customers .customer-modal-footer { padding-left: 16px; padding-right: 16px; }
+    #customers .customer-profile-grid { grid-template-columns: 1fr; }
+}
