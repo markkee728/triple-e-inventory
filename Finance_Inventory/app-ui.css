@@ -488,3 +488,12 @@ html[data-theme="light"] .acct-close{background:rgba(15,40,60,.054)}
 /* icons as CSS masks (no emoji / text symbols): .tick puts a check icon before a status line */
 :root{--ic-check:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");--ic-alert:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v4M12 16h.01'/%3E%3C/svg%3E")}
 .tick::before{content:"";display:inline-block;width:1em;height:1em;margin-right:.4em;vertical-align:-.15em;background:currentColor;-webkit-mask:var(--ic-check) center/contain no-repeat;mask:var(--ic-check) center/contain no-repeat}
+
+/* dark-native-controls: in dark mode the browser draws its own pieces (date picker icon, dropdown lists, scrollbars) in dark colours too,
+   otherwise the calendar icon is black on a dark field. Light mode already sets color-scheme: light. */
+html:not([data-theme="light"]){color-scheme:dark}
+html:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator,
+html:not([data-theme="light"]) input[type="month"]::-webkit-calendar-picker-indicator,
+html:not([data-theme="light"]) input[type="time"]::-webkit-calendar-picker-indicator,
+html:not([data-theme="light"]) input[type="datetime-local"]::-webkit-calendar-picker-indicator{filter:invert(1) brightness(.9);opacity:.85;cursor:pointer}
+html:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:1}
