@@ -11,6 +11,7 @@
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
+  function zipHint(text, ok){ const h = $('aeZipHint'); if (!h) return; h.textContent = text; h.classList.toggle('tick', !!ok); }
   const clean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
   const MAX_SAVED = 5;
   const F = ['recipient', 'phone', 'region', 'province', 'city', 'barangay', 'zip', 'line', 'landmark'];
@@ -110,7 +111,7 @@
     $('ae_barangay').addEventListener('change', onBarangay);
     $('ae_zip').addEventListener('input', () => {
       const z = $('ae_zip'); const d = z.value.replace(/\D/g, '').slice(0, 4); if (d !== z.value) z.value = d;
-      zipState = { ok: null, key: '' }; setErr('zip', ''); $('aeZipHint').textContent = ''; markChips();
+      zipState = { ok: null, key: '' }; setErr('zip', ''); zipHint(''); markChips();
       if (d.length === 4) checkZip();
     });
     $('ae_phone').addEventListener('input', () => { const p = $('ae_phone'); const d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
@@ -139,7 +140,7 @@
     if (from <= 1) { cities = []; setList('ae_cityList', []); setBox('ae_city', { disabled: true, placeholder: 'Choose a province first' }); }
     if (from <= 2) { barangays = []; setList('ae_bgyList', []); setBox('ae_barangay', { disabled: true, placeholder: 'Choose a city first' }); }
     zipState = { ok: null, key: '' }; tokens.zip++;
-    setBox('ae_zip', { disabled: true, placeholder: '4 digits' }); $('aeZipChips').innerHTML = ''; $('aeZipHint').textContent = 'Filled in for you once you choose the barangay.'; setErr('zip', '');
+    setBox('ae_zip', { disabled: true, placeholder: '4 digits' }); $('aeZipChips').innerHTML = ''; zipHint('Filled in for you once you choose the barangay.'); setErr('zip', '');
   }
 
   async function onRegion() {
@@ -203,7 +204,7 @@
       const zips = r.zips || [], z = $('ae_zip');
       $('aeZipChips').innerHTML = zips.length > 1 ? zips.map((x) => `<button type="button" class="zip-chip" data-zip="${cfg.esc(x)}">${cfg.esc(x)}</button>`).join('') : '';
       if (zips.length === 1 && !z.value) { z.value = zips[0]; checkZip(); }
-      else if (zips.length > 1) { $('aeZipHint').textContent = z.value ? '' : 'This city has several ZIP codes — tap yours.'; if (z.value.length === 4) checkZip(); }
+      else if (zips.length > 1) { zipHint(z.value ? '' : 'This city has several ZIP codes — tap yours.'); if (z.value.length === 4) checkZip(); }
       else if (z.value.length === 4) checkZip();
       markChips();
     } catch (e) { /* suggestions are optional */ }
@@ -213,14 +214,14 @@
     const zip = val('ae_zip'), city = val('ae_city'), province = val('ae_province'), region = val('ae_region'), barangay = val('ae_barangay');
     if (!/^\d{4}$/.test(zip) || !city || !province) return;
     const key = [zip, city, province, barangay].join('|'), t = ++tokens.zip;
-    $('aeZipHint').textContent = 'Checking ZIP code…';
+    zipHint('Checking ZIP code…');
     try {
       const r = await geo(`/api/geo/check-zip?zip=${encodeURIComponent(zip)}&city=${encodeURIComponent(city)}&province=${encodeURIComponent(province)}&region=${encodeURIComponent(region)}&barangay=${encodeURIComponent(barangay)}`);
       if (t !== tokens.zip) return;
-      if (r.ok) { zipState = { ok: true, key }; setErr('zip', ''); $('aeZipHint').textContent = '✓ ZIP code matches your city.'; }
-      else if (r.unknown) { zipState = { ok: null, key }; $('aeZipHint').textContent = ''; }          // could not check: the server decides on submit
-      else { zipState = { ok: false, key }; setErr('zip', r.message || 'ZIP code does not match this city'); $('aeZipHint').textContent = ''; }
-    } catch (e) { if (t === tokens.zip) $('aeZipHint').textContent = ''; }
+      if (r.ok) { zipState = { ok: true, key }; setErr('zip', ''); zipHint('ZIP code matches your city.', true); }
+      else if (r.unknown) { zipState = { ok: null, key }; zipHint(''); }          // could not check: the server decides on submit
+      else { zipState = { ok: false, key }; setErr('zip', r.message || 'ZIP code does not match this city'); zipHint(''); }
+    } catch (e) { if (t === tokens.zip) zipHint(''); }
     markChips();
   }
 

@@ -1,7 +1,8 @@
 /* Phone (SMS) verification for customer accounts.
 
    A customer must verify BOTH the email (link) and the mobile number (6-digit code) before they can sign in.
-   The code is texted through sms.js (TextBee). Without TextBee set up in .env, the code is printed in the
+   The steps go in order: 1) the email link, 2) the mobile code. The code is only texted once the email is verified.
+   It is texted through sms.js (TextBee). Without TextBee set up in .env, the code is printed in the
    server console instead, so it can still be tested on a developer computer.
 
    The visitor is not signed in yet, so these routes are opened with a short-lived "pending token"
@@ -23,7 +24,7 @@ const MAX_SENDS_PER_HOUR = 5;
 const MAX_WRONG_TRIES = 5;
 const PENDING_TTL = '30m';
 
-module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationOn }) {
+module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationOn, emailVerificationOn }) {
   const pendingKey = () => String(process.env.JWT_SECRET) + ':pending-verification';
   const hmac = (userId, code) => crypto.createHmac('sha256', pendingKey()).update(userId + ':' + code).digest('hex');
   const same = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); };
@@ -74,7 +75,8 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
      Returns { ok, sent, waitSeconds?, message? }. Any older unused code stops working. */
   async function sendOtp(userId) {
     await ready;
-    const u = (await pool.query('SELECT user_id, phone, phone_verified_at FROM users WHERE user_id = $1', [userId])).rows[0];
+    const u = (await pool.query('SELECT user_id, phone, phone_verified_at, email_verified_at FROM users WHERE user_id = $1', [userId])).rows[0];
+    if (u && emailVerificationOn && !u.email_verified_at) return { ok: false, message: 'Verify your email first. The code for your mobile number is sent right after.' };   // step 1 before step 2
     if (!u || !u.phone) return { ok: false, message: 'There is no mobile number on this account.' };
     if (u.phone_verified_at) return { ok: true, sent: false, alreadyVerified: true };
 

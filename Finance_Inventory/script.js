@@ -4970,7 +4970,7 @@ const auditLogData = [
         user: "Lourdes L. Alanunay",
         role: "Finance-Admin",
         action: "Record edited",
-        detail: "Product updated — Machined Drive Shaft 88mm, reorder level changed 450 → 500"
+        detail: "Product updated — Machined Drive Shaft 88mm, reorder level changed 450 to 500"
     },
 
     {

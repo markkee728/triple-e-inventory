@@ -697,6 +697,7 @@
     const el = $('newSupplierEmailStatus');
     if (!el) return;
     el.textContent = text;
+    el.classList.toggle('tick', !!color);
     el.style.color = color || '';
   }
   const EMAIL_HINT = 'Domain is checked automatically';
@@ -709,12 +710,12 @@
     if (!value) return setEmailStatus(EMAIL_HINT);
     if (!EMAIL_FORMAT.test(value) || emailUnchanged()) return setEmailStatus(EMAIL_HINT);
     const known = emailResults.get(value.toLowerCase());
-    if (known) { setEmailStatus(known.ok ? '✓ Email domain is valid' : EMAIL_HINT, known.ok ? '#5fbf8a' : ''); validateField('newSupplierEmail', false); return; }
+    if (known) { setEmailStatus(known.ok ? 'Email domain is valid' : EMAIL_HINT, known.ok ? '#5fbf8a' : ''); validateField('newSupplierEmail', false); return; }
     setEmailStatus('Checking email domain…');
     emailTimer = setTimeout(async () => {
       const r = await checkEmail(value);
       if (clean(el.value) !== value) return;            // the box changed while we were checking
-      setEmailStatus(r.ok ? (r.unverified ? 'Email format is OK (domain could not be checked right now)' : '✓ Email domain is valid') : EMAIL_HINT, r.ok && !r.unverified ? '#5fbf8a' : '');
+      setEmailStatus(r.ok ? (r.unverified ? 'Email format is OK (domain could not be checked right now)' : 'Email domain is valid') : EMAIL_HINT, r.ok && !r.unverified ? '#5fbf8a' : '');
       validateField('newSupplierEmail', true);
     }, 600);
   }
@@ -861,7 +862,7 @@
   }
   function setZipStatus(text, color) {
     const el = $('newSupplierZipStatus'); if (!el) return;
-    el.textContent = text; el.style.color = color || '';
+    el.textContent = text; el.classList.toggle('tick', !!color); el.style.color = color || '';
   }
 
   async function ensureRegions() {
@@ -986,7 +987,7 @@
       const r = await checkZipMatch();
       if (zipKey() !== key) return;                      // the boxes changed while we were checking
       GEO.zip = Object.assign({ key }, r);
-      setZipStatus(r.ok ? '✓ ZIP code matches ' + clean($('newSupplierCity').value) : 'Checked against ' + clean($('newSupplierCity').value), r.ok ? '#5fbf8a' : '');
+      setZipStatus(r.ok ? 'ZIP code matches ' + clean($('newSupplierCity').value) : 'Checked against ' + clean($('newSupplierCity').value), r.ok ? '#5fbf8a' : '');
       validateField('newSupplierZip', true);
     }, delay == null ? 450 : delay);
   }
@@ -1142,7 +1143,7 @@
         const z = await checkZipMatch();
         if (z.unknown) setZipStatus('Could not check the ZIP code right now — the server will check it');
         else if (!z.ok) { errs.newSupplierZip = z.message; setZipStatus('Checked against ' + city); }
-        else setZipStatus('✓ ZIP code matches ' + city, '#5fbf8a');
+        else setZipStatus('ZIP code matches ' + city, '#5fbf8a');
       }
       const productSkus = [].map.call($('newSupplierProducts').querySelectorAll('.prod-check:checked'), (c) => c.value);
       if (!productSkus.length) errs.newSupplierProducts = 'Tick at least one product this supplier provides';
@@ -1152,7 +1153,7 @@
         const r = await checkEmail(email);
         if (!r.ok) { emailResults.delete(email); errs.newSupplierEmail = r.message; setEmailStatus(EMAIL_HINT); }
         else if (r.unverified) setEmailStatus('Email format is OK (domain could not be checked right now)');
-        else setEmailStatus('✓ Email domain is valid', '#5fbf8a');
+        else setEmailStatus('Email domain is valid', '#5fbf8a');
       }
       if (Object.keys(errs).length) return showErrors(form, banner, errs);
 
@@ -2516,7 +2517,7 @@
       paint(true);
     }
 
-    // small status line under the email box: "Checking…" / "✓ domain is valid"
+    // small status line under the email box: "Checking…" / "domain is valid"
     function showEmailStatus(text, color) {
       const grp = fEmail.closest('.form-group');
       let n = grp.querySelector('.profile-email-status');
@@ -2524,7 +2525,7 @@
         const c = emailTaken && emailTaken.email === values().email ? emailTaken : null;
         if (!c || c.taken || c.domainMsg) text = '';
         else if (c.unverified) text = 'Email format is OK (domain could not be checked right now)';
-        else text = '✓ Email domain is valid';
+        else text = 'Email domain is valid';
         color = c && !c.unverified ? '#5fbf8a' : '';
       }
       if (!text) { if (n) n.remove(); return; }

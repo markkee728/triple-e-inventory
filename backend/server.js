@@ -1117,7 +1117,7 @@ app.put('/api/suppliers/:code', auth('finance'), wrap(async (req, res) => {
       [req.params.code, s.name, s.location, s.contact, s.status || null, s.contactPerson, s.phone, s.email, s.address, s.city, s.province, s.region, s.zip, s.barangay || null]);
     if (!r.rowCount) return false;
     if (s.productSkus) await setSupplierProducts(client, r.rows[0].supplier_id, s.productSkus);
-    await audit(client, req.user, 'Record edited', `Supplier ${req.params.code}${s.status ? ' → ' + s.status : ''}`);
+    await audit(client, req.user, 'Record edited', `Supplier ${req.params.code}${s.status ? ' to ' + s.status : ''}`);
     return true;
   });
   if (!found) return res.status(404).json({ error: 'Supplier not found' });
@@ -1129,7 +1129,7 @@ app.patch('/api/suppliers/:code/status', auth('finance'), wrap(async (req, res) 
   if (!['active', 'archived'].includes(status)) return res.status(400).json({ error: 'Invalid status' });
   const r = await pool.query('UPDATE suppliers SET status = $2 WHERE code = $1', [req.params.code, status]);
   if (!r.rowCount) return res.status(404).json({ error: 'Supplier not found' });
-  await audit(pool, req.user, 'Record edited', `Supplier ${req.params.code} → ${status}`);
+  await audit(pool, req.user, 'Record edited', `Supplier ${req.params.code} to ${status}`);
   res.json({ ok: true });
 }));
 
@@ -1234,9 +1234,9 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
     throw err;
   }
   const changes = [];
-  if (name !== t.full_name) changes.push(`name ${t.full_name} → ${name}`);
-  if (email !== t.email) changes.push(`email ${t.email} → ${email}`);
-  if (roleKey !== t.role_key) changes.push(`role ${t.label} → ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
+  if (name !== t.full_name) changes.push(`name ${t.full_name} to ${name}`);
+  if (email !== t.email) changes.push(`email ${t.email} to ${email}`);
+  if (roleKey !== t.role_key) changes.push(`role ${t.label} to ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
   if (changes.length) await audit(pool, req.user, 'Record edited', `Account updated — ${t.full_name}: ${changes.join(', ')}`);
   res.json({ ok: true });
 }));
@@ -1263,7 +1263,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
-require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON });
+require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON, emailVerificationOn: EMAIL_VERIFICATION_ON });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });

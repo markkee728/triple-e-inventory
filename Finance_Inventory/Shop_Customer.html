@@ -115,7 +115,7 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== CART ===== -->
     <section class="page" id="cart">
-      <div class="page-head"><div><h1>Your cart</h1><p id="cartSub">Review your items before checkout.</p></div><button class="btn-ghost" data-view="catalog">← Continue shopping</button></div>
+      <div class="page-head"><div><h1>Your cart</h1><p id="cartSub">Review your items before checkout.</p></div><button class="btn-ghost" data-view="catalog"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Continue shopping</button></div>
       <div class="flow"><span class="f on"><span class="n">1</span>Cart</span><span class="bar"></span><span class="f"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
       <div class="cart-layout">
         <div class="card" id="cartCard"><div id="cartRows"></div></div>
@@ -132,8 +132,8 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== CHECKOUT ===== -->
     <section class="page" id="checkout">
-      <div class="page-head"><div><h1>Checkout</h1><p>Tell us how you want to receive your order.</p></div><button class="btn-ghost" data-view="cart">← Back to cart</button></div>
-      <div class="flow"><span class="f done"><span class="n">✓</span>Cart</span><span class="bar"></span><span class="f on"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
+      <div class="page-head"><div><h1>Checkout</h1><p>Tell us how you want to receive your order.</p></div><button class="btn-ghost" data-view="cart"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to cart</button></div>
+      <div class="flow"><span class="f done"><span class="n"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg></span>Cart</span><span class="bar"></span><span class="f on"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
       <div class="checkout-layout">
         <div class="card" style="padding:20px">
           <div class="sec-title">Fulfilment</div>
@@ -378,6 +378,8 @@ let DELIVERY_FEE = 150;
 const ONLINE = ['Xendit'];
 const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 const $ = id => document.getElementById(id);
+const IC_CHECK = '<svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg>';
+const IC_STAR = '<svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true" style="vertical-align:-.15em"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9z"/></svg>';
 const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 let PRODUCTS = [], cart = [], orders = [], cat = '', fulfil = 'Delivery', pay = 'Xendit', view = 'catalog', cancelId = null, refundId = null;
@@ -519,7 +521,7 @@ function renderCatalog() {
       <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
       <div class="unit-line">${soldPer(p)}</div>
       ${ratingLine(p.rating, p.reviewCount, false)}
-      <div class="buy"><button class="btn-secondary" type="button" data-details="${esc(p.sku)}">View details</button>${out ? (p.notifyMe ? `<button class="btn-secondary" type="button" data-unnotify="${esc(p.sku)}" title="Cancel the back-in-stock email">Alert on ✓</button>` : `<button class="btn-primary" type="button" data-notify="${esc(p.sku)}">Notify me</button>`) : `<button class="btn-primary" data-add="${esc(p.sku)}">Add to cart${minQty(p) > 1 ? ' · ' + minQty(p) : ''}</button>`}</div>
+      <div class="buy"><button class="btn-secondary" type="button" data-details="${esc(p.sku)}">View details</button>${out ? (p.notifyMe ? `<button class="btn-secondary" type="button" data-unnotify="${esc(p.sku)}" title="Cancel the back-in-stock email">Alert on <svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg></button>` : `<button class="btn-primary" type="button" data-notify="${esc(p.sku)}">Notify me</button>`) : `<button class="btn-primary" data-add="${esc(p.sku)}">Add to cart${minQty(p) > 1 ? ' · ' + minQty(p) : ''}</button>`}</div>
       <div class="in-cart-note">${n ? n + ' in your cart' : ''}</div>
     </div></article>`; }).join('')
     || '<div class="card empty-card" style="grid-column:1/-1"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>No products match</h3><p>Try a different search or clear the filters.</p></div>';
@@ -587,7 +589,7 @@ async function checkPay() {
 async function showPaid() {
   try { orders = await loadOrders(); } catch (e) {}
   const o = orders.find(x => x.id === payOrderId); if (!o) return;
-  $('payTitle').textContent = 'Payment successful ✓'; $('payFor').textContent = 'Order ' + o.id + ' is confirmed. Thank you!';
+  $('payTitle').innerHTML = 'Payment successful ' + IC_CHECK; $('payFor').textContent = 'Order ' + o.id + ' is confirmed. Thank you!';
   $('payWait').hidden = true; $('payDone').hidden = false;
   $('payDone').innerHTML = '<div class="card" style="text-align:left;padding:14px;margin:12px 0">'
     + o.items.map(it => `<div class="row"><span>${esc(it.qty)} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')
@@ -832,13 +834,13 @@ $('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetail
 let MY_REVIEWS = new Map();           // sku -> { rating, status } for the products this customer already reviewed
 async function loadMyReviews() { try { MY_REVIEWS = new Map((await api('/api/shop/my-reviews')).map(r => [r.sku, r])); } catch (e) { /* keep what we have */ } }
 function reviewBtn(it) {
-  return MY_REVIEWS.has(it.sku) ? ' <span class="rev-done">★ Reviewed</span>' : ` <button type="button" class="link-btn" data-review="${esc(it.sku)}">★ Rate this</button>`;
+  return MY_REVIEWS.has(it.sku) ? ' <span class="rev-done">${IC_STAR} Reviewed</span>' : ` <button type="button" class="link-btn" data-review="${esc(it.sku)}">${IC_STAR} Rate this</button>`;
 }
 function reviewsPanel(p, rv) {
   if (!rv) return '<div class="pd-empty">Reviews could not be loaded right now.</div>';
   const s = rv.summary, max = Math.max(1, ...Object.values(s.distribution));
   const head = s.count ? `<div class="rev-sum"><div class="rev-big">${Number(s.average).toFixed(1)}</div><div>${starsHtml(s.average)}<div class="dim">${s.count} review${s.count === 1 ? '' : 's'}</div></div>
-      <div class="rev-bars">${[5, 4, 3, 2, 1].map(n => `<div><span>${n}★</span><i><b style="width:${s.distribution[n] / max * 100}%"></b></i><span>${s.distribution[n]}</span></div>`).join('')}</div></div>` : '';
+      <div class="rev-bars">${[5, 4, 3, 2, 1].map(n => `<div><span>${n}${IC_STAR}</span><i><b style="width:${s.distribution[n] / max * 100}%"></b></i><span>${s.distribution[n]}</span></div>`).join('')}</div></div>` : '';
   const action = rv.canReview ? `<button type="button" class="btn-primary btn-sm" data-review="${esc(p.sku)}">Write a review</button>`
     : rv.reviewed ? `<span class="dim">You have reviewed this product${rv.myReviewHidden ? ' (our team has hidden your review)' : ''}. Thank you!</span>`
     : '<span class="dim">Only customers who received this product (order Delivered or Picked Up) can review it.</span>';
@@ -847,7 +849,7 @@ function reviewsPanel(p, rv) {
   return head + `<div class="rev-action">${action}</div>` + list;
 }
 let reviewSku = null, reviewStars = 0;
-function paintStars() { $('starPick').innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" role="radio" aria-checked="${n === reviewStars}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= reviewStars ? 'on' : ''}" data-rstar="${n}">★</button>`).join(''); }
+function paintStars() { $('starPick').innerHTML = [1, 2, 3, 4, 5].map(n => `<button type="button" role="radio" aria-checked="${n === reviewStars}" aria-label="${n} star${n > 1 ? 's' : ''}" class="${n <= reviewStars ? 'on' : ''}" data-rstar="${n}">${IC_STAR}</button>`).join(''); }
 function openReview(sku) {
   const p = prod(sku); if (!p) return; reviewSku = sku; reviewStars = 0; paintStars();
   $('reviewFor').textContent = p.name; $('reviewBody').value = ''; $('reviewErr').textContent = ''; $('reviewBg').classList.add('show');

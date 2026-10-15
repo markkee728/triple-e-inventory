@@ -90,7 +90,7 @@
       const rq = s.returnPending && RETURNS[s.receiptNo];
       const itemsHtml = s.items.map(i => esc(i.qty + ' × ' + i.name) + (i.returnedQty ? ' <span class="faint">(' + esc(i.returnedQty) + ' returned)</span>' : '')).join('<br>');
       return '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + esc(s.cashierName) + '</td><td>' + itemsHtml + '</td><td>' + peso(s.total) +
-        (s.refunded ? small('Returned −' + peso(s.refunded) + ' → net ' + peso(s.total - s.refunded)) : '') + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' +
+        (s.refunded ? small('Returned −' + peso(s.refunded) + ', net ' + peso(s.total - s.refunded)) : '') + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' +
         (rq ? pill('Return Pending') : pill(s.status)) +
         (VOIDS[s.receiptNo] ? small('Cashier\'s reason: ' + esc(VOIDS[s.receiptNo].reason)) : '') +
         (rq ? small('<b>' + esc(rq.returnNo) + '</b>: ' + rq.items.map(i => esc(i.qty + ' ' + i.unit + ' ' + i.name)).join(', ') + '<br>Refund ' + peso(rq.amount) + (rq.refundMethod === 'Cash' ? ' (cash from ' + esc(rq.requestedBy || 'cashier') + '\'s drawer)' : ' (to the original payment method)') + '<br>Reason: ' + esc(rq.reason)) : '') + '</td><td>' +

@@ -331,6 +331,7 @@
     if (!text) { if (n) n.remove(); return; }
     if (!n) { n = document.createElement('div'); n.className = 'acct-hint acct-email-status'; grp.appendChild(n); }
     n.textContent = text;
+    n.classList.toggle('tick', !!ok);
     n.style.color = ok ? 'var(--green)' : '';
   }
 
@@ -347,7 +348,7 @@
         paintForm(true);
         if (emailInfo.taken || emailInfo.domainMsg) emailStatus('');
         else if (emailInfo.unverified) emailStatus('Email format is OK (domain could not be checked right now)');
-        else emailStatus('✓ Email domain is valid', true);
+        else emailStatus('Email domain is valid', true);
       } catch (err) { /* the server checks again on save */ }
     }, 600);
   }
@@ -361,7 +362,8 @@
       $('acctBirth').max = new Date().toISOString().slice(0, 10);
       var note = $('acctEmailNote');
       note.textContent = p.pendingEmail ? 'Waiting for you to confirm ' + p.pendingEmail + ' — check that inbox. Your current email still works.'
-        : (p.emailVerified ? '✓ Verified' : 'Not verified yet');
+        : (p.emailVerified ? 'Verified' : 'Not verified yet');
+      note.classList.toggle('tick', !p.pendingEmail && !!p.emailVerified);
       note.style.color = !p.pendingEmail && p.emailVerified ? 'var(--green)' : '';
     } else $('acctName').value = p.name || '';
     $('acctEmail').value = p.email || '';

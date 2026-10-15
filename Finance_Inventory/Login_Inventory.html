@@ -854,7 +854,7 @@
           <span class="eyebrow">Account Verification</span>
         </div>
         <h1 style="margin-top:10px">Verify your account</h1>
-        <p class="sub" id="vSub">Confirm your email and mobile number. Both are needed before you can sign in.</p>
+        <p class="sub" id="vSub">Two quick steps: confirm your email, then your mobile number. You can sign in once both are done.</p>
         <p class="form-error" id="ceMsg" role="status"></p>
 
         <div class="vstep" id="vsEmail">
@@ -864,7 +864,9 @@
         </div>
 
         <div class="vstep" id="vsPhone">
-          <div class="vhead"><b>2. Mobile number</b><span class="vbadge" id="vsPhoneBadge">Pending</span></div>
+          <div class="vhead"><b>2. Mobile number</b><span class="vbadge" id="vsPhoneBadge">Locked</span></div>
+          <p class="hint" id="cpLocked">This step opens after you verify your email.</p>
+          <div id="cpBody" hidden>
           <p class="hint">We texted a 6-digit code to <b id="cpPhone">your phone</b>.</p>
           <div class="otp-row" id="otpRow">
             <input class="otp-digit" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
@@ -880,10 +882,11 @@
             <button type="button" class="link-btn" id="cpResend">Resend code</button>
           </div>
           <button type="button" class="submit" id="cpVerify">Verify code</button>
+          </div>
         </div>
 
         <div class="center-actions">
-          <button type="button" class="submit" id="ceToLogin">Go to sign in</button>
+          <button type="button" class="submit" id="ceToLogin" hidden>Sign in</button>
         </div>
       </div>
 
@@ -1007,7 +1010,7 @@
       }
       if (r.status === 403 && r.data.code === 'VERIFICATION_REQUIRED'){
         $('password').value = '';
-        openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified, message: r.data.error, codeSent: false });
+        openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified, message: r.data.error });
         return;
       }
       else if (r.status === 401 || r.status === 400){
@@ -1238,7 +1241,7 @@
       if (mode === 'customer' && r.data.verificationRequired){
         resetSignup();
         openVerifyScreen({ email, token: r.data.pendingToken, emailVerified: !r.data.emailRequired, phoneVerified: !r.data.phoneRequired,
-                           message: r.data.message, codeSent: true });
+                           message: r.data.message, fresh: true });
         return;
       }
       resetSignup();
@@ -1300,20 +1303,35 @@
   });
 
   function showVerifyMsg(text){ const m = $('ceMsg'); m.classList.toggle('show', !!text); m.textContent = text || ''; }
-  // update the two cards from the server's status; stop checking once everything is verified
+  const IC_CHECK = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><path d="M20 6 9 17l-5-5"/></svg> ';
+  const IC_LOCK = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-1px"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg> ';
+  let otpRequested = false, lastStatus = null;
+  // The two cards go in order: 1) email link  2) mobile code (locked until the email is verified).  "Sign in" only shows when both are done.
   function paintStatus(s){
+    lastStatus = s;
     const emailDone = !!s.emailVerified, phoneDone = !!s.phoneVerified;
-    $('vsEmail').hidden = !needEmail && emailDone; $('vsPhone').hidden = !needPhone && phoneDone;
-    $('vsEmail').classList.toggle('done', emailDone); $('vsEmailBadge').textContent = emailDone ? 'Verified' : 'Pending';
-    $('vsPhone').classList.toggle('done', phoneDone); $('vsPhoneBadge').textContent = phoneDone ? 'Verified' : 'Pending';
-    $('ceResend').hidden = emailDone; $('otpRow').hidden = phoneDone; $('cpVerify').hidden = phoneDone;
-    $('cpResend').hidden = phoneDone; document.querySelector('#vsPhone .otp-meta').hidden = phoneDone;
+    $('vsEmail').classList.toggle('done', emailDone);
+    $('vsEmailBadge').innerHTML = emailDone ? IC_CHECK + 'Verified' : 'Pending';
+    $('ceEmail').parentNode.hidden = emailDone;                               // the "we sent a link" text goes away once verified
+    $('ceResend').hidden = emailDone;
+
+    const unlocked = emailDone && !phoneDone;
+    $('vsPhone').classList.toggle('done', phoneDone);
+    $('vsPhoneBadge').innerHTML = phoneDone ? IC_CHECK + 'Verified' : (emailDone ? 'Pending' : IC_LOCK + 'Locked');
+    $('vsPhone').style.opacity = emailDone ? '' : '0.55';
+    $('cpLocked').hidden = emailDone;
+    $('cpBody').hidden = !unlocked;
     if (s.phoneMasked) $('cpPhone').textContent = s.phoneMasked;
     if (s.email){ $('ceEmail').textContent = s.email; pendingEmail = s.email; }
+
     const both = emailDone && phoneDone;
-    $('vSub').textContent = both ? 'All set. Your account is verified, so you can sign in now.' : 'Confirm your email and mobile number. Both are needed before you can sign in.';
-    $('ceToLogin').textContent = both ? 'Sign in' : 'Go to sign in';
+    $('vSub').textContent = both ? 'All set. Your account is verified, so you can sign in now.'
+      : emailDone ? 'Email verified. Now confirm your mobile number with the code we text you.'
+      : 'Two quick steps: confirm your email, then your mobile number. You can sign in once both are done.';
+    $('ceToLogin').hidden = !both;
     if (both){ clearInterval(pollTimer); showVerifyMsg(''); }
+    // email just got verified: text the code now (once)
+    if (unlocked && !otpRequested){ otpRequested = true; sendOtp(); }
     return both;
   }
   async function refreshStatus(){
@@ -1324,21 +1342,16 @@
     if (r.ok) paintStatus(r.data);
   }
 
-  /* d = { email, token, emailVerified, phoneVerified, message, codeSent }.  codeSent = a text was just sent (sign-up), otherwise ask for one. */
-  async function openVerifyScreen(d){
-    pendingEmail = d.email || ''; pendingToken = d.token || '';
-    needEmail = !d.emailVerified; needPhone = !d.phoneVerified;
+  /* d = { email, token, emailVerified, phoneVerified, message, fresh }.  fresh = the verification email was just sent (sign-up). */
+  function openVerifyScreen(d){
+    pendingEmail = d.email || ''; pendingToken = d.token || ''; otpRequested = false;
+    clearInterval(otpCd); clearInterval(otpExp); $('otpTimer').textContent = '--:--';
     otpClear(); showVerifyMsg(d.message || '');
     $('ceEmail').textContent = pendingEmail || 'your email';
-    paintStatus({ emailVerified: !!d.emailVerified, phoneVerified: !!d.phoneVerified, email: pendingEmail });
     showScreen('checkEmailScreen');
-    clearInterval(pollTimer); pollTimer = setInterval(refreshStatus, 5000); refreshStatus();   // picks up the email link being opened in another tab
-    if (!d.emailVerified) startResendCooldown(d.codeSent ? 60 : 0.01);
-    if (!d.phoneVerified){
-      if (d.codeSent){ startOtpCooldown(60); startOtpExpiry(300); }
-      else await sendOtp(true);
-      otpBoxes[0].focus();
-    }
+    paintStatus({ emailVerified: !!d.emailVerified, phoneVerified: !!d.phoneVerified, email: pendingEmail });
+    clearInterval(pollTimer); pollTimer = setInterval(refreshStatus, 3000); refreshStatus();   // notices the email link being opened in another tab or on a phone
+    if (!d.emailVerified) startResendCooldown(d.fresh ? 60 : 0.01);
   }
   async function sendOtp(){
     const b = $('cpResend'); b.disabled = true; otpError('');
@@ -1388,7 +1401,7 @@
       try {
         const r = await api('POST', '/api/auth/verify-email', { token: verify });
         $('noticeBtn').hidden = false;
-        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your email is verified. Sign in to continue. If your mobile number is not verified yet, you will be asked for the code we text you.');
+        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your email is verified. Go back to the page where you signed up and the mobile code step opens by itself, or sign in here to continue.');
         else notice('Email Verification', 'This link can\u2019t be used', r.data.error || 'This verification link is invalid or has expired. Sign in to request a new one.');
       } catch (err){ $('noticeBtn').hidden = false; notice('Email Verification', 'Could not verify', 'Could not reach the server. Check your connection and open the link again.'); }
       return;

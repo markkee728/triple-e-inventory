@@ -633,7 +633,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       for (const i of items) {
         const o = overrides.get(i.sku.toUpperCase());
         i.list_price = i.price;
-        if (o !== undefined && o !== i.price) { changed.push(`${i.sku} ${peso(i.price)}→${peso(o)}`); i.price = o; i.override_by = approval.approver; }
+        if (o !== undefined && o !== i.price) { changed.push(`${i.sku} ${peso(i.price)} to ${peso(o)}`); i.price = o; i.override_by = approval.approver; }
       }
       const total = items.reduce((n, i) => n + lineCents(i.price, i.qty), 0) / 100;
       let tendered = null, change = null, cardRef = null;

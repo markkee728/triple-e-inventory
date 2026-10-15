@@ -91,7 +91,7 @@ html[data-theme="light"] .in-cart-note{color:#17794a}
 .track .st .pt{width:22px;height:22px;border-radius:50%;border:2px solid var(--border);background:var(--card);position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 .track .st.done{color:var(--text-dim)}.track .st.done::before{background:var(--green)}
 .track .st.done .pt{background:var(--green);border-color:var(--green);color:#fff}
-.track .st.done .pt::after{content:"✓";font-size:12px;font-weight:800}
+.track .st.done .pt::after{content:"";width:12px;height:12px;background:currentColor;-webkit-mask:var(--ic-check) center/contain no-repeat;mask:var(--ic-check) center/contain no-repeat}
 .track .st.now{color:var(--text);font-weight:600}.track .st.now::before{background:var(--blue-bright)}
 .track .st.now .pt{border-color:var(--blue-bright);box-shadow:0 0 0 4px rgba(74,144,217,.2)}
 .track .st.now .pt::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--blue-bright)}

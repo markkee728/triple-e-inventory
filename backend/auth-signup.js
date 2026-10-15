@@ -276,21 +276,17 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     });
     let sent = { sent: false };
     if (needVerify) sent = await mailVerification(req, { to: email, name: parts.first || parts.full, token });
-    // mobile number: text the first code now; the page then asks for it next to the "check your email" message
-    let phoneRequired = false, pendingToken = null, otp = null;
+    // step 2 (mobile code) is only texted after the email is verified; the page asks for it then. Here we only hand out the pending token.
+    let phoneRequired = false, pendingToken = null;
     if (phoneVerificationOn) {
       await app.locals.phoneReady;
       const uid = (await pool.query('SELECT user_id FROM users WHERE email = $1', [email])).rows[0].user_id;
       phoneRequired = true;
       pendingToken = app.locals.phoneOtp.issuePendingToken(uid);
-      otp = await app.locals.phoneOtp.sendOtp(uid);
     }
-    const notes = [];
-    if (needVerify && !sent.sent) notes.push('The verification email could not be sent (' + sent.reason + '). Use Resend in a minute.');
-    if (otp && otp.message) notes.push(otp.message);
     res.status(201).json({ ok: true, verificationRequired: needVerify || phoneRequired, emailRequired: needVerify, phoneRequired, pendingToken,
-      emailSent: !!sent.sent, smsSent: !!(otp && otp.sent), email,
-      message: notes.length ? 'Your account was created, but ' + notes.join(' ') : '' });
+      emailSent: !!sent.sent, email,
+      message: needVerify && !sent.sent ? 'Your account was created, but the verification email could not be sent (' + sent.reason + '). Use Resend in a minute.' : '' });
   }));
 
   /* ---------- verify an email address (public) ---------- */
