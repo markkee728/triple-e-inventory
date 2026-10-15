@@ -344,6 +344,7 @@
   /* account verification (email + mobile) */
   .vstep{ border:1px solid var(--steel); border-radius:8px; padding:14px 16px; margin:0 0 14px; background:rgba(10,14,18,0.35); }
   .vstep.done{ border-color:rgba(60,170,110,0.55); }
+  .vstep .vhead b{ color:var(--text); }
   .vstep .vhead{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:14px; }
   .vbadge{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:1px; text-transform:uppercase; padding:3px 8px; border-radius:20px; border:1px solid var(--steel); color:var(--text-dim); }
   .vstep.done .vbadge{ color:#5fd18f; border-color:rgba(60,170,110,0.55); }
@@ -1010,7 +1011,7 @@
       }
       if (r.status === 403 && r.data.code === 'VERIFICATION_REQUIRED'){
         $('password').value = '';
-        openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified, message: r.data.error });
+        openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified });
         return;
       }
       else if (r.status === 401 || r.status === 400){
@@ -1331,7 +1332,7 @@
     $('ceToLogin').hidden = !both;
     if (both){ clearInterval(pollTimer); showVerifyMsg(''); }
     // email just got verified: text the code now (once)
-    if (unlocked && !otpRequested){ otpRequested = true; sendOtp(); }
+    if (unlocked && !otpRequested){ otpRequested = true; showVerifyMsg(''); sendOtp(); }
     return both;
   }
   async function refreshStatus(){
@@ -1359,7 +1360,8 @@
     if (!r){ b.disabled = false; otpError('Could not reach the server. Try again.'); return; }
     if (r.ok){
       if (r.data.alreadyVerified){ refreshStatus(); return; }
-      showVerifyMsg(r.data.message || ''); otpClear(); startOtpCooldown(r.data.waitSeconds || 60); startOtpExpiry(300); otpBoxes[0].focus();
+      if (!r.data.recent){ showVerifyMsg(r.data.message || ''); otpClear(); }      // recent = the same code is still valid (e.g. this page is open in two tabs)
+      startOtpCooldown(r.data.waitSeconds || 60); startOtpExpiry(r.data.recent ? (r.data.expiresIn || 300) : (r.data.expiresIn || 300)); otpBoxes[0].focus();
     } else if (r.status === 429){ otpError(r.data.error); startOtpCooldown(Math.min(r.data.waitSeconds || 60, 3600)); }
     else { b.disabled = false; otpError(r.data.error || 'Could not send the code.'); if (r.status === 401) clearInterval(pollTimer); }
   }
@@ -1401,7 +1403,8 @@
       try {
         const r = await api('POST', '/api/auth/verify-email', { token: verify });
         $('noticeBtn').hidden = false;
-        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your email is verified. Go back to the page where you signed up and the mobile code step opens by itself, or sign in here to continue.');
+        if (r.ok && r.data.phoneRequired && r.data.pendingToken){ openVerifyScreen({ email: r.data.email, token: r.data.pendingToken, emailVerified: true, phoneVerified: false }); return; }   // straight on to the mobile code
+        if (r.ok) notice('Email Verification', r.data.emailChanged ? 'New email confirmed' : 'Email verified', r.data.emailChanged ? 'Your email address has been updated. Use it the next time you sign in.' : 'Your email is verified. You can sign in now.');
         else notice('Email Verification', 'This link can\u2019t be used', r.data.error || 'This verification link is invalid or has expired. Sign in to request a new one.');
       } catch (err){ $('noticeBtn').hidden = false; notice('Email Verification', 'Could not verify', 'Could not reach the server. Check your connection and open the link again.'); }
       return;

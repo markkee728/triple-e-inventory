@@ -313,10 +313,21 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
       await client.query('UPDATE email_verifications SET expires_at = now() WHERE user_id = $1 AND used_at IS NULL AND expires_at > now()', [v.user_id]);
       await audit(client, { id: v.user_id, name: v.full_name, roleLabel: v.label }, v.new_email ? 'Profile updated' : 'Account verified',
         v.new_email ? 'Changed email (verified)' : 'Email address verified');
-      return { emailChanged: !!v.new_email };
+      return { emailChanged: !!v.new_email, userId: v.user_id };
     });
     if (!out) return res.status(400).json({ error: BAD_VERIFY });
-    res.json({ ok: true, ...out });
+    // A new customer who still has to confirm the mobile number goes straight on to the code step: the link proves the email is theirs,
+    // so they get a pending token that can only be used for the mobile-code step (never a login session).
+    const reply = { ok: true, emailChanged: out.emailChanged, phoneRequired: false };
+    if (!out.emailChanged && phoneVerificationOn) {
+      await app.locals.phoneReady;
+      const u = (await pool.query('SELECT email, phone, phone_verified_at FROM users WHERE user_id = $1 AND status = \'active\'', [out.userId])).rows[0];
+      if (u && u.phone && !u.phone_verified_at) {
+        reply.phoneRequired = true; reply.email = u.email;
+        reply.pendingToken = app.locals.phoneOtp.issuePendingToken(out.userId);
+      }
+    }
+    res.json(reply);
   }));
 
   // sign-in page: "send me a new link". Same answer whether or not the account exists.

@@ -81,10 +81,14 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
     if (u.phone_verified_at) return { ok: true, sent: false, alreadyVerified: true };
 
     const recent = (await pool.query(
-      `SELECT count(*)::int AS n, max(created_at) AS last FROM phone_otps WHERE user_id = $1 AND created_at > now() - interval '1 hour'`, [userId])).rows[0];
+      `SELECT count(*)::int AS n, max(created_at) AS last,
+              (SELECT floor(extract(epoch FROM o.expires_at - now()))::int FROM phone_otps o
+                WHERE o.user_id = $1 AND o.used_at IS NULL ORDER BY o.created_at DESC LIMIT 1) AS expires_in
+         FROM phone_otps WHERE user_id = $1 AND created_at > now() - interval '1 hour'`, [userId])).rows[0];
     if (recent.last) {
       const wait = RESEND_SECONDS - Math.floor((Date.now() - new Date(recent.last).getTime()) / 1000);
-      if (wait > 0) return { ok: false, waitSeconds: wait, message: 'Please wait ' + wait + ' seconds before asking for a new code.' };
+      // a code went out a moment ago (e.g. the page was open in two tabs): not an error, the same code is still valid
+      if (wait > 0) return { ok: true, sent: false, recent: true, waitSeconds: wait, expiresIn: Math.max(recent.expires_in || 0, 0) };
     }
     if (recent.n >= MAX_SENDS_PER_HOUR) return { ok: false, waitSeconds: 600, message: 'Too many codes were sent. Please try again in about an hour.' };
 
@@ -99,7 +103,7 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
       message: `Triple E Metal Products: your verification code is ${code}. It expires in ${OTP_TTL_MIN} minutes. Do not share this code with anyone.`
     });
     if (!r.sent && !sms.isConfigured()) console.log(`[otp] SMS is not set up, so use this code for ${u.phone} while testing: ${code}`);
-    return { ok: true, sent: !!r.sent, waitSeconds: RESEND_SECONDS,
+    return { ok: true, sent: !!r.sent, waitSeconds: RESEND_SECONDS, expiresIn: OTP_TTL_MIN * 60,
       message: r.sent ? '' : 'The text message could not be sent (' + (r.reason || 'unknown reason') + '). Try Resend in a minute.' };
   }
   app.locals.phoneOtp = { sendOtp, issuePendingToken };
@@ -129,7 +133,7 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
     if (!uid) return res.status(401).json({ error: BAD_TOKEN });
     const r = await sendOtp(uid);
     if (!r.ok) return res.status(r.waitSeconds ? 429 : 400).json({ error: r.message, waitSeconds: r.waitSeconds || 0 });
-    res.json({ ok: true, sent: r.sent, alreadyVerified: !!r.alreadyVerified, waitSeconds: r.waitSeconds || 0, message: r.message || '' });
+    res.json({ ok: true, sent: r.sent, recent: !!r.recent, alreadyVerified: !!r.alreadyVerified, waitSeconds: r.waitSeconds || 0, expiresIn: r.expiresIn || 0, message: r.message || '' });
   }));
 
   app.post('/api/auth/phone-otp/verify', limit('otp-verify', 30, 15 * 60 * 1000), wrap(async (req, res) => {
