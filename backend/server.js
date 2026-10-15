@@ -1211,6 +1211,31 @@ app.get('/api/users', auth('finance'), wrap(async (req, res) => {
     roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never', hasAvatar: !!u.has_avatar })));
 }));
 
+// Read-only registered customer details for Finance/Admin Customer Management.
+// Never expose password hashes, verification tokens, or private consent records.
+app.get('/api/customers/:id/profile', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(404).json({ error: 'Customer not found' });
+  const { rows } = await pool.query(`SELECT u.user_id, u.full_name, u.username, u.email, u.phone, u.status,
+      u.first_name, u.middle_name, u.last_name, u.suffix,
+      to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate, u.gender,
+      u.company_name, u.company_position, u.company_tin,
+      (u.email_verified_at IS NOT NULL) AS email_verified,
+      to_char(u.created_at AT TIME ZONE $2, 'Mon DD, YYYY') AS joined,
+      to_char(u.last_login AT TIME ZONE $2, 'Mon DD, YYYY HH12:MI AM') AS last_login
+    FROM users u JOIN roles r ON r.role_id = u.role_id
+    WHERE u.user_id = $1 AND r.role_key = 'customer'`, [id, TZ]);
+  if (!rows.length) return res.status(404).json({ error: 'Customer not found' });
+  const u = rows[0]; const guess = u.first_name == null ? splitFullName(u.full_name) : null;
+  res.json({ id: u.user_id, name: u.full_name, username: u.username, email: u.email,
+    phone: u.phone || '', status: u.status, firstName: guess ? guess.first : u.first_name,
+    middleName: u.middle_name || '', lastName: guess ? guess.last : u.last_name,
+    suffix: guess ? guess.suffix : u.suffix, birthdate: u.birthdate || '', gender: u.gender || '',
+    companyName: u.company_name || '', companyPosition: u.company_position || '',
+    companyTin: u.company_tin || '', emailVerified: !!u.email_verified,
+    joined: u.joined || '', lastLogin: u.last_login || 'Never' });
+}));
+
 // profile photo of any account, for the User Management list (finance only). Same photo the person uploaded in My Profile.
 app.get('/api/users/:id/avatar', auth('finance'), wrap(async (req, res) => {
   const id = Number(req.params.id);
