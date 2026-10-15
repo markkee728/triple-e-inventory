@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="cash-shift.css?v=1">
 <link rel="stylesheet" href="notifications.css?v=2">
 <style>
+.cust-box{margin:10px 0 12px}.cust-title{font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:6px}.cust-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cust-grid input{width:100%;box-sizing:border-box}@media(max-width:520px){.cust-grid{grid-template-columns:1fr}}
 .qty input{width:64px;height:30px;border:0;border-radius:0;background:transparent;text-align:center;padding:0 2px;font-family:"IBM Plex Mono",monospace;font-size:14px;box-shadow:none}
 .qty input:focus{background:var(--field);box-shadow:inset 0 0 0 1px var(--blue-bright)}
 .qty .u{padding:0 8px 0 2px;font-size:12px;color:var(--text-faint);white-space:nowrap}
@@ -172,6 +173,8 @@
           <div class="pay">
             <div class="row"><span class="dim">VAT (12%, included)</span><span class="mono" id="vat">₱0.00</span></div>
             <div class="row total"><span>Total</span><span class="mono" id="total">₱0.00</span></div>
+            <div class="cust-box"><div class="cust-title">Customer details <span class="faint">(optional)</span></div>
+              <div class="cust-grid"><input id="custName" maxlength="80" autocomplete="off" placeholder="Customer name" aria-label="Customer name"><input id="custPhone" maxlength="20" inputmode="tel" autocomplete="off" placeholder="Phone number" aria-label="Customer phone number"></div></div>
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
@@ -360,7 +363,8 @@ async function loadProducts() {            // GET /api/pos/products — finished
 async function submitSale(sale) {          // server re-prices from the database and posts the stock-out
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
     items: sale.items.map(i => i.override ? { sku: i.sku, qty: i.qty, price: i.price } : { sku: i.sku, qty: i.qty }), approvalToken: sale.approvalToken,
-    method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef, requestId: sale.requestId }) });
+    method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef, requestId: sale.requestId,
+    customerName: sale.customerName, customerPhone: sale.customerPhone }) });
 }
 async function requestApproval(email, password) {   // finance login at the counter -> short-lived token for price overrides
   return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
@@ -676,6 +680,7 @@ async function receiptPng(s, reprint) {
     center('Cashier: ' + s.cashierName, { size: 11 });
     rule();
     for (const i of s.items) { row(fmtQty(i.qty) + (MEASURED_RE.test(String(i.unit).trim()) ? ' ' + i.unit : '') + ' × ' + i.name, peso(lineCents(i.price, i.qty) / 100)); sub('@ ' + peso(i.price) + ' / ' + i.unit + ' · ' + i.sku + (i.listPrice ? ' (list ' + peso(i.listPrice) + ')' : '')); }
+    if (s.customerName || s.customerPhone) { rule(); row('Customer', s.customerName || '—', { size: 11 }); if (s.customerPhone) row('Phone', s.customerPhone, { size: 11 }); }
     rule();
     const net = Math.round((cents(s.total) - cents(s.vat))) / 100;
     row('VATable sales', peso(net), { size: 11 }); row('VAT 12% (incl.)', peso(s.vat), { size: 11 });
@@ -743,7 +748,7 @@ async function beginXendit(draft) {
   if (xenditPayment) { $('xenditPending').hidden = false; return; }
   busy = true; updatePay();
   try {
-    const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({requestId:draft.requestId,items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
+    const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({requestId:draft.requestId,customerName:draft.customerName,customerPhone:draft.customerPhone,items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
     xenditPayment = p;
     $('xenditPending').hidden = false; $('xenditState').textContent = 'Waiting for verified payment';
     $('xenditLink').href = p.checkoutUrl; $('xenditQR').replaceChildren();
@@ -763,7 +768,8 @@ async function completeSale() {
   if (hasOverride() && !approvalOk()) return openReapprove();
   const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: unitPrice(l), override: l.price !== undefined && l.price !== p.price }; }),
     approvalToken: hasOverride() ? approval.token : undefined,
-    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined, requestId: saleRequestId() };
+    method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined, requestId: saleRequestId(),
+    customerName: $('custName').value.trim() || undefined, customerPhone: $('custPhone').value.trim() || undefined };
   if (method === 'Xendit') return beginXendit(draft);
   busy = true; $('complete').disabled = true; $('complete').textContent = 'Saving…';
   let sale;
@@ -782,7 +788,7 @@ function syncCart() {
   if (changed) toast('Cart adjusted to the stock available.', true);
   renderCart();
 }
-function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
+function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
