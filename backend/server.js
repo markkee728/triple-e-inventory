@@ -916,6 +916,37 @@ app.get('/api/products', auth('finance'), wrap(async (req, res) => {
     suppliers: r.suppliers })));
 }));
 
+// Finance-only material/supplier linking. Product and Supplier pages remain separate.
+// Links are maintained transactionally and never applied to manufactured Finished Goods.
+app.put('/api/products/:sku/suppliers', auth('finance'), wrap(async (req, res) => {
+  const codes = req.body && req.body.supplierCodes;
+  const preferred = req.body && req.body.preferredSupplierCode;
+  if (!Array.isArray(codes) || codes.length > 100 || codes.some(c => typeof c !== 'string' || !c.trim()))
+    throw new ValidationError({ supplierCodes: 'Provide a list of supplier codes (maximum 100)' });
+  const unique = [...new Set(codes.map(c => c.trim()))];
+  if (preferred && !unique.includes(preferred))
+    throw new ValidationError({ preferredSupplierCode: 'Preferred supplier must be in the selected list' });
+  const result = await tx(async client => {
+    const product = await client.query('SELECT product_id, department FROM products WHERE sku=$1 AND NOT is_archived FOR UPDATE', [req.params.sku]);
+    if (!product.rowCount) return null;
+    if (!NEEDS_SUPPLIER.includes(product.rows[0].department))
+      throw new ValidationError({ supplierCodes: 'Finished Goods are manufactured internally and cannot have material suppliers' });
+    const suppliers = await client.query(`SELECT supplier_id, code FROM suppliers WHERE code = ANY($1) AND status = 'active'`, [unique]);
+    if (suppliers.rowCount !== unique.length)
+      throw new ValidationError({ supplierCodes: 'One or more suppliers are missing or inactive' });
+    const pid = product.rows[0].product_id;
+    await client.query('DELETE FROM product_suppliers WHERE product_id=$1', [pid]);
+    for (const row of suppliers.rows) {
+      await client.query('INSERT INTO product_suppliers(product_id,supplier_id,is_primary) VALUES($1,$2,$3)',
+        [pid, row.supplier_id, row.code === (preferred || unique[0])]);
+    }
+    await audit(client, req.user, 'Supplier links updated', `Material ${req.params.sku}: ${unique.join(', ') || 'unassigned'}`);
+    return { supplierCodes: unique, preferredSupplierCode: preferred || unique[0] || null };
+  });
+  if (!result) return res.status(404).json({ error: 'Material not found' });
+  res.json({ ok: true, ...result });
+}));
+
 async function categoryId(client, name) {
   const c = await client.query(
     `INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING category_id`, [name]);
@@ -1177,6 +1208,10 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
       const sp = await client.query(`SELECT supplier_id, name, status FROM suppliers WHERE code = $1`, [m.supplier]);
       if (!sp.rowCount) throw new ValidationError({ supplier: 'That supplier does not exist' });
       if (sp.rows[0].status !== 'active') throw new ValidationError({ supplier: `${sp.rows[0].name} is archived — restore it first or choose another supplier` });
+      if (m.type === 'in' && m.reason === 'supplier_receipt') {
+        const link = await client.query('SELECT 1 FROM product_suppliers WHERE product_id=$1 AND supplier_id=$2', [prod.product_id, sp.rows[0].supplier_id]);
+        if (!link.rowCount) throw new ValidationError({ supplier: 'This supplier is not linked to the selected material. Assign it in Product or Supplier Management before recording delivery.' });
+      }
       supplierId = sp.rows[0].supplier_id; supplierName = sp.rows[0].name;
     }
     const ins = await client.query(

@@ -2126,7 +2126,7 @@
     const title = $('topbarTitle');
     const updateTitle = () => {
       const active = side.querySelector('.nav-item.active');
-      if (title && active) title.textContent = active.textContent.replace(/\s+/g, ' ').trim();
+      if (title && active) title.textContent = (typeof window.sidebarLabelOf === 'function') ? window.sidebarLabelOf(active) : active.textContent.replace(/\s+/g, ' ').trim();
     };
     side.querySelectorAll('.nav-item').forEach((n) => new MutationObserver(updateTitle).observe(n, { attributes: true, attributeFilter: ['class'] }));
     updateTitle();
