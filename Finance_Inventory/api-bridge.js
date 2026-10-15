@@ -18,7 +18,7 @@
   // so the form still filters correctly (and ignores retired reasons) if an older server is running.
   const DEFAULT_REASON_DEPTS = {
     in: {
-      supplier_receipt: ['Raw Materials', 'Finishing Supplies'],
+      supplier_receipt: ALL_D,
       customer_return: ['Finished Goods'],
       produced_batch: ['Finished Goods'],
       count_correction_up: ALL_D,
@@ -56,6 +56,8 @@
   }
   const replace = (arr, rows) => arr.splice(0, arr.length, ...rows);
   const safe = (fn) => { try { fn(); } catch (e) { console.warn('[api-bridge]', e.message); } };
+  // small helper set for production-admin.js (production / material requirements)
+  window.TripleEBridge = { api, toast, esc, inventory: () => inventoryCache, reload: () => load(), movementType: () => movementType() };
 
   function toast(message, type) {
     const el = document.createElement('div');
@@ -234,7 +236,7 @@
     'out:rust_corrosion': 'Stock lost to rust or corrosion.',
     'out:damaged': 'Bent, cracked or broken stock.',
     'out:scrap_cutting_waste': 'Offcuts and cutting waste that cannot be used.',
-    'out:production_use': 'Taken out to be used in production.',
+    'out:production_use': 'Materials used in production that was NOT recorded as Produced Internally. Do not enter materials again if a production record already deducted them.',
     'out:quality_rejection': 'Failed quality inspection.',
     'out:lost_missing': 'Cannot be found.',
     'out:returned_to_supplier': 'Sent back to the supplier.',
@@ -282,6 +284,7 @@
     const type = movementType();
     fillMovementProducts();
     fillReasons();
+    if (window.ProductionUI) window.ProductionUI.beforeSync();   // Finished Goods Stock In: source picker sets the reason
     const reason = $('movementReason').value;
     const qty = Number($('movementQuantity').value) || 0;
     const item = movementItem();
@@ -328,6 +331,7 @@
 
     // stock summary
     const cur = $('summaryCurrentStock'), aft = $('summaryAfterStock');
+    if (window.ProductionUI) setTimeout(() => window.ProductionUI.afterSync(), 0);
     if (cur) cur.textContent = item ? formatNumber(item.onHand) + ' ' + item.unit : '—';
     if (aft) {
       if (!item) aft.textContent = '—';
@@ -392,6 +396,7 @@
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); e.stopImmediatePropagation();
+      if (window.ProductionUI && window.ProductionUI.isProduction()) { window.ProductionUI.submit(); return; }   // Produced Internally has its own confirm step
       const banner = $('movementFormError');
       const type = movementType();
       const reason = $('movementReason').value;
@@ -1191,7 +1196,8 @@
     const rows = movementCache.filter((m) =>
       (type === 'all' || m.type === type) &&
       (!term || (m.product || '').toLowerCase().indexOf(term) >= 0 || (m.ref || '').toLowerCase().indexOf(term) >= 0 ||
-        (m.reason || '').toLowerCase().indexOf(term) >= 0));
+        (m.reason || '').toLowerCase().indexOf(term) >= 0 || (m.productionRef || '').toLowerCase().indexOf(term) >= 0 ||
+        (m.relatedProduct || '').toLowerCase().indexOf(term) >= 0));
     const sub = $('logPanelSub');
     if (sub) sub.textContent = 'Showing ' + rows.length + ' of ' + movementCache.length + ' recorded stock in / out entries';
     if (!rows.length) {
@@ -1205,7 +1211,7 @@
         '<td class="mono">' + esc(m.ref) + '</td>' +
         '<td>' + esc(m.product) + '</td>' +
         '<td><span class="status-pill ' + (isIn ? 'in' : 'out') + '">' + (isIn ? 'In' : 'Out') + '</span></td>' +
-        '<td class="dim">' + esc(m.reason || '') + '</td>' +
+        '<td class="dim">' + esc(m.reason || '') + (m.productionRef ? '<div style="font-size:12.5px">' + esc(m.productionRef) + (m.relatedProduct ? ' \u00B7 for ' + esc(m.relatedProduct) : '') + '</div>' : '') + '</td>' +
         '<td class="dim">' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</td>' +
         '<td class="dim">' + esc(m.department) + '</td>' +
         '<td class="dim">' + (m.supplier || m.invoiceNo

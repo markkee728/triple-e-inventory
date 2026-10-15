@@ -1,0 +1,357 @@
+/* production-admin.js — Finished Goods production (Finance > Stock In / Out)
+   1. Stock-In Source picker. "Produced Internally" shows a material preview with editable actual quantities;
+      materials are only deducted when "Confirm Production" is pressed and the server finishes its transaction.
+   2. Material requirements editor (materials needed to make ONE finished unit).
+   3. Production history with the material details of each record.
+   Loaded after api-bridge.js (which provides window.TripleEBridge). */
+(function () {
+  'use strict';
+  const $ = (id) => document.getElementById(id);
+  const B = () => window.TripleEBridge;
+  const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
+  const fmt = (n) => String(+Number(n).toFixed(4));
+  const api = (path, opt) => B().api(path, opt);
+  const toast = (m, t) => B().toast(m, t);
+  const MATERIAL_DEPTS = ['Raw Materials', 'Finishing Supplies'];
+
+  const SOURCES = [
+    { v: 'produced', label: 'Produced Internally', reason: 'produced_batch', hint: 'Made in our own workshop. The materials used are deducted automatically when you confirm.' },
+    { v: 'supplier', label: 'Received from Supplier', reason: 'supplier_receipt', hint: 'Ready-made finished goods delivered by a supplier.' },
+    { v: 'adjustment', label: 'Inventory Adjustment', reason: 'count_correction_up', hint: 'Correct the count when the physical stock is higher than the system. A note is required.' },
+    { v: 'return', label: 'Returned by customer', reason: 'customer_return', hint: 'A customer sent finished goods back and they go back on the shelf.' }
+  ];
+
+  const st = { key: null, seq: 0, timer: null, data: null, edited: {}, busy: false };
+  const newKey = () => (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : (Date.now().toString(36) + Math.random().toString(36).slice(2, 14)));
+
+  /* ---------- which mode is the Stock In form in? ---------- */
+  const item = () => { const sku = ($('movementProduct') || {}).value; return B().inventory().find((i) => i.sku === sku); };
+  const dept = () => { const it = item(); return it ? it.department : (($('movementDept') || {}).value || ''); };
+  const isFGIn = () => !!$('movementForm') && B().movementType() === 'in' && dept() === 'Finished Goods';
+  const source = () => (($('movementSource') || {}).value || '');
+  const isProduction = () => isFGIn() && source() === 'produced';
+  const qtyValue = () => {
+    const raw = ($('movementQuantity') || {}).value;
+    const n = Number(raw);
+    if (raw === '' || !Number.isFinite(n) || n <= 0 || n > 1e6 || Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return null;
+    return n;
+  };
+
+  function buildSourceOptions() {
+    const sel = $('movementSource');
+    if (!sel || sel.dataset.built) return;
+    sel.dataset.built = '1';
+    sel.innerHTML = '<option value="">Select the source…</option>' + SOURCES.map((s) => '<option value="' + s.v + '">' + esc(s.label) + '</option>').join('');
+  }
+
+  // runs inside syncMovementForm, BEFORE it reads the reason: a source decides the reason that is stored
+  function beforeSync() {
+    const grp = $('movementSourceGroup'), rg = $('movementReasonGroup');
+    if (!grp || !rg) return;
+    const on = isFGIn();
+    grp.style.display = on ? '' : 'none';
+    rg.style.display = on ? 'none' : '';
+    if (!on) { const s = $('movementSource'); if (s) s.value = ''; return; }
+    buildSourceOptions();
+    const src = SOURCES.find((s) => s.v === source());
+    $('movementReason').value = src ? src.reason : '';
+    const h = $('movementSourceHint'); if (h) h.textContent = src ? src.hint : 'Where did these finished goods come from?';
+  }
+
+  // runs at the end of syncMovementForm
+  function afterSync() {
+    const btn = $('movementSubmitBtn'), box = $('productionPreview');
+    if (!box) return;
+    if (!isProduction()) {
+      box.style.display = 'none'; st.data = null;
+      if (btn) { btn.textContent = 'Save Movement'; btn.disabled = false; }
+      return;
+    }
+    box.style.display = '';
+    if (btn) btn.textContent = 'Confirm Production';
+    const sku = ($('movementProduct') || {}).value, qty = qtyValue();
+    if (!sku || qty === null) { st.data = null; st.key = null; box.innerHTML = '<div class="prod-info">Choose the finished product and enter the quantity produced to see the materials that will be used.</div>'; if (btn) btn.disabled = true; return; }
+    if (st.data && st.data.sku === sku && st.data.quantity === qty) { refreshStatus(); return; }
+    clearTimeout(st.timer);
+    st.timer = setTimeout(() => fetchPreview(sku, qty), 350);
+    if (btn) btn.disabled = true;
+  }
+
+  async function fetchPreview(sku, qty) {
+    const box = $('productionPreview'); const my = ++st.seq;
+    box.innerHTML = '<div class="prod-info">Calculating materials…</div>';
+    try {
+      const d = await api('/production/preview', { method: 'POST', body: JSON.stringify({ sku, quantity: qty }) });
+      if (my !== st.seq) return;
+      st.data = d; st.edited = {}; st.key = newKey();
+      renderPreview();
+    } catch (err) {
+      if (my !== st.seq) return;
+      st.data = null;
+      box.innerHTML = '<div class="prod-warn">' + esc(err.message) + '</div>';
+    }
+  }
+
+  function renderPreview() {
+    const d = st.data, box = $('productionPreview');
+    if (!d) return;
+    let html = '<h4>Materials used for ' + esc(fmt(d.quantity)) + ' ' + esc(d.unit) + ' of ' + esc(d.name) + '</h4>';
+    if (!d.hasRequirements) {
+      html += '<div class="prod-warn">No material requirements are saved for this product yet, so the materials cannot be calculated.</div>' +
+        '<div class="prod-actions"><button type="button" class="prod-btn ghost" id="prodGoReq">Set up material requirements</button></div>';
+      box.innerHTML = html;
+      $('prodGoReq').addEventListener('click', () => goToRequirements(d.sku));
+      refreshStatus();
+      return;
+    }
+    html += '<div class="prod-scroll"><table class="prod-table"><thead><tr><th>Material</th><th>Category</th><th>Per unit</th><th>Calculated</th><th>Actual used</th><th>Available</th><th>Status</th></tr></thead><tbody>' +
+      d.materials.map((m) => '<tr data-sku="' + esc(m.sku) + '">' +
+        '<td>' + esc(m.name) + '</td><td class="dim">' + esc(m.department) + '</td>' +
+        '<td class="dim">' + esc(fmt(m.qtyPerUnit)) + ' ' + esc(m.unit) + '</td>' +
+        '<td class="dim">' + esc(fmt(m.calculated)) + ' ' + esc(m.unit) + '</td>' +
+        '<td><input type="number" class="prod-in" data-actual="' + esc(m.sku) + '" min="0" step="any" inputmode="decimal" value="' + esc(m.calculated) + '"> ' + esc(m.unit) + '</td>' +
+        '<td class="dim">' + esc(fmt(m.onHand)) + ' ' + esc(m.unit) + '</td>' +
+        '<td data-status="' + esc(m.sku) + '"></td></tr>').join('') +
+      '</tbody></table></div><div id="prodShort"></div>' +
+      '<p class="prod-note">The quantities are calculated from the saved requirements. Change “Actual used” if the real consumption was different. Nothing is deducted until you press Confirm Production.</p>';
+    box.innerHTML = html;
+    box.querySelectorAll('[data-actual]').forEach((inp) => inp.addEventListener('input', () => {
+      st.edited[inp.dataset.actual] = inp.value; st.key = newKey(); refreshStatus();
+    }));
+    refreshStatus();
+  }
+
+  // checks every actual quantity, paints the status column and enables/disables the confirm button
+  function refreshStatus() {
+    const d = st.data, btn = $('movementSubmitBtn');
+    if (!d) return { ok: false };
+    if (!d.hasRequirements) { if (btn) btn.disabled = true; return { ok: false }; }
+    const short = [], items = [];
+    let bad = false;
+    d.materials.forEach((m) => {
+      const inp = document.querySelector('[data-actual="' + m.sku + '"]'), cell = document.querySelector('[data-status="' + m.sku + '"]');
+      if (!inp || !cell) return;
+      const raw = inp.value, n = Number(raw);
+      let msg = '', cls = 'prod-ok';
+      if (m.archived) { msg = 'Archived material'; cls = 'prod-bad'; bad = true; }
+      else if (m.unitChanged) { msg = 'Unit changed — re-save requirements'; cls = 'prod-bad'; bad = true; }
+      else if (raw === '' || !Number.isFinite(n) || n < 0) { msg = 'Enter 0 or more'; cls = 'prod-bad'; bad = true; }
+      else if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) { msg = 'Max 2 decimals'; cls = 'prod-bad'; bad = true; }
+      else if (n > m.onHand) { msg = 'Short by ' + fmt(n - m.onHand) + ' ' + m.unit; cls = 'prod-bad'; short.push(m.name + ' (needs ' + fmt(n) + ', has ' + fmt(m.onHand) + ' ' + m.unit + ')'); bad = true; }
+      else msg = 'OK';
+      cell.innerHTML = '<span class="' + cls + '">' + esc(msg) + '</span>';
+      inp.classList.toggle('bad', cls === 'prod-bad');
+      if (!bad || cls !== 'prod-bad') items.push({ sku: m.sku, actualQty: n });
+    });
+    const sb = $('prodShort');
+    if (sb) sb.innerHTML = short.length ? '<div class="prod-warn">Not enough stock for: ' + esc(short.join('; ')) + '. Production cannot be confirmed.</div>' : '';
+    if (btn) btn.disabled = bad || st.busy;
+    return { ok: !bad, items: d.materials.map((m) => ({ sku: m.sku, actualQty: Number(document.querySelector('[data-actual="' + m.sku + '"]').value) })) };
+  }
+
+  function showBanner(msg) {
+    const b = $('movementFormError');
+    if (b) { b.textContent = msg; b.classList.add('show'); }
+  }
+  const hideBanner = () => { const b = $('movementFormError'); if (b) b.classList.remove('show'); };
+
+  async function submit() {
+    if (st.busy) return;
+    const d = st.data, form = $('movementForm');
+    hideBanner();
+    if (!d || !st.key) { showBanner('Choose the finished product and enter the quantity produced first.'); return; }
+    const status = refreshStatus();
+    if (!status.ok) { showBanner(d.hasRequirements ? 'Fix the highlighted material quantities first.' : 'Set up the material requirements first.'); return; }
+    const used = d.materials.map((m, i) => '• ' + m.name + ': -' + fmt(status.items[i].actualQty) + ' ' + m.unit).join('\n');
+    if (!window.confirm('Confirm production of ' + fmt(d.quantity) + ' ' + d.unit + ' of ' + d.name + '?\n\nThis will deduct:\n' + used + '\n\nand add ' + fmt(d.quantity) + ' ' + d.unit + ' to Finished Goods.')) return;
+    st.busy = true;
+    const btn = $('movementSubmitBtn'); if (btn) btn.disabled = true;
+    try {
+      const r = await api('/production', { method: 'POST', body: JSON.stringify({ sku: d.sku, quantity: d.quantity, items: status.items, requestKey: st.key }) });
+      toast(r.duplicate ? 'Already recorded as ' + r.ref + ' — nothing was deducted again.' : 'Production ' + r.ref + ' confirmed. Materials deducted and ' + fmt(d.quantity) + ' ' + d.unit + ' added.');
+      st.data = null; st.key = null; st.edited = {};
+      form.reset();
+      await B().reload();
+      loadHistory(); loadReqList();
+    } catch (err) {
+      const f = err.fields || {};
+      Object.keys(f).forEach((k) => {
+        if (k.indexOf('mat:') !== 0) return;
+        const inp = document.querySelector('[data-actual="' + k.slice(4) + '"]'), cell = document.querySelector('[data-status="' + k.slice(4) + '"]');
+        if (inp) inp.classList.add('bad');
+        if (cell) cell.innerHTML = '<span class="prod-bad">' + esc(f[k]) + '</span>';
+      });
+      showBanner(err.message + ' Nothing was deducted.');
+      st.busy = false;
+      if (btn) btn.disabled = false;
+    } finally { st.busy = false; }
+  }
+
+  // the form is handled here (document capture runs before the form's own listeners)
+  document.addEventListener('submit', (e) => {
+    if (!e.target || e.target.id !== 'movementForm' || !isFGIn()) return;
+    if (!source()) {
+      e.preventDefault(); e.stopImmediatePropagation();
+      showBanner('Choose the Stock-In Source.');
+      const s = $('movementSource'); if (s) s.focus();
+      return;
+    }
+    if (source() === 'produced') { e.preventDefault(); e.stopImmediatePropagation(); submit(); }
+  }, true);
+
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'movementSource') {
+      hideBanner();
+      $('movementReason').dispatchEvent(new Event('change'));       // re-runs the form logic (supplier box, note box ...)
+    }
+  });
+
+  /* =====================================================
+     MATERIAL REQUIREMENTS
+  ===================================================== */
+  let reqRows = [], reqFg = null;
+
+  async function loadReqList() {
+    const sel = $('reqProduct'); if (!sel) return;
+    try {
+      const list = await api('/production/requirements');
+      const keep = sel.value;
+      sel.innerHTML = '<option value="">Select a finished product…</option>' + list.map((p) =>
+        '<option value="' + esc(p.sku) + '">' + esc(p.name) + ' (' + esc(p.sku) + ') — ' + (p.materials ? p.materials + ' material' + (p.materials === 1 ? '' : 's') : 'not set') + '</option>').join('');
+      if (list.some((p) => p.sku === keep)) sel.value = keep;
+    } catch (err) { console.warn('[production]', err.message); }
+  }
+
+  async function loadReq(sku) {
+    const body = $('reqBody');
+    if (!sku) { reqFg = null; reqRows = []; body.innerHTML = '<div class="dim">Choose a finished product to set up its materials.</div>'; return; }
+    try {
+      const r = await api('/production/requirements/' + encodeURIComponent(sku));
+      reqFg = r;
+      reqRows = r.materials.map((m) => ({ sku: m.sku, name: m.name, department: m.department, unit: m.unit, onHand: m.onHand, qty: String(m.qtyPerUnit), archived: m.archived, unitChanged: m.unitChanged }));
+      renderReq();
+    } catch (err) { body.innerHTML = '<div class="prod-warn">' + esc(err.message) + '</div>'; }
+  }
+
+  function materialOptions(row) {
+    const inv = B().inventory().filter((i) => MATERIAL_DEPTS.indexOf(i.department) >= 0);
+    const taken = new Set(reqRows.filter((r) => r !== row).map((r) => r.sku));
+    if (row.sku && !inv.some((i) => i.sku === row.sku)) inv.push({ sku: row.sku, name: row.name, department: row.department, unit: row.unit });
+    const opt = (i) => '<option value="' + esc(i.sku) + '"' + (i.sku === row.sku ? ' selected' : '') + '>' + esc(i.name) + ' (' + esc(i.sku) + ')</option>';
+    return '<option value="">Select material…</option>' + MATERIAL_DEPTS.map((d) => {
+      const list = inv.filter((i) => i.department === d && !taken.has(i.sku)).sort((a, b) => a.name.localeCompare(b.name));
+      return list.length ? '<optgroup label="' + d + '">' + list.map(opt).join('') + '</optgroup>' : '';
+    }).join('');
+  }
+
+  function renderReq() {
+    const body = $('reqBody');
+    if (!reqFg) return;
+    const rows = reqRows.map((r, i) => {
+      const inv = B().inventory().find((x) => x.sku === r.sku);
+      const unit = inv ? inv.unit : r.unit, dep = inv ? inv.department : r.department;
+      return '<tr><td><select class="prod-in" data-rm="' + i + '">' + materialOptions(r) + '</select>' +
+        (r.archived ? '<div class="prod-bad" style="font-size:12px">Archived — remove it</div>' : '') +
+        (r.unitChanged ? '<div class="prod-bad" style="font-size:12px">Unit changed — save again</div>' : '') + '</td>' +
+        '<td class="dim">' + esc(dep || '—') + '</td>' +
+        '<td><input type="number" class="prod-in" data-rq="' + i + '" min="0" step="any" inputmode="decimal" value="' + esc(r.qty) + '" placeholder="e.g. 0.5"></td>' +
+        '<td class="dim">' + esc(unit || '—') + '</td>' +
+        '<td class="dim">' + (inv ? esc(fmt(inv.onHand)) + ' ' + esc(inv.unit) : '—') + '</td>' +
+        '<td><button type="button" class="prod-link" data-rx="' + i + '">Remove</button></td></tr>';
+    }).join('');
+    body.innerHTML = '<div class="prod-info" style="margin:0 0 10px">Quantity needed to make <strong>1 ' + esc(reqFg.unit) + '</strong> of <strong>' + esc(reqFg.name) + '</strong>.</div>' +
+      '<div class="prod-scroll"><table class="prod-table"><thead><tr><th>Material</th><th>Category</th><th>Qty per 1 ' + esc(reqFg.unit) + '</th><th>Unit</th><th>On hand</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="6" class="dim">No materials yet. Click “Add material”.</td></tr>') + '</tbody></table></div>' +
+      '<div id="reqMsg"></div><div class="prod-actions"><button type="button" class="prod-btn ghost" id="reqAdd">+ Add material</button>' +
+      '<button type="button" class="prod-btn" id="reqSave">Save requirements</button></div>' +
+      '<p class="prod-note" style="font-size:12.5px;color:var(--text-dim)">Changing requirements only affects future production. Past production records keep the materials they actually used.</p>';
+    body.querySelectorAll('[data-rm]').forEach((s) => s.addEventListener('change', () => {
+      const r = reqRows[+s.dataset.rm]; r.sku = s.value; r.archived = false; r.unitChanged = false; renderReq();
+    }));
+    body.querySelectorAll('[data-rq]').forEach((s) => s.addEventListener('input', () => { reqRows[+s.dataset.rq].qty = s.value; }));
+    body.querySelectorAll('[data-rx]').forEach((s) => s.addEventListener('click', () => { reqRows.splice(+s.dataset.rx, 1); renderReq(); }));
+    $('reqAdd').addEventListener('click', () => { reqRows.push({ sku: '', qty: '' }); renderReq(); });
+    $('reqSave').addEventListener('click', saveReq);
+  }
+
+  async function saveReq() {
+    const msg = $('reqMsg'), btn = $('reqSave');
+    const fail = (t) => { msg.innerHTML = '<div class="prod-warn">' + esc(t) + '</div>'; };
+    const seen = new Set(), out = [];
+    for (let i = 0; i < reqRows.length; i++) {
+      const r = reqRows[i], n = Number(r.qty);
+      if (!r.sku) return fail('Line ' + (i + 1) + ': choose a material (or remove the line).');
+      if (seen.has(r.sku)) return fail('A material can only be listed once.');
+      seen.add(r.sku);
+      if (r.qty === '' || !Number.isFinite(n) || n <= 0) return fail('Line ' + (i + 1) + ': enter a quantity above 0.');
+      if (Math.abs(n * 1e4 - Math.round(n * 1e4)) > 1e-6) return fail('Line ' + (i + 1) + ': at most 4 decimal places.');
+      out.push({ sku: r.sku, qtyPerUnit: n });
+    }
+    if (!out.length && !window.confirm('Remove ALL materials from ' + reqFg.name + '? It cannot be produced until new requirements are saved.')) return;
+    btn.disabled = true;
+    try {
+      await api('/production/requirements/' + encodeURIComponent(reqFg.sku), { method: 'PUT', body: JSON.stringify({ materials: out }) });
+      toast('Material requirements saved for ' + reqFg.name + '.');
+      st.data = null;                       // a preview for this product must be recalculated
+      await loadReqList(); await loadReq(reqFg.sku);
+      if (isProduction()) afterSync();
+    } catch (err) { fail(err.message); btn.disabled = false; }
+  }
+
+  function goToRequirements(sku) {
+    const sel = $('reqProduct'); if (!sel) return;
+    sel.value = sku; loadReq(sku);
+    const p = $('prodReqPanel'); if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  /* =====================================================
+     PRODUCTION HISTORY
+  ===================================================== */
+  let history = [];
+  const open = new Set();
+
+  async function loadHistory() {
+    try { history = await api('/production?limit=200'); renderHistory(); }
+    catch (err) { console.warn('[production]', err.message); }
+  }
+
+  const summary = (list) => !list.length ? '<span class="dim">—</span>' :
+    esc(list.slice(0, 2).map((m) => m.name + ' ' + fmt(m.actual) + ' ' + m.unit).join(', ')) + (list.length > 2 ? ' <span class="dim">+' + (list.length - 2) + ' more</span>' : '');
+
+  function renderHistory() {
+    const body = $('prodHistBody'); if (!body) return;
+    const term = (($('prodHistSearch') || {}).value || '').trim().toLowerCase();
+    const rows = history.filter((h) => !term || h.ref.toLowerCase().indexOf(term) >= 0 || h.product.toLowerCase().indexOf(term) >= 0);
+    const sub = $('prodHistSub'); if (sub) sub.textContent = 'Showing ' + rows.length + ' of ' + history.length + ' confirmed production records';
+    if (!rows.length) { body.innerHTML = '<tr><td colspan="9" class="dim" style="text-align:center;padding:24px">' + (history.length ? 'No records match your search.' : 'No production recorded yet.') + '</td></tr>'; return; }
+    body.innerHTML = rows.map((h) => {
+      const all = h.rawMaterials.concat(h.finishingSupplies);
+      const isOpen = open.has(h.ref);
+      return '<tr><td class="mono">' + esc(h.ref) + '</td><td>' + esc(h.product) + '</td>' +
+        '<td class="dim">+' + esc(fmt(h.quantity)) + ' ' + esc(h.unit) + '</td>' +
+        '<td class="dim">' + summary(h.rawMaterials) + '</td><td class="dim">' + summary(h.finishingSupplies) + '</td>' +
+        '<td class="dim">' + esc(h.dateTime) + '</td><td class="dim">' + esc(h.recordedBy) + '</td>' +
+        '<td><span class="status-pill in">Confirmed</span></td>' +
+        '<td><button type="button" class="prod-link" data-view="' + esc(h.ref) + '">' + (isOpen ? 'Hide' : 'View') + '</button></td></tr>' +
+        (isOpen ? '<tr class="prod-detail"><td colspan="9"><div class="prod-scroll"><table class="prod-table"><thead><tr><th>Material</th><th>Category</th><th>Per unit</th><th>Calculated</th><th>Actual used</th><th>Stock-Out ref</th></tr></thead><tbody>' +
+          (all.length ? all.map((m) => '<tr><td>' + esc(m.name) + '</td><td class="dim">' + esc(m.department) + '</td><td class="dim">' + esc(fmt(m.perUnit)) + ' ' + esc(m.unit) + '</td>' +
+            '<td class="dim">' + esc(fmt(m.calculated)) + ' ' + esc(m.unit) + '</td><td>' + esc(fmt(m.actual)) + ' ' + esc(m.unit) + '</td><td class="mono dim">' + esc(m.movementRef || '—') + '</td></tr>').join('') : '<tr><td colspan="6" class="dim">No materials were recorded.</td></tr>') +
+          '</tbody></table></div><p class="prod-note">Finished goods Stock-In ref: <span class="mono">' + esc(h.stockInRef || '—') + '</span>' + (h.note ? ' · Note: ' + esc(h.note) : '') + '</p></td></tr>' : '');
+    }).join('');
+    body.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+      const r = b.dataset.view; if (open.has(r)) open.delete(r); else open.add(r); renderHistory();
+    }));
+  }
+
+  /* ---------- start ---------- */
+  function init() {
+    if (!$('movementForm') || !window.TripleEBridge) return;
+    if ($('reqProduct')) $('reqProduct').addEventListener('change', (e) => loadReq(e.target.value));
+    if ($('prodHistSearch')) $('prodHistSearch').addEventListener('input', renderHistory);
+    loadReqList(); loadHistory();
+    window.addEventListener('focus', () => { loadHistory(); loadReqList(); });
+  }
+
+  window.ProductionUI = { beforeSync, afterSync, isProduction, submit };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();

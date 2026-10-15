@@ -9,6 +9,7 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="production.css?v=1">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -901,7 +902,15 @@
                             </div>
 
 
-                            <div class="form-group">
+                            <div class="form-group" id="movementSourceGroup" style="display:none">
+                                <label class="form-label" for="movementSource">
+                                    Stock-In Source <span class="required-mark">*</span>
+                                </label>
+                                <select id="movementSource" class="form-select"></select>
+                                <div class="field-hint" id="movementSourceHint"></div>
+                            </div>
+
+                            <div class="form-group" id="movementReasonGroup">
                                 <label class="form-label" for="movementReason">
                                     Reason <span class="required-mark">*</span>
                                 </label>
@@ -924,6 +933,8 @@
                                     </div>
                                 </div>
                             </div>
+
+<div id="productionPreview" class="prod-preview" style="display:none"></div>
 
 <div class="form-group">
                                 <label class="form-label" for="movementRef">
@@ -990,7 +1001,7 @@
 
                             <button
                                 type="submit"
-                                class="btn-primary btn-full"
+                                class="btn-primary btn-full" id="movementSubmitBtn"
                             >
                                 Save Movement
                             </button>
@@ -1083,6 +1094,42 @@
 
                     </div>
 
+                </div>
+
+                <!-- MATERIAL REQUIREMENTS (what one finished unit needs) -->
+                <div class="panel prod-panel" id="prodReqPanel">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title">Material requirements</div>
+                            <div class="panel-sub">Raw Materials and Finishing Supplies needed to make ONE unit of a finished product. Saved once, reused for every production.</div>
+                        </div>
+                        <div class="inv-filters">
+                            <select id="reqProduct" class="inv-select"></select>
+                        </div>
+                    </div>
+                    <div id="reqBody" class="prod-body"><div class="dim">Choose a finished product to set up its materials.</div></div>
+                </div>
+
+                <!-- PRODUCTION HISTORY -->
+                <div class="panel prod-panel" id="prodHistPanel">
+                    <div class="panel-head">
+                        <div>
+                            <div class="panel-title">Production history</div>
+                            <div class="panel-sub" id="prodHistSub">Confirmed production records and the materials they used</div>
+                        </div>
+                        <div class="inv-filters">
+                            <input type="text" id="prodHistSearch" class="inv-search" placeholder="Search ref or product..." autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table>
+                            <thead><tr>
+                                <th>Ref</th><th>Finished product</th><th>Qty produced</th><th>Raw materials</th><th>Finishing supplies</th>
+                                <th>Date</th><th>Recorded by</th><th>Status</th><th></th>
+                            </tr></thead>
+                            <tbody id="prodHistBody"></tbody>
+                        </table>
+                    </div>
                 </div>
 
             </section>
@@ -3622,11 +3669,12 @@
 
     <!-- JAVASCRIPT -->
     <script src="script.js"></script>
-    <script src="api-bridge.js?v=10"></script>
+    <script src="api-bridge.js?v=11"></script>
     <script src="sales-orders.js?v=8"></script>
     <script src="cash-shift-reports.js?v=4"></script>
     <script src="refund-admin.js?v=1"></script>
     <script src="stock-count-admin.js?v=1"></script>
+    <script src="production-admin.js?v=1"></script>
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=1"></script>
 

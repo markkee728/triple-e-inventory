@@ -66,7 +66,7 @@ const ALL_DEPTS = DEPARTMENTS;
 //  Stock Out: reasons are matched to the departments where they can really happen.
 const REASON_DEPTS = {
   in: {
-    supplier_receipt: ['Raw Materials', 'Finishing Supplies'],
+    supplier_receipt: ALL_DEPTS,                       // finished goods can be bought in ready-made too
     customer_return: ['Finished Goods'],
     produced_batch: ['Finished Goods'],
     count_correction_up: ALL_DEPTS,
@@ -1046,24 +1046,35 @@ app.patch('/api/suppliers/:code/status', auth('finance'), wrap(async (req, res) 
 }));
 
 /* ---------- stock movements ---------- */
+let productionApi = null;      // set by production.js below
 app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 5000);
   const { rows } = await pool.query(
-    `SELECT m.ref, m.reason, p.name AS product, m.movement_type, m.quantity, p.unit, p.department,
+    `SELECT m.ref, m.reason, p.name AS product, m.movement_type, m.quantity, p.unit, p.department, m.source_type, m.source_id,
             COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.invoice_no, m.note,
             to_char(m.created_at AT TIME ZONE $2, 'Mon DD, HH12:MI AM') AS dt,
             to_char(m.created_at AT TIME ZONE $2, 'YYYY-MM-DD') AS d
        FROM stock_movements m JOIN products p USING (product_id) LEFT JOIN users u ON u.user_id = m.handled_by
        LEFT JOIN suppliers s ON s.supplier_id = m.supplier_id
       ORDER BY m.created_at DESC, m.movement_id DESC LIMIT $1`, [limit, TZ]);
-  res.json(rows.map(r => ({ ref: r.ref, product: r.product, type: r.movement_type, qty: +r.quantity,
-    reason: REASONS.in[r.reason] || REASONS.out[r.reason] || LEGACY_REASON_LABELS[r.reason] || r.reason,
-    unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d,
-    supplier: r.supplier || undefined, invoiceNo: r.invoice_no || undefined, note: r.note || undefined })));
+  // movements made by a confirmed production carry the production reference and the finished product they belong to
+  const prodInfo = productionApi
+    ? await productionApi.infoFor([...new Set(rows.filter(r => r.source_type === 'production').map(r => String(r.source_id)))])
+    : new Map();
+  res.json(rows.map(r => {
+    const pr = r.source_type === 'production' ? prodInfo.get(String(r.source_id)) : null;
+    return { ref: r.ref, product: r.product, type: r.movement_type, qty: +r.quantity,
+      reason: REASONS.in[r.reason] || REASONS.out[r.reason] || LEGACY_REASON_LABELS[r.reason] || r.reason,
+      unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d,
+      supplier: r.supplier || undefined, invoiceNo: r.invoice_no || undefined, note: r.note || undefined,
+      productionRef: pr ? pr.ref : undefined, relatedProduct: pr ? pr.product : undefined };
+  }));
 }));
 
 app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
   const m = validateMovement(req.body || {});
+  if (m.type === 'in' && m.reason === 'produced_batch')
+    throw new ValidationError({ reason: 'Use "Produced Internally" so the materials used are deducted automatically' });
   const result = await tx(async (client) => {
     const p = await client.query('SELECT product_id, name, department, on_hand, unit FROM products WHERE sku = $1 AND NOT is_archived FOR UPDATE', [m.sku]);
     if (!p.rowCount) throw new ValidationError({ sku: 'That product does not exist' });
@@ -1094,6 +1105,9 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
 
 /* ---------- stock count (physical inventory) ---------- */
 require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+
+/* ---------- production (material requirements, produced-internally Stock In, production history) ---------- */
+productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 
 /* ---------- users & audit (finance only) ---------- */
 app.get('/api/users', auth('finance'), wrap(async (req, res) => {
