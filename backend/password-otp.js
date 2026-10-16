@@ -1,15 +1,15 @@
 /* One-time codes for passwords: FORGOT password (not signed in) and CHANGE password (signed in).
    The person picks where the 6-digit code goes: their EMAIL or a TEXT to their registered mobile number
-   (email = mailer.js, text = sms.js / TextBee). CHANGE password needs BOTH codes (email and mobile).
+   (email = mailer.js, text = sms.js / TextBee). CHANGE password needs ONE code, sent to the email OR the mobile number (the person chooses).
 
      POST /api/auth/forgot/send     { email, channel: 'email'|'sms' }                 -> always answers the same (never says if the account exists)
      POST /api/auth/forgot/reset    { email, code, newPassword, confirmPassword }     -> checks the code, sets the new password
      POST /api/auth/password/check  { currentPassword, newPassword, confirmPassword } (signed in) -> step 1: the CURRENT password must be typed and right,
                                                                                          the new one must be valid; answers which ways the code can go (masked)
      GET  /api/auth/password/options                  (signed in)                      -> same masked options without checking anything
-     POST /api/auth/password/otp    { channel, currentPassword }   (signed in)         -> step 2: sends the code for ONE channel (call it for email and for sms; refused when the current password is wrong)
-     PUT  /api/auth/password        (in server.js)    { currentPassword, newPassword, confirmPassword, emailCode, smsCode }
-                                                                                       -> step 3: checks the current password again, then the email code AND the mobile code, then saves
+     POST /api/auth/password/otp    { channel, currentPassword }   (signed in)         -> step 2: sends the code to the chosen channel (refused when the current password is wrong)
+     PUT  /api/auth/password        (in server.js)    { currentPassword, newPassword, confirmPassword, channel, code }
+                                                                                       -> step 3: checks the current password again, then the code for that channel, then saves
 
    Codes: 6 digits, valid PASSWORD_OTP_TTL_MIN minutes (default 10), 60 s between sends, 5 sends per hour,
    5 wrong tries then a new code is needed. Only an HMAC of the code is stored. PASSWORD_OTP=off turns the
@@ -133,7 +133,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const used = await client.query('UPDATE password_otps SET used_at = now() WHERE otp_id = $1 AND used_at IS NULL RETURNING otp_id', [o.otp_id]);   // a code works once, even with two requests at the same time
     if (!used.rowCount) throw new ValidationError({ code: 'This code was already used. Ask for a new one.' });
   }
-  // CHANGE password needs a code from EVERY way this account can receive one: the email AND the mobile number (each has its own code).
+  // the ways this account can receive a CHANGE-password code (the person picks one)
   async function requiredChannels(userId) {
     const u = await loadUser('u.user_id = $1', userId);
     if (!u) return [];
@@ -211,7 +211,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     await verifyCurrent(req.user.id, req.body && req.body.currentPassword);    // no code for someone who does not know the current password
     const channel = str(req.body && req.body.channel);
     if (!CHANNELS.includes(channel)) return res.status(400).json({ error: 'Choose email or text message.' });
-    const r = await issue(u, 'change-' + channel, channel);          // one code for the email, another for the mobile number
+    const r = await issue(u, 'change-' + channel, channel);          // each channel keeps its own code, so a code sent to one cannot be used for the other
     if (!r.ok) return res.status(r.waitSeconds ? 429 : 400).json({ error: r.message, waitSeconds: r.waitSeconds || 0 });
     res.json({ ok: true, sent: r.sent, recent: !!r.recent, waitSeconds: r.waitSeconds || 0, expiresIn: r.expiresIn || 0, message: r.message || '' });
   }));
