@@ -1030,10 +1030,10 @@
   ===================================================== */
   let mode = 'customer', inviteToken = '', step = 1;
   const MIN_STEP_NAME = { 1: 'Personal', 2: 'Contact', 3: 'Security' };
-  const NAME_RE = /^\p{L}[\p{L}\p{M} .'’-]*$/u;            // letters, spaces, . ' -  (same rule as the server)
-  const NAME_MSG = "Letters, spaces, . ' and - only \u2014 no numbers or other symbols";
+  const NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;            // letters and spaces only
+  const NAME_MSG = 'Letters and spaces only \u2014 no numbers or symbols';
   // "juan DELA cruz" -> "Juan Dela Cruz" (a space typed at the end is kept so the next word can be typed)
-  const titleCase = (v) => String(v).replace(/^\s+/, '').replace(/\s{2,}/g, ' ').toLowerCase().replace(/(^|[\s.'’-])(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase());
+  const titleCase = (v) => String(v).replace(/^\s+/, '').replace(/\s{2,}/g, ' ').toLowerCase().replace(/(^|\s)(\p{L})/gu, (m, sp, ch) => sp + ch.toUpperCase());
   // 18+: latest birthdate allowed today (Feb 29 -> Feb 28 when the year 18 years ago is not a leap year)
   const adultCutoffISO = () => {
     const t = todayISO(), y = +t.slice(0, 4) - 18, md = t.slice(5), leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
@@ -1060,7 +1060,7 @@
     return {
       suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'First name must be at least 2 letters'; if (v.length > 50) return 'First name can be 50 characters at most'; return ''; },
       suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'Last name must be at least 2 letters'; if (v.length > 50) return 'Last name can be 50 characters at most'; return ''; },
-      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v && v.length < 2) return 'Middle name must be at least 2 letters'; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
+      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
       suBirth(){
         const v = $('suBirth').value; if (!v) return 'Birthdate is required';
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return 'Enter a valid birthdate';

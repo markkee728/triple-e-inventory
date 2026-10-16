@@ -161,7 +161,7 @@ a.nav-item{text-decoration:none}
           <div id="addrBox"></div>
           <div id="contactBox">
             <div class="sec-title">Contact</div>
-            <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" maxlength="20" placeholder="0917 123 4567">
+            <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" placeholder="0917 123 4567">
           </div>
           <div class="sec-title">Payment</div>
           <div class="opt-stack" id="payOpts"></div>
@@ -171,6 +171,8 @@ a.nav-item{text-decoration:none}
           <div class="row" style="margin-top:6px"><span class="dim">Subtotal</span><span class="mono" id="s1"></span></div>
           <div class="row"><span class="dim">Delivery</span><span class="mono" id="s2"></span></div>
           <div class="row total"><span>Total</span><span class="mono" id="s3"></span></div>
+          <div id="shipBlockBox" class="fulfil-note" hidden style="margin-top:14px"><b>We can't deliver there yet.</b> You can ask us for a delivery quote, or collect your order in store.
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn-primary btn-sm" id="sbQuote">Request a delivery quote</button><button type="button" class="btn-secondary btn-sm" id="sbPickup">Switch to Pickup</button></div></div>
           <button class="btn-primary btn-lg" id="place" style="margin-top:14px">Place order</button>
         </aside>
       </div>
@@ -216,7 +218,7 @@ a.nav-item{text-decoration:none}
 
           <div class="qf-sec"><span class="qf-num">3</span>Your contact details</div>
           <div class="q-grid">
-            <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="50" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
+            <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="80" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
             <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
           <div class="err-text q-formerr" id="qErr" role="alert"></div>
@@ -412,7 +414,7 @@ async function requestCancel(id, reason, details) { return api('/api/shop/orders
 
 /* ===== App ===== */
 let DELIVERY_FEE = 150, FEE_FROM = null;                 // DELIVERY_FEE: fallback rate; FEE_FROM: the lowest rate (for the "from ₱…" labels)
-let shipFee = null, shipRate = '', feeSeq = 0;            // fee for the chosen delivery address (null until a region is chosen)
+let shipFee = null, shipRate = '', shipBlock = '', shipNoCover = false, feeSeq = 0;   // shipBlock: why delivery to the chosen address is not possible (not covered / could not calculate)            // fee for the chosen delivery address (null until a region is chosen)
 const ONLINE = ['Xendit'];
 const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 const $ = id => document.getElementById(id);
@@ -592,12 +594,13 @@ function renderCheckout() {
   updateShipSummary();
   { const i = INFO || {};
     $('fulfilNote').innerHTML = fulfil === 'Delivery'
-      ? '<b>Delivery</b> · ' + (shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
+      ? '<b>Delivery</b> · ' + (shipBlock ? '<span style="color:#c0392b;font-weight:600">' + esc(shipBlock) + '</span> ' : shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
       : '<b>Pickup</b> · Free. ' + (i.address ? 'Collect at ' + esc(i.address) + '. ' : '') + (i.hours ? 'Hours: ' + esc(i.hours) + '. ' : '') + esc(i.pickupNote || '') + ' We email you when your order is ready.'; }
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${payLabel(m)}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
-  $('s1').textContent = peso(subtotal()); $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? 'Choose address' : (fee() ? peso(fee()) : 'Free'); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
+  $('s1').textContent = peso(subtotal()); $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? (shipBlock ? 'Not available' : 'Choose address') : (fee() ? peso(fee()) : 'Free'); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
+  syncBlock();
 }
 
 function updateShipSummary() {
@@ -609,21 +612,40 @@ function updateShipSummary() {
 async function refreshFee() {
   if (fulfil !== 'Delivery' || !window.ShopAddress) return;
   const place = ShopAddress.place(), seq = ++feeSeq;
-  if (!place.region && !place.province) { if (shipFee != null) { shipFee = null; shipRate = ''; renderTotals(); } return; }
+  if (!place.region && !place.province) { if (shipFee != null || shipBlock) { shipFee = null; shipRate = ''; shipBlock = ''; shipNoCover = false; renderTotals(); } return; }
   try {
     const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(place.region) + '&province=' + encodeURIComponent(place.province));
     if (seq !== feeSeq) return;                                   // a newer choice is already on its way
-    shipFee = q.fee; shipRate = q.rate || '';
-  } catch (e) { if (seq !== feeSeq) return; shipFee = DELIVERY_FEE; shipRate = ''; }   // could not ask: show the standard fee; the server still sets the real one
+    if (q.available === false) { shipFee = null; shipRate = ''; shipNoCover = true; shipBlock = 'Sorry, we do not deliver to ' + (place.province || place.region) + ' yet.'; }
+    else { shipFee = q.fee; shipRate = q.rate || ''; shipBlock = ''; shipNoCover = false; }
+  } catch (e) { if (seq !== feeSeq) return; shipFee = null; shipRate = ''; shipNoCover = false; shipBlock = 'Could not work out the delivery fee. Check your connection and choose the address again.'; }   // never guess a fee: the order stays blocked until the server answers
   renderTotals();
 }
 function renderTotals() {
   if (view !== 'checkout') return;
   const i = INFO || {};
-  if (fulfil === 'Delivery') $('fulfilNote').innerHTML = '<b>Delivery</b> · ' + (shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>';
-  $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? 'Choose address' : (fee() ? peso(fee()) : 'Free');
+  if (fulfil === 'Delivery') $('fulfilNote').innerHTML = '<b>Delivery</b> · ' + (shipBlock ? '<span style="color:#c0392b;font-weight:600">' + esc(shipBlock) + '</span> ' : shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>';
+  $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? (shipBlock ? 'Not available' : 'Choose address') : (fee() ? peso(fee()) : 'Free');
   $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
+  syncBlock();
 }
+// Delivery not possible to the chosen address: block Place order and offer a quote / pickup instead. Also resets when the customer switches to Pickup.
+function syncBlock() {
+  const blocked = fulfil === 'Delivery' && !!shipBlock;
+  $('place').disabled = blocked; $('place').title = blocked ? shipBlock : '';
+  $('shipBlockBox').hidden = !(blocked && shipNoCover);
+}
+function quoteForCart() {
+  const place = window.ShopAddress ? ShopAddress.place() : {}, first = cart[0] && prod(cart[0].sku);
+  show('quote');
+  if (first) { $('qProduct').value = first.sku; quoteProductChanged(); $('qQty').value = cart[0].qty + ' ' + first.unit; }
+  $('qDetails').value = 'Delivery quote for: ' + cart.map(l => l.qty + ' × ' + prod(l.sku).name).join('; ') + '. Delivery area: ' + [place.province, place.region].filter(Boolean).join(', ') + '.';
+  $('qDetailsCount').textContent = $('qDetails').value.length + ' / 2000';
+  const r = document.querySelector('input[name="qFulfil"][value="Delivery"]'); if (r) { r.checked = true; renderQuoteReceive(); }
+  $('qQty').focus();
+}
+$('sbQuote').onclick = quoteForCart;
+$('sbPickup').onclick = () => { const o = document.querySelector('[data-f="Pickup"]'); if (o) o.click(); };
 
 function renderHelpLines() {
   const i = INFO || {}, bits = [];
@@ -744,6 +766,7 @@ function renderOrders() {
 async function placeOrder() {
   const fail = m => { $('coErr').textContent = m; };
   if (!cart.length) return fail('Your cart is empty.');
+  if (fulfil === 'Delivery' && shipBlock) return fail(shipBlock);
   const short = cart.find(l => l.qty < minQty(prod(l.sku)));
   if (short) return fail('The minimum order for ' + prod(short.sku).name + ' is ' + minQty(prod(short.sku)) + ' ' + prod(short.sku).unit + '.');
   let phone, ship = {};
@@ -937,7 +960,7 @@ async function setAlert(sku, on) {
 /* ----- request a quote ----- */
 let QUOTES = [], QADDRS = [], qAddr = null;      // qAddr: id of the chosen saved address, 'new' = typed in, null = nothing chosen yet
 const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote sent'], closed: ['', 'Closed'] };
-const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M} .'’-]*$/u;
+const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 function qErr(field, msg) {                         // show / clear the message under one field
@@ -953,7 +976,7 @@ const QCHECK = {                                    // one rule per field; each 
   neededBy: () => { const v = $('qNeeded').value; if (!v) return ''; if (v < todayISO()) return 'The date cannot be in the past.';
     return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
   details: () => { const n = $('qDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
-  contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && v.length <= 50 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (2–50 characters: letters, spaces, . \' and -).'; },
+  contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   city: () => qAddr === 'new' && !/\p{L}/u.test($('qCity').value.trim()) ? 'Enter the city or municipality.' : '',
   barangay: () => qAddr === 'new' && !/\p{L}/u.test($('qBrgy').value.trim()) ? 'Enter the barangay.' : '',

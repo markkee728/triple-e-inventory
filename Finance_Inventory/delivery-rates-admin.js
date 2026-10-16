@@ -20,7 +20,7 @@
     <div class="panel-head">
       <div>
         <div class="panel-title">Delivery rates</div>
-        <div class="panel-sub">The delivery fee of an order depends on where it is delivered. A province rate wins over a region rate; anything not listed uses &ldquo;All other areas&rdquo;. Pickup is always free.</div>
+        <div class="panel-sub">The delivery fee of an order depends on where it is delivered. A province rate wins over a region rate; anything not listed uses &ldquo;All other areas&rdquo;. Untick &ldquo;We deliver here&rdquo; for places you do not cover: customers there cannot place a delivery order (they can still pick up). Pickup is always free.</div>
       </div>
       <div class="inv-filters">
         <button type="button" class="btn-secondary btn-sm" id="drAddRegion">Add region</button>
@@ -30,8 +30,8 @@
     </div>
     <div class="table-wrapper">
       <table>
-        <thead><tr><th>Applies to</th><th>Place</th><th style="width:150px">Fee (₱)</th><th style="width:90px"></th></tr></thead>
-        <tbody id="drBody"><tr><td colspan="4" class="faint">Loading&hellip;</td></tr></tbody>
+        <thead><tr><th>Applies to</th><th>Place</th><th style="width:110px">We deliver here</th><th style="width:150px">Fee (₱)</th><th style="width:90px"></th></tr></thead>
+        <tbody id="drBody"><tr><td colspan="5" class="faint">Loading&hellip;</td></tr></tbody>
       </table>
     </div>
     <div class="faint" id="drMsg" style="padding:10px 16px;min-height:18px"></div>`;
@@ -69,13 +69,15 @@
       return `<tr>
         <td>${r.scope === 'default' ? 'Default' : r.scope === 'region' ? 'Region' : 'Province'}</td>
         <td>${place}</td>
-        <td><input class="inv-search" type="number" min="0" max="100000" step="0.01" data-i="${i}" data-f="fee" value="${esc(r.fee)}" style="width:120px"></td>
+        <td><label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-i="${i}" data-f="available" ${r.available === false ? '' : 'checked'}> <span class="faint">${r.available === false ? 'No' : 'Yes'}</span></label></td>
+        <td><input class="inv-search" type="number" min="0" max="100000" step="0.01" data-i="${i}" data-f="fee" value="${esc(r.fee)}" style="width:120px" ${r.available === false ? 'disabled' : ''}></td>
         <td>${r.scope === 'default' ? '' : `<button type="button" class="btn-secondary btn-sm" data-del="${i}">Remove</button>`}</td></tr>`;
     }).join('');
   }
   panel.addEventListener('input', (e) => {
     const t = e.target; if (t.dataset.i == null) return;
-    rows[+t.dataset.i][t.dataset.f] = t.dataset.f === 'fee' ? t.value : t.value;
+    if (t.dataset.f === 'available') { rows[+t.dataset.i].available = t.checked; draw(); $('drMsg').textContent = ''; return; }
+    rows[+t.dataset.i][t.dataset.f] = t.value;
     $('drMsg').textContent = '';
   });
   panel.addEventListener('click', (e) => {
@@ -92,16 +94,16 @@
     for (const r of rows) {
       const fee = Number(r.fee);
       if (r.scope !== 'default' && String(r.name).trim().length < 2) { msg.textContent = 'Enter the province name for every province rate (or remove the row).'; return; }
-      if (r.fee === '' || !Number.isFinite(fee) || fee < 0) { msg.textContent = 'Enter a fee of 0 or more for ' + (r.name || 'every row') + '.'; return; }
+      if (r.available !== false && (r.fee === '' || !Number.isFinite(fee) || fee < 0)) { msg.textContent = 'Enter a fee of 0 or more for ' + (r.name || 'every row') + '.'; return; }
     }
     const btn = $('drSave'); btn.disabled = true;
     try {
-      rows = (await api('PUT', { rates: rows.map((r) => ({ scope: r.scope, name: String(r.name).trim(), fee: Number(r.fee) })) })).sort(order);
+      rows = (await api('PUT', { rates: rows.map((r) => ({ scope: r.scope, name: String(r.name).trim(), fee: Number(r.fee) || 0, available: r.available !== false })) })).sort(order);
       draw(); toast('Delivery rates saved. New orders use them right away.');
     } catch (er) { msg.textContent = er.message; }
     btn.disabled = false;
   };
 
   api('GET').then((d) => { rows = d.sort(order); draw(); })
-    .catch((er) => { if (er.status === 403) panel.remove(); else $('drBody').innerHTML = `<tr><td colspan="4" class="faint">${esc(er.message)}</td></tr>`; });
+    .catch((er) => { if (er.status === 403) panel.remove(); else $('drBody').innerHTML = `<tr><td colspan="5" class="faint">${esc(er.message)}</td></tr>`; });
 })();

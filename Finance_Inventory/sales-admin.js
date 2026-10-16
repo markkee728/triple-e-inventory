@@ -304,7 +304,7 @@
     const fin = FINAL.includes(s.next);
     return '<div class="sa-form">' +
       (s.next === 'Paid' ? '<div class="sa-banner warn">Confirm only when the payment is in (gateway approved, or cash collected). This takes the items out of stock' + '.</div>' : '') +
-      (fin ? '<label for="saRecv">' + (s.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by') + ' <span style="color:#ef7a7a">*</span></label><input type="text" id="saRecv" class="sa-in" maxlength="50" placeholder="Full name of the person" autocomplete="off"><div class="sa-err" id="saRecvErr"></div>' : '') +
+      (fin ? '<label for="saRecv">' + (s.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by') + ' <span style="color:#ef7a7a">*</span></label><input type="text" id="saRecv" class="sa-in" maxlength="80" placeholder="Full name of the person" autocomplete="off"><div class="sa-err" id="saRecvErr"></div>' : '') +
       '<label for="saNote">Note (optional)</label><textarea id="saNote" class="sa-in" maxlength="200" placeholder="e.g. rider name, plate number, remarks"></textarea>' +
       '<div class="sa-count"><span id="saNoteN">0</span> / 200</div><div class="sa-err" id="saNoteErr"></div>' +
       '<div class="sa-actions"><button type="button" class="btn-primary" id="saAdvance">' + esc(STEP_LABEL[s.next] || 'Mark as ' + s.next) + '</button>' +
@@ -368,7 +368,7 @@
       clearErr();
       const nt = note ? note.value.trim() : '', recv = $('saRecv') ? $('saRecv').value.trim().replace(/\s+/g, ' ') : '';
       if (nt.length > 200) return fieldErr('saNote', 'saNoteErr', 'The note must be 200 characters or fewer');
-      if (FINAL.includes(s.next) && (recv.length < 2 || recv.length > 50 || !/^\p{L}[\p{L}\p{M} .'’-]*$/u.test(recv))) return fieldErr('saRecv', 'saRecvErr', 'Enter the name of the person (2\u201350 characters: letters, spaces, . \' and -)');
+      if (FINAL.includes(s.next) && (recv.length < 2 || recv.length > 80)) return fieldErr('saRecv', 'saRecvErr', 'Enter the name of the person (2\u201380 characters)');
       const go = () => run(s.ref + ' is now ' + s.next + '.', () => post('/orders/' + encodeURIComponent(s.ref) + '/status', { status: s.next, note: nt, receivedBy: recv }));
       if (s.next === 'Paid') ask('Confirm payment for ' + s.ref + ' (' + peso(s.total) + ')? Stock will be deducted for ' + s.items.length + ' item(s).', 'Yes, confirm payment', go);
       else go();

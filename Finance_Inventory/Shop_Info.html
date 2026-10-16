@@ -150,7 +150,7 @@ fetch('/api/shop/info').then(r => r.ok ? r.json() : Promise.reject()).then(d => 
   if (R && (R.regions.length || R.provinces.length)) {
     const esc = (v) => String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
     const fee = (n) => n > 0 ? peso(n) : 'Free';
-    const line = (r) => '<tr><td style="padding:2px 14px 2px 0">' + esc(r.name) + '</td><td style="text-align:right;font-variant-numeric:tabular-nums">' + fee(r.fee) + '</td></tr>';
+    const line = (r) => '<tr><td style="padding:2px 14px 2px 0">' + esc(r.name) + '</td><td style="text-align:right;font-variant-numeric:tabular-nums">' + (r.available === false ? 'Not available' : fee(r.fee)) + '</td></tr>';
     $('vFee').innerHTML = 'Per order. The fee depends on where we deliver (your province first, then your region).'
       + '<table style="margin-top:8px;border-collapse:collapse">'
       + (R.provinces.length ? '<tr><th colspan="2" style="text-align:left;padding-top:4px">By province</th></tr>' + R.provinces.map(line).join('') : '')

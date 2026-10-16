@@ -10,25 +10,26 @@ const VAT_RATE = 0.12;
 const DELIVERY_FEE = Number(process.env.DELIVERY_FEE) || 150;
 // Starting rates, written to the delivery_rates table the first time the server runs. Finance can change every one of them afterwards.
 const DEFAULT_DELIVERY_RATES = [
-  ['default', 'All other areas', DELIVERY_FEE],
-  ['region', 'NCR - National Capital Region', 150],
-  ['region', 'Region III - Central Luzon', 250],
-  ['region', 'Region IV-A - CALABARZON', 250],
-  ['region', 'CAR - Cordillera Administrative Region', 350],
-  ['region', 'Region I - Ilocos Region', 350],
-  ['region', 'Region II - Cagayan Valley', 350],
-  ['region', 'MIMAROPA - Region IV-B', 350],
-  ['region', 'Region V - Bicol Region', 350],
-  ['region', 'Region VI - Western Visayas', 450],
-  ['region', 'NIR - Negros Island Region', 450],
-  ['region', 'Region VII - Central Visayas', 450],
-  ['region', 'Region VIII - Eastern Visayas', 450],
-  ['region', 'Region IX - Zamboanga Peninsula', 550],
-  ['region', 'Region X - Northern Mindanao', 550],
-  ['region', 'Region XI - Davao Region', 550],
-  ['region', 'Region XII - SOCCSKSARGEN', 550],
-  ['region', 'Region XIII - Caraga', 550],
-  ['region', 'BARMM - Bangsamoro Autonomous Region', 550]
+  // [scope, place, fee, do we deliver here?]  Starting coverage: NCR and the provinces next to it. Finance changes this in Sales > Orders > Delivery rates.
+  ['default', 'All other areas', DELIVERY_FEE, false],
+  ['region', 'NCR - National Capital Region', 150, true],
+  ['region', 'Region III - Central Luzon', 250, true],
+  ['region', 'Region IV-A - CALABARZON', 250, true],
+  ['region', 'CAR - Cordillera Administrative Region', 350, false],
+  ['region', 'Region I - Ilocos Region', 350, false],
+  ['region', 'Region II - Cagayan Valley', 350, false],
+  ['region', 'MIMAROPA - Region IV-B', 350, false],
+  ['region', 'Region V - Bicol Region', 350, false],
+  ['region', 'Region VI - Western Visayas', 450, false],
+  ['region', 'NIR - Negros Island Region', 450, false],
+  ['region', 'Region VII - Central Visayas', 450, false],
+  ['region', 'Region VIII - Eastern Visayas', 450, false],
+  ['region', 'Region IX - Zamboanga Peninsula', 550, false],
+  ['region', 'Region X - Northern Mindanao', 550, false],
+  ['region', 'Region XI - Davao Region', 550, false],
+  ['region', 'Region XII - SOCCSKSARGEN', 550, false],
+  ['region', 'Region XIII - Caraga', 550, false],
+  ['region', 'BARMM - Bangsamoro Autonomous Region', 550, false]
 ];
 // "Region IV-A - CALABARZON" and "region iv-a" are the same region; provinces compare on their plain name
 const rateKey = (scope, name) => {
@@ -536,32 +537,43 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         fee        NUMERIC(10,2) NOT NULL CHECK (fee >= 0),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_delivery_rates ON delivery_rates (scope, lower(name))');
-      const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM delivery_rates');
-      if (!rows[0].n) for (const [scope, name, fee] of DEFAULT_DELIVERY_RATES)
-        await pool.query('INSERT INTO delivery_rates (scope, name, fee) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [scope, name, fee]);
+      // available = false means "we do not deliver here" (checkout blocks it and the server refuses the order)
+      const hadFlag = (await pool.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'delivery_rates' AND column_name = 'available'`)).rowCount > 0;
+      await pool.query('ALTER TABLE delivery_rates ADD COLUMN IF NOT EXISTS available BOOLEAN NOT NULL DEFAULT true');
+      const { rows } = await pool.query(`SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE scope <> 'default')::int AS places FROM delivery_rates`);
+      // empty table -> seed everything; only the "all other areas" row (older installs) -> add the starting region rates, otherwise every region pays the default
+      if (!rows[0].n || !rows[0].places) for (const [scope, name, fee, available] of DEFAULT_DELIVERY_RATES)
+        await pool.query('INSERT INTO delivery_rates (scope, name, fee, available) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING', [scope, name, fee, available]);
+      // Upgrading from the version that had no coverage setting: apply the starting coverage once (province rows are left as they are)
+      if (!hadFlag) {
+        const cover = new Set(DEFAULT_DELIVERY_RATES.filter((r) => r[0] === 'region' && r[3]).map((r) => rateKey('region', r[1])));
+        const all = (await pool.query('SELECT rate_id, scope, name FROM delivery_rates')).rows;
+        for (const r of all) if (r.scope !== 'province')
+          await pool.query('UPDATE delivery_rates SET available = $2 WHERE rate_id = $1', [r.rate_id, r.scope === 'region' && cover.has(rateKey('region', r.name))]);
+      }
     } catch (err) { console.warn('[db] could not prepare the delivery rates table:', err.message); }
   }
   const deliveryRatesReady = ensureDeliveryRates();
-  const rateRows = async (db) => { await deliveryRatesReady; try { return (await (db || pool).query('SELECT rate_id, scope, name, fee FROM delivery_rates ORDER BY scope, name')).rows; } catch { return []; } };
+  const rateRows = async (db) => { await deliveryRatesReady; try { return (await (db || pool).query('SELECT rate_id, scope, name, fee, available FROM delivery_rates ORDER BY scope, name')).rows; } catch { return []; } };
   // Most specific rate wins: province, then region, then the "all other areas" rate, then DELIVERY_FEE from .env
   async function deliveryFeeFor(db, { region, province } = {}) {
     const rows = await rateRows(db);
     const hit = (scope, name) => name ? rows.find((r) => r.scope === scope && rateKey(scope, r.name) === rateKey(scope, name)) : null;
     const prov = hit('province', province);
-    if (prov) return { fee: +prov.fee, rate: prov.name, scope: 'province' };
+    if (prov) return { fee: +prov.fee, rate: prov.name, scope: 'province', available: prov.available !== false };
     const reg = hit('region', region);
-    if (reg) return { fee: +reg.fee, rate: reg.name, scope: 'region' };
+    if (reg) return { fee: +reg.fee, rate: reg.name, scope: 'region', available: reg.available !== false };
     const def = rows.find((r) => r.scope === 'default');
-    return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default' };
+    return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default', available: def ? def.available !== false : true };
   }
   const ratesSummary = async () => {
     const rows = await rateRows();
-    const fees = rows.map((r) => +r.fee);
+    const fees = rows.filter((r) => r.available !== false).map((r) => +r.fee);
     return { fallback: (rows.find((r) => r.scope === 'default') || {}).fee != null ? +rows.find((r) => r.scope === 'default').fee : DELIVERY_FEE,
       from: fees.length ? Math.min(...fees) : DELIVERY_FEE, to: fees.length ? Math.max(...fees) : DELIVERY_FEE,
-      defaultRate: rows.filter((r) => r.scope === 'default').map((r) => ({ name: r.name, fee: +r.fee }))[0] || { name: 'All other areas', fee: DELIVERY_FEE },
-      regions: rows.filter((r) => r.scope === 'region').map((r) => ({ name: r.name, fee: +r.fee })),
-      provinces: rows.filter((r) => r.scope === 'province').map((r) => ({ name: r.name, fee: +r.fee })) };
+      defaultRate: rows.filter((r) => r.scope === 'default').map((r) => ({ name: r.name, fee: +r.fee, available: r.available !== false }))[0] || { name: 'All other areas', fee: DELIVERY_FEE, available: true },
+      regions: rows.filter((r) => r.scope === 'region').map((r) => ({ name: r.name, fee: +r.fee, available: r.available !== false })),
+      provinces: rows.filter((r) => r.scope === 'province').map((r) => ({ name: r.name, fee: +r.fee, available: r.available !== false })) };
   };
 
   /* ---------- shared helpers ---------- */
@@ -1049,7 +1061,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const region = str(req.query.region), province = str(req.query.province);
     if (!region && !province) throw bad('region', 'Choose the delivery region first');
     const q = await deliveryFeeFor(pool, { region, province });
-    res.json({ fee: q.fee, rate: q.rate, scope: q.scope });
+    res.json({ fee: q.fee, rate: q.rate, scope: q.scope, available: q.available });
   }));
   // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
   app.get('/api/shop/info', wrap(async (req, res) => {
@@ -1060,7 +1072,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* ---------- delivery rates: Finance manages them ---------- */
   app.get('/api/delivery-rates', auth('finance'), wrap(async (req, res) => {
     const rows = await rateRows();
-    res.json(rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee })));
+    res.json(rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee, available: r.available !== false })));
   }));
   // Replaces the whole rate list in one go (the admin table sends every row)
   app.put('/api/delivery-rates', auth('finance'), wrap(async (req, res) => {
@@ -1074,16 +1086,16 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (!Number.isFinite(fee) || fee < 0 || fee > 100000) throw bad('rates', 'The fee for ' + name + ' must be between 0 and 100,000');
       const key = scope + '|' + rateKey(scope, name);
       if (seen.has(key)) throw bad('rates', name + ' is listed twice');
-      seen.add(key); clean.push({ scope, name, fee: round2(fee) });
+      seen.add(key); clean.push({ scope, name, fee: round2(fee), available: !(r && r.available === false) });
     }
     if (clean.filter((r) => r.scope === 'default').length !== 1) throw bad('rates', 'There must be exactly one "all other areas" rate');
     await deliveryRatesReady;
     await tx(async (client) => {
       await client.query('DELETE FROM delivery_rates');
-      for (const r of clean) await client.query('INSERT INTO delivery_rates (scope, name, fee) VALUES ($1,$2,$3)', [r.scope, r.name, r.fee]);
+      for (const r of clean) await client.query('INSERT INTO delivery_rates (scope, name, fee, available) VALUES ($1,$2,$3,$4)', [r.scope, r.name, r.fee, r.available]);
       await audit(client, req.user, 'Record edited', 'Delivery rates updated (' + clean.length + ' rates)');
     });
-    res.json(await rateRows().then((rows) => rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee }))));
+    res.json(await rateRows().then((rows) => rows.map((r) => ({ id: r.rate_id, scope: r.scope, name: r.name, fee: +r.fee, available: r.available !== false }))));
   }));
 
   /* ---------- refunds (shared by the customer and finance routes) ---------- */
@@ -1236,7 +1248,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const items = await loadSellable(client, lines, { lock: false });
       if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);   // minimum order per product
       const subtotal = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
-      const fee = fulfillment === 'Delivery' ? (await deliveryFeeFor(client, ship)).fee : 0;   // by the delivery address' province / region
+      let fee = 0;
+      if (fulfillment === 'Delivery') {                       // by the delivery address' province / region
+        const q = await deliveryFeeFor(client, ship);
+        if (!q.available) throw bad('region', `Sorry, we do not deliver to ${ship.province || ship.region} yet. Choose another address or pick up in store.`);
+        fee = q.fee;
+      }
       const ins = await client.query(
         `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
                              recipient_name, address_line, landmark, barangay, city, province, region, zip_code)

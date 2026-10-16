@@ -655,10 +655,18 @@
   }
 
   const OUTSIDE_PH = 'Outside the Philippines';
-  const PHONE_MSG = 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
-  function phoneError(raw) {                                  // mobile numbers only (no landlines)
-    if (/[^\d+\s().-]/.test(raw)) return 'Mobile number can only have digits, +, spaces and dashes';
-    return /^(\+63|0)9\d{9}$/.test(raw.replace(/[\s().-]/g, '')) ? '' : PHONE_MSG;
+  const PHONE_MSG = 'Phone number must start with +63 or 09, e.g. +63 917 123 4567 or 0917 123 4567';
+  function phoneError(raw) {
+    if (/[^\d+\s().-]/.test(raw)) return 'Phone number can only have digits, +, spaces and dashes';
+    const p = raw.replace(/[\s().-]/g, '');
+    if (p.indexOf('+63') === 0) {
+      const r = p.slice(3);
+      if (!/^\d+$/.test(r)) return PHONE_MSG;
+      if (r[0] === '9') return r.length === 10 ? '' : 'A +63 mobile number needs 10 digits after +63, e.g. +63 917 123 4567';
+      return r.length >= 9 && r.length <= 10 ? '' : PHONE_MSG;
+    }
+    if (p.indexOf('09') === 0) return /^09\d{9}$/.test(p) ? '' : 'A 09 mobile number needs 11 digits, e.g. 0917 123 4567';
+    return PHONE_MSG;
   }
   const EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
   function zipError(zip, region) {
@@ -1082,6 +1090,7 @@
     const d = otherSuppliers().find((x) => x.phone && phoneKey(x.phone) === phoneKey(v));
     return d && !(mine && phoneKey(mine.phone) === phoneKey(v)) ? 'This phone number is already used by ' + d.name : '';
   }
+  const CONTACT_PERSON_RE = /^[A-Za-z][A-Za-z .,'’-]*$/;
 
   function setupSupplierModal() {
     const overlay = $('newSupplierModalOverlay'), form = $('newSupplierForm');
@@ -1105,14 +1114,14 @@
       const name = T('newSupplierName', 'Supplier name', { min: 2 });
       if (name && !errs.newSupplierName) errs.newSupplierName = (!/[A-Za-z]/.test(name) ? 'Supplier name must contain letters' : supplierDup('name', name)) || undefined;
       if (!errs.newSupplierName) delete errs.newSupplierName;
-      const contactPerson = titleCase(clean($('newSupplierContactPerson').value));
-      { const m = personNameMsg(contactPerson, 'Contact person', false); if (m) errs.newSupplierContactPerson = m; }
-      const phone = vText(errs, 'newSupplierPhone', 'Mobile number', { min: 7, max: 30, required: false });
+      const contactPerson = T('newSupplierContactPerson', 'Contact person', { min: 2, max: 80, required: false });
+      if (contactPerson && !errs.newSupplierContactPerson && !CONTACT_PERSON_RE.test(contactPerson)) errs.newSupplierContactPerson = 'Contact person can only have letters, spaces, . , \' and -';
+      const phone = vText(errs, 'newSupplierPhone', 'Phone number', { min: 7, max: 30, required: false });
       if (phone && !errs.newSupplierPhone && !phoneUnchanged()) { const m = phoneError(phone) || supplierDup('phone', phone); if (m) errs.newSupplierPhone = m; }
       const email = vText(errs, 'newSupplierEmail', 'Email', { min: 5, max: 120, required: false }).toLowerCase();
       if (email && !errs.newSupplierEmail && !emailUnchanged() && !EMAIL_FORMAT.test(email)) errs.newSupplierEmail = 'Enter a valid email address, e.g. name@company.com';
       if (email && !errs.newSupplierEmail && supplierDup('email', email)) errs.newSupplierEmail = supplierDup('email', email);
-      if (!phone && !email) { errs.newSupplierPhone = errs.newSupplierPhone || 'Enter a mobile number or an email address'; errs.newSupplierEmail = errs.newSupplierEmail || 'Enter a mobile number or an email address'; }
+      if (!phone && !email) { errs.newSupplierPhone = errs.newSupplierPhone || 'Enter a phone number or an email address'; errs.newSupplierEmail = errs.newSupplierEmail || 'Enter a phone number or an email address'; }
       const address = T('newSupplierAddress', 'Warehouse address', { min: 5, max: 150 });
       const outside = isOutsidePH();
       const sameAddr = addressUnchanged();
@@ -1378,17 +1387,6 @@
   };
   const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
-  // one rule for every person's name: 2-50 characters, letters / space / . ' - (same as the server)
-  const PERSON_RE = /^\p{L}[\p{L}\p{M} .'’-]*$/u;
-  const personNameMsg = (raw, label, required = true) => {
-    const v = clean(raw);
-    if (!v) return required ? label + ' is required' : '';
-    if (v.length < 2) return label + ' must be at least 2 characters';
-    if (v.length > 50) return label + ' must be at most 50 characters';
-    if (!PERSON_RE.test(v)) return label + " can only have letters, spaces, . ' and -";
-    return (v.match(/\p{L}/gu) || []).length < 2 ? label + ' must have at least 2 letters' : '';
-  };
-  const personRule = (id, label, required = true) => () => personNameMsg($(id).value, label, required);
   const textRule = (id, label, o) => () => { const e = {}; vText(e, id, label, o); return e[id] || ''; };
   const numRule = (id, label, o) => () => { const e = {}; vNum(e, id, label, o); return e[id] || ''; };
   const selectRule = (id, msg) => () => ($(id) && $(id).value ? '' : msg);
@@ -1450,12 +1448,15 @@
         return !/[A-Za-z]/.test(v) ? 'Supplier name must contain letters' : supplierDup('name', v);
       },
       newSupplierContactPerson: () => {
-        return personNameMsg($('newSupplierContactPerson').value, 'Contact person', false);
+        const m = textRule('newSupplierContactPerson', 'Contact person', { min: 2, max: 80, required: false })();
+        if (m) return m;
+        const v = clean($('newSupplierContactPerson').value);
+        return v && !CONTACT_PERSON_RE.test(v) ? 'Contact person can only have letters, spaces, . , \' and -' : '';
       },
       newSupplierPhone: () => {
-        const e = {}; const v = vText(e, 'newSupplierPhone', 'Mobile number', { min: 7, max: 30, required: false });
+        const e = {}; const v = vText(e, 'newSupplierPhone', 'Phone number', { min: 7, max: 30, required: false });
         if (e.newSupplierPhone) return e.newSupplierPhone;
-        if (!v) return clean($('newSupplierEmail').value) ? '' : 'Enter a mobile number or an email address';
+        if (!v) return clean($('newSupplierEmail').value) ? '' : 'Enter a phone number or an email address';
         return phoneUnchanged() ? '' : (phoneError(v) || supplierDup('phone', v));
       },
       newSupplierEmail: () => {
@@ -1497,10 +1498,10 @@
       },
       newSupplierProducts: () => $('newSupplierProducts').querySelector('.prod-check:checked') ? '' : 'Tick at least one product this supplier provides',
       /* users */
-      inviteName: personRule('inviteName', 'Full name'),
+      inviteName: textRule('inviteName', 'Full name', { min: 2, max: 100 }),
       inviteEmail: emailRule('inviteEmail'),
       inviteRole: selectRule('inviteRole', 'Choose a role'),
-      editUserName: personRule('editUserName', 'Full name'),
+      editUserName: textRule('editUserName', 'Full name', { min: 2, max: 100 }),
       editUserEmail: emailRule('editUserEmail'),
       editUserRole: selectRule('editUserRole', 'Choose a role')
     });
@@ -2393,13 +2394,14 @@
       const e = {};
       if (!v.name) e.profileName = 'Full name is required';
       else if (v.name.length < 2) e.profileName = 'Full name must be at least 2 characters';
-      else if (v.name.length > 50) e.profileName = 'Full name must be at most 50 characters';
+      else if (v.name.length > 100) e.profileName = 'Full name must be at most 100 characters';
       else if (!NAME_RE.test(v.name)) e.profileName = "Full name can only have letters, spaces, . ' and -";
       if (!v.email) e.profileEmail = 'Email is required';
       else if (v.email.length > 254 || !EMAIL_FORMAT.test(v.email)) e.profileEmail = 'Enter a valid email address';
       else if (emailTaken && emailTaken.email === v.email && emailTaken.taken) e.profileEmail = 'That email is already used by another account';
       else if (emailTaken && emailTaken.email === v.email && emailTaken.domainMsg) e.profileEmail = emailTaken.domainMsg;
-      if (!v.phone) e.profilePhone = 'Mobile number is required';
+      if (!v.phone) e.profilePhone = 'Phone number is required';
+      else if (v.phone.length < 7) e.profilePhone = 'Phone number must be at least 7 characters';
       else { const m = phoneError(v.phone); if (m) e.profilePhone = m; }
       return e;
     }
