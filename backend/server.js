@@ -17,6 +17,12 @@ const pool = new Pool(process.env.DATABASE_URL
       database: process.env.DB_NAME
     });
 
+// Safety net: a database hiccup (dropped connection, wrong password, database not ready yet) must be LOGGED, not kill the server.
+// Without these, Node 22 exits on the first unhandled error and Cloud Run reports "container failed to start".
+pool.on('error', (err) => console.error('[db] pool error (idle client):', err.message));
+process.on('unhandledRejection', (err) => console.error('[server] unhandled rejection:', err && err.stack || err));
+process.on('uncaughtException', (err) => console.error('[server] uncaught exception:', err && err.stack || err));
+
 const app = express();
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
@@ -684,19 +690,8 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT u.*, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.email = $1`, [email]);
   const u = rows[0];
-  const lock = app.locals.lockout;                           // login-lockout.js (3 wrong passwords -> locked until the emailed link + countdown)
-  if (u && u.status === 'active' && lock) {
-    const st = await lock.state(u.user_id);
-    if (st.locked) return res.status(423).json(st.cooling
-      ? { code: 'LOCK_COOLDOWN', secondsLeft: st.secondsLeft, error: 'Your account is unlocking. Please wait for the countdown to finish.' }
-      : { code: 'LOCKED', error: 'Your account is locked after too many wrong passwords. Open the unlock link we emailed you.' });
-  }
-  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash))) {
-    if (u && u.status === 'active' && lock && (await lock.fail(u, req)).locked)
-      return res.status(423).json({ code: 'LOCKED', justLocked: true, error: 'Too many wrong passwords. Your account is locked. We emailed you an unlock link.' });
+  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash)))
     return res.status(401).json({ error: 'Invalid email or password' });
-  }
-  if (lock) await lock.success(u.user_id);
   // customers must have confirmed BOTH their email and their mobile number (only said after the password is right).
   // Older accounts were marked verified when these checks were added.
   if (u.role_key === 'customer') {
@@ -853,11 +848,9 @@ app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   const row = (await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.id])).rows[0];
   if (!row || !(await bcrypt.compare(cur, row.password_hash))) throw new ValidationError({ currentPassword: 'Current password is incorrect' });
   const hash = await bcrypt.hash(next, 12);
-  const needCode = app.locals.passwordOtp && app.locals.passwordOtp.enabledForChange();     // PASSWORD_OTP=off in .env skips the code
   await tx(async (client) => {
-    if (needCode) await app.locals.passwordOtp.consume(client, req.user.id, 'change', b.code);   // 6-digit code sent by email or text
     await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
-    await audit(client, req.user, 'Profile updated', 'Changed password' + (needCode ? ' (with a one-time code)' : ''));
+    await audit(client, req.user, 'Profile updated', 'Changed password');
   });
   res.json({ ok: true });
 }));
@@ -1351,8 +1344,6 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
 require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON, emailVerificationOn: EMAIL_VERIFICATION_ON });
-require('./login-lockout')({ app, pool, wrap, audit, str, EMAIL_RE });   // lock after 3 wrong passwords, unlock by emailed link + 2-minute countdown
-require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, str, EMAIL_RE });   // forgot / change password codes by email or text
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
