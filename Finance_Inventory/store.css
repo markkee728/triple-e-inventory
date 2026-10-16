@@ -130,7 +130,19 @@ html[data-theme="light"] .in-cart-note{color:#17794a}
   .shop-tools select{flex:1;min-width:0}
   .track .st{font-size:11px}
 }
-@media(max-width:420px){.shop-grid{grid-template-columns:1fr}}
+@media(max-width:420px){.shop-grid{grid-template-columns:1fr}
+  .track .st{font-size:10.5px;padding:0 1px;overflow-wrap:anywhere}.track .st .pt{width:20px;height:20px}.track .st::before{top:9px}
+  .order{padding:14px}.order-head .id{font-size:14.5px}}
+/* small phones / any narrow screen: nothing may push the page wider than the screen */
+@media(max-width:700px){
+  .perk{white-space:normal}.hero-perks{gap:8px}
+  .page-head h1,.hero h1{overflow-wrap:anywhere}
+  .order-meta,.refund-box,.cancel-note,.fulfil-note,.ship-to,.sum-ship{overflow-wrap:anywhere}
+  .cart-line .t,.cart-line .s{overflow-wrap:anywhere}
+  .row.total{font-size:22px}
+  .quote-cta .btn-secondary{width:100%}
+  .rev-bars{min-width:0;max-width:none;flex-basis:100%}
+}
 /* ===== delivery address (shop-address.js) ===== */
 .addr-list{display:grid;gap:10px;margin-bottom:12px}
 .addr-card{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--field);cursor:pointer;transition:border-color .15s,background .15s}

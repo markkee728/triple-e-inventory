@@ -651,7 +651,10 @@ table {
     width: 100%;
 
     border-collapse: collapse;
+}
 
+/* only tables inside a scrolling .table-wrapper keep a minimum width; small tables in pop-ups etc. shrink to fit the screen */
+.table-wrapper table {
     min-width: 650px;
 }
 
@@ -4060,7 +4063,9 @@ body.sidebar-collapsed .sidebar { margin-left: -248px; }
     /* tables scroll sideways inside their own box instead of squashing */
     .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; margin-left: -4px; margin-right: -4px; }
     .table-wrapper table { min-width: 620px; }
-    thead th, tbody td { padding-left: 12px; padding-right: 12px; white-space: nowrap; }
+    thead th, tbody td { padding-left: 12px; padding-right: 12px; }
+    .table-wrapper thead th, .table-wrapper tbody td { white-space: nowrap; }
+    .modal-overlay table td, .modal-overlay table th { overflow-wrap: anywhere; }
 
     .catalog-actions { width: 100%; }
     .catalog-actions > * { flex: 1 1 140px; }

@@ -126,6 +126,7 @@ html[data-theme="light"] .user-dropdown-item.logout,html[data-theme="light"] .us
 .line .bot{display:flex;justify-content:space-between;align-items:center;margin-top:8px}
 .pay{padding:14px 18px 18px;border-top:1px solid var(--border);background:var(--panel)}
 .row{display:flex;justify-content:space-between;gap:12px;padding:3px 0}
+.row>span:first-child{min-width:0;overflow-wrap:anywhere}.row>.mono,.row>span:last-child{flex:none;white-space:nowrap}
 .row.total{font-family:"Oswald",sans-serif;font-weight:600;font-size:26px;border-top:1px dashed var(--border);margin-top:8px;padding-top:10px;letter-spacing:.3px}
 .row.total .mono{font-family:"Oswald",sans-serif}
 .seg{display:flex;gap:8px;margin:12px 0 6px}
@@ -207,8 +208,11 @@ html[data-theme="light"] .status-pill.low,html[data-theme="light"] .status-pill.
 html[data-theme="light"] .status-pill.out,html[data-theme="light"] .status-pill.bad{color:#b02a2a}
 
 /* table */
-.table-wrapper{width:100%;overflow-x:auto}
-table{width:100%;border-collapse:collapse;min-width:620px}
+/* Only tables that sit in a .table-wrapper keep a minimum width (they scroll sideways inside it).
+   Any other table (receipt, help page, small lists) shrinks to the screen instead of stretching the whole page. */
+.table-wrapper{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-x:contain}
+table{width:100%;border-collapse:collapse}
+.table-wrapper table{min-width:620px}
 thead th{text-align:left;font-family:"IBM Plex Mono",monospace;font-size:12.5px;letter-spacing:1.1px;text-transform:uppercase;color:var(--text-faint);padding:8px 10px;border-bottom:1px solid var(--border);font-weight:500;white-space:nowrap}
 thead th.r{text-align:right}
 tbody td{padding:11px 10px;border-bottom:1px solid var(--row-line)}
@@ -385,6 +389,8 @@ html[data-theme="light"] .chip-pill.bad{color:#b02a2a}
 
 /* phones */
 @media(max-width:700px){
+  .qty button{width:40px;height:38px}                       /* easier to tap */
+  .icon-btn{width:38px;height:38px}
   .content{padding:14px 12px 96px}
   .panel{padding:14px;border-radius:12px}
   .topbar{padding:10px 12px;gap:10px}

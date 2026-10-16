@@ -335,8 +335,9 @@ a.nav-item{text-decoration:none}
 .pd-perks{display:grid;gap:8px;margin-top:6px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--inset);font-size:13.5px;color:var(--text-dim)}
 .pd-perks div{display:flex;gap:8px;align-items:center}.pd-perks .ico{width:16px;height:16px;color:var(--green);vertical-align:0;flex:none}
 .pd-tabs{grid-column:1/-1;border-top:1px solid var(--border);padding:0 26px 26px}
-.pd-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px}
-.pd-tab{padding:14px 16px 12px;border:0;border-bottom:3px solid transparent;background:none;color:var(--text-dim);font-weight:600;font-size:14.5px;cursor:pointer;margin-bottom:-1px}
+.pd-tabbar{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.pd-tabbar::-webkit-scrollbar{display:none}
+.pd-tab{white-space:nowrap;flex:none;padding:14px 16px 12px;border:0;border-bottom:3px solid transparent;background:none;color:var(--text-dim);font-weight:600;font-size:14.5px;cursor:pointer;margin-bottom:-1px}
 .pd-tab.on{color:var(--text);border-bottom-color:var(--blue-bright)}
 .pd-panel[hidden]{display:none}
 .pd-desc{white-space:pre-line;line-height:1.7;font-size:15px;color:var(--text);max-width:70ch}
@@ -345,6 +346,7 @@ a.nav-item{text-decoration:none}
 .pd-specs dt,.pd-specs dd{margin:0;padding:10px 14px;border-bottom:1px solid var(--row-line,var(--border))}
 .pd-specs dt{font-weight:600;background:var(--inset);color:var(--text-dim)}
 .pd-specs dt:nth-last-child(2),.pd-specs dd:last-child{border-bottom:0}
+.pd-specs dt,.pd-specs dd{overflow-wrap:anywhere;min-width:0}.pd-info h2,.pd-short{overflow-wrap:anywhere}
 @media(max-width:760px){
   .pd-grid{grid-template-columns:1fr}
   .pd-dialog{max-height:94vh;border-radius:18px 18px 0 0}
@@ -731,14 +733,30 @@ const RCPT_CSS = `
 .rcpt-items table{width:100%;border-collapse:collapse}
 .rcpt-items th{font-size:11px;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#7a8794;text-align:left;padding:10px 0 6px;border-bottom:1px solid #dfe5ec}
 .rcpt-items td{padding:9px 0;border-bottom:1px solid #eef1f5;vertical-align:top}
-.rcpt-items .r{text-align:right;white-space:nowrap}
+.rcpt-items .r{text-align:right;white-space:nowrap;padding-left:14px}
 .rcpt-items .qty{color:#5b6877;white-space:nowrap;padding-right:10px}
+.rcpt-items td.qty{display:table-cell;border:0;border-bottom:1px solid #eef1f5;border-radius:0;overflow:visible}   /* the shop's .qty stepper style must not box this cell */
 .rcpt-tot{margin:6px 22px 0;padding:12px 0 6px}
 .rcpt-tot div{display:flex;justify-content:space-between;padding:3px 0;color:#5b6877}
 .rcpt-tot .grand{margin-top:6px;padding:12px 14px;background:#f1f6fb;border-radius:10px;color:#16202b;font-weight:700;font-size:17px;align-items:center}
 .rcpt-tot .grand span:last-child{font-family:"IBM Plex Mono",monospace;color:#1f5fa8}
 .rcpt-foot{text-align:center;padding:12px 22px 16px;font-size:12.5px;color:#7a8794;border-top:1px dashed #cfd7e0;margin-top:10px}
 .rcpt-foot b{display:block;color:#16202b;font-size:14px;margin-bottom:2px}
+.rcpt-items table{min-width:0;table-layout:auto}
+.rcpt-items td:nth-child(2){overflow-wrap:anywhere;padding-right:8px}
+.rcpt-tot div span:first-child{min-width:0;overflow-wrap:anywhere;padding-right:10px}.rcpt-tot div span:last-child{white-space:nowrap}
+@media(max-width:480px){
+  .rcpt-items thead{display:none}
+  .rcpt-items table,.rcpt-items tbody{display:block;width:100%}
+  .rcpt-items tr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;grid-template-areas:"qty name amt" "qty each amt";column-gap:10px;padding:10px 0;border-bottom:1px solid #eef1f5}
+  .rcpt-items tr:last-child{border-bottom:0}
+  .rcpt-items td{display:block;padding:0;border:0}
+  .rcpt-items td.qty{display:block;border:0;grid-area:qty;padding-right:0;font-weight:600}
+  .rcpt-items td:nth-child(2){grid-area:name;padding-right:0}
+  .rcpt-items td:nth-child(3){grid-area:each;text-align:left;padding-left:0;font-size:12.5px;color:#7a8794;white-space:normal}
+  .rcpt-items td:nth-child(3)::after{content:" each"}
+  .rcpt-items td:nth-child(4){grid-area:amt;padding-left:0;font-weight:600;align-self:start}
+}
 @media(max-width:420px){.rcpt-meta{grid-template-columns:1fr}.rcpt-head,.rcpt-meta,.rcpt-items{padding-left:16px;padding-right:16px}.rcpt-tot{margin-left:16px;margin-right:16px}}
 `;
 (function () { const st = document.createElement('style'); st.textContent = RCPT_CSS; document.head.appendChild(st); })();
