@@ -161,14 +161,7 @@
             '<div class="acct-strength-label" id="acctStrengthLabel">Strength: —</div></div>' +
           '<div class="acct-group"><label class="acct-label" for="acctConfPw">Confirm New Password</label>' +
             '<input type="password" class="acct-input" id="acctConfPw" placeholder="Re-enter new password" autocomplete="new-password"></div>' +
-          '<div class="acct-group" id="acctOtpGroup" style="display:none"><label class="acct-label" for="acctOtpCode">Verification code</label>' +
-            '<div id="acctOtpChannels" style="display:flex;flex-direction:column;gap:6px;margin:0 0 8px"></div>' +
-            '<div style="display:flex;gap:8px;align-items:center">' +
-              '<input type="text" class="acct-input" id="acctOtpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code" style="flex:1">' +
-              '<button type="button" class="btn-secondary" id="acctOtpSend" style="white-space:nowrap;padding:10px 14px;border-radius:6px;cursor:pointer">Send code</button>' +
-            '</div>' +
-            '<div class="acct-hint" id="acctOtpHint" style="display:block;margin-top:6px">Choose where to receive the code, then tap Send code.</div>' +
-            '<button type="button" class="btn-secondary" id="acctPwEdit" style="margin-top:10px;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:13px">Edit the passwords</button></div>' +
+          '<div class="acct-group" id="acctOtpMount"></div>' +
           '<div class="acct-checklist" id="acctChecklist">' +
             '<div class="acct-check" data-rule="length"><span class="acct-dot"></span>At least 8 characters</div>' +
             '<div class="acct-check" data-rule="upper"><span class="acct-dot"></span>One uppercase letter (A–Z)</div>' +
@@ -496,125 +489,25 @@
     return rules;
   }
 
-  /* ---- changing the password takes two steps ----
-     1) Type the CURRENT password (it is never filled in for you), then the new one twice, and press Continue.
-        The server checks the current password first: if it is wrong nothing else happens.
-     2) Only then a one-time code is sent. The user picks where: their email or their mobile number.
-        Enter the code and press Update Password. */
-  var otpInfo = null, otpTimer = null, pwStage = 0;
-  var OTP_CHANNELS = [['email', 'Email'], ['sms', 'Text message']];
-  function otpChannel() { var r = document.querySelector('input[name="acctOtpCh"]:checked'); return r ? r.value : ''; }
-  function otpHint(msg, bad) { var h = $('acctOtpHint'); h.textContent = msg; h.style.color = bad ? 'var(--red)' : ''; }
-  function otpCooldown(sec) {
-    var btn = $('acctOtpSend'); clearInterval(otpTimer);
-    if (!(sec > 0)) { btn.disabled = false; btn.textContent = 'Send code'; return; }
-    btn.disabled = true; btn.textContent = 'Resend in ' + sec + 's';
-    otpTimer = setInterval(function () {
-      sec--;
-      if (sec <= 0) { clearInterval(otpTimer); btn.disabled = false; btn.textContent = 'Resend code'; }
-      else btn.textContent = 'Resend in ' + sec + 's';
-    }, 1000);
-  }
-  function lockPasswordFields(lock) { ['acctCurPw', 'acctNewPw', 'acctConfPw'].forEach(function (id) { $(id).readOnly = !!lock; }); }
-  function backToFields() {                                   // stage 0: the passwords can be edited again, and no code is pending
-    pwStage = 0; otpInfo = null; lockPasswordFields(false);
-    $('acctOtpGroup').style.display = 'none'; $('acctOtpCode').value = ''; clearError('acctOtpCode');
-    clearInterval(otpTimer); otpCooldown(0);
-    $('acctPwSave').textContent = 'Continue';
-  }
-  function showCodeStage(info) {                              // stage 1: the current password was right, now the code
-    otpInfo = info; pwStage = 1; lockPasswordFields(true);
-    var box = $('acctOtpChannels'), html = '', first = true;
-    OTP_CHANNELS.forEach(function (c) {
-      var o = info[c[0]];
-      html += '<label style="display:flex;align-items:center;gap:8px;font-size:14px;' + (o ? '' : 'opacity:.5') + '">' +
-        '<input type="radio" name="acctOtpCh" value="' + c[0] + '"' + (o ? '' : ' disabled') + (o && first ? ' checked' : '') + '> ' +
-        c[1] + (o ? ' \u2014 ' + o.masked : ' (not available on this account)') + '</label>';
-      if (o) first = false;
-    });
-    box.innerHTML = html;
-    $('acctOtpGroup').style.display = '';
-    $('acctPwSave').textContent = 'Update Password';
-    clearInterval(otpTimer); otpCooldown(0);
-    if (first) { otpHint('No verified email or mobile number is on this account, so a code cannot be sent. Ask the Finance/Admin team for help.', true); $('acctOtpSend').disabled = true; }
-    else otpHint('Your current password is correct. Choose where to receive the code, then tap Send code.');
-  }
-  function fieldErrors(f) {
-    if (f.currentPassword) setError('acctCurPw', f.currentPassword);
-    if (f.newPassword) setError('acctNewPw', f.newPassword);
-    if (f.confirmPassword) setError('acctConfPw', f.confirmPassword);
-    if (f.code) setError('acctOtpCode', f.code);
-    return !!(f.currentPassword || f.newPassword || f.confirmPassword || f.code);
-  }
-  async function sendOtp() {
-    var ch = otpChannel(); clearError('acctOtpCode');
-    if (!ch) return otpHint('Choose email or text message first.', true);
-    var btn = $('acctOtpSend'); btn.disabled = true;
-    try {
-      var r = await api('/auth/password/otp', { method: 'POST', body: JSON.stringify({ channel: ch, currentPassword: $('acctCurPw').value }) });
-      if (r.sent || r.recent) otpHint(r.recent ? r.message : 'Code sent to your ' + (ch === 'sms' ? 'mobile number' : 'email') + '. It expires in ' + Math.round((r.expiresIn || 600) / 60) + ' minutes.');
-      else otpHint(r.message || 'The code could not be sent.', true);
-      otpCooldown(r.waitSeconds || 60);
-      $('acctOtpCode').focus();
-    } catch (err) {
-      if (err.message === 'Not signed in') return;
-      if (err.fields && err.fields.currentPassword) { backToFields(); setError('acctCurPw', err.fields.currentPassword); $('acctCurPw').focus(); return; }
-      otpHint(err.message, true); btn.disabled = false;
-    }
-  }
-
+  /* ---- changing the password: the steps live in password-change.js (shared with the Finance Admin page) ----
+     current password typed + checked first  ->  new password  ->  a code to the EMAIL and a code to the MOBILE NUMBER (both)  ->  Update Password */
+  var pwFlow = null;
   function resetPassword() {
-    ['acctCurPw', 'acctNewPw', 'acctConfPw', 'acctOtpCode'].forEach(function (id) { if ($(id)) { $(id).value = ''; clearError(id); } });
-    if ($('acctCurPw')) $('acctCurPw').readOnly = true;       // read-only until the user clicks into it, so browsers do not fill it in
-    if ($('acctOtpSend')) backToFields();
+    if (pwFlow) pwFlow.reset();
     $('acctPasswordBanner').classList.remove('show');
     paintPassword();
   }
-
-  function banner(msg) { var b = $('acctPasswordBanner'); b.textContent = msg; b.classList.add('show'); }
-
-  async function savePassword() {
-    var cur = $('acctCurPw').value, pw = $('acctNewPw').value, conf = $('acctConfPw').value;
-    ['acctCurPw', 'acctNewPw', 'acctConfPw', 'acctOtpCode'].forEach(clearError);
-    $('acctPasswordBanner').classList.remove('show');
-    var btn = $('acctPwSave'), label = btn.textContent;
-
-    if (pwStage === 0) {                                      // ---- step 1: check the passwords ----
-      var rules = pwRules(pw, conf);
-      if (!cur) { setError('acctCurPw', 'Type your current password'); banner('Type your current password first.'); $('acctCurPw').focus(); return; }
-      if (!Object.keys(rules).every(function (k) { return rules[k]; })) { banner('Check the fields above \u2014 passwords must match and meet all requirements.'); return; }
-      btn.disabled = true; btn.textContent = 'Checking\u2026';
-      try {
-        var info = await api('/auth/password/check', { method: 'POST', body: JSON.stringify({ currentPassword: cur, newPassword: pw, confirmPassword: conf }) });
-        if (!info.required) { btn.disabled = false; btn.textContent = label; return finishChange(); }   // codes are switched off on this server
-        showCodeStage(info);
-      } catch (err) {
-        if (err.message === 'Not signed in') return;
-        var f = err.fields || {};
-        banner(fieldErrors(f) ? 'Please fix the highlighted fields.' : err.message);
-        if (f.currentPassword) $('acctCurPw').focus();
-      } finally { btn.disabled = false; if (pwStage === 0) btn.textContent = label; }
-      return;
-    }
-    return finishChange();                                    // ---- step 2: the code ----
-  }
-
-  async function finishChange() {
-    var cur = $('acctCurPw').value, pw = $('acctNewPw').value, conf = $('acctConfPw').value;
-    var needCode = !!(otpInfo && otpInfo.required), code = $('acctOtpCode').value.trim();
-    if (needCode && !/^\d{6}$/.test(code)) { setError('acctOtpCode', 'Enter the 6-digit code we sent you'); banner('Tap Send code, then enter the 6-digit code here.'); $('acctOtpCode').focus(); return; }
-    var btn = $('acctPwSave'), label = btn.textContent;
-    btn.disabled = true; btn.textContent = 'Updating\u2026';
-    try {
-      await api('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword: cur, newPassword: pw, confirmPassword: conf, code: code }) });
-      toast('Password updated');
-      closeModal();
-    } catch (err) {
-      if (err.message === 'Not signed in') return;
-      var f = err.fields || {};
-      if (f.currentPassword || f.newPassword || f.confirmPassword) backToFields();        // the fields have to be fixed first
-      banner(fieldErrors(f) ? 'Please fix the highlighted fields.' : (err.status === 404 ? 'The backend is running an old server.js: replace it and restart.' : err.message));
-    } finally { btn.disabled = false; if (pwStage === 1) btn.textContent = 'Update Password'; }
+  function banner(msg) { var b = $('acctPasswordBanner'); if (!msg) { b.classList.remove('show'); return; } b.textContent = msg; b.classList.add('show'); }
+  function startPasswordFlow() {
+    if (!window.PasswordChange) { console.error('password-change.js is not loaded'); return; }
+    var byEl = function (fn) { return function (el, m) { if (!el.id) el.id = 'acctPc' + Math.random().toString(36).slice(2, 8); return fn(el.id, m); }; };
+    pwFlow = PasswordChange.create({
+      cur: $('acctCurPw'), nw: $('acctNewPw'), conf: $('acctConfPw'), saveBtn: $('acctPwSave'), otpMount: $('acctOtpMount'),
+      api: api,
+      rulesMet: function () { var r = pwRules($('acctNewPw').value, $('acctConfPw').value); return Object.keys(r).every(function (k) { return r[k]; }); },
+      setError: byEl(setError), clearError: byEl(clearError),
+      banner: banner, toast: toast, onDone: closeModal
+    });
   }
 
   /* ---------------- wire everything up ---------------- */
@@ -651,11 +544,7 @@
     $('acctRemove').addEventListener('click', removePhoto);
 
     ['acctNewPw', 'acctConfPw'].forEach(function (id) { $(id).addEventListener('input', paintPassword); });
-    $('acctPwSave').addEventListener('click', savePassword);
-    $('acctOtpSend').addEventListener('click', sendOtp);
-    $('acctPwEdit').addEventListener('click', function () { backToFields(); $('acctNewPw').focus(); });
-    $('acctCurPw').addEventListener('focus', function () { if (pwStage === 0) $('acctCurPw').readOnly = false; });
-    $('acctOtpCode').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); clearError('acctOtpCode'); });
+    startPasswordFlow();
     paintPassword();
     paintAvatar();
   }

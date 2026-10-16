@@ -2573,7 +2573,7 @@
                             type="password"
                             class="form-input"
                             id="currentPasswordInput"
-                            placeholder="Enter current password" autocomplete="new-password">
+                            placeholder="Type your current password" autocomplete="off" readonly>
 
                     </div>
 
@@ -2680,6 +2680,8 @@
                     </div>
 
 
+                    <div id="passwordOtpMount"></div>
+
                     <p
                         class="password-error"
                         id="passwordFormError"
@@ -2688,9 +2690,6 @@
                     </p>
 
 
-                    <div class="last-changed-note">
-                        Last changed: <b>18 days ago</b> · Jul 25, 2026
-                    </div>
 
 
                     <div class="modal-footer">
@@ -2708,7 +2707,7 @@
                             class="btn-primary"
                             id="updatePasswordBtn"
                         >
-                            Update Password
+                            Continue
                         </button>
 
                     </div>
@@ -3645,7 +3644,8 @@
 
 
     <!-- JAVASCRIPT -->
-    <script src="script.js?v=11"></script>
+    <script src="password-change.js?v=1"></script>
+    <script src="script.js?v=12"></script>
     <script src="api-bridge.js?v=14"></script>
     <script src="sales-orders.js?v=12"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">

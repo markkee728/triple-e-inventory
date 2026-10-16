@@ -3428,6 +3428,11 @@ function closeAccountModal() {
     document.documentElement.style.overflow =
         "";
 
+    if (window.passwordFlow) {
+        window.passwordFlow.reset();
+        updatePasswordChecklist();
+    }
+
 }
 
 
@@ -3793,86 +3798,63 @@ function initAccountModal() {
     }
 
 
+    /* Change password: the SAME flow for every role (password-change.js).
+       current password typed + checked first -> new password -> a code to the email AND a code to the mobile number -> saved */
     const updatePassword =
-        document.getElementById(
-            "updatePasswordBtn"
-        );
+        document.getElementById("updatePasswordBtn");
 
+    if (updatePassword && window.PasswordChange) {
 
-    if (updatePassword) {
+        const cur = document.getElementById("currentPasswordInput");
+        const nw = document.getElementById("newPasswordInput");
+        const conf = document.getElementById("confirmPasswordInput");
+        const err = document.getElementById("passwordFormError");
 
-        updatePassword.addEventListener(
-            "click",
-            () => {
+        const setError = (el, message) => {
+            el.classList.add("field-invalid");
+            clearError(el);
+            const m = document.createElement("div");
+            m.className = "pc-msg";
+            m.style.cssText = "font-size:12.5px;color:var(--red,#c0392b);margin-top:5px";
+            m.textContent = message;
+            el.insertAdjacentElement("afterend", m);
+        };
+        const clearError = (el) => {
+            el.classList.remove("field-invalid");
+            const n = el.nextElementSibling;
+            if (n && n.classList.contains("pc-msg")) n.remove();
+        };
 
-                const current =
-                    document.getElementById(
-                        "currentPasswordInput"
-                    );
-
-                const password =
-                    document.getElementById(
-                        "newPasswordInput"
-                    );
-
-                const confirmation =
-                    document.getElementById(
-                        "confirmPasswordInput"
-                    );
-
-                const error =
-                    document.getElementById(
-                        "passwordFormError"
-                    );
-
-
-                const rules =
-                    evaluatePasswordRules(
-                        password
-                            ? password.value
-                            : "",
-                        confirmation
-                            ? confirmation.value
-                            : ""
-                    );
-
-
-                const valid =
-                    current &&
-                    current.value.trim() &&
-                    Object.values(rules)
-                        .every(Boolean);
-
-
-                if (!valid) {
-
-                    if (error) {
-                        error.classList.add(
-                            "show"
-                        );
-                    }
-
-                    return;
-
+        window.passwordFlow = PasswordChange.create({
+            cur, nw, conf,
+            saveBtn: updatePassword,
+            otpMount: document.getElementById("passwordOtpMount"),
+            api: async (path, options) => {
+                const res = await fetch("/api" + path, Object.assign({
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" }
+                }, options));
+                if (res.status === 401) {
+                    window.location.href = "Login_Inventory.html";
+                    throw new Error("Not signed in");
                 }
-
-
-                if (error) {
-                    error.classList.remove(
-                        "show"
-                    );
-                }
-
-
-                alert(
-                    "Password form hehe"
-                );
-
-            }
-        );
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { fields: data.fields, status: res.status });
+                return data;
+            },
+            rulesMet: () => Object.values(evaluatePasswordRules(nw.value, conf.value)).every(Boolean),
+            setError, clearError,
+            banner: (msg) => {
+                if (!err) return;
+                if (!msg) { err.classList.remove("show"); return; }
+                err.textContent = msg;
+                err.classList.add("show");
+            },
+            toast: (msg) => inviteToast(msg),
+            onDone: () => { closeAccountModal(); updatePasswordChecklist(); }
+        });
 
     }
-
 
     updatePasswordChecklist();
 

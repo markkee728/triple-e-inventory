@@ -2437,7 +2437,7 @@ button.user-chip:hover {
     width: 100%;
     max-width: 680px;
     max-height: 95vh;
-    overflow-y: visible;
+    overflow-y: auto;   /* the code boxes make the password tab taller than a small screen */
     background: linear-gradient(180deg, var(--card), #0a1521 60%, #08131d);
     border: 1px solid var(--border);
     border-radius: 12px;

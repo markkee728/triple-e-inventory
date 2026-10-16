@@ -867,7 +867,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
 // change password: any signed-in user.
 //  1) the current password must be TYPED and be right (the system never fills it in),
 //  2) the new password must pass the same rules as sign-up,
-//  3) then a one-time code sent to the user's email or mobile number (their choice) must be entered (password-otp.js; PASSWORD_OTP=off skips it).
+//  3) then a one-time code sent to the user's email AND another to their mobile number must both be entered (password-otp.js; PASSWORD_OTP=off skips it).
 app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   const b = req.body || {};
   const cur = typeof b.currentPassword === 'string' ? b.currentPassword : '';
@@ -884,11 +884,18 @@ app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   if (problem) throw new ValidationError({ newPassword: problem });
   if (next !== b.confirmPassword && b.confirmPassword !== undefined) throw new ValidationError({ confirmPassword: 'Passwords do not match' });
   const needCode = otp.enabledForChange();
+  const channels = needCode ? await otp.requiredChannels(req.user.id) : [];
+  if (needCode && !channels.length) throw new ValidationError({ emailCode: 'No verified email or mobile number is on this account, so the codes cannot be sent. Ask the Finance/Admin team for help.' });
   const hash = await bcrypt.hash(next, 12);
   await tx(async (client) => {
-    if (needCode) await otp.consume(client, req.user.id, 'change', b.code);   // the code is used up only when it is right
+    // BOTH codes (email and mobile number) must be right; each is used up only when the whole change goes through
+    const field = { email: 'emailCode', sms: 'smsCode' };
+    for (const ch of channels) {
+      try { await otp.consume(client, req.user.id, 'change-' + ch, b[field[ch]]); }
+      catch (e) { if (e instanceof ValidationError && e.fields && e.fields.code) throw new ValidationError({ [field[ch]]: e.fields.code }); throw e; }
+    }
     await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
-    await audit(client, req.user, 'Profile updated', needCode ? 'Changed password (confirmed with a one-time code)' : 'Changed password');
+    await audit(client, req.user, 'Profile updated', needCode ? 'Changed password (confirmed with email and mobile one-time codes)' : 'Changed password');
   });
   res.json({ ok: true });
 }));
