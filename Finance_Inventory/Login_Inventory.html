@@ -2,7 +2,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Triple E Metal Products — Sign In</title>
+<title>Triple E Metal Products — Sign In</title><link rel="icon" type="image/svg+xml" href="favicon.svg"><link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&family=Dancing+Script:wght@600;700&display=swap" rel="stylesheet">
 <style>
@@ -626,21 +626,6 @@
   }
   .center-actions{ display:grid; gap:10px; margin-top:20px; }
 
-  /* forgot password */
-  .fp-choices{ display:flex; flex-direction:column; gap:8px; }
-  .fp-choice{ display:flex; align-items:flex-start; gap:10px; border:1px solid var(--steel); border-radius:8px; padding:10px 12px; cursor:pointer; background:rgba(10,14,18,0.35); }
-  .fp-choice:has(input:checked){ border-color:var(--blue-bright); }
-  .fp-choice input{ margin-top:3px; }
-  .fp-choice b{ display:block; font-size:14px; color:var(--text); }
-  .fp-choice small{ display:block; font-size:11.5px; color:var(--text-dim); margin-top:2px; }
-  #fpForm1[hidden], #fpForm2[hidden]{ display:none; }
-  /* account unlock countdown */
-  .ul-clock{ font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-size:52px; font-weight:700; text-align:center; letter-spacing:.06em; color:var(--blue-bright); margin:14px 0 10px; }
-  .ul-clock.done{ color:var(--green); }
-  .ul-bar{ height:6px; border-radius:4px; background:rgba(255,255,255,0.08); overflow:hidden; margin:0 0 12px; }
-  .ul-bar i{ display:block; height:100%; width:0; background:var(--blue-bright); transition:width 1s linear; }
-  .ul-bar.done i{ background:var(--green); }
-  .lock-timer{ font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-weight:700; }
   /* terms / privacy window */
   .legal-overlay{
     position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center; padding:18px;
@@ -725,7 +710,7 @@
           </div>
 
           <div class="row-end">
-            <a href="#" class="link" id="forgotLink">Forgot password?</a>
+            <a href="#" class="link">Forgot password?</a>
           </div>
 
           <button type="submit" class="submit" id="loginBtn">SIGN IN</button>
@@ -906,72 +891,6 @@
         </div>
       </div>
 
-      <!-- ===== FORGOT PASSWORD ===== -->
-      <div class="screen" id="forgotScreen">
-        <div class="brand-mark">
-          <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Reset Password</span>
-        </div>
-        <h1 id="fpTitle">Forgot your password?</h1>
-        <p class="sub" id="fpSub">Enter your account email and choose where we should send a 6-digit code.</p>
-        <p class="form-error" id="fpError" role="alert"></p>
-        <p class="notice" id="fpNotice" role="status"></p>
-
-        <form id="fpForm1" novalidate>
-          <div class="field" id="fpEmailField">
-            <label for="fpEmail">Email</label>
-            <div class="input-shell"><input type="email" id="fpEmail" maxlength="254" autocomplete="username" placeholder="Enter your account email"></div>
-            <p class="error-text" id="fpEmailError">Enter a valid email address.</p>
-          </div>
-          <div class="field">
-            <label>Send my code by</label>
-            <div class="fp-choices">
-              <label class="fp-choice"><input type="radio" name="fpChannel" value="email" checked><span><b>Email</b><small>to the email address above</small></span></label>
-              <label class="fp-choice"><input type="radio" name="fpChannel" value="sms"><span><b>Text message</b><small>to the mobile number registered on the account</small></span></label>
-            </div>
-          </div>
-          <button type="submit" class="submit" id="fpSend">SEND CODE</button>
-        </form>
-
-        <form id="fpForm2" hidden novalidate>
-          <div class="field" id="fpCodeField">
-            <label for="fpCode">6-digit code</label>
-            <div class="input-shell"><input type="text" id="fpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="Enter the code"></div>
-            <p class="error-text" id="fpCodeError">Enter the 6-digit code.</p>
-            <p class="hint"><span id="fpTimerText"></span> <button type="button" class="link-btn" id="fpResend" disabled>Resend code</button></p>
-          </div>
-          <div class="field" id="fpPassField">
-            <label for="fpPass">New password</label>
-            <div class="input-shell has-toggle"><input type="password" id="fpPass" maxlength="72" autocomplete="new-password" placeholder="Create a new password"></div>
-            <p class="error-text" id="fpPassError"></p>
-            <p class="hint">At least 8 characters with an uppercase letter, a lowercase letter, a number and a symbol.</p>
-          </div>
-          <div class="field" id="fpConfField">
-            <label for="fpConf">Confirm new password</label>
-            <div class="input-shell has-toggle"><input type="password" id="fpConf" maxlength="72" autocomplete="new-password" placeholder="Re-enter the new password"></div>
-            <p class="error-text" id="fpConfError">Passwords do not match.</p>
-          </div>
-          <button type="submit" class="submit" id="fpReset">RESET PASSWORD</button>
-          <p class="back-row"><a href="#" class="link" id="fpChange">Use a different email or method</a></p>
-        </form>
-
-        <p class="back-row"><a href="#" class="link" id="fpBack">Back to sign in</a></p>
-      </div>
-
-      <!-- ===== ACCOUNT UNLOCK COUNTDOWN ===== -->
-      <div class="screen" id="unlockScreen">
-        <div class="brand-mark">
-          <div class="mark">3<span class="cursive-e">E</span></div>
-          <span class="eyebrow">Account Unlock</span>
-        </div>
-        <h1 id="ulTitle">Unlocking your account</h1>
-        <p class="sub" id="ulText">Please wait for the countdown to finish. You can sign in again when it reaches zero.</p>
-        <div class="ul-clock" id="ulClock" role="timer" aria-live="off">02:00</div>
-        <div class="ul-bar"><i id="ulBar"></i></div>
-        <p class="hint" id="ulEmail" style="text-align:center"></p>
-        <button type="button" class="submit" id="ulBtn" disabled>SIGN IN IN 02:00</button>
-      </div>
-
       <!-- ===== VERIFY RESULT / LINK PROBLEMS ===== -->
       <div class="screen" id="noticeScreen">
         <div class="brand-mark">
@@ -1056,54 +975,6 @@
   $('email').addEventListener('input', clearLoginState);
   $('password').addEventListener('input', clearLoginState);
 
-  /* ---------- lockout: countdown shown on the sign-in page and on the unlock page ---------- */
-  const mmss = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
-  let loginLockTimer = null;
-  function stopLoginLock(){ clearInterval(loginLockTimer); loginLockTimer = null; $('loginBtn').disabled = false; $('loginBtn').textContent = 'SIGN IN'; }
-  function startLoginLock(secs){            // the person tried to sign in while the unlock countdown is running
-    clearInterval(loginLockTimer);
-    const end = Date.now() + secs * 1000, btn = $('loginBtn');
-    const tick = () => {
-      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      if (left <= 0){ stopLoginLock(); loginError.classList.remove('show'); loginNotice.textContent = 'Your account is unlocked. You can sign in now.'; loginNotice.classList.add('show'); return; }
-      loginError.innerHTML = 'Your account is unlocking. You can sign in again in <span class="lock-timer">' + mmss(left) + '</span>.';
-      loginError.classList.add('show'); btn.disabled = true; btn.textContent = 'WAIT ' + mmss(left);
-    };
-    tick(); if (loginLockTimer !== null || secs > 0) loginLockTimer = setInterval(tick, 500);
-  }
-  function showLockedError(msg){            // locked, link not opened yet: offer a new link
-    loginError.textContent = msg + ' ';
-    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Send me a new unlock link';
-    b.addEventListener('click', async () => {
-      b.disabled = true;
-      const r = await api('POST', '/api/auth/unlock/resend', { email: clean($('email').value).toLowerCase() }).catch(() => null);
-      loginError.classList.remove('show');
-      loginNotice.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
-      loginNotice.classList.add('show');
-    });
-    loginError.appendChild(b); loginError.classList.add('show');
-  }
-
-  /* the unlock page (email link ?unlock=<token>): opening the link starts the countdown on the server */
-  let unlockTimer = null;
-  function showUnlock(data){
-    const total = data.cooldown || 120, end = Date.now() + (data.secondsLeft || 0) * 1000;
-    $('ulEmail').textContent = data.email ? 'Account: ' + data.email : '';
-    showScreen('unlockScreen');
-    clearInterval(unlockTimer);
-    const paint = () => {
-      const left = data.state === 'ready' ? 0 : Math.max(0, Math.ceil((end - Date.now()) / 1000));
-      $('ulClock').textContent = mmss(left); $('ulClock').classList.toggle('done', left === 0);
-      $('ulBar').style.width = Math.min(100, Math.round((total - left) / total * 100)) + '%'; $('ulBar').parentNode.classList.toggle('done', left === 0);
-      $('ulBtn').disabled = left > 0; $('ulBtn').textContent = left > 0 ? 'SIGN IN IN ' + mmss(left) : 'GO TO SIGN IN';
-      $('ulTitle').textContent = left > 0 ? 'Unlocking your account' : 'Your account is unlocked';
-      $('ulText').textContent = left > 0 ? 'Please wait for the countdown to finish. You can sign in again when it reaches zero.' : 'You can sign in now. If you forgot your password, use \u201cForgot password?\u201d on the sign-in page.';
-      if (left <= 0) clearInterval(unlockTimer);
-    };
-    paint(); unlockTimer = setInterval(paint, 500);
-    $('ulBtn').onclick = () => { if (data.email) $('email').value = data.email; $('password').value = ''; stopLoginLock(); showScreen('loginScreen'); $('password').focus(); };
-  }
-
   function showLoginError(msg, withResend){
     loginError.textContent = msg + ' ';
     if (withResend){
@@ -1143,18 +1014,13 @@
         openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified });
         return;
       }
-      else if (r.status === 423){
-        $('password').value = '';
-        if (r.data.code === 'LOCK_COOLDOWN') startLoginLock(r.data.secondsLeft || 0);
-        else showLockedError(r.data.error || 'Your account is locked.');
-      }
       else if (r.status === 401 || r.status === 400){
         emailField.classList.add('invalid'); passwordField.classList.add('invalid');
         showLoginError('Invalid email or password. Please try again.');
       } else showLoginError('Something went wrong. Please try again.');
     } catch (err){
       showLoginError('Could not reach the server. Check your connection and try again.');
-    } finally { if (loginLockTimer === null){ btn.disabled = false; btn.textContent = 'SIGN IN'; } }
+    } finally { btn.disabled = false; btn.textContent = 'SIGN IN'; }
   });
 
   /* =====================================================
@@ -1162,7 +1028,7 @@
        Customers : "Create an account" -> POST /api/signup/customer, then verify the email
        Cashiers  : by invitation only (emailed one-time link ?invite=...) -> POST /api/signup/invite/<token>
   ===================================================== */
-  let mode = 'customer', inviteToken = '', step = 1, legalRole = 'customer';
+  let mode = 'customer', inviteToken = '', step = 1;
   const MIN_STEP_NAME = { 1: 'Personal', 2: 'Contact', 3: 'Security' };
   const NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;            // letters and spaces only
   const NAME_MSG = 'Letters and spaces only \u2014 no numbers or symbols';
@@ -1332,7 +1198,6 @@
   function startSignup(kind, invitation){
     mode = kind; resetSignup();
     const staff = kind === 'invite';
-    legalRole = staff && LEGAL_BY_ROLE[invitation && invitation.role] ? invitation.role : 'customer';   // customer pages never show staff/admin terms
     $('inviteRoleBox').hidden = !staff;
     $('signupBackRow').hidden = staff;
     $('suEmail').readOnly = staff;
@@ -1530,19 +1395,9 @@
   /* ---------- links from emails:  ?invite=<token> (cashier)   ?verify=<token> (customer email) ---------- */
   (async function openEmailLinks(){
     const q = new URLSearchParams(location.search);
-    const invite = q.get('invite'), verify = q.get('verify'), unlock = q.get('unlock');
-    if (!invite && !verify && !unlock) return;
+    const invite = q.get('invite'), verify = q.get('verify');
+    if (!invite && !verify) return;
     history.replaceState(null, '', location.pathname);       // keep the token out of the address bar / history
-    if (unlock){
-      notice('Account Unlock', 'Checking your unlock link…', 'One moment please.'); $('noticeBtn').hidden = true;
-      try {
-        const r = await api('POST', '/api/auth/unlock', { token: unlock });
-        $('noticeBtn').hidden = false;
-        if (r.ok) showUnlock(r.data);
-        else notice('Account Unlock', 'This link can\u2019t be used', r.data.error || 'This unlock link is invalid or has expired. Try signing in, and ask for a new link if your account is still locked.');
-      } catch (err){ $('noticeBtn').hidden = false; notice('Account Unlock', 'Could not unlock', 'Could not reach the server. Check your connection and open the link again.'); }
-      return;
-    }
     if (verify){
       notice('Email Verification', 'Verifying your email…', 'One moment please.'); $('noticeBtn').hidden = true;
       try {
@@ -1562,88 +1417,11 @@
   })();
 
   /* =====================================================
-     FORGOT PASSWORD: a 6-digit code by email or text message, then a new password
-  ===================================================== */
-  (function forgotPassword(){
-    const $e = $('fpEmail'), $c = $('fpCode'), $p = $('fpPass'), $f = $('fpConf');
-    let timer = null, left = 0;
-    const channel = () => (document.querySelector('input[name="fpChannel"]:checked') || {}).value || 'email';
-    const bad = (fieldId, errId, msg) => { $(fieldId).classList.add('invalid'); if (msg) $(errId).textContent = msg; };
-    const clearAll = () => { ['fpEmailField','fpCodeField','fpPassField','fpConfField'].forEach(id => $(id).classList.remove('invalid')); $('fpError').classList.remove('show'); $('fpNotice').classList.remove('show'); };
-    const fail = (msg) => { $('fpError').textContent = msg; $('fpError').classList.add('show'); };
-    [['fpPass', null], ['fpConf', null]].forEach(([id]) => {
-      const input = $(id), b = document.createElement('button');
-      b.type = 'button'; b.className = 'toggle-vis'; b.setAttribute('aria-label', 'Show password'); b.innerHTML = EYE;
-      input.parentNode.appendChild(b); eyeToggle(input, b);
-    });
-    function cooldown(sec){
-      clearInterval(timer); left = sec; const btn = $('fpResend');
-      const paint = () => { btn.disabled = left > 0; $('fpTimerText').textContent = left > 0 ? 'You can ask for a new code in ' + left + 's.' : 'Did not get it?'; };
-      paint();
-      timer = setInterval(() => { left--; paint(); if (left <= 0) clearInterval(timer); }, 1000);
-    }
-    function stage(n){
-      $('fpForm1').hidden = n !== 1; $('fpForm2').hidden = n !== 2; clearAll();
-      $('fpTitle').textContent = n === 1 ? 'Forgot your password?' : 'Enter your code';
-      $('fpSub').textContent = n === 1 ? 'Enter your account email and choose where we should send a 6-digit code.'
-        : 'If the account exists, a code was sent by ' + (channel() === 'sms' ? 'text message' : 'email') + '. It expires in 10 minutes. Enter it with your new password.';
-    }
-    function open(){
-      $('fpForm1').reset(); $('fpForm2').reset(); $e.value = clean($('email').value);
-      stage(1); showScreen('forgotScreen'); $e.focus();
-    }
-    async function send(fromResend){
-      clearAll();
-      const email = clean($e.value).toLowerCase();
-      if (!emailPattern.test(email)){ bad('fpEmailField', 'fpEmailError', 'Enter a valid email address.'); stage(1); return; }
-      const btn = fromResend ? $('fpResend') : $('fpSend'); btn.disabled = true;
-      let r; try { r = await api('POST', '/api/auth/forgot/send', { email, channel: channel() }); } catch (err){ r = null; }
-      if (!r){ fail('Could not reach the server. Check your connection and try again.'); btn.disabled = false; return; }
-      if (!r.ok){ fail(r.data.error || 'Could not send the code.'); btn.disabled = false; if (fromResend) cooldown(30); return; }
-      if (!fromResend) stage(2);
-      $('fpNotice').textContent = r.data.message || 'Code sent.'; $('fpNotice').classList.add('show');
-      cooldown(r.data.waitSeconds || 60);
-      if (!fromResend){ $c.focus(); $('fpSend').disabled = false; }
-    }
-    $('forgotLink').addEventListener('click', (e) => { e.preventDefault(); open(); });
-    $('fpBack').addEventListener('click', (e) => { e.preventDefault(); clearInterval(timer); showScreen('loginScreen'); });
-    $('fpChange').addEventListener('click', (e) => { e.preventDefault(); clearInterval(timer); stage(1); $e.focus(); });
-    $('fpForm1').addEventListener('submit', (e) => { e.preventDefault(); send(false); });
-    $('fpResend').addEventListener('click', () => send(true));
-    $c.addEventListener('input', () => { $c.value = $c.value.replace(/\D/g, '').slice(0, 6); $('fpCodeField').classList.remove('invalid'); });
-    [$p, $f].forEach(i => i.addEventListener('input', () => { $('fpPassField').classList.remove('invalid'); $('fpConfField').classList.remove('invalid'); }));
-    $('fpForm2').addEventListener('submit', async (e) => {
-      e.preventDefault(); clearAll();
-      let ok = true;
-      if (!/^\d{6}$/.test($c.value)){ bad('fpCodeField', 'fpCodeError', 'Enter the 6-digit code.'); ok = false; }
-      if (!$p.value){ bad('fpPassField', 'fpPassError', 'Enter a new password.'); ok = false; }
-      if ($p.value !== $f.value){ bad('fpConfField', 'fpConfError', 'Passwords do not match.'); ok = false; }
-      if (!ok) return;
-      const btn = $('fpReset'); btn.disabled = true; btn.textContent = 'Saving…';
-      let r; try { r = await api('POST', '/api/auth/forgot/reset', { email: clean($e.value).toLowerCase(), code: $c.value, newPassword: $p.value, confirmPassword: $f.value }); } catch (err){ r = null; }
-      btn.disabled = false; btn.textContent = 'RESET PASSWORD';
-      if (!r) return fail('Could not reach the server. Check your connection and try again.');
-      if (!r.ok){
-        const f = r.data.fields || {};
-        if (f.code) bad('fpCodeField', 'fpCodeError', f.code);
-        if (f.newPassword) bad('fpPassField', 'fpPassError', f.newPassword);
-        if (f.confirmPassword) bad('fpConfField', 'fpConfError', f.confirmPassword);
-        if (!Object.keys(f).length || f.email) fail(r.data.error || 'Could not reset the password.');
-        return;
-      }
-      clearInterval(timer); $('fpForm2').reset();
-      $('email').value = clean($e.value).toLowerCase(); $('password').value = '';
-      showScreen('loginScreen');
-      loginNotice.textContent = 'Password updated. Sign in with your new password.'; loginNotice.classList.add('show');
-    });
-  })();
-
-  /* =====================================================
      TERMS AND CONDITIONS / PRIVACY POLICY
   ===================================================== */
-  const LEGAL_CUSTOMER = {
+  const LEGAL = {
     terms: { title: 'Terms and Conditions', html: `
-      <p><i>Version 2026-10 &middot; Customers</i></p>
+      <p><i>Version 2026-10</i></p>
       <h3>1. Using your account</h3>
       <p>You must give accurate information when you register and keep it up to date in My Profile. You are responsible for keeping your password private and for activity under your account. Tell us right away if you think someone else has used it.</p>
       <h3>2. Orders and prices</h3>
@@ -1653,15 +1431,17 @@
       <h3>4. Returns and refunds</h3>
       <p>Returns and refunds follow the return window and conditions shown in the shop. Custom-cut or made-to-order items may not be returnable unless they are defective or not as ordered.</p>
       <h3>5. Acceptable use</h3>
-      <p>Do not misuse the website, attempt to access other people&rsquo;s accounts or any part of the system that is not meant for you, interfere with its operation, or use it for unlawful purposes. We may suspend an account that breaks these terms.</p>
-      <h3>6. Liability</h3>
+      <p>Do not misuse the website, attempt to access other accounts or staff areas, interfere with its operation, or use it for unlawful purposes. We may suspend an account that breaks these terms.</p>
+      <h3>6. Staff accounts</h3>
+      <p>Cashier and other staff accounts cannot be created on this page. They are issued by invitation from the company&rsquo;s Finance/Admin team, who assign the role.</p>
+      <h3>7. Liability</h3>
       <p>We provide the website and products with reasonable care. To the extent allowed by law, Triple E Metal Products is not liable for indirect or consequential losses arising from use of the website.</p>
-      <h3>7. Changes</h3>
+      <h3>8. Changes</h3>
       <p>We may update these terms. If we make a significant change we will ask you to accept the new version. Continued use of your account after a change means you accept it.</p>
-      <h3>8. Governing law</h3>
+      <h3>9. Governing law</h3>
       <p>These terms are governed by the laws of the Republic of the Philippines.</p>` },
     privacy: { title: 'Privacy Policy', html: `
-      <p><i>Version 2026-10 &middot; Customers</i></p>
+      <p><i>Version 2026-10</i></p>
       <p>Triple E Metal Products respects your privacy and processes personal information in line with the Data Privacy Act of 2012 (Republic Act No. 10173).</p>
       <h3>What we collect</h3>
       <ul>
@@ -1678,7 +1458,7 @@
       <h3>Who we share it with</h3>
       <p>Only service providers needed to run your orders &mdash; for example payment processing, email and SMS delivery, and couriers. We do not sell your personal information.</p>
       <h3>How we protect it</h3>
-      <p>Passwords are stored only as secure hashes. Access to your records is limited to authorized personnel who need it to serve you.</p>
+      <p>Passwords are stored only as secure hashes. Access to customer records is limited to authorized staff.</p>
       <h3>How long we keep it</h3>
       <p>We keep your information while your account is active and as long as needed for order, tax and accounting records.</p>
       <h3>Your rights</h3>
@@ -1686,101 +1466,9 @@
       <h3>Changes</h3>
       <p>If we change this policy in a significant way we will tell you and ask you to acknowledge the new version.</p>` }
   };
-
-  const LEGAL_CASHIER = {
-    terms: { title: 'Terms and Conditions &mdash; Sales Staff / Cashier', html: `
-      <p><i>Version 2026-10 &middot; Sales Staff / Cashier</i></p>
-      <h3>1. Your account</h3>
-      <p>Your account was issued to you by invitation and is for your use only. Do not share your password or sign in on someone else&rsquo;s behalf. You are responsible for every action recorded under your account. Sign out when you leave the counter.</p>
-      <h3>2. Using the POS</h3>
-      <p>Use the Point of Sale only for company business: ringing up sales, quotes and customer orders at the counter. Enter items, quantities, prices and payment methods accurately. Do not change prices or give discounts you are not authorized to give.</p>
-      <h3>3. Cash and payments</h3>
-      <p>You are accountable for the cash drawer during your shift. Open and close your cash shift, record every cash-in and cash-out, and report any shortage or overage. Do not use shop cash or payments for personal purposes.</p>
-      <h3>4. Voids, returns and approvals</h3>
-      <p>Voids and returns are requests that need approval from the Finance/Admin team. Do not process or promise a refund before it is approved.</p>
-      <h3>5. Confidentiality</h3>
-      <p>Customer details, sales figures and stock levels you see at work are confidential. Use them only to do your job, and do not copy, photograph or share them outside the company.</p>
-      <h3>6. Monitoring</h3>
-      <p>Your sign-ins and actions in the system (sales, voids, returns, cash shifts) are recorded and may be reviewed for security, audit and accuracy.</p>
-      <h3>7. Suspension</h3>
-      <p>Access may be suspended or removed if you misuse the system, break these terms, or leave the company.</p>
-      <h3>8. Changes and governing law</h3>
-      <p>We may update these terms and will ask you to accept a significant change. These terms are governed by the laws of the Republic of the Philippines.</p>` },
-    privacy: { title: 'Privacy Notice &mdash; Sales Staff / Cashier', html: `
-      <p><i>Version 2026-10 &middot; Sales Staff / Cashier</i></p>
-      <p>Triple E Metal Products processes your personal information as an employee or staff user in line with the Data Privacy Act of 2012 (Republic Act No. 10173).</p>
-      <h3>What we collect about you</h3>
-      <ul>
-        <li>Name, email address and mobile number, and your birthdate and gender if you give them.</li>
-        <li>Your sign-in times and your actions in the system: sales, voids, returns, quotes and cash shifts.</li>
-      </ul>
-      <h3>Why we use it</h3>
-      <ul>
-        <li>To create and secure your account and give you the right access.</li>
-        <li>To reconcile cash shifts, check sales, and investigate errors or fraud.</li>
-        <li>To send you account and work notifications by email or SMS.</li>
-      </ul>
-      <h3>Who can see it</h3>
-      <p>The Finance/Admin team can see your account details and activity records. We do not sell your information.</p>
-      <h3>Customer data you handle</h3>
-      <p>While working you will see customers&rsquo; personal information. Use it only for the sale or order at hand and keep it confidential.</p>
-      <h3>How long we keep it</h3>
-      <p>For as long as your account is active and as long as needed for sales, tax and accounting records.</p>
-      <h3>Your rights</h3>
-      <p>You may ask Finance/Admin to correct your details, and you may complain to the National Privacy Commission if you believe your rights were violated.</p>` }
-  };
-
-  const LEGAL_FINANCE = {
-    terms: { title: 'Terms and Conditions &mdash; Finance / Admin Officer', html: `
-      <p><i>Version 2026-10 &middot; Finance / Admin Officer</i></p>
-      <h3>1. Your account and elevated access</h3>
-      <p>Your account has administrator-level access to inventory, sales, finances and user records. Keep your password private, never share it, and sign out of shared devices. You are responsible for every action recorded under your account.</p>
-      <h3>2. Managing users and roles</h3>
-      <p>Invite staff only for roles they need, and remove or suspend access promptly when someone leaves or changes duties. Give each person the least access needed for their job.</p>
-      <h3>3. Inventory and financial records</h3>
-      <p>Keep stock counts, stock movements, prices, payments and cash-shift reports accurate. Adjustments must be backed by a real reason and are recorded in the audit trail. Do not alter records to hide errors or losses.</p>
-      <h3>4. Approvals</h3>
-      <p>When you approve or decline voids, returns, refunds and order cancellations, act fairly and on the facts. Do not approve your own requests.</p>
-      <h3>5. Confidential and personal information</h3>
-      <p>Customer, staff, sales and cost data are confidential. Use them only for company business. Do not export, copy or share them outside the company without authority. Report suspected data leaks or unauthorized access to management immediately.</p>
-      <h3>6. Monitoring and audit</h3>
-      <p>Sign-ins and administrative actions are logged and may be reviewed for security, audit and compliance.</p>
-      <h3>7. Suspension</h3>
-      <p>Access may be suspended or removed if you misuse the system or break these terms, or when your duties end.</p>
-      <h3>8. Changes and governing law</h3>
-      <p>We may update these terms and will ask you to accept a significant change. These terms are governed by the laws of the Republic of the Philippines.</p>` },
-    privacy: { title: 'Privacy Notice &mdash; Finance / Admin Officer', html: `
-      <p><i>Version 2026-10 &middot; Finance / Admin Officer</i></p>
-      <p>Triple E Metal Products processes your personal information as an administrator in line with the Data Privacy Act of 2012 (Republic Act No. 10173). Because your role can see other people&rsquo;s data, it also carries duties described below.</p>
-      <h3>What we collect about you</h3>
-      <ul>
-        <li>Name, email address and mobile number, and your birthdate and gender if you give them.</li>
-        <li>Your sign-in times and administrative actions: user invitations, approvals, stock and price changes, and settings.</li>
-      </ul>
-      <h3>Why we use it</h3>
-      <ul>
-        <li>To create and secure your account and keep an audit trail of administrative actions.</li>
-        <li>To send you alerts such as low stock and new orders by email, SMS and in the app.</li>
-      </ul>
-      <h3>Personal data you can access</h3>
-      <p>You can view customer and staff records, orders, payments and activity logs. Access them only when your work requires it, and never for personal reasons. Do not disclose them to anyone who is not authorized.</p>
-      <h3>Who can see your data</h3>
-      <p>Other authorized administrators and management may see your account details and activity records. We do not sell your information.</p>
-      <h3>Security incidents</h3>
-      <p>If you suspect a breach or loss of personal data, report it to management right away so it can be handled within the periods required by law.</p>
-      <h3>How long we keep it</h3>
-      <p>For as long as your account is active and as long as needed for audit, tax and accounting records.</p>
-      <h3>Your rights</h3>
-      <p>You may ask to correct your details, and you may complain to the National Privacy Commission if you believe your rights were violated.</p>` }
-  };
-
-  /* Each role only ever sees its own version. Customers never see staff or admin wording. */
-  const LEGAL_BY_ROLE = { customer: LEGAL_CUSTOMER, cashier: LEGAL_CASHIER, finance: LEGAL_FINANCE };
-
   let legalReturnFocus = null;
   function openLegal(kind){
-    const doc = (LEGAL_BY_ROLE[legalRole] || LEGAL_CUSTOMER)[kind];
-    $('legalTitle').innerHTML = doc.title; $('legalBody').innerHTML = doc.html; $('legalBody').scrollTop = 0;
+    $('legalTitle').textContent = LEGAL[kind].title; $('legalBody').innerHTML = LEGAL[kind].html; $('legalBody').scrollTop = 0;
     legalReturnFocus = document.activeElement; $('legalOverlay').classList.add('open'); $('legalOk').focus();
   }
   function closeLegal(){ $('legalOverlay').classList.remove('open'); if (legalReturnFocus) legalReturnFocus.focus(); }
