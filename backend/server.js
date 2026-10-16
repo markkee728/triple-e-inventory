@@ -1346,6 +1346,22 @@ app.get('/api/customers/:id/profile', auth('finance'), wrap(async (req, res) => 
     joined: u.joined || '', lastLogin: u.last_login || 'Never' });
 }));
 
+// Full profile of ANY account for the Edit window in User Management / Customer Management (finance only; never the password hash).
+app.get('/api/users/:id/profile', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) return res.status(404).json({ error: 'Account not found' });
+  const { rows } = await pool.query(`SELECT u.user_id, u.full_name, u.email, u.phone, u.status, r.role_key,
+      u.first_name, u.middle_name, u.last_name, u.suffix, to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate, u.gender,
+      u.company_name, u.company_position, u.company_tin
+    FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1`, [id]);
+  if (!rows.length) return res.status(404).json({ error: 'Account not found' });
+  const u = rows[0], guess = u.first_name == null ? splitFullName(u.full_name) : null;
+  res.json({ id: u.user_id, name: u.full_name, email: u.email, phone: u.phone || '', status: u.status, roleKey: u.role_key,
+    firstName: guess ? guess.first : u.first_name, middleName: u.middle_name || '', lastName: guess ? guess.last : (u.last_name || ''),
+    suffix: guess ? guess.suffix : (u.suffix || ''), birthdate: u.birthdate || '', gender: u.gender || '',
+    companyName: u.company_name || '', companyPosition: u.company_position || '', companyTin: u.company_tin || '' });
+}));
+
 // profile photo of any account, for the User Management list (finance only). Same photo the person uploaded in My Profile.
 app.get('/api/users/:id/avatar', auth('finance'), wrap(async (req, res) => {
   const id = Number(req.params.id);
@@ -1356,17 +1372,33 @@ app.get('/api/users/:id/avatar', auth('finance'), wrap(async (req, res) => {
   res.send(rows[0].avatar);          // Express adds an ETag, so the browser only re-downloads a photo that changed
 }));
 
-// Edit an account's name, email and role. Customer accounts keep the Customer role (they cannot become Finance or Cashier,
-// and staff cannot be turned into customers); Finance can switch staff between Finance-Admin and Cashier, but not their own role.
+// Edit an account (Finance only): the SAME profile the person has in My Profile - first / middle / last name, suffix, email, mobile number,
+// birthdate, gender and (customers) company details - plus the role. Every rule is the one My Profile and sign-up use.
+// Customer accounts keep the Customer role (they cannot become Finance or Cashier, and staff cannot be turned into customers);
+// Finance can switch staff between Finance-Admin and Cashier, but not their own role.
 app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
+  await app.locals.accountReady; await app.locals.phoneReady;
+  const H = app.locals.accountHelpers;
   const id = Number(req.params.id), b = req.body || {}, e = {};
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request' });
-  const t = (await pool.query('SELECT u.full_name, u.email, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [id])).rows[0];
+  const t = (await pool.query(`SELECT u.full_name, u.email, u.phone, to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate_s, r.role_key, r.label
+                                 FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1`, [id])).rows[0];
   if (!t) return res.status(404).json({ error: 'Account not found' });
-  const name = text(e, 'name', b.name, 'Name', { min: 2, max: 80 });
+  const isCustomer = t.role_key === 'customer';
+  const structured = b.firstName !== undefined || b.lastName !== undefined || b.middleName !== undefined;
+  let name, parts = null;
+  if (structured) { parts = H.nameParts(e, b); name = parts.full; }
+  else name = text(e, 'name', b.name, 'Name', { min: 2, max: 80 });
   const email = str(b.email).toLowerCase();
   if (!email) e.email = 'Email is required';
   else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
+  const phone = structured ? H.mobileField(e, b.phone) : (t.phone || '');       // an old page that sends only name + email leaves the number alone
+  let more = null;
+  if (structured) {
+    const birthChanged = str(b.birthdate) !== (t.birthdate_s || '');
+    more = { ...H.optionalDetails(e, b, { adult: birthChanged }) };
+    if (isCustomer) Object.assign(more, H.companyDetails(e, b));
+  }
   const roleKey = str(b.roleKey) || t.role_key;
   if (!['finance', 'cashier', 'customer'].includes(roleKey)) e.role = 'Choose a valid role';
   else if (roleKey !== t.role_key) {
@@ -1376,17 +1408,26 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
   }
   if (Object.keys(e).length) throw new ValidationError(e);
   if (email !== t.email) await assertPersonalEmail(email);
+  const canon = (p) => { if (!p) return ''; const m = phMobile(p); return m.value || String(p).replace(/\s+/g, ''); };
+  const phoneChanged = structured && canon(t.phone) !== canon(phone);
   try {
-    // keep the split name (first / middle / last / suffix) in step with full_name, otherwise the person's own My Profile still shows the old name.
-    // Only when the name really changed, so a structured middle name is never wiped by an edit that did not touch the name.
-    if (name !== t.full_name) {
+    const sets = ['full_name = $2', 'email = $3', 'role_id = (SELECT role_id FROM roles WHERE role_key = $4)'], vals = [id, name, email, roleKey];
+    const add = (col, v) => { vals.push(v); sets.push(col + ' = $' + vals.length); };
+    if (parts) { add('first_name', parts.first); add('middle_name', parts.middle || null); add('last_name', parts.last); add('suffix', parts.suffix || null); }
+    else if (name !== t.full_name) {
+      // old-style edit: keep the split name in step with full_name, otherwise the person's own My Profile still shows the old name
       const g = splitFullName(name);
-      await pool.query(`UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4),
-                          first_name = $5, middle_name = NULL, last_name = $6, suffix = $7 WHERE user_id = $1`,
-        [id, name, email, roleKey, g.first, g.last || null, g.suffix || null]);
-    } else {
-      await pool.query('UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4) WHERE user_id = $1', [id, name, email, roleKey]);
+      add('first_name', g.first); sets.push('middle_name = NULL'); add('last_name', g.last || null); add('suffix', g.suffix || null);
     }
+    if (structured) {
+      add('phone', phone || null);
+      if (PHONE_VERIFICATION_ON && phoneChanged) sets.push('phone_verified_at = NULL');   // a new number is confirmed with a text code at the next sign-in
+    }
+    if (more) {
+      add('birthdate', more.birthdate); add('gender', more.gender);
+      if (isCustomer) { add('company_name', more.companyName); add('company_position', more.companyPosition); add('company_tin', more.companyTin); }
+    }
+    await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE user_id = $1', vals);
   } catch (err) {
     if (err.code === '23505') throw new ValidationError({ email: 'That email is already used by another account' });
     throw err;
@@ -1394,9 +1435,12 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
   const changes = [];
   if (name !== t.full_name) changes.push(`name ${t.full_name} to ${name}`);
   if (email !== t.email) changes.push(`email ${t.email} to ${email}`);
+  if (phoneChanged) changes.push('mobile number');
+  if (more && (t.birthdate_s || '') !== (more.birthdate || '')) changes.push('birthdate');
   if (roleKey !== t.role_key) changes.push(`role ${t.label} to ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
   if (changes.length) await audit(pool, req.user, 'Record edited', `Account updated — ${t.full_name}: ${changes.join(', ')}`);
-  res.json({ ok: true });
+  res.json({ ok: true, name, email, phone: phone || '',
+    message: PHONE_VERIFICATION_ON && phoneChanged && phone ? 'The new mobile number will be confirmed with a text code the next time they sign in.' : '' });
 }));
 
 // Finance can disable / re-enable Cashier and Customer accounts (not Finance accounts, and not their own)

@@ -4744,6 +4744,8 @@ function initUserManagement() {
 ===================================================== */
 
 let editingUserIndex = null;
+let editUserMounted = false;
+let editUserLoaded = false;
 
 
 function openEditUserModal(index) {
@@ -4760,22 +4762,40 @@ function openEditUserModal(index) {
 
     editingUserIndex = index;
 
-    const name =
-        document.getElementById("editUserName");
-
-    const email =
-        document.getElementById("editUserEmail");
-
     const role =
         document.getElementById("editUserRole");
 
-    if (name) {
-        name.value = user.name;
+    // the same profile fields the person has in My Profile (name parts, email, mobile, birthdate, gender, company for customers)
+    if (!editUserMounted) {
+        ProfileEdit.mount(document.getElementById("editUserMount"), "eu");
+        editUserMounted = true;
     }
 
-    if (email) {
-        email.value = user.email || "";
-    }
+    const isCust = user.roleKey === "customer";
+    ProfileEdit.fill("eu", {}, isCust);
+    ProfileEdit.setBusy("eu", true);
+    editUserLoaded = false;
+
+    const saveBtn = document.querySelector("#editUserForm [type=\"submit\"]");
+    const err = document.getElementById("editUserFormError");
+    if (saveBtn) saveBtn.disabled = true;
+    if (err) err.classList.remove("show");
+
+    fetch("/api/users/" + user.id + "/profile", { credentials: "same-origin" })
+        .then(async res => {
+            const d = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(d.error || "Could not load this profile");
+            if (editingUserIndex !== index) return;
+            ProfileEdit.fill("eu", d, isCust);
+            ProfileEdit.setBusy("eu", false);
+            editUserLoaded = true;
+            if (saveBtn) saveBtn.disabled = false;
+            const first = document.getElementById("euFirst");
+            if (first) first.focus();
+        })
+        .catch(e => {
+            if (err) { err.textContent = e.message; err.classList.add("show"); }
+        });
 
     if (role) {
         // a customer stays a customer; staff can only be Finance-Admin or Cashier
@@ -4886,21 +4906,21 @@ function initEditUserModal() {
 
             event.preventDefault();
 
-            const name =
-                document.getElementById("editUserName");
+            const user = userAccountsData[editingUserIndex];
 
-            const email =
-                document.getElementById("editUserEmail");
+            if (!user || !editUserLoaded) {
+                return;
+            }
 
-            if (
-                !name.value.trim() ||
-                !email.value.trim()
-            ) {
+            const isCust = user.roleKey === "customer";
+            const bad = ProfileEdit.check("eu", isCust);
 
+            if (Object.keys(bad).length) {
+                ProfileEdit.showErrors("eu", bad);
                 if (error) {
+                    error.textContent = "Please fix the highlighted fields.";
                     error.classList.add("show");
                 }
-
                 return;
             }
 
@@ -4908,33 +4928,44 @@ function initEditUserModal() {
                 error.classList.remove("show");
             }
 
-            const user = userAccountsData[editingUserIndex];
             const roleSel = document.getElementById("editUserRole");
-            const roleKey = user.roleKey === "customer" ? "customer"
+            const roleKey = isCust ? "customer"
                 : roleSel.value === "Cashier" ? "cashier" : "finance";
             const submitBtn = form.querySelector('[type="submit"]');
 
             if (submitBtn) submitBtn.disabled = true;
 
+            const body = ProfileEdit.read("eu", isCust);
+            body.roleKey = roleKey;
+
             fetch("/api/users/" + user.id, {
                 method: "PATCH",
                 credentials: "same-origin",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name: name.value, email: email.value, roleKey })
+                body: JSON.stringify(body)
             })
                 .then(async res => {
                     const data = await res.json().catch(() => ({}));
-                    if (!res.ok) throw new Error(data.error || "Request failed");
-                    user.name = name.value.trim().replace(/\s+/g, " ");
-                    user.email = email.value.trim().toLowerCase();
+                    if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { fields: data.fields });
+                    user.name = data.name;
+                    user.email = data.email;
                     user.roleKey = roleKey;
                     user.role = roleKey === "finance" ? "Finance-Admin Officer"
                         : roleKey === "cashier" ? "Sales Staff / Cashier" : "Customer";
                     closeEditUserModal();
                     renderAccountsTable();
-                    inviteToast("Account updated");
+                    inviteToast("Account updated" + (data.message ? " \u2014 " + data.message : ""));
                 })
-                .catch(err => inviteToast(err.message, true))
+                .catch(err => {
+                    if (ProfileEdit.showErrors("eu", err.fields)) {
+                        if (error) { error.textContent = "Please fix the highlighted fields."; error.classList.add("show"); }
+                    } else if (error) {
+                        error.textContent = err.message;
+                        error.classList.add("show");
+                    } else {
+                        inviteToast(err.message, true);
+                    }
+                })
                 .finally(() => { if (submitBtn) submitBtn.disabled = false; });
 
         });

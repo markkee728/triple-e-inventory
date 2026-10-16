@@ -27,13 +27,22 @@
  /* ---- edit + disable/enable (uses PATCH /api/users/:id and /api/users/:id/status) ---- */
  let editing=null;
  const toast=(m,bad)=>{try{if(typeof inviteToast==='function')return inviteToast(m,bad);}catch(e){}alert(m);};
- async function patch(url,body){const res=await fetch(url,{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await res.json().catch(()=>({}));if(!res.ok){const f=d.errors&&Object.values(d.errors)[0];throw Error(f||d.error||'Request failed ('+res.status+')');}return d;}
- function openEdit(id){const u=customers.find(x=>String(x.id)===String(id));if(!u)return;editing=u;lastFocus=document.activeElement;byId('customerEditName').value=u.name||'';byId('customerEditEmail').value=u.email||'';const er=byId('customerEditError');er.hidden=true;er.textContent='';byId('customerEditModal').hidden=false;byId('customerEditName').focus();}
+ async function patch(url,body){const res=await fetch(url,{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await res.json().catch(()=>({}));if(!res.ok){throw Object.assign(Error(d.error||'Request failed ('+res.status+')'),{fields:d.fields});}return d;}
+ let mounted=false,editLoaded=false;
+ async function openEdit(id){const u=customers.find(x=>String(x.id)===String(id));if(!u)return;editing=u;editLoaded=false;lastFocus=document.activeElement;
+  if(!mounted){ProfileEdit.mount(byId('customerEditMount'),'ce');mounted=true;}
+  const er=byId('customerEditError');er.hidden=true;er.textContent='';byId('customerEditSave').disabled=true;byId('customerEditModal').hidden=false;
+  ProfileEdit.fill('ce',{},true);ProfileEdit.setBusy('ce',true);
+  try{const res=await fetch('/api/users/'+encodeURIComponent(u.id)+'/profile',{credentials:'include'});if(!res.ok)throw Error('Could not load this profile ('+res.status+').');const d=await res.json();if(editing!==u)return;
+   ProfileEdit.fill('ce',d,true);ProfileEdit.setBusy('ce',false);editLoaded=true;byId('customerEditSave').disabled=false;byId('ceFirst').focus();
+  }catch(err){er.textContent=err.message;er.hidden=false;}}
  function closeEdit(){byId('customerEditModal').hidden=true;editing=null;lastFocus?.focus?.();}
- async function saveEdit(e){e.preventDefault();if(!editing)return;const er=byId('customerEditError'),btn=byId('customerEditSave');const name=byId('customerEditName').value.trim(),email=byId('customerEditEmail').value.trim();er.hidden=true;
- if(name.length<2){er.textContent='Enter the customer\u2019s full name.';er.hidden=false;return;}
- if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){er.textContent='Enter a valid email address.';er.hidden=false;return;}
- btn.disabled=true;try{await patch('/api/users/'+encodeURIComponent(editing.id),{name,email,roleKey:'customer'});editing.name=name;editing.email=email;closeEdit();render();toast('Customer updated');}catch(err){er.textContent=err.message;er.hidden=false;}finally{btn.disabled=false;}}
+ async function saveEdit(e){e.preventDefault();if(!editing||!editLoaded)return;const er=byId('customerEditError'),btn=byId('customerEditSave');er.hidden=true;
+  const bad=ProfileEdit.check('ce',true);if(Object.keys(bad).length){ProfileEdit.showErrors('ce',bad);er.textContent='Please fix the highlighted fields.';er.hidden=false;return;}
+  btn.disabled=true;
+  try{const body=ProfileEdit.read('ce',true);body.roleKey='customer';const r=await patch('/api/users/'+encodeURIComponent(editing.id),body);editing.name=r.name;editing.email=r.email;closeEdit();render();toast('Customer updated'+(r.message?' \u2014 '+r.message:''));}
+  catch(err){const shown=ProfileEdit.showErrors('ce',err.fields);er.textContent=shown?'Please fix the highlighted fields.':err.message;er.hidden=false;}
+  finally{btn.disabled=false;}}
  async function toggle(id){const u=customers.find(x=>String(x.id)===String(id));if(!u)return;const next=isActive(u.status)?'disabled':'active';if(!confirm((next==='disabled'?'Disable':'Re-enable')+' the account of "'+u.name+'"?'+(next==='disabled'?'\n\nThey will not be able to sign in until re-enabled.':'')))return;try{await patch('/api/users/'+encodeURIComponent(u.id)+'/status',{status:next});u.status=next;render();toast(u.name+(next==='disabled'?' disabled':' re-enabled'));}catch(err){toast(err.message,true);}}
  document.addEventListener('DOMContentLoaded',()=>{
   byId('customerRows')?.addEventListener('click',e=>{const ed=e.target.closest('[data-customer-edit]'),tg=e.target.closest('[data-customer-toggle]');if(ed){e.stopPropagation();openEdit(ed.dataset.customerEdit);}else if(tg){e.stopPropagation();toggle(tg.dataset.customerToggle);}},true);
