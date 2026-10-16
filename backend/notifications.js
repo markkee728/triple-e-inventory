@@ -3,6 +3,8 @@
    Low-stock uses a partial unique index on (user_id, dedupe_key) while unresolved so the same
    SKU does not spam; restocking resolves the row and the next drop can alert again. */
 
+const { carrierText, trackingText } = require('./order-delivery');   // who is delivering an order (shown in the "out for delivery" message)
+
 module.exports = function ({ app, pool, auth, wrap, TZ }) {
   let schemaReady = null;
 
@@ -252,7 +254,8 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       },
       'Out for Delivery': {
         customer: { category: 'delivery', title: 'Out for delivery',
-          body: 'Order ' + no + ' is out for delivery. Please keep your phone nearby.' }
+          body: 'Order ' + no + ' is out for delivery' + (carrierText(o.delivery) ? ' with ' + carrierText(o.delivery) : '') + '.'
+            + (trackingText(o.delivery) ? ' ' + trackingText(o.delivery) + '.' : '') + ' Please keep your phone nearby.' }
       },
       'Ready for Pickup': {
         customer: { category: 'delivery', title: 'Ready for pickup',

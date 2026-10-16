@@ -8,6 +8,7 @@
 const mailer = require('./mailer');
 const sms = require('./sms');
 const { escapeHtml: esc } = mailer;
+const { carrierText, trackingText } = require('./order-delivery');   // who is delivering (from the delivery details Finance saved)
 
 const env = (k) => String(process.env[k] || '').trim();
 const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33,7 +34,8 @@ const EVENTS = {
   Packed:           { subject: (o) => `Order ${o.order_no} is packed`, head: 'Your order is packed',
     msg: (o) => o.fulfillment === 'Delivery' ? 'Your items are packed and waiting for the delivery run.' : 'Your items are packed. We will let you know as soon as they are ready for pickup.' },
   'Out for Delivery': { subject: (o) => `Order ${o.order_no} is out for delivery`, head: 'Your order is on its way',
-    msg: () => 'Your order is out for delivery. Please keep your phone nearby and have someone ready to receive it.' },
+    msg: (o) => 'Your order is out for delivery' + (carrierText(o.delivery) ? ' with ' + carrierText(o.delivery) : '') + '.' + (trackingText(o.delivery) ? ' ' + trackingText(o.delivery) + '.' : '')
+      + ' Please keep your phone nearby and have someone ready to receive it.' },
   'Ready for Pickup': { subject: (o) => `Order ${o.order_no} is ready for pickup`, head: 'Your order is ready for pickup',
     msg: () => 'Your order is ready. Please bring your order number and a valid ID when you collect it.' },
   Delivered:        { subject: (o) => `Order ${o.order_no} was delivered`, head: 'Your order was delivered',
@@ -57,7 +59,8 @@ const SMS_TEXT = {
   Packed:           (o) => o.fulfillment === 'Delivery'
     ? `Triple E Metal: Order ${o.order_no} is packed and waiting for the delivery run.`
     : `Triple E Metal: Order ${o.order_no} is packed. We will text you when it is ready for pickup.`,
-  'Out for Delivery': (o) => `Triple E Metal: Order ${o.order_no} is out for delivery. Please keep your phone nearby.`,
+  'Out for Delivery': (o) => `Triple E Metal: Order ${o.order_no} is out for delivery` + (carrierText(o.delivery) ? ' with ' + carrierText(o.delivery) : '') + '.'
+    + (trackingText(o.delivery) ? ' ' + trackingText(o.delivery) + '.' : '') + ' Please keep your phone nearby.',
   'Ready for Pickup': (o, d, info) => `Triple E Metal: Order ${o.order_no} is READY FOR PICKUP. Bring your order number and a valid ID.`
     + (info.address ? ` ${info.address}.` : '') + (info.hours ? ` Hours: ${info.hours}.` : ''),
   Delivered:        (o) => `Triple E Metal: Order ${o.order_no} was delivered. Thank you! Questions? Check My Orders.`,
@@ -70,7 +73,7 @@ const SMS_TEXT = {
 
 // the one text a delivery recipient (someone other than the account owner) receives
 const RECIPIENT_SMS = {
-  'Out for Delivery': (o) => `Triple E Metal: A delivery for ${o.recipient_name || 'you'} (order ${o.order_no}) is out for delivery. Please keep your phone nearby.`
+  'Out for Delivery': (o) => `Triple E Metal: A delivery for ${o.recipient_name || 'you'} (order ${o.order_no}) is out for delivery` + (carrierText(o.delivery) ? ' with ' + carrierText(o.delivery) : '') + '. Please keep your phone nearby.'
 };
 
 // Who gets the text: the ACCOUNT OWNER (their current number from the account, so a changed number works right away;
@@ -133,6 +136,11 @@ module.exports = function makeOrderMail(pool, getNc) {
         `SELECT o.*, u.email, u.full_name, u.phone AS account_phone FROM orders o JOIN users u ON u.user_id = o.customer_id WHERE o.order_no = $1`, [orderNo]);
       const o = rows[0];
       if (!o) return;
+      // delivery details (rider, courier, tracking) are added to the order so the email, text and in-app message can mention them
+      if (o.fulfillment === 'Delivery') {
+        const dl = await pool.query('SELECT * FROM order_deliveries WHERE order_id = $1', [o.order_id]).catch(() => ({ rows: [] }));
+        o.delivery = dl.rows[0] || null;
+      }
       const info = shopInfo();
       const d = Object.assign({ refundDays: Number(process.env.REFUND_WINDOW_DAYS) || 7 }, extra || {});
       // email, text and in-app are separate: one failing never stops the others

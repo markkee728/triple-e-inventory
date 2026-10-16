@@ -253,6 +253,13 @@
       infoRow('Cash received', s.tendered != null ? peso(s.tendered) : '') + infoRow('Change given', s.change != null ? peso(s.change) : '') +
       infoRow(s.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by', s.receivedBy) + '</dl>';
 
+    if (s.delivery) {
+      const dl = s.delivery, d2 = (ms) => (ms ? fmtDate(ms) : '');
+      h += '<div class="sa-h">Delivery</div><dl class="sa-info">' +
+        infoRow('Delivered by', dl.courier) + infoRow('Rider', dl.driverName) + infoRow('Rider phone', dl.driverPhone) + infoRow('Plate number', dl.vehiclePlate) +
+        infoRow('Tracking number', dl.trackingNo) + infoRow('Left on', d2(dl.dispatchedAt)) + infoRow('Delivered on', d2(dl.deliveredAt)) + infoRow('Delivery note', dl.notes) +
+        (dl.proofIds && dl.proofIds.length ? '<div><dt>Proof of delivery</dt><dd>' + dl.proofIds.map((id, i) => '<a href="/api/orders/' + encodeURIComponent(s.ref) + '/delivery-proof/' + id + '" target="_blank" rel="noopener">Photo ' + (i + 1) + '</a>').join(', ') + '</dd></div>' : '') + '</dl>';
+    }
     h += '<div class="sa-h">Items</div><table class="sa-lines"><thead><tr><th>Product</th><th class="sa-num">Qty</th><th class="sa-num">Price</th><th class="sa-num">Amount</th></tr></thead><tbody>' +
       s.items.map((i) => '<tr><td>' + esc(i.name) + '<span class="sa-sub">' + esc(i.sku) + '</span></td><td class="sa-num">' + i.qty + ' ' + esc(i.unit) + '</td><td class="sa-num">' + peso(i.price) + '</td><td class="sa-num">' + peso(i.qty * i.price) + '</td></tr>').join('') +
       '</tbody></table><div class="sa-totals"><div><span>Subtotal</span><span>' + peso(s.subtotal) + '</span></div>' +

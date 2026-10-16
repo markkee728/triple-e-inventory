@@ -97,10 +97,13 @@ const RETURN_WINDOW_DAYS = Number(process.env.POS_RETURN_WINDOW_DAYS) || 7;   //
 const CUSTOMER_CANCELLABLE =['Pending Confirmation', 'Paid'];   // once we start packing, only the shop can cancel
 
 const makeOrderMail = require('./order-mail');
+const makeDelivery = require('./order-delivery');
 
 module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
   const { notify, shopInfo } = makeOrderMail(pool, () => app.locals.notifications);
+  // courier / rider details, dispatch + delivery times and proof photos for Delivery orders (also registers its own /api/orders/:no/delivery... routes)
+  const delivery = makeDelivery({ app, pool, auth, wrap, tx, audit, ValidationError, str });
   const later = (fn) => { Promise.resolve().then(fn).catch((e) => console.warn('[notify]', e.message)); };
   const nc = () => app.locals.notifications;
   const asPeso = (n) => (nc() && nc().peso ? nc().peso(n) : ('\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
@@ -1152,11 +1155,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // until this moment a customer can cancel and it is approved immediately
   const instantUntil = (o) => new Date(o.created_at).getTime() + CANCEL_AUTO_HOURS * 3600000;
 
-  const orderJson = (o, items, cancelPending, refund) => ({
+  const orderJson = (o, items, cancelPending, refund, dlv) => ({
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
     shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
       barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
     phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status, paymentStatus: o.payment_status || 'unpaid',
+    delivery: o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(o.status) ? delivery.customerJson(dlv, o) : undefined,
     cancelRequested: !!cancelPending,
     cancellable: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending,
     cancelInstant: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending && Date.now() <= instantUntil(o),
@@ -1177,7 +1181,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows: cr } = await pool.query(`SELECT DISTINCT order_id FROM order_cancel_requests WHERE order_id = ANY($1) AND status = 'pending'`, [ids]);
     const pending = new Set(cr.map(r => r.order_id));
     const refunds = await refundsFor(ids);
-    res.json(orders.map(o => orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id)))));
+    const dl = await delivery.loadFor(ids);
+    res.json(orders.map(o => orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id)), dl.rows.get(String(o.order_id)))));
   }));
 
   /* ---------- address book (max 5 saved addresses per customer) ---------- */
@@ -1400,9 +1405,13 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const { rows: cr } = ids.length ? await pool.query(`SELECT DISTINCT order_id FROM order_cancel_requests WHERE order_id = ANY($1) AND status = 'pending'`, [ids]) : { rows: [] };
     const pending = new Set(cr.map(r => r.order_id));
     const refunds = await refundsFor(ids);
+    const dl = await delivery.loadFor(ids);
     res.json(orders.map(o => {
-      const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status);
+      const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status), isDelivery = o.fulfillment === 'Delivery';
       return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
+        // Finance sees everything: rider phone, internal notes, proof photo ids (the photos themselves are fetched one by one)
+        delivery: isDelivery ? delivery.financeJson(dl.rows.get(String(o.order_id)), dl.proofs.get(String(o.order_id))) : undefined,
+        receivedBy: o.received_by || undefined, proofRequired: isDelivery ? delivery.proofRequired() : undefined,
         // account owner (read live from the account) and, for Delivery, the recipient saved on the order
         customerPhone: o.customer_phone || undefined, customerEmail: o.customer_email || undefined,
         recipient: o.fulfillment === 'Delivery' ? (o.recipient_name || undefined) : undefined,
@@ -1549,6 +1558,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const pItems = groupBy(posItems.rows, 'sale_id'), oItems = groupBy(ordItems.rows, 'order_id');
     const voidBy = new Map(voids.rows.map(v => [v.sale_id, v])), cancelBy = new Map(cancels.rows.map(c => [c.order_id, c]));
     const histBy = groupBy(hist.rows, 'order_id');
+    const dl = await delivery.loadFor(ordIds);
 
     const out = [];
     for (const s of pos.rows) {
@@ -1578,6 +1588,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         source: 'Shop', ref: o.order_no, createdAt: new Date(o.created_at).getTime(), customer: o.customer || 'Customer', phone: o.phone,
         address: o.address || undefined, fulfillment: o.fulfillment, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee,
         total: +o.total, status: o.status, receivedBy: o.received_by || undefined, items, ...money(items),
+        delivery: o.fulfillment === 'Delivery' ? delivery.financeJson(dl.rows.get(String(o.order_id)), dl.proofs.get(String(o.order_id))) : undefined,
         next: at >= 0 && at < flow.length - 1 ? flow[at + 1] : null,
         canCancel: ADMIN_CANCELLABLE.includes(o.status),
         cancelRequest: c ? { reason: c.reason } : null,
@@ -1612,14 +1623,24 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         : `"${target}" is not a ${o.fulfillment.toLowerCase()} status`);
       if (FINAL_STATUS.includes(target) && (receivedBy.length < 2 || receivedBy.length > 80))
         throw bad('receivedBy', `Enter the name of the person who ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'} the order (2–80 characters)`);
+      // Delivery orders: who takes it out and when (Out for Delivery), proof that it arrived (Delivered). Pickup orders are not affected.
+      await delivery.ready;
+      const prev = o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(target)
+        ? (await client.query('SELECT * FROM order_deliveries WHERE order_id = $1', [o.order_id])).rows[0] : null;
+      const dispatch = o.fulfillment === 'Delivery' && target === 'Out for Delivery' ? delivery.dispatchFields(b.delivery, o) : null;
+      const arrived = o.fulfillment === 'Delivery' && target === 'Delivered' ? await delivery.deliveredFields(client, b.delivery, o, prev) : null;
 
       if (target === 'Paid') await confirmOrder(client, o, req.user, note);   // also deducts stock and writes its own history line
       else {
         if (!o.stock_deducted) throw bad('status', 'Stock has not been deducted for this order. Contact the system administrator');
         await client.query('UPDATE orders SET status = $2, status_updated_at = now(), received_by = COALESCE($3, received_by) WHERE order_id = $1',
           [o.order_id, target, FINAL_STATUS.includes(target) ? receivedBy : null]);
-        await logStatus(client, o.order_id, o.status, target, req.user.id, FINAL_STATUS.includes(target) ? [`Received by ${receivedBy}`, note].filter(Boolean).join(' — ') : note);
-        await audit(client, req.user, 'Record edited', `Order ${o.order_no} moved from ${o.status} to ${target}`);
+        if (dispatch) await delivery.saveDispatch(client, o.order_id, dispatch, req.user.id);
+        if (arrived) await delivery.saveDelivered(client, o.order_id, arrived, req.user.id);
+        const histNote = dispatch ? [delivery.summary(dispatch), note].filter(Boolean).join(' — ')
+          : FINAL_STATUS.includes(target) ? [`Received by ${receivedBy}`, arrived && arrived.notes, note].filter(Boolean).join(' — ') : note;
+        await logStatus(client, o.order_id, o.status, target, req.user.id, histNote);
+        await audit(client, req.user, 'Record edited', `Order ${o.order_no} moved from ${o.status} to ${target}` + (dispatch ? ` — ${delivery.summary(dispatch)}` : ''));
       }
     });
     res.json({ ok: true });

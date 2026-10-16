@@ -826,6 +826,18 @@ function refundBlock(o) {
   if (o.refundEligible) return `<div class="refund-row"><button class="btn-secondary btn-sm" data-refund="${esc(o.id)}">Request refund</button><span class="dim">You can ask until ${fmtDay(o.refundDeadline)}.</span></div>`;
   return `<p class="dim" style="margin-top:12px">The ${o.refundWindowDays || 7}-day refund period for this order has ended.</p>`;
 }
+// who is bringing the order and when it left / arrived (the rider's phone, internal notes and photos are never sent to customers)
+function deliveryBlock(o) {
+  const d = o.delivery; if (!d || o.fulfillment !== 'Delivery') return '';
+  const at = ms => new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const who = [d.driverName, d.courier, d.vehiclePlate].filter(Boolean).map(esc).join(' · ');
+  const lines = [];
+  if (who) lines.push(`${o.status === 'Delivered' ? 'Delivered by' : 'On its way with'} ${who}`);
+  if (d.trackingNo) lines.push(`Tracking no.: ${esc(d.trackingNo)}`);
+  if (d.dispatchedAt) lines.push(`Left us: ${at(d.dispatchedAt)}`);
+  if (d.deliveredAt) lines.push(`Delivered: ${at(d.deliveredAt)}${d.receivedBy ? ' · received by ' + esc(d.receivedBy) : ''}`);
+  return lines.length ? `<div class="ship-to"><b>Delivery</b>${lines.join('<br>')}</div>` : '';
+}
 function cancelBlock(o) {
   if (['Delivered', 'Picked Up', 'Cancelled'].includes(o.status)) return '';
   if (o.cancelRequested) return '<p class="dim" style="margin-top:10px">Cancellation requested. Our team is reviewing it and will reply here.</p>';
@@ -844,6 +856,7 @@ function renderOrders() {
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
     ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View receipt</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
+    ${deliveryBlock(o)}
     ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}

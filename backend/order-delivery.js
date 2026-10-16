@@ -1,0 +1,235 @@
+/* order-delivery.js — who delivered an online order, when it left, and what proof was collected.
+
+   Managed by Finance on the Online Orders page (no separate driver login):
+     • Out for Delivery  -> courier, rider name / phone / plate, tracking no., dispatch date + time, notes
+     • Delivered         -> received by (already existed), delivery date + time, proof photos (JPG/PNG/WEBP), notes
+
+   Tables are created automatically when the server starts (backend/db/013_order_delivery.sql is the same thing for running by hand).
+   Proof photos are kept in the database (like profile photos and product photos), so there is no upload folder to back up.
+   .env:  DELIVERY_PROOF_REQUIRED=true (default) blocks "Delivered" until at least one proof photo is attached; set false to make it optional. */
+const express = require('express');
+
+const MAX_PHOTOS = 3;                       // proof photos per order (e.g. the parcel at the door + the signed delivery receipt)
+const MAX_PHOTO_BYTES = '2mb';
+const PHONE_RE = /^[0-9+()\-\s]{7,20}$/;
+const PLATE_RE = /^[A-Z0-9][A-Z0-9 -]{1,14}$/;
+const TRACKING_RE = /^[A-Za-z0-9][A-Za-z0-9\-_/. ]{2,59}$/;
+const proofRequired = () => !/^(false|0|no|off)$/i.test(String(process.env.DELIVERY_PROOF_REQUIRED || 'true').trim());
+const CLOCK_SKEW_MS = 5 * 60 * 1000;        // a browser clock a few minutes ahead is not an error
+
+/* ---------- plain text helpers (also used by order-mail.js and notifications.js) ---------- */
+// "Juan Dela Cruz (Lalamove, plate ABC 1234)"  /  "LBC"  — works on a database row (snake_case)
+function carrierText(dl) {
+  if (!dl) return '';
+  const extra = [dl.courier, dl.vehicle_plate && 'plate ' + dl.vehicle_plate].filter(Boolean).join(', ');
+  return dl.driver_name ? dl.driver_name + (extra ? ' (' + extra + ')' : '') : (dl.courier || '');
+}
+const trackingText = (dl) => (dl && dl.tracking_no ? 'Tracking no.: ' + dl.tracking_no : '');
+
+const sniff = (b) => b.length > 12 && (
+  (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) ? 'image/jpeg'
+  : (b[0] === 0x89 && b.toString('latin1', 1, 4) === 'PNG') ? 'image/png'
+  : (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') ? 'image/webp' : null);
+
+module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, ValidationError, str }) {
+  const bad = (field, msg) => new ValidationError({ [field]: msg });
+  const ms = (t) => (t ? new Date(t).getTime() : undefined);
+
+  /* ---------- tables ---------- */
+  const ready = (async () => {
+    try {
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_deliveries (
+        order_id      BIGINT PRIMARY KEY REFERENCES orders(order_id),
+        courier       TEXT,
+        driver_name   TEXT,
+        driver_phone  TEXT,
+        vehicle_plate TEXT,
+        tracking_no   TEXT,
+        dispatched_at TIMESTAMPTZ,
+        dispatched_by INT REFERENCES users(user_id),
+        delivery_notes TEXT,
+        delivered_at  TIMESTAMPTZ,
+        delivered_by  INT REFERENCES users(user_id),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_delivery_proofs (
+        proof_id    BIGSERIAL PRIMARY KEY,
+        order_id    BIGINT NOT NULL REFERENCES orders(order_id),
+        mime        TEXT NOT NULL,
+        data        BYTEA NOT NULL,
+        uploaded_by INT REFERENCES users(user_id),
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_odp_order ON order_delivery_proofs (order_id)');
+    } catch (err) { console.warn('[db] could not prepare the delivery tables:', err.message); }
+  })();
+
+  /* ---------- validation ---------- */
+  function when(e, key, v, label, { notBefore, notBeforeLabel } = {}) {
+    if (v === undefined || v === null || v === '') return null;
+    const d = new Date(v);
+    if (Number.isNaN(d.getTime())) { e[key] = `${label} is not a valid date and time`; return null; }
+    if (d.getTime() > Date.now() + CLOCK_SKEW_MS) { e[key] = `${label} cannot be in the future`; return null; }
+    if (notBefore && d.getTime() < new Date(notBefore).getTime() - 60000) { e[key] = `${label} cannot be earlier than ${notBeforeLabel}`; return null; }
+    return d;
+  }
+  const optional = (e, key, v, label, { max, re, reMsg, upper }) => {
+    let s = str(v);
+    if (!s) return null;
+    if (upper) s = s.toUpperCase();
+    if (s.length > max) e[key] = `${label} must be ${max} characters or fewer`;
+    else if (re && !re.test(s)) e[key] = reMsg;
+    return s;
+  };
+
+  // The details Finance types when the order leaves (or corrects later). `keepDispatchedAt` = the time already saved.
+  function dispatchFields(input, order, keepDispatchedAt) {
+    const b = input && typeof input === 'object' ? input : {}, e = {};
+    const courier = str(b.courier);
+    if (courier.length < 2 || courier.length > 60) e.courier = 'Enter who delivers it, e.g. Own rider, Lalamove, LBC (2–60 characters)';
+    const trackingNo = optional(e, 'trackingNo', b.trackingNo, 'The tracking number', { max: 60, re: TRACKING_RE, reMsg: 'The tracking number can only have letters, numbers, spaces and - _ / .' });
+    const driverName = str(b.driverName);
+    if (driverName && (driverName.length < 2 || driverName.length > 80)) e.driverName = 'The rider name must be 2–80 characters';
+    else if (!driverName && !trackingNo) e.driverName = 'Enter the rider or driver name (or a tracking number for a courier parcel)';
+    const driverPhone = optional(e, 'driverPhone', b.driverPhone, 'The rider phone', { max: 20, re: PHONE_RE, reMsg: 'Enter a valid phone number, e.g. 0917 123 4567' });
+    const vehiclePlate = optional(e, 'vehiclePlate', b.vehiclePlate, 'The plate number', { max: 15, re: PLATE_RE, reMsg: 'Enter a valid plate number, e.g. ABC 1234', upper: true });
+    const notes = optional(e, 'notes', b.notes, 'The delivery note', { max: 300 });
+    const dispatchedAt = b.dispatchedAt
+      ? when(e, 'dispatchedAt', b.dispatchedAt, 'The dispatch time', { notBefore: order.created_at, notBeforeLabel: 'when the order was placed' })
+      : (keepDispatchedAt ? new Date(keepDispatchedAt) : new Date());
+    if (Object.keys(e).length) throw new ValidationError(e);
+    return { courier, driverName: driverName || null, driverPhone, vehiclePlate, trackingNo, dispatchedAt, notes };
+  }
+
+  // The details Finance types when the delivery is done. Needs at least one proof photo unless DELIVERY_PROOF_REQUIRED=false.
+  async function deliveredFields(client, input, order, existing) {
+    const b = input && typeof input === 'object' ? input : {}, e = {};
+    const notes = optional(e, 'notes', b.notes, 'The delivery note', { max: 300 });
+    const floor = (existing && existing.dispatched_at) || order.created_at;
+    const deliveredAt = b.deliveredAt
+      ? when(e, 'deliveredAt', b.deliveredAt, 'The delivery time', { notBefore: floor, notBeforeLabel: existing && existing.dispatched_at ? 'when it was dispatched' : 'when the order was placed' })
+      : new Date();
+    if (proofRequired()) {
+      const n = await client.query('SELECT count(*)::int AS n FROM order_delivery_proofs WHERE order_id = $1', [order.order_id]);
+      if (!n.rows[0].n) e.proof = 'Attach at least one proof-of-delivery photo (the parcel at the door, or the signed delivery receipt)';
+    }
+    if (Object.keys(e).length) throw new ValidationError(e);
+    return { deliveredAt, notes };
+  }
+
+  /* ---------- saving ---------- */
+  async function saveDispatch(client, orderId, d, userId) {
+    await client.query(
+      `INSERT INTO order_deliveries (order_id, courier, driver_name, driver_phone, vehicle_plate, tracking_no, dispatched_at, dispatched_by, delivery_notes, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+       ON CONFLICT (order_id) DO UPDATE SET courier = EXCLUDED.courier, driver_name = EXCLUDED.driver_name, driver_phone = EXCLUDED.driver_phone,
+         vehicle_plate = EXCLUDED.vehicle_plate, tracking_no = EXCLUDED.tracking_no, dispatched_at = EXCLUDED.dispatched_at,
+         dispatched_by = COALESCE(order_deliveries.dispatched_by, EXCLUDED.dispatched_by), delivery_notes = EXCLUDED.delivery_notes, updated_at = now()`,
+      [orderId, d.courier, d.driverName, d.driverPhone, d.vehiclePlate, d.trackingNo, d.dispatchedAt, userId, d.notes]);
+  }
+  async function saveDelivered(client, orderId, d, userId) {
+    // an order that was dispatched before this feature existed has no row yet: create one with just the delivery part
+    await client.query(
+      `INSERT INTO order_deliveries (order_id, delivered_at, delivered_by, delivery_notes, updated_at) VALUES ($1,$2,$3,$4, now())
+       ON CONFLICT (order_id) DO UPDATE SET delivered_at = EXCLUDED.delivered_at, delivered_by = EXCLUDED.delivered_by,
+         delivery_notes = COALESCE(EXCLUDED.delivery_notes, order_deliveries.delivery_notes), updated_at = now()`,
+      [orderId, d.deliveredAt, userId, d.notes]);
+  }
+  // one short line for the status history / audit log
+  const summary = (d) => [d.courier, d.driverName, d.vehiclePlate && 'plate ' + d.vehiclePlate, d.trackingNo && 'tracking ' + d.trackingNo].filter(Boolean).join(' · ');
+
+  /* ---------- reading ---------- */
+  async function loadFor(ids) {
+    await ready;
+    const out = { rows: new Map(), proofs: new Map() };
+    if (!ids.length) return out;
+    const [dl, pf] = await Promise.all([
+      pool.query('SELECT * FROM order_deliveries WHERE order_id = ANY($1)', [ids]),
+      pool.query('SELECT proof_id, order_id FROM order_delivery_proofs WHERE order_id = ANY($1) ORDER BY proof_id', [ids])]);
+    dl.rows.forEach((r) => out.rows.set(String(r.order_id), r));
+    pf.rows.forEach((r) => { const k = String(r.order_id); (out.proofs.get(k) || out.proofs.set(k, []).get(k)).push(Number(r.proof_id)); });
+    return out;
+  }
+  // What Finance sees (everything, including internal notes and the rider's phone)
+  const financeJson = (r, proofIds) => (r || (proofIds && proofIds.length) ? {
+    courier: r && r.courier || undefined, driverName: r && r.driver_name || undefined, driverPhone: r && r.driver_phone || undefined,
+    vehiclePlate: r && r.vehicle_plate || undefined, trackingNo: r && r.tracking_no || undefined,
+    dispatchedAt: r ? ms(r.dispatched_at) : undefined, notes: r && r.delivery_notes || undefined, deliveredAt: r ? ms(r.delivered_at) : undefined,
+    proofIds: proofIds || []
+  } : undefined);
+  // What the customer sees: who is bringing it and when, never the rider's personal phone, internal notes or the photos
+  const customerJson = (r, order) => (r && (r.dispatched_at || r.delivered_at) ? {
+    courier: r.courier || undefined, driverName: r.driver_name || undefined, vehiclePlate: r.vehicle_plate || undefined,
+    trackingNo: r.tracking_no || undefined, dispatchedAt: ms(r.dispatched_at), deliveredAt: ms(r.delivered_at), receivedBy: order.received_by || undefined
+  } : undefined);
+
+  /* ---------- routes ---------- */
+  const photoUpload = express.raw({ type: ['image/jpeg', 'image/png', 'image/webp'], limit: MAX_PHOTO_BYTES });
+  const noDigits = (v) => /^\d{1,12}$/.test(String(v));
+
+  async function lockOutForDelivery(client, no) {
+    const r = await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [no]);
+    if (!r.rowCount) throw bad('id', 'Order not found');
+    const o = r.rows[0];
+    if (o.fulfillment !== 'Delivery') throw bad('id', 'Only delivery orders have delivery details');
+    if (o.status !== 'Out for Delivery') throw bad('id', 'Delivery details can be changed only while the order is Out for Delivery');
+    return o;
+  }
+
+  // Correct the rider / courier details after the order has already left (e.g. the rider was swapped)
+  app.post('/api/orders/:no/delivery', auth('finance'), wrap(async (req, res) => {
+    await ready;
+    await tx(async (client) => {
+      const o = await lockOutForDelivery(client, req.params.no);
+      const cur = (await client.query('SELECT * FROM order_deliveries WHERE order_id = $1', [o.order_id])).rows[0];
+      const d = dispatchFields(req.body, o, cur && cur.dispatched_at);
+      await saveDispatch(client, o.order_id, d, req.user.id);
+      await client.query(`INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note) VALUES ($1,$2,$2,$3,$4)`,
+        [o.order_id, o.status, req.user.id, 'Delivery details updated — ' + summary(d)]);
+      await audit(client, req.user, 'Record edited', `Delivery details updated for ${o.order_no}: ${summary(d)}`);
+    });
+    res.json({ ok: true });
+  }));
+
+  // Add one proof photo (the browser shrinks phone photos first). Up to MAX_PHOTOS per order.
+  app.post('/api/orders/:no/delivery-proof', auth('finance'), photoUpload, wrap(async (req, res) => {
+    await ready;
+    const buf = req.body, mime = Buffer.isBuffer(buf) && sniff(buf);
+    if (!mime) throw bad('proof', 'Choose a JPG, PNG or WEBP photo (max 2 MB)');
+    const id = await tx(async (client) => {
+      const o = await lockOutForDelivery(client, req.params.no);
+      const n = await client.query('SELECT count(*)::int AS n FROM order_delivery_proofs WHERE order_id = $1', [o.order_id]);
+      if (n.rows[0].n >= MAX_PHOTOS) throw bad('proof', `An order can have up to ${MAX_PHOTOS} proof photos. Remove one first`);
+      const ins = await client.query('INSERT INTO order_delivery_proofs (order_id, mime, data, uploaded_by) VALUES ($1,$2,$3,$4) RETURNING proof_id', [o.order_id, mime, buf, req.user.id]);
+      await audit(client, req.user, 'Record edited', `Proof-of-delivery photo added to ${o.order_no}`);
+      return Number(ins.rows[0].proof_id);
+    });
+    res.status(201).json({ id });
+  }));
+
+  app.delete('/api/orders/:no/delivery-proof/:id', auth('finance'), wrap(async (req, res) => {
+    await ready;
+    if (!noDigits(req.params.id)) throw bad('proof', 'Photo not found');
+    await tx(async (client) => {
+      const o = await lockOutForDelivery(client, req.params.no);
+      const del = await client.query('DELETE FROM order_delivery_proofs WHERE proof_id = $1 AND order_id = $2', [req.params.id, o.order_id]);
+      if (!del.rowCount) throw bad('proof', 'Photo not found');
+      await audit(client, req.user, 'Record edited', `Proof-of-delivery photo removed from ${o.order_no}`);
+    });
+    res.json({ ok: true });
+  }));
+
+  // Finance only. The id must belong to the order named in the URL, so ids cannot be used to browse other orders' photos.
+  app.get('/api/orders/:no/delivery-proof/:id', auth('finance'), wrap(async (req, res) => {
+    await ready;
+    if (!noDigits(req.params.id)) return res.status(404).end();
+    const r = await pool.query(
+      `SELECT p.mime, p.data FROM order_delivery_proofs p JOIN orders o ON o.order_id = p.order_id WHERE p.proof_id = $1 AND o.order_no = $2`,
+      [req.params.id, req.params.no]);
+    if (!r.rowCount) return res.status(404).end();
+    res.set({ 'Content-Type': r.rows[0].mime, 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff', 'Content-Disposition': 'inline' });
+    res.send(r.rows[0].data);
+  }));
+
+  return { ready, loadFor, dispatchFields, deliveredFields, saveDispatch, saveDelivered, summary, financeJson, customerJson, proofRequired, MAX_PHOTOS };
+};
+module.exports.carrierText = carrierText;
+module.exports.trackingText = trackingText;
