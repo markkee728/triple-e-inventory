@@ -198,3 +198,26 @@ html[data-theme="light"] .nc-item.unread { background: rgba(31,111,184,.06); }
   .nc-toast { transition: none; transform: none; }
   .nc-bell.alerting, .nc-alertbar.critical .nc-ab-ico { animation: none; }
 }
+
+
+/* ---- readable notification rows: title and message on their own lines ---- */
+.nc-item .nc-title, .nc-item .nc-body { display: block; }
+.nc-item .nc-title { margin-top: 2px; }
+
+/* ---- minimised low-stock alert (the sound keeps going until restocked) ---- */
+.nc-alertpill {
+  position: fixed; left: 16px; bottom: 16px; z-index: 110;
+  display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  padding: 8px 12px; border-radius: 999px;
+  background: var(--card, #1b2432); color: var(--text, #e8eef7);
+  border: 1px solid var(--amber, #e0a030);
+  box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.4));
+  font-size: 13px; font-weight: 600;
+}
+.nc-alertpill[hidden] { display: none !important; }
+.nc-alertpill .nc-svg { width: 16px; height: 16px; color: var(--amber, #e0a030); }
+.nc-alertpill.critical { border-color: var(--red, #d64545); }
+.nc-alertpill.critical .nc-svg:first-child { color: var(--red, #d64545); }
+.nc-alertpill:hover { border-color: var(--blue-bright, #4a90d9); }
+.nc-ab-btn .nc-svg { width: 15px; height: 15px; }
+@media (max-width: 700px) { .nc-alertpill { left: 12px; bottom: 12px; } }

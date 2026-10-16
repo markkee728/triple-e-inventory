@@ -83,7 +83,9 @@
     truck: '<path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
     on: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>',
     off: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="m23 9-6 6M17 9l6 6"/>',
-    x: '<path d="M18 6 6 18M6 6l12 12"/>'
+    x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    down: '<path d="m6 9 6 6 6-6"/>',
+    up: '<path d="m18 15-6-6-6 6"/>'
   };
   function svg(name) {
     return '<svg class="nc-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
@@ -178,7 +180,17 @@
   // ---- sticky low-stock banner + repeating alarm ----
   var active = [];                         // open low-stock alerts (Finance)
   var lastAlarm = 0;
-  var bar = null;
+  var bar = null, pill = null;
+  // "Hide" folds the banner into a small pill. The alert (and its sound) stays active; a NEW low-stock item opens it again.
+  function minIds() { try { return JSON.parse(sessionStorage.getItem('tripleE.nc.barHidden')) || null; } catch (e) { return null; } }
+  function isMin() { var h = minIds(); return !!h && active.length > 0 && active.every(function (a) { return h.indexOf(a.id) >= 0; }); }
+  function setMin(on) {
+    try {
+      if (on) sessionStorage.setItem('tripleE.nc.barHidden', JSON.stringify(active.map(function (a) { return a.id; })));
+      else sessionStorage.removeItem('tripleE.nc.barHidden');
+    } catch (e) { /* storage blocked */ }
+    renderBar();
+  }
   function snoozeUntil() { return Number(load('tripleE.nc.snooze')) || 0; }
   function snoozed() { return snoozeUntil() > Date.now(); }
   function clock(ms) { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
@@ -195,8 +207,15 @@
       '<div class="nc-ab-actions">' +
       '<button type="button" class="nc-ab-btn primary" id="ncAbView">Review stock</button>' +
       '<button type="button" class="nc-ab-btn" id="ncAbSnooze">Snooze 10 min</button>' +
+      '<button type="button" class="nc-ab-btn" id="ncAbHide" title="Hide this banner (the alert stays active)">' + svg('down') + 'Hide</button>' +
       '<button type="button" class="nc-ab-btn icon" id="ncAbSound" aria-label="Alert sound"></button></div>';
     document.body.appendChild(bar);
+    pill = document.createElement('button');
+    pill.type = 'button'; pill.className = 'nc-alertpill'; pill.id = 'ncAlertPill'; pill.hidden = true;
+    pill.title = 'Show the low-stock alert';
+    pill.addEventListener('click', function () { setMin(false); });
+    document.body.appendChild(pill);
+    bar.querySelector('#ncAbHide').addEventListener('click', function () { setMin(true); });
     bar.querySelector('#ncAbView').addEventListener('click', function () {
       go((active[0] && active[0].link) || 'Finance_Inventory.html#inventory');
     });
@@ -218,10 +237,16 @@
     var b = ensureBar();
     var bell = $('ncBell');
     if (bell) bell.classList.toggle('alerting', active.length > 0);
-    if (!active.length) { b.hidden = true; return; }
+    if (!active.length) { b.hidden = true; if (pill) pill.hidden = true; return; }
     var out = active.filter(function (a) { return a.severity === 'critical'; }).length;
     var names = active.slice(0, 3).map(function (a) { return a.title.replace(/^(Out of stock|Low stock):\s*/i, ''); });
-    b.hidden = false;
+    var min = isMin();
+    b.hidden = min;
+    if (pill) {
+      pill.hidden = !min;
+      pill.classList.toggle('critical', out > 0);
+      pill.innerHTML = svg('warn') + '<span>' + active.length + (out ? ' low / out of stock' : ' low stock') + '</span>' + svg('up');
+    }
     b.classList.toggle('critical', out > 0);
     b.querySelector('#ncAbTitle').textContent = active.length + (active.length === 1 ? ' item needs' : ' items need') +
       ' restocking' + (out ? ' (' + out + ' out of stock)' : '');
