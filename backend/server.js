@@ -864,24 +864,31 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
     httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
   res.json({ ...profileJson(result), message });
 }));
-// change password: any signed-in user, must prove the current password first
+// change password: any signed-in user.
+//  1) the current password must be TYPED and be right (the system never fills it in),
+//  2) the new password must pass the same rules as sign-up,
+//  3) then a one-time code sent to the user's email or mobile number (their choice) must be entered (password-otp.js; PASSWORD_OTP=off skips it).
 app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   const b = req.body || {};
   const cur = typeof b.currentPassword === 'string' ? b.currentPassword : '';
   const next = typeof b.newPassword === 'string' ? b.newPassword : '';
-  const e = {};
-  if (!cur) e.currentPassword = 'Enter your current password';
-  if (next.length < 8) e.newPassword = 'New password must be at least 8 characters';
-  else if (next.length > 200) e.newPassword = 'New password is too long';
-  else if (!/[A-Za-z]/.test(next) || !/\d/.test(next) || !/[^A-Za-z0-9]/.test(next)) e.newPassword = 'New password needs a letter, a number and a symbol';
-  else if (next === cur) e.newPassword = 'New password must be different from the current one';
-  if (Object.keys(e).length) throw new ValidationError(e);
-  const row = (await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.id])).rows[0];
-  if (!row || !(await bcrypt.compare(cur, row.password_hash))) throw new ValidationError({ currentPassword: 'Current password is incorrect' });
+  const otp = app.locals.passwordOtp;
+  if (!cur) throw new ValidationError({ currentPassword: 'Enter your current password' });
+  await otp.verifyCurrent(req.user.id, cur);                       // wrong current password: nothing else is checked or changed
+  const me = (await pool.query('SELECT email, first_name, last_name FROM users WHERE user_id = $1', [req.user.id])).rows[0] || {};
+  let problem = '';
+  if (next.length > 200) problem = 'New password is too long';
+  else if (app.locals.passwordProblem) problem = app.locals.passwordProblem(next, { email: me.email, names: [me.first_name, me.last_name] });
+  else if (next.length < 8 || !/[A-Za-z]/.test(next) || !/\d/.test(next) || !/[^A-Za-z0-9]/.test(next)) problem = 'New password needs at least 8 characters with a letter, a number and a symbol';
+  if (!problem && next === cur) problem = 'New password must be different from the current one';
+  if (problem) throw new ValidationError({ newPassword: problem });
+  if (next !== b.confirmPassword && b.confirmPassword !== undefined) throw new ValidationError({ confirmPassword: 'Passwords do not match' });
+  const needCode = otp.enabledForChange();
   const hash = await bcrypt.hash(next, 12);
   await tx(async (client) => {
+    if (needCode) await otp.consume(client, req.user.id, 'change', b.code);   // the code is used up only when it is right
     await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
-    await audit(client, req.user, 'Profile updated', 'Changed password');
+    await audit(client, req.user, 'Profile updated', needCode ? 'Changed password (confirmed with a one-time code)' : 'Changed password');
   });
   res.json({ ok: true });
 }));
@@ -1408,6 +1415,8 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
 require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON, emailVerificationOn: EMAIL_VERIFICATION_ON });
+// one-time codes for FORGOT password (email or text, the person chooses) and CHANGE password (password-otp.js)
+require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, str, EMAIL_RE });
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });

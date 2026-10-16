@@ -4,14 +4,17 @@
 
      POST /api/auth/forgot/send     { email, channel: 'email'|'sms' }                 -> always answers the same (never says if the account exists)
      POST /api/auth/forgot/reset    { email, code, newPassword, confirmPassword }     -> checks the code, sets the new password
-     GET  /api/auth/password/options                  (signed in)                      -> which ways this user can receive a code (masked)
-     POST /api/auth/password/otp    { channel }       (signed in)                      -> sends the code for changing the password
-     PUT  /api/auth/password        (in server.js) now also needs { code }
+     POST /api/auth/password/check  { currentPassword, newPassword, confirmPassword } (signed in) -> step 1: the CURRENT password must be typed and right,
+                                                                                         the new one must be valid; answers which ways the code can go (masked)
+     GET  /api/auth/password/options                  (signed in)                      -> same masked options without checking anything
+     POST /api/auth/password/otp    { channel, currentPassword }   (signed in)         -> step 2: sends the code (refused when the current password is wrong)
+     PUT  /api/auth/password        (in server.js)    { currentPassword, newPassword, code }  -> step 3: checks the current password again, then the code, then saves
 
    Codes: 6 digits, valid PASSWORD_OTP_TTL_MIN minutes (default 10), 60 s between sends, 5 sends per hour,
    5 wrong tries then a new code is needed. Only an HMAC of the code is stored. PASSWORD_OTP=off turns the
    code step off for CHANGE password (forgot password always needs a code). */
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const mailer = require('./mailer');
 const sms = require('./sms');
 
@@ -25,6 +28,21 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
   const same = (a, b) => { const x = Buffer.from(a), y = Buffer.from(b); return x.length === y.length && crypto.timingSafeEqual(x, y); };
   const maskEmail = (e) => { const [l, d] = String(e || '').split('@'); return l && d ? l.slice(0, 2) + '***@' + d : ''; };
   const maskPhone = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.length < 4 ? '' : '+63 *** *** ' + d.slice(-4); };
+  // The current password is never filled in by the system: the person types it, and it must be right.
+  // 5 wrong tries in 15 minutes pause further tries for that account.
+  const wrongCur = new Map();
+  async function verifyCurrent(userId, plain) {
+    const now = Date.now(), list = (wrongCur.get(userId) || []).filter((t) => now - t < 15 * 60 * 1000);
+    if (list.length >= 5) throw new ValidationError({ currentPassword: 'Too many wrong tries. Please wait a few minutes and try again.' });
+    const cur = typeof plain === 'string' ? plain : '';
+    if (!cur) throw new ValidationError({ currentPassword: 'Enter your current password' });
+    const row = (await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [userId])).rows[0];
+    if (!row || !(await bcrypt.compare(cur, row.password_hash))) {
+      list.push(now); wrongCur.set(userId, list);
+      throw new ValidationError({ currentPassword: 'Current password is incorrect' });
+    }
+    wrongCur.delete(userId);
+  }
   const enabledForChange = () => String(process.env.PASSWORD_OTP || '').trim().toLowerCase() !== 'off';
 
   const hits = new Map();
@@ -114,7 +132,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const used = await client.query('UPDATE password_otps SET used_at = now() WHERE otp_id = $1 AND used_at IS NULL RETURNING otp_id', [o.otp_id]);   // a code works once, even with two requests at the same time
     if (!used.rowCount) throw new ValidationError({ code: 'This code was already used. Ask for a new one.' });
   }
-  app.locals.passwordOtp = { consume, enabledForChange };
+  app.locals.passwordOtp = { consume, enabledForChange, verifyCurrent };
 
   /* ---------- FORGOT PASSWORD (not signed in) ---------- */
   const SAME_ANSWER = 'If that account exists and can receive a code that way, we sent one. It expires in ' + TTL_MIN + ' minutes.';
@@ -164,9 +182,26 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
       sms: canSms(u) ? { masked: maskPhone(u.phone) } : null });
   }));
 
+  // step 1 of changing the password: nothing is changed and no code is sent until the current password is right
+  app.post('/api/auth/password/check', auth(), limit('pw-check', 30, 60 * 60 * 1000), wrap(async (req, res) => {
+    const b = req.body || {};
+    const next = typeof b.newPassword === 'string' ? b.newPassword : '';
+    const u = await loadUser('u.user_id = $1', req.user.id);
+    if (!u) return res.status(401).json({ error: 'Not signed in' });
+    await verifyCurrent(req.user.id, b.currentPassword);                       // current password FIRST
+    const problem = app.locals.passwordProblem ? app.locals.passwordProblem(next, { email: u.email, names: [u.first_name, u.last_name] }) : (next.length < 8 ? 'Password must be at least 8 characters' : '');
+    if (problem) throw new ValidationError({ newPassword: problem });
+    if (next === b.currentPassword) throw new ValidationError({ newPassword: 'New password must be different from the current one' });
+    if (next !== b.confirmPassword) throw new ValidationError({ confirmPassword: 'Passwords do not match' });
+    res.json({ ok: true, required: enabledForChange(),
+      email: canEmail(u) ? { masked: maskEmail(u.email) } : null,
+      sms: canSms(u) ? { masked: maskPhone(u.phone) } : null });
+  }));
+
   app.post('/api/auth/password/otp', auth(), limit('pw-otp', 20, 60 * 60 * 1000), wrap(async (req, res) => {
     const u = await loadUser('u.user_id = $1', req.user.id);
     if (!u) return res.status(401).json({ error: 'Not signed in' });
+    await verifyCurrent(req.user.id, req.body && req.body.currentPassword);    // no code for someone who does not know the current password
     const r = await issue(u, 'change', str(req.body && req.body.channel));
     if (!r.ok) return res.status(r.waitSeconds ? 429 : 400).json({ error: r.message, waitSeconds: r.waitSeconds || 0 });
     res.json({ ok: true, sent: r.sent, recent: !!r.recent, waitSeconds: r.waitSeconds || 0, expiresIn: r.expiresIn || 0, message: r.message || '' });

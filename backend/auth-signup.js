@@ -69,7 +69,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     if (b.firstName !== undefined || b.lastName !== undefined || b.middleName !== undefined) {
       structured = true;
       first = text(e, 'firstName', b.firstName, label.firstName, { min: 2, max: 50 });
-      middle = text(e, 'middleName', b.middleName, label.middleName, { max: 50, required: false });
+      middle = text(e, 'middleName', b.middleName, label.middleName, { min: 2, max: 50, required: false });
       last = text(e, 'lastName', b.lastName, label.lastName, { min: 2, max: 50 });
       for (const [k, v] of [['firstName', first], ['middleName', middle], ['lastName', last]])
         if (v && !e[k] && !NAME_RE.test(v)) e[k] = label[k] + ' can only have letters and spaces';

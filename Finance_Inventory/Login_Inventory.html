@@ -399,6 +399,19 @@
     flex:none;
   }
 
+  /* forgot password */
+  .fp-hint{ margin:0 0 14px; font-size:13px; line-height:1.5; color:var(--text-dim); }
+  .fp-hint b{ color:var(--text); font-weight:600; }
+  .fp-choice{ display:grid; gap:10px; }
+  .fp-choice label{ display:flex; align-items:center; gap:12px; margin:0; padding:12px 14px; border:1px solid var(--steel); border-radius:8px; cursor:pointer;
+    font-family:'Inter', sans-serif; font-size:14px; letter-spacing:0; text-transform:none; color:var(--text); background:rgba(10,14,18,0.35); transition:border-color .15s, background .15s; }
+  .fp-choice label:hover{ border-color:var(--blue-bright); }
+  .fp-choice label:has(input:checked){ border-color:var(--blue-bright); background:rgba(74,144,217,0.10); }
+  .fp-choice input[type="radio"]{ flex:0 0 18px; width:18px; height:18px; margin:0; padding:0; border-radius:50%; accent-color:var(--blue-bright); box-shadow:none; cursor:pointer; }
+  .fp-choice span{ display:block; min-width:0; }
+  .fp-choice b{ display:block; font-weight:600; font-size:14.5px; color:var(--text); }
+  .fp-choice small{ display:block; margin-top:2px; font-family:'Inter', sans-serif; font-size:12.5px; letter-spacing:0; text-transform:none; color:var(--text-dim); line-height:1.4; }
+
   .back-row{
     text-align:center;
     margin-top:20px;
@@ -727,13 +740,69 @@
           </div>
 
           <div class="row-end">
-            <a href="#" class="link">Forgot password?</a>
+            <a href="#" class="link" id="forgotLink">Forgot password?</a>
           </div>
 
           <button type="submit" class="submit" id="loginBtn">SIGN IN</button>
         </form>
 
         <p class="signup-row">New customer? <a href="#" class="link" id="goToSignupLink">Create an account</a></p>
+      </div>
+
+      <!-- ===== FORGOT PASSWORD: email -> choose email or text message -> code + new password ===== -->
+      <div class="screen" id="forgotScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Reset Password</span>
+        </div>
+        <h1 style="margin-top:10px">Forgot your password?</h1>
+        <p class="sub" id="fpSub">Enter your account email, then choose where we should send a 6-digit code.</p>
+        <p class="notice" id="fpNotice" role="status"></p>
+        <p class="form-error" id="fpError" role="alert"></p>
+
+        <form id="fpStep1" novalidate>
+          <div class="field">
+            <label for="fpEmail">Email</label>
+            <div class="input-shell"><input type="email" id="fpEmail" maxlength="254" placeholder="Enter your email" autocomplete="username"></div>
+            <p class="error-text" id="fpEmailError">Enter a valid email address.</p>
+          </div>
+          <div class="field">
+            <label>Send the code by</label>
+            <div class="fp-choice">
+              <label><input type="radio" name="fpChannel" value="email" checked><span><b>Email</b><small>to the email address of your account</small></span></label>
+              <label><input type="radio" name="fpChannel" value="sms"><span><b>Text message</b><small>to the mobile number registered on your account</small></span></label>
+            </div>
+          </div>
+          <button type="submit" class="submit" id="fpSend">SEND CODE</button>
+        </form>
+
+        <form id="fpStep2" novalidate hidden autocomplete="off">
+          <p class="fp-hint" id="fpSent"></p>
+          <div class="field">
+            <label for="fpCode">6-digit code</label>
+            <div class="input-shell"><input type="text" id="fpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456"></div>
+            <p class="error-text" id="fpCodeError"></p>
+          </div>
+          <div class="otp-meta" style="margin-bottom:14px">
+            <span>Code expires in <span class="timer" id="fpTimer">--:--</span></span>
+            <button type="button" class="link-btn" id="fpResend" disabled>Resend code</button>
+          </div>
+          <div class="field">
+            <label for="fpNew">New password</label>
+            <div class="input-shell has-toggle"><input type="password" id="fpNew" maxlength="72" placeholder="Create a new password" autocomplete="new-password"></div>
+            <p class="error-text" id="fpNewError"></p>
+          </div>
+          <div class="field">
+            <label for="fpConf">Confirm new password</label>
+            <div class="input-shell has-toggle"><input type="password" id="fpConf" maxlength="72" placeholder="Re-enter the new password" autocomplete="new-password"></div>
+            <p class="error-text" id="fpConfError"></p>
+          </div>
+          <p class="fp-hint" style="margin-bottom:12px">At least 8 characters with an uppercase letter, a lowercase letter, a number and a special character.</p>
+          <button type="submit" class="submit" id="fpReset">RESET PASSWORD</button>
+          <p class="back-row" style="margin-top:14px"><button type="button" class="link-btn" id="fpOther">Send the code another way</button></p>
+        </form>
+
+        <p class="back-row"><a href="#" class="link" id="fpBack">Back to sign in</a></p>
       </div>
 
       <!-- ===== REGISTRATION: 3 STEPS ===== -->
@@ -1128,7 +1197,7 @@
     return {
       suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'First name must be at least 2 letters'; if (v.length > 50) return 'First name can be 50 characters at most'; return ''; },
       suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'Last name must be at least 2 letters'; if (v.length > 50) return 'Last name can be 50 characters at most'; return ''; },
-      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
+      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v && v.length < 2) return 'Middle name must be at least 2 letters (or leave it empty)'; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
       suBirth(){
         const v = $('suBirth').value; if (!v) return 'Birthdate is required';
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return 'Enter a valid birthdate';
@@ -1331,6 +1400,94 @@
 
   $('goToSignupLink').addEventListener('click', (e) => { e.preventDefault(); inviteToken = ''; startSignup('customer'); });
   $('signupBackToLogin').addEventListener('click', (e) => { e.preventDefault(); showScreen('loginScreen'); });
+
+  /* ---------- forgot password: email -> choose email or text message -> code + new password ---------- */
+  let fpEmailSent = '', fpExpTimer = null, fpResendTimer = null;
+  const fpShow = (m) => { $('fpError').textContent = m || ''; $('fpError').classList.toggle('show', !!m); };
+  const fpNote = (m) => { $('fpNotice').textContent = m || ''; $('fpNotice').classList.toggle('show', !!m); };
+  const fpSet = (id, m) => { const f = $(id).closest('.field'); if (f) f.classList.toggle('invalid', !!m); const e = $(id + 'Error'); if (e) e.textContent = m || ''; };
+  const fpChannel = () => (document.querySelector('input[name="fpChannel"]:checked') || {}).value || 'email';
+  ['fpNew', 'fpConf'].forEach(id => {
+    const input = $(id), b = document.createElement('button');
+    b.type = 'button'; b.className = 'toggle-vis'; b.setAttribute('aria-label', 'Show password'); b.innerHTML = EYE;
+    input.parentNode.appendChild(b); eyeToggle(input, b);
+  });
+  function fpStage(n){
+    $('fpStep1').hidden = n !== 1; $('fpStep2').hidden = n !== 2;
+    $('fpSub').textContent = n === 1 ? 'Enter your account email, then choose where we should send a 6-digit code.' : 'Enter the code we sent you and choose a new password.';
+  }
+  function fpTimers(expiresIn, waitSeconds){
+    clearInterval(fpExpTimer); clearInterval(fpResendTimer);
+    let left = Math.max(0, Math.round(expiresIn || 600)), wait = Math.max(0, Math.round(waitSeconds || 60));
+    const paintExp = () => { const t = $('fpTimer'); t.textContent = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0'); t.classList.toggle('expired', left <= 0); if (left <= 0) t.textContent = 'expired'; };
+    const paintWait = () => { const b = $('fpResend'); b.disabled = wait > 0; b.textContent = wait > 0 ? 'Resend code (' + wait + 's)' : 'Resend code'; };
+    paintExp(); paintWait();
+    fpExpTimer = setInterval(() => { left = Math.max(0, left - 1); paintExp(); if (left <= 0) clearInterval(fpExpTimer); }, 1000);
+    fpResendTimer = setInterval(() => { wait = Math.max(0, wait - 1); paintWait(); if (wait <= 0) clearInterval(fpResendTimer); }, 1000);
+  }
+  function fpPwProblem(pw, cf){
+    if (pw.length < 8) return ['fpNew', 'Use at least 8 characters.'];
+    if (!/[A-Z]/.test(pw)) return ['fpNew', 'Add an uppercase letter (A-Z).'];
+    if (!/[a-z]/.test(pw)) return ['fpNew', 'Add a lowercase letter (a-z).'];
+    if (!/\d/.test(pw)) return ['fpNew', 'Add a number (0-9).'];
+    if (!/[^A-Za-z0-9]/.test(pw)) return ['fpNew', 'Add a special character (! @ # $ % ...).'];
+    if (pw !== cf) return ['fpConf', 'Passwords do not match.'];
+    return null;
+  }
+  async function fpSendCode(){
+    fpShow(''); fpNote('');
+    const email = $('fpEmail').value.trim().toLowerCase();
+    if (!emailPattern.test(email)){ fpSet('fpEmail', 'Enter a valid email address.'); $('fpEmail').focus(); return false; }
+    fpSet('fpEmail', '');
+    const channel = fpChannel(), btns = [$('fpSend'), $('fpResend')];
+    btns.forEach(b => b.disabled = true);
+    const r = await api('POST', '/api/auth/forgot/send', { email, channel });
+    $('fpSend').disabled = false;
+    if (!r.ok){ fpShow(r.data.error || 'Could not send the code. Try again.'); $('fpResend').disabled = false; return false; }
+    fpEmailSent = email;
+    $('fpSent').innerHTML = 'If an account exists for <b>' + email.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) + '</b> and can receive a code by <b>' + (channel === 'sms' ? 'text message' : 'email') + '</b>, we sent a 6-digit code. Didn\u2019t get it? Check your spam folder, or send it another way.';
+    fpTimers(r.data.expiresIn, r.data.waitSeconds);
+    return true;
+  }
+  $('forgotLink').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('fpEmail').value = $('email').value.trim(); fpSet('fpEmail', ''); fpShow(''); fpNote('');
+    ['fpCode', 'fpNew', 'fpConf'].forEach(id => { $(id).value = ''; fpSet(id, ''); });
+    fpStage(1); showScreen('forgotScreen'); setTimeout(() => $('fpEmail').focus(), 50);
+  });
+  $('fpBack').addEventListener('click', (e) => { e.preventDefault(); clearInterval(fpExpTimer); clearInterval(fpResendTimer); showScreen('loginScreen'); });
+  $('fpOther').addEventListener('click', () => { fpShow(''); fpNote(''); fpStage(1); });
+  $('fpStep1').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (await fpSendCode()){ fpStage(2); $('fpCode').value = ''; setTimeout(() => $('fpCode').focus(), 50); }
+  });
+  $('fpResend').addEventListener('click', async () => { if (await fpSendCode()) fpNote('A new code was sent.'); });
+  $('fpCode').addEventListener('input', () => { $('fpCode').value = $('fpCode').value.replace(/\D/g, '').slice(0, 6); });
+  $('fpStep2').addEventListener('submit', async (e) => {
+    e.preventDefault(); fpShow(''); fpNote('');
+    ['fpCode', 'fpNew', 'fpConf'].forEach(id => fpSet(id, ''));
+    const code = $('fpCode').value.trim(), pw = $('fpNew').value, cf = $('fpConf').value;
+    let bad = false;
+    if (!/^\d{6}$/.test(code)){ fpSet('fpCode', 'Enter the 6-digit code.'); bad = true; }
+    const prob = fpPwProblem(pw, cf); if (prob){ fpSet(prob[0], prob[1]); bad = true; }
+    if (bad) return;
+    const btn = $('fpReset'); btn.disabled = true; btn.textContent = 'RESETTING\u2026';
+    const r = await api('POST', '/api/auth/forgot/reset', { email: fpEmailSent, code, newPassword: pw, confirmPassword: cf });
+    btn.disabled = false; btn.textContent = 'RESET PASSWORD';
+    if (r.ok){
+      clearInterval(fpExpTimer); clearInterval(fpResendTimer);
+      ['fpCode', 'fpNew', 'fpConf'].forEach(id => $(id).value = '');
+      $('email').value = fpEmailSent; $('password').value = '';
+      loginError.classList.remove('show');
+      loginNotice.textContent = 'Your password was changed. Sign in with your new password.'; loginNotice.classList.add('show');
+      showScreen('loginScreen'); setTimeout(() => $('password').focus(), 50);
+      return;
+    }
+    const f = r.data.fields || {}; let any = false;
+    [['code', 'fpCode'], ['newPassword', 'fpNew'], ['confirmPassword', 'fpConf']].forEach(([k, id]) => { if (f[k]){ fpSet(id, f[k]); any = true; } });
+    if (f.email){ fpShow(f.email); any = true; }
+    fpShow(any ? (f.email || 'Please fix the highlighted fields.') : (r.data.error || 'Could not reset the password. Try again.'));
+  });
 
   /* ---------- verify-your-account screen: email link (+ resend) and mobile code ---------- */
   let pendingEmail = '', pendingToken = '', cdTimer = null, otpCd = null, otpExp = null, pollTimer = null;
