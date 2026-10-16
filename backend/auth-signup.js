@@ -73,6 +73,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
       last = text(e, 'lastName', b.lastName, label.lastName, { min: 2, max: 50 });
       for (const [k, v] of [['firstName', first], ['middleName', middle], ['lastName', last]])
         if (v && !e[k] && !NAME_RE.test(v)) e[k] = label[k] + ' can only have letters and spaces';
+      if (middle && !e.middleName && (middle.match(/\p{L}/gu) || []).length < 2) e.middleName = 'Middle name must have at least 2 letters (or leave it empty)';
       // stored in Title Case ("juan DELA cruz" -> "Juan Dela Cruz")
       if (!e.firstName) first = titleCase(first);
       if (!e.middleName) middle = titleCase(middle);

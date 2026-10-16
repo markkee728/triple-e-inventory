@@ -2886,9 +2886,9 @@
                         <div class="form-section-title" id="supSecContact">Contact</div>
 
                         <div class="form-group">
-                            <label class="form-label" for="newSupplierContactPerson">Contact Person</label>
+                            <label class="form-label" for="newSupplierContactPerson">Contact Person <span class="required-mark">*</span></label>
                             <input type="text" id="newSupplierContactPerson" class="form-input" autocapitalize="words"
-                                placeholder="Optional, e.g. Marisol Tan" autocomplete="off">
+                                maxlength="80" required placeholder="e.g. Marisol Tan" autocomplete="off">
                         </div>
 
                         <div class="form-row">
@@ -3450,13 +3450,12 @@
                             <span class="required-mark">*</span>
                         </label>
                         <input
-                            type="number"
+                            type="text"
+                            data-money
                             id="npUnitCost"
                             class="form-input"
                             placeholder="0.00"
                             inputmode="decimal"
-                            min="0"
-                            step="0.01"
                             required autocomplete="off">
                     </div>
 
@@ -3499,7 +3498,7 @@
 
                     <div class="form-group">
                         <label class="form-label" for="npListPrice">Selling Price (&#8369;)</label>
-                        <input type="number" id="npListPrice" class="form-input" placeholder="Optional" inputmode="decimal" min="0" step="0.01" autocomplete="off">
+                        <input type="text" data-money id="npListPrice" class="form-input" placeholder="Optional" inputmode="decimal" autocomplete="off">
                     </div>
 
                     <div class="form-group">
@@ -3614,21 +3613,22 @@
 
 
     <!-- JAVASCRIPT -->
+    <script src="input-rules.js?v=1"></script>
     <script src="password-change.js?v=1"></script>
-    <script src="profile-edit-fields.js?v=1"></script>
-    <script src="script.js?v=13"></script>
-    <script src="api-bridge.js?v=14"></script>
+    <script src="profile-edit-fields.js?v=2"></script>
+    <script src="script.js?v=14"></script>
+    <script src="api-bridge.js?v=15"></script>
     <script src="sales-orders.js?v=12"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">
     <script src="sales-admin.js?v=11"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 
-    <script src="refund-admin.js?v=1"></script>
+    <script src="refund-admin.js?v=2"></script>
     <script src="stock-count-admin.js?v=1"></script>
     <script src="production-admin.js?v=1"></script>
     <script src="finished-goods-shop.js?v=5"></script>
-    <script src="shop-extras-admin.js?v=4"></script>
-    <script src="delivery-rates-admin.js?v=1"></script>
+    <script src="shop-extras-admin.js?v=5"></script>
+    <script src="delivery-rates-admin.js?v=2"></script>
     <script src="customer-profiles-admin.js?v=6"></script>
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=6"></script>

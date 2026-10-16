@@ -585,7 +585,7 @@ function validateSupplier(b, stored, creating) {
   let name = text(e, 'name', b.name, 'Supplier name', { min: 2, max: 120 });
   if (name && !e.name) name = titleCase(name);
   if (name && !e.name && !/[A-Za-z]/.test(name)) e.name = 'Supplier name must contain letters';
-  let contactPerson = text(e, 'contactPerson', b.contactPerson, 'Contact person', { min: 2, max: 80, required: false });
+  let contactPerson = text(e, 'contactPerson', b.contactPerson, 'Contact person', { min: 2, max: 80 });
   if (contactPerson && !e.contactPerson && !/^[A-Za-z][A-Za-z .,'’-]*$/.test(contactPerson)) e.contactPerson = 'Contact person can only have letters, spaces, . , \' and -';
   if (contactPerson && !e.contactPerson) contactPerson = titleCase(contactPerson);
 
@@ -1079,7 +1079,7 @@ app.get('/api/validate-email', auth('finance'), wrap(async (req, res) => {
 }));
 
 
-/* ---------- address lists + ZIP check (used by the supplier form) ---------- */
+/* ---------- address lists + ZIP check (used by the supplier form, the shop checkout and the cashier's walk-in delivery quotes) ---------- */
 const geoRoute = (fn) => wrap(async (req, res) => {
   try { res.json(await fn(req)); }
   catch (err) {
@@ -1087,13 +1087,13 @@ const geoRoute = (fn) => wrap(async (req, res) => {
     throw err;
   }
 });
-app.get('/api/geo/regions', auth('finance', 'customer'), geoRoute(() => getRegions()));
-app.get('/api/geo/regions/:code/provinces', auth('finance', 'customer'), geoRoute((req) => getProvinces(req.params.code)));
-app.get('/api/geo/regions/:code/cities', auth('finance', 'customer'), geoRoute((req) => getCitiesOfRegion(req.params.code)));
-app.get('/api/geo/cities/:code/barangays', auth('finance', 'customer'), geoRoute((req) => getBarangaysOfCity(req.params.code)));
-app.get('/api/geo/provinces/:code/cities', auth('finance', 'customer'), geoRoute((req) => getCitiesOfProvince(req.params.code)));
+app.get('/api/geo/regions', auth('finance', 'customer', 'cashier'), geoRoute(() => getRegions()));
+app.get('/api/geo/regions/:code/provinces', auth('finance', 'customer', 'cashier'), geoRoute((req) => getProvinces(req.params.code)));
+app.get('/api/geo/regions/:code/cities', auth('finance', 'customer', 'cashier'), geoRoute((req) => getCitiesOfRegion(req.params.code)));
+app.get('/api/geo/cities/:code/barangays', auth('finance', 'customer', 'cashier'), geoRoute((req) => getBarangaysOfCity(req.params.code)));
+app.get('/api/geo/provinces/:code/cities', auth('finance', 'customer', 'cashier'), geoRoute((req) => getCitiesOfProvince(req.params.code)));
 // ZIP codes that belong to a city / municipality (used to pre-fill the ZIP box in the shop checkout)
-app.get('/api/geo/zip-suggest', auth('finance', 'customer'), wrap(async (req, res) => {
+app.get('/api/geo/zip-suggest', auth('finance', 'customer', 'cashier'), wrap(async (req, res) => {
   const city = str(req.query.city), province = str(req.query.province), barangay = str(req.query.barangay);
   if (!city) return res.json({ zips: [] });
   let rows = null;
@@ -1114,7 +1114,7 @@ app.get('/api/geo/status', auth('finance'), wrap(async (req, res) => {
   out.zipList = z ? z.length + ' rows' : 'not loaded';
   res.json(out);
 }));
-app.get('/api/geo/check-zip', auth('finance', 'customer'), wrap(async (req, res) => {
+app.get('/api/geo/check-zip', auth('finance', 'customer', 'cashier'), wrap(async (req, res) => {
   const zip = str(req.query.zip), city = str(req.query.city), province = str(req.query.province), region = str(req.query.region), barangay = str(req.query.barangay);
   if (region === OUTSIDE_PH || process.env.ADDRESS_CHECK === 'off') return res.json({ ok: true });
   if (!/^\d{4}$/.test(zip)) return res.json({ ok: false, message: 'ZIP code must be 4 digits, e.g. 1000' });

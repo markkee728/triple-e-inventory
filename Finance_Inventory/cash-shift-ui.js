@@ -9,7 +9,7 @@
  const timeOnly = t => new Date(t).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
  const dur = (a, b) => { const m = Math.max(0, Math.round(((b ? new Date(b) : new Date()) - new Date(a)) / 60000)); return Math.floor(m / 60) + 'h ' + String(m % 60).padStart(2, '0') + 'm'; };
  const say = (m, err) => (window.toast ? window.toast(m, err) : console.log(m));
- const MAX = 10000000, AMOUNT_RE = /^\d{1,8}(\.\d{1,2})?$/;
+ const MAX = 10000000, AMOUNT_RE = /^\d{1,10}(\.\d{1,2})?$/;
  // notes & coins; value in centavos so the total never has floating point errors
  const DENOMS = [['1000', 100000], ['500', 50000], ['200', 20000], ['100', 10000], ['50', 5000], ['20', 2000], ['10', 1000], ['5', 500], ['1', 100], ['0.25', 25], ['0.05', 5]];
  let current = null, ticker = null;
@@ -22,7 +22,7 @@
  }
  // returns {ok, value, error}
  function parseAmount(text, { allowZero = true } = {}) {
-  const t = String(text ?? '').trim();
+  const t = window.MoneyInput ? MoneyInput.raw(text) : String(text ?? '').trim();      // the box shows commas: 1,500.00
   if (!t) return { ok: false, error: 'Enter an amount.' };
   if (!AMOUNT_RE.test(t)) return { ok: false, error: 'Use numbers only, with at most 2 decimals (e.g. 1500.50).' };
   const v = Number(t);
@@ -61,7 +61,7 @@
   if (!current) {
    app.innerHTML = `<div class="cs-hero closed"><div><div class="cs-state"><span class="cs-dot"></span>No open shift</div><div class="cs-meta">Count the cash in your drawer, then enter it below to start selling.</div></div></div>
    <div class="panel cs-card cs-start"><h3>Start your shift</h3><p>Enter the starting cash (change fund) you put in the drawer.</p>
-    <div class="cs-field"><label for="csOpening">Starting cash</label><div class="cs-money"><span>₱</span><input id="csOpening" inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csOpeningErr"></div>
+    <div class="cs-field"><label for="csOpening">Starting cash</label><div class="cs-money"><span>₱</span><input id="csOpening" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csOpeningErr"></div>
      <div class="cs-chips">${[500, 1000, 2000, 3000, 5000].map(v => '<button type="button" class="cs-chip" data-fill="' + v + '">' + fmt(v).replace('.00', '') + '</button>').join('')}</div></div>
     <button class="btn-primary cs-btn" id="csOpenBtn">Open cash shift</button></div>`;
    return;
@@ -79,7 +79,7 @@
    <div class="panel cs-card"><h3>Cash added or removed</h3><p>Record any cash that goes in or out of the drawer that is not a sale (change fund, petty cash, bank drop).</p>
     <div class="cs-grid" style="gap:0 14px">
      <div class="cs-field" style="grid-column:1/-1"><label>Type</label><div class="cs-seg" id="csKind"><button type="button" class="in on" data-kind="cash_in">+ Cash added</button><button type="button" class="out" data-kind="cash_out">− Cash removed</button></div></div>
-     <div class="cs-field"><label for="csMvAmount">Amount</label><div class="cs-money"><span>₱</span><input id="csMvAmount" inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csMvAmountErr"></div></div>
+     <div class="cs-field"><label for="csMvAmount">Amount</label><div class="cs-money"><span>₱</span><input id="csMvAmount" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csMvAmountErr"></div></div>
      <div class="cs-field"><label for="csMvReason">Reason</label><input id="csMvReason" maxlength="300" autocomplete="off" placeholder="At least 5 characters"><div class="cs-err" id="csMvReasonErr"></div></div>
     </div>
     <div class="cs-chips" id="csReasons" style="margin:-4px 0 14px"></div>
@@ -143,7 +143,7 @@
   const d = dialog(`<h3>Count &amp; close shift #${esc(current.id)}</h3><p class="lead">Count everything in the drawer, including the starting cash. Enter how many of each note and coin you have.</p>
    <div class="cs-tabs"><button type="button" class="on" data-mode="count">Count notes &amp; coins</button><button type="button" data-mode="total">I know the total</button></div>
    <div id="csModeCount" class="cs-count">${DENOMS.map(([k, c]) => `<div class="cs-den"><span class="d">₱${k}</span><input type="number" inputmode="numeric" min="0" step="1" data-den="${k}" placeholder="0" aria-label="How many ₱${k}"><span class="s" data-sub="${k}">₱0.00</span></div>`).join('')}</div>
-   <div id="csModeTotal" hidden><div class="cs-field"><label for="csTotal">Total cash counted</label><div class="cs-money"><span>₱</span><input id="csTotal" inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csTotalErr"></div></div></div>
+   <div id="csModeTotal" hidden><div class="cs-field"><label for="csTotal">Total cash counted</label><div class="cs-money"><span>₱</span><input id="csTotal" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csTotalErr"></div></div></div>
    <div class="cs-recon" id="csRecon"><div><small>Expected</small><b>${fmt(exp)}</b></div><div><small>Counted</small><b id="csCounted">—</b></div><div><small>Difference</small><b class="df" id="csDiff">—</b></div></div>
    <div class="cs-field"><label for="csNote" id="csNoteLabel">Closing note (optional)</label><textarea id="csNote" maxlength="500" placeholder="Anything Finance should know about this shift"></textarea><div class="cs-err" id="csNoteErr"></div></div>
    <label class="cs-check"><input type="checkbox" id="csSure"><span>I counted the cash in my drawer and the amount above is correct.</span></label>
@@ -197,7 +197,7 @@
  document.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t) return;
   if (t.id === 'csOpenBtn') openShift();
-  else if (t.dataset.fill) { $('csOpening').value = t.dataset.fill; fieldErr('csOpening', ''); $('csOpening').focus(); }
+  else if (t.dataset.fill) { MoneyInput.set($('csOpening'), t.dataset.fill); fieldErr('csOpening', ''); $('csOpening').focus(); }
   else if (t.id === 'csMvBtn') recordMovement();
   else if (t.id === 'csCloseBtn') { current ? closeDialog() : refresh(); }
   else if (t.id === 'csRetry') reload();

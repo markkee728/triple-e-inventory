@@ -1197,7 +1197,7 @@
     return {
       suFirst(){ const v = clean($('suFirst').value); if (!v) return 'First name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'First name must be at least 2 letters'; if (v.length > 50) return 'First name can be 50 characters at most'; return ''; },
       suLast(){ const v = clean($('suLast').value); if (!v) return 'Last name is required'; if (!NAME_RE.test(v)) return NAME_MSG; if (v.length < 2) return 'Last name must be at least 2 letters'; if (v.length > 50) return 'Last name can be 50 characters at most'; return ''; },
-      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v && v.length < 2) return 'Middle name must be at least 2 letters (or leave it empty)'; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
+      suMiddle(){ const v = clean($('suMiddle').value); if (v && !NAME_RE.test(v)) return NAME_MSG; if (v && (v.match(/\p{L}/gu) || []).length < 2) return 'Middle name must have at least 2 letters (or leave it empty)'; if (v.length > 50) return 'Middle name can be 50 characters at most'; return ''; },
       suBirth(){
         const v = $('suBirth').value; if (!v) return 'Birthdate is required';
         const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v); if (!m) return 'Enter a valid birthdate';

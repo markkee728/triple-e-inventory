@@ -85,6 +85,7 @@
       if (b[x[0]].length < 2) e[x[0]] = x[1] + ' is required (at least 2 letters)';
     });
     ['firstName', 'middleName', 'lastName'].forEach(function (k) { if (b[k] && !e[k] && !NAME_RE.test(b[k])) e[k] = 'Letters and spaces only'; });
+    if (b.middleName && !e.middleName && (b.middleName.match(/\p{L}/gu) || []).length < 2) e.middleName = 'Middle name must have at least 2 letters (or leave it empty)';
     if (!b.email) e.email = 'Email is required'; else if (!EMAIL_RE.test(b.email)) e.email = 'Enter a valid email address';
     return e;
   }

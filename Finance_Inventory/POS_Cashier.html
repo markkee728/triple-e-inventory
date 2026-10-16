@@ -180,7 +180,7 @@
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
               <button class="seg-btn" data-m="Xendit"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v1M14 20h1M18 18h3v3h-3z"/></svg><span>Online payment<span class="sub">QR / Bank</span></span></button>
             </div>
-            <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" inputmode="decimal" placeholder="0.00">
+            <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" data-money inputmode="decimal" placeholder="0.00">
               <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
               <div class="row" style="margin-top:6px"><span class="dim">Change</span><span class="mono" id="change">₱0.00</span></div></div>
             <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
@@ -260,8 +260,12 @@
           </div>
           <div id="pqArea" hidden>
             <div class="q-grid">
-              <div class="q-field"><label for="pqCity">City / Municipality</label><input id="pqCity" maxlength="60" placeholder="e.g. Angeles City"><div class="err-text" id="pqE_city"></div></div>
-              <div class="q-field"><label for="pqBrgy">Barangay</label><input id="pqBrgy" maxlength="60" placeholder="e.g. Balibago"><div class="err-text" id="pqE_barangay"></div></div>
+              <div class="q-field"><label for="pqRegion">Region</label><select id="pqRegion"><option value="">Loading regions…</option></select><div class="err-text" id="pqE_region"></div></div>
+              <div class="q-field"><label for="pqProvince">Province</label><select id="pqProvince" disabled><option value="">Choose a region first</option></select><div class="err-text" id="pqE_province"></div></div>
+            </div>
+            <div class="q-grid">
+              <div class="q-field"><label for="pqCity">City / Municipality</label><input id="pqCity" list="pqCityList" maxlength="60" autocomplete="off" disabled placeholder="Choose a province first"><datalist id="pqCityList"></datalist><div class="err-text" id="pqE_city"></div></div>
+              <div class="q-field"><label for="pqBrgy">Barangay</label><input id="pqBrgy" list="pqBgyList" maxlength="60" autocomplete="off" disabled placeholder="Choose a city first"><datalist id="pqBgyList"></datalist><div class="err-text" id="pqE_barangay"></div></div>
             </div>
             <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street"></div></div>
           </div>
@@ -309,7 +313,7 @@
   <div id="heldList"></div>
   <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('heldBg')">Close</button></div></div></div>
 <div class="modal-overlay" id="priceBg"><div class="modal"><h3 id="priceTitle">Change price</h3><p class="dim" id="priceFor"></p>
-  <div id="priceField"><label for="priceNew">Negotiated price per unit (₱)</label><input id="priceNew" inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
+  <div id="priceField"><label for="priceNew">Negotiated price per unit (₱)</label><input id="priceNew" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
   <div id="priceAuth"><p class="faint" style="font-size:12.5px;margin-top:12px">A supervisor (finance account) must approve price changes. They can sign in right here; the password is not stored.</p>
     <label for="supEmail">Supervisor email</label><input id="supEmail" type="email" autocomplete="off">
     <label for="supPass">Supervisor password</label><input id="supPass" type="password" autocomplete="off"></div>
@@ -318,8 +322,9 @@
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
+<script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
-<script src="account-menu.js?v=2"></script>
+<script src="account-menu.js?v=3"></script>
 <script src="quote-fields.js?v=2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -587,7 +592,7 @@ function openPrice(sku) {
   const p = prod(sku), l = cart.find(x => x.sku === sku); if (!p || !l) return;
   priceMode = { sku };
   $('priceTitle').textContent = 'Change price'; $('priceFor').textContent = p.name + ' · list price ' + peso(p.price) + ' / ' + p.unit;
-  $('priceField').hidden = false; $('priceNew').value = l.price !== undefined ? l.price : p.price; $('priceOk').textContent = 'Apply price';
+  $('priceField').hidden = false; MoneyInput.set($('priceNew'), l.price !== undefined ? l.price : p.price); $('priceOk').textContent = 'Apply price';
   $('priceAuth').hidden = approvalOk(); $('supPass').value = ''; $('priceErr').textContent = '';
   $('priceBg').classList.add('show'); setTimeout(() => { $('priceNew').focus(); $('priceNew').select(); }, 30);
 }
@@ -796,7 +801,7 @@ document.addEventListener('click', e => {
   if (d.priceoff) { const l = cart.find(x => x.sku === d.priceoff); if (l) { delete l.price; renderCart(); } }
   if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
   if (d.m) { if (method !== d.m) { $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; } method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; $('xenditBox').hidden = method !== 'Xendit'; updatePay(); }
-  if (d.cash) { $('tendered').value = d.cash === 'exact' ? total().toFixed(2) : d.cash; updatePay(); }
+  if (d.cash) { MoneyInput.set($('tendered'), d.cash === 'exact' ? total().toFixed(2) : d.cash); updatePay(); }
   if (d.page) showPage(d.page);
   if (d.cat !== undefined && b.classList.contains('pill-btn')) { cat = d.cat; renderCats(); renderProducts(); }
   if (d.view) { view = d.view; document.querySelectorAll('.view-btn').forEach(x => x.classList.toggle('active', x === b)); renderProducts(); }
@@ -868,18 +873,80 @@ let POSQ = [];
 const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
 const pqToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-const PQ_IDS = { productName: 'pqItem', contactName: 'pqName', phone: 'pqPhone', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
+const PQ_IDS = { productName: 'pqItem', contactName: 'pqName', phone: 'pqPhone', region: 'pqRegion', province: 'pqProvince', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
 let pqMounted = false;
 function pqErr(f, msg) { const b = $('pqE_' + f); if (b) b.textContent = msg || ''; if (PQ_IDS[f]) $(PQ_IDS[f]).classList.toggle('is-bad', !!msg); return !msg; }
 const PQ_CHECK = {
   contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
   phone: () => { const v = $('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   productName: () => $('pqProduct').value || $('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
-  city: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqCity').value.trim()) ? 'Enter the city or municipality.' : '',
-  barangay: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqBrgy').value.trim()) ? 'Enter the barangay.' : '',
+  region: () => pqFulfil() === 'Delivery' && !$('pqRegion').value ? 'Choose the region.' : '',
+  province: () => pqFulfil() === 'Delivery' && !$('pqProvince').value ? 'Choose the province.' : '',
+  city: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean($('pqCity').value); return !v ? 'Choose the city or municipality.' : PQG.cities.length && !pqCode(PQG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
+  barangay: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean($('pqBrgy').value); return !v ? 'Choose the barangay.' : PQG.barangays.length && !pqCode(PQG.barangays, v) ? 'Pick the barangay from the list.' : ''; },
   street: () => { const v = $('pqStreet').value.trim(); return pqFulfil() === 'Delivery' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
 };
 const pqField = f => pqErr(f, PQ_CHECK[f]());
+
+/* Delivery area: Region > Province > City > Barangay, from the same address API (/api/geo/...) the online shop uses */
+const PQG = { regions: [], provinces: [], cities: [], barangays: [], city: '', tok: { prov: 0, city: 0, bgy: 0 } };
+const pqClean = v => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+const pqCode = (list, name) => { const n = pqClean(name).toLowerCase(); const m = list.find(x => x.name.toLowerCase() === n); return m ? m.code : null; };
+const pqGeo = async path => { try { return await api(path); } catch (e) { if (e instanceof TypeError) throw new Error('No connection to the server'); throw e; } };
+function pqOptions(sel, rows, placeholder, disabled) { sel.innerHTML = '<option value="">' + esc(placeholder) + '</option>' + rows.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join(''); sel.disabled = !!disabled; }
+const pqList = (id, rows) => { $(id).innerHTML = rows.map(r => `<option value="${esc(r.name)}"></option>`).join(''); };
+const pqBox = (id, placeholder, disabled) => { const el = $(id); el.value = ''; el.disabled = !!disabled; el.placeholder = placeholder; };
+function pqReset(from) {                                   // clears this level and every level below it
+  const i = ['province', 'city', 'barangay'].indexOf(from);
+  if (i <= 0) { PQG.provinces = []; pqOptions($('pqProvince'), [], 'Choose a region first', true); }
+  if (i <= 1) { PQG.cities = []; pqList('pqCityList', []); pqBox('pqCity', 'Choose a province first', true); }
+  PQG.barangays = []; PQG.city = ''; pqList('pqBgyList', []); pqBox('pqBrgy', 'Choose a city first', true);
+}
+async function pqLoadRegions() {
+  const sel = $('pqRegion');
+  try { if (!PQG.regions.length) PQG.regions = await pqGeo('/api/geo/regions'); const keep = sel.value; pqOptions(sel, PQG.regions, 'Choose a region…'); sel.value = keep; }
+  catch (e) { sel.innerHTML = '<option value="">Could not load regions — tap here to try again</option>'; sel.onfocus = () => { sel.onfocus = null; pqLoadRegions(); }; pqErr('region', e.message); }
+}
+async function pqOnRegion() {
+  pqReset('province'); pqErr('region', ''); pqErr('province', ''); pqErr('city', ''); pqErr('barangay', '');
+  const reg = PQG.regions.find(r => r.name === $('pqRegion').value); if (!reg) return;
+  const t = ++PQG.tok.prov, psel = $('pqProvince');
+  pqOptions(psel, [], 'Loading provinces…', true);
+  try {
+    const rows = await pqGeo('/api/geo/regions/' + encodeURIComponent(reg.code) + '/provinces'); if (t !== PQG.tok.prov) return;
+    if (rows.length) { PQG.provinces = rows; pqOptions(psel, rows, 'Choose a province…'); return; }
+    PQG.provinces = [{ code: 'NCR', name: 'Metro Manila' }];                 // NCR has no provinces
+    pqOptions(psel, PQG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila';
+    await pqLoadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
+  } catch (e) { if (t === PQG.tok.prov) { pqOptions(psel, [], 'Could not load — choose the region again', true); pqErr('province', e.message); } }
+}
+async function pqOnProvince() {
+  pqReset('city'); pqErr('province', ''); pqErr('city', ''); pqErr('barangay', '');
+  const prov = PQG.provinces.find(p => p.name === $('pqProvince').value); if (!prov) return;
+  await pqLoadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
+}
+async function pqLoadCities(path) {
+  const t = ++PQG.tok.city; pqBox('pqCity', 'Loading cities…', true);
+  try { const rows = await pqGeo(path); if (t !== PQG.tok.city) return; PQG.cities = rows; pqList('pqCityList', rows); pqBox('pqCity', 'Type to search city / municipality…', false); }
+  catch (e) { if (t === PQG.tok.city) { pqBox('pqCity', 'Could not load — choose the province again', true); pqErr('city', e.message); } }
+}
+async function pqOnCity() {
+  const name = pqClean($('pqCity').value);
+  if (name && name.toLowerCase() === PQG.city.toLowerCase()) return;            // same city again (the browser can fire "change" twice): keep the barangay
+  pqReset('barangay'); pqErr('city', ''); pqErr('barangay', ''); if (!name) return;
+  const city = PQG.cities.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (!city) { if (PQG.cities.length) pqErr('city', 'Pick the city / municipality from the list.'); return; }
+  $('pqCity').value = city.name; PQG.city = city.name;
+  const t = ++PQG.tok.bgy; pqBox('pqBrgy', 'Loading barangays…', true);
+  try { const rows = await pqGeo('/api/geo/cities/' + encodeURIComponent(city.code) + '/barangays'); if (t !== PQG.tok.bgy) return; PQG.barangays = rows; pqList('pqBgyList', rows); pqBox('pqBrgy', rows.length ? 'Type to search barangay…' : 'Type the barangay', false); }
+  catch (e) { if (t === PQG.tok.bgy) pqBox('pqBrgy', 'Type the barangay', false); }      // list unavailable: typed by hand, the server still checks it
+}
+function pqOnBarangay() {
+  pqErr('barangay', ''); const name = pqClean($('pqBrgy').value); if (!name) return;
+  const b = PQG.barangays.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (b) $('pqBrgy').value = b.name; else if (PQG.barangays.length) pqErr('barangay', 'Pick the barangay from the list.');
+}
+function pqResetArea() { $('pqRegion').value = ''; pqReset('province'); ['region', 'province', 'city', 'barangay', 'street'].forEach(f => pqErr(f, '')); }
 function renderPosQuoteForm() {
   const sel = $('pqProduct'), keep = sel.value;
   sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map(p => `<option value="${esc(p.sku)}">${esc(p.name)}${p.spec ? ' — ' + esc(p.spec) : ''} (${esc(p.sku)})</option>`).join('');
@@ -928,24 +995,26 @@ $('pqList').addEventListener('click', async e => {            // record the walk
   loadPosQuotes();
 });
 $('pqProduct').onchange = pqProductChanged;
-document.querySelectorAll('input[name="pqFulfil"]').forEach(r => r.onchange = () => { $('pqArea').hidden = pqFulfil() !== 'Delivery'; ['city', 'barangay', 'street'].forEach(f => pqErr(f, '')); });
+document.querySelectorAll('input[name="pqFulfil"]').forEach(r => r.onchange = () => { $('pqArea').hidden = pqFulfil() !== 'Delivery'; ['region', 'province', 'city', 'barangay', 'street'].forEach(f => pqErr(f, '')); if (pqFulfil() === 'Delivery' && !PQG.regions.length) pqLoadRegions(); });
+$('pqRegion').onchange = pqOnRegion; $('pqProvince').onchange = pqOnProvince;
+$('pqCity').addEventListener('change', pqOnCity); $('pqBrgy').addEventListener('change', pqOnBarangay);
 Object.keys(PQ_IDS).forEach(f => { const el = $(PQ_IDS[f]); el.addEventListener('blur', () => pqField(f)); el.addEventListener('input', () => { if (el.classList.contains('is-bad')) pqField(f); $('pqErr').textContent = ''; }); });
 $('pqPhone').addEventListener('input', () => { const p = $('pqPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
 $('pqForm').onsubmit = async e => {
   e.preventDefault(); const err = $('pqErr'); err.textContent = '';
-  const f = pqFulfil(), fields = ['contactName', 'phone', 'productName'].concat(f === 'Delivery' ? ['city', 'barangay', 'street'] : []);
+  const f = pqFulfil(), fields = ['contactName', 'phone', 'productName'].concat(f === 'Delivery' ? ['region', 'province', 'city', 'barangay', 'street'] : []);
   let first = null; fields.forEach(k => { if (!pqField(k) && !first) first = PQ_IDS[k]; });
   const qf = pqMounted ? QuoteFields.validate('pq') : { ok: false, focus: 'pqFields' }; if (!qf.ok && !first) first = qf.focus;
   if (first) { err.textContent = 'Please fix the highlighted fields.'; const el = $(first); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus({ preventScroll: true }); return; }
   const body = { contactName: $('pqName').value.trim(), phone: $('pqPhone').value.replace(/[\s().-]/g, ''), sku: $('pqProduct').value || undefined, productName: $('pqItem').value.trim(),
     ...QuoteFields.read('pq'), fulfillment: f };
-  if (f === 'Delivery') Object.assign(body, { city: $('pqCity').value.trim(), barangay: $('pqBrgy').value.trim(), street: $('pqStreet').value.trim() });
+  if (f === 'Delivery') Object.assign(body, { region: $('pqRegion').value, province: $('pqProvince').value, city: pqClean($('pqCity').value), barangay: pqClean($('pqBrgy').value), street: $('pqStreet').value.trim() });
   $('pqSend').disabled = true;
   let r;
   try { r = await api('/api/pos/quotes', { method: 'POST', body: JSON.stringify(body) }); }
   catch (er) { $('pqSend').disabled = false; if (!QuoteFields.showServerError('pq', er.fields)) err.textContent = (er.fields && Object.values(er.fields)[0]) || er.message; else err.textContent = 'Please fix the highlighted fields.'; return; }
   $('pqSend').disabled = false;
-  ['pqName', 'pqPhone', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); });
+  ['pqName', 'pqPhone', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); pqResetArea();
   Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; QuoteFields.reset('pq'); pqProductChanged();
   document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; $('pqArea').hidden = true;
   toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
@@ -994,7 +1063,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   }, 20000);
 })();
 </script>
-<script src="cash-shift-ui.js?v=4"></script>
+<script src="cash-shift-ui.js?v=5"></script>
 <script src="notification-center.js?v=6"></script>
 <script src="page-memory.js?v=1"></script>
 </body>

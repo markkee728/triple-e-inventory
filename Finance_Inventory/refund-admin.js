@@ -156,7 +156,7 @@
 
     if (r.status === 'pending') {
       h += '<div class="ra-form">' +
-        '<label for="raAmount">Refund amount (\u20B1)</label><input type="text" class="form-input" id="raAmount" inputmode="decimal" value="' + Number(r.amount).toFixed(2) + '" autocomplete="off">' +
+        '<label for="raAmount">Refund amount (\u20B1)</label><input type="text" data-money class="form-input" id="raAmount" inputmode="decimal" value="' + MoneyInput.fmt(r.amount) + '" autocomplete="off">' +
         '<div class="ra-fe" id="raAmountErr"></div>' +
         '<label class="ra-check"><input type="checkbox" id="raRestock"><span>The goods came back in good condition \u2014 put them back in stock</span></label>' +
         '<label for="raNote">Note to the customer <span class="faint" style="font-weight:400">(required when declining)</span></label>' +
@@ -183,7 +183,7 @@
     if (busy) return;
     var amountEl = $('raAmount'), noteEl = $('raNote');
     $('raAmountErr').textContent = ''; $('raNoteErr').textContent = ''; $('raErr').classList.remove('show');
-    var note = noteEl.value.trim(), amount = Number(String(amountEl.value).replace(/[,\u20B1\s]/g, ''));
+    var note = noteEl.value.trim(), amount = MoneyInput.parse(amountEl.value);
     if (approve && (!Number.isFinite(amount) || amount <= 0 || amount > r.orderTotal)) { $('raAmountErr').textContent = 'Enter an amount between ' + peso(0.01) + ' and ' + peso(r.orderTotal); amountEl.focus(); return; }
     if (!approve && note.length < 5) { $('raNoteErr').textContent = 'Tell the customer why (at least 5 characters)'; noteEl.focus(); return; }
     var text = approve

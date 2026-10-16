@@ -115,7 +115,8 @@
   }
   function vNum(errs, id, label, o) {
     o = Object.assign({ min: 0, max: 1e8, dp: 2, required: true, gt: false }, o);
-    const raw = $(id) ? $(id).value : '';
+    const box = $(id); let raw = box ? box.value : '';
+    if (box && box.hasAttribute('data-money') && window.MoneyInput) raw = MoneyInput.raw(raw);     // money boxes show commas (2,000.00)
     if (raw === '' || raw == null) { if (o.required) errs[id] = label + ' is required'; return null; }
     const n = Number(raw);
     if (!Number.isFinite(n)) { errs[id] = label + ' must be a number'; return null; }
@@ -620,7 +621,7 @@
     fillSupplierPick(); syncSupplierPick();
     $('npReorderManual').checked = product ? !product.reorderAuto : false;   // new products are automatic; old ones stay manual until someone unticks it
     syncReorderUI(product);
-    $('npListPrice').value = product && product.listPrice ? product.listPrice : '';
+    MoneyInput.set($('npListPrice'), product && product.listPrice ? product.listPrice : '');
     syncPriceField();
     // SKU and opening stock are fixed once a product exists (stock only changes through Stock In / Out)
     $('npSku').readOnly = !!product;
@@ -1210,7 +1211,7 @@
       const name = T('newSupplierName', 'Supplier name', { min: 2 });
       if (name && !errs.newSupplierName) errs.newSupplierName = (!/[A-Za-z]/.test(name) ? 'Supplier name must contain letters' : supplierDup('name', name)) || undefined;
       if (!errs.newSupplierName) delete errs.newSupplierName;
-      const contactPerson = T('newSupplierContactPerson', 'Contact person', { min: 2, max: 80, required: false });
+      const contactPerson = T('newSupplierContactPerson', 'Contact person', { min: 2, max: 80 });
       if (contactPerson && !errs.newSupplierContactPerson && !CONTACT_PERSON_RE.test(contactPerson)) errs.newSupplierContactPerson = 'Contact person can only have letters, spaces, . , \' and -';
       const phone = vText(errs, 'newSupplierPhone', 'Phone number', { min: 7, max: 30, required: false });
       if (phone && !errs.newSupplierPhone && !phoneUnchanged()) { const m = phoneError(phone) || supplierDup('phone', phone); if (m) errs.newSupplierPhone = m; }
@@ -1546,7 +1547,7 @@
         return !/[A-Za-z]/.test(v) ? 'Supplier name must contain letters' : supplierDup('name', v);
       },
       newSupplierContactPerson: () => {
-        const m = textRule('newSupplierContactPerson', 'Contact person', { min: 2, max: 80, required: false })();
+        const m = textRule('newSupplierContactPerson', 'Contact person', { min: 2, max: 80 })();
         if (m) return m;
         const v = clean($('newSupplierContactPerson').value);
         return v && !CONTACT_PERSON_RE.test(v) ? 'Contact person can only have letters, spaces, . , \' and -' : '';
@@ -2653,6 +2654,7 @@
       const nm = (id, val, label, req) => {
         if (!val) { if (req) e[id] = label + ' is required'; return; }
         if (req && val.length < 2) e[id] = label + ' must be at least 2 characters';
+        else if (!req && (val.match(/\p{L}/gu) || []).length < 2) e[id] = label + ' must have at least 2 letters (or leave it empty)';
         else if (val.length > 50) e[id] = label + ' must be at most 50 characters';
         else if (!NAME_RE.test(val)) e[id] = label + ' can only have letters and spaces';
       };

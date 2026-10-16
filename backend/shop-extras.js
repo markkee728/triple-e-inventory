@@ -244,11 +244,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         if (!a) throw bad('address', 'That saved address was not found. Please choose another');
         area = [a.address_line, a.barangay && (/^(brgy|barangay)/i.test(a.barangay) ? a.barangay : 'Brgy. ' + a.barangay), a.city, a.province, a.zip_code].filter(Boolean).join(', ');
       } else {
-        const city = str(b.city), barangay = str(b.barangay), street = str(b.street);
+        const city = str(b.city), barangay = str(b.barangay), street = str(b.street), region = str(b.region), province = str(b.province);
+        // the cashier's walk-in form picks Region > Province > City > Barangay from the address lists, so all four are required there;
+        // the customer's quick "different area" box only types the city and barangay
+        if (!userId || b.region !== undefined || b.province !== undefined) {
+          if (region.length < 2 || region.length > 80) throw bad('region', 'Choose the region');
+          if (province.length < 2 || province.length > 60 || !/\p{L}/u.test(province)) throw bad('province', 'Choose the province');
+        }
         if (city.length < 2 || city.length > 60 || !/\p{L}/u.test(city)) throw bad('city', 'Enter the city or municipality');
         if (barangay.length < 2 || barangay.length > 60 || !/\p{L}/u.test(barangay)) throw bad('barangay', 'Enter the barangay');
         if (street && (street.length < 5 || street.length > 100)) throw bad('street', 'Enter the house no. and street (5 to 100 characters), or leave it empty');
-        area = [street, /^(brgy|barangay)/i.test(barangay) ? barangay : 'Brgy. ' + barangay, city].filter(Boolean).join(', ');
+        area = [street, /^(brgy|barangay)/i.test(barangay) ? barangay : 'Brgy. ' + barangay, city, province].filter(Boolean).join(', ');
       }
       area = area.slice(0, 250);
     }

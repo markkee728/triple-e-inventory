@@ -1957,6 +1957,7 @@ function openNewProductModal(
             setValue("npCategory", product.category);
             setValue("npUnit", product.unit);
             setValue("npUnitCost", product.stdCost);
+            if (window.MoneyInput) MoneyInput.set(document.getElementById("npUnitCost"), product.stdCost);
             setValue("npOnHand", product.available);
             setValue("npReorder", product.reorderLevel ?? "");
             setValue("npSource", product.primarySource);
@@ -2105,7 +2106,7 @@ function initNewProductModal() {
                     return (
                         el &&
                         el.value !== "" &&
-                        Number(el.value) >= 0
+                        Number(String(el.value).replace(/,/g, "")) >= 0
                     );
                 });
 

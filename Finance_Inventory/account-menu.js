@@ -266,7 +266,7 @@
     var e = {};
     var nm = function (id, val, label, req) {
       if (!val) { if (req) e[id] = label + ' is required'; return; }
-      if (val.length < 2) e[id] = label + ' must be at least 2 characters' + (req ? '' : ' (or leave it empty)');
+      if (val.length < 2 || (!req && (val.match(/\p{L}/gu) || []).length < 2)) e[id] = req ? label + ' must be at least 2 characters' : label + ' must have at least 2 letters (or leave it empty)';
       else if (val.length > 50) e[id] = label + ' must be at most 50 characters';
       else if (!NAME_RE.test(val)) e[id] = label + ' can only have letters and spaces';
     };

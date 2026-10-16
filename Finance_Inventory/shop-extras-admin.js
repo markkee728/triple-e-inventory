@@ -171,7 +171,7 @@
     h += '<div class="sx-form">';
     if (inFlow) {
       if (x.balance > 0) {
-        h += '<div class="sx-sub">Record a payment</div><div class="sx-two"><div><label for="sxPayAmt">Amount received (\u20B1)</label><input type="text" class="form-input" id="sxPayAmt" inputmode="decimal" autocomplete="off" placeholder="up to ' + Number(x.balance).toFixed(2) + '"></div>' +
+        h += '<div class="sx-sub">Record a payment</div><div class="sx-two"><div><label for="sxPayAmt">Amount received (\u20B1)</label><input type="text" data-money class="form-input" id="sxPayAmt" inputmode="decimal" autocomplete="off" placeholder="up to ' + Number(x.balance).toFixed(2) + '"></div>' +
           '<div><label for="sxPayMethod">Paid by</label><select id="sxPayMethod" class="form-input"><option value="">Choose</option>' + ((qopts && qopts.payMethods) || []).map(function (m) { return '<option' + (x.payMethod === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
           '<div class="sx-actions" style="margin-top:8px"><button type="button" class="btn-secondary" id="sxPay">Record payment</button></div>';
       }
@@ -180,7 +180,7 @@
         if (x.next === 'completed') h += '<label for="sxRecv">' + (x.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by') + ' <span class="faint" style="font-weight:400">(name of the person, required)</span></label><input type="text" class="form-input" id="sxRecv" maxlength="80" autocomplete="off">' + (x.balance > 0 ? '<div class="faint" style="margin-top:6px;font-size:13px">The balance of ' + peso(x.balance) + ' must be paid first.</div>' : '');
       }
     } else if (x.status !== 'completed') {
-      h += '<label for="sxAmount">Total quoted amount (\u20B1) <span class="faint" style="font-weight:400">(required to send a quote)</span></label><input type="text" class="form-input" id="sxAmount" inputmode="decimal" autocomplete="off" placeholder="e.g. 164000.00" value="' + (x.quotedAmount != null ? Number(x.quotedAmount).toFixed(2) : '') + '">' +
+      h += '<label for="sxAmount">Total quoted amount (\u20B1) <span class="faint" style="font-weight:400">(required to send a quote)</span></label><input type="text" data-money class="form-input" id="sxAmount" inputmode="decimal" autocomplete="off" placeholder="e.g. 164000.00" value="' + (x.quotedAmount != null ? MoneyInput.fmt(x.quotedAmount) : '') + '">' +
         '<div class="sx-two"><div><label for="sxLead">Ready in</label><select id="sxLead" class="form-input"><option value="">Choose</option>' + (o.leadTimes || []).map(function (t) { return '<option value="' + esc(t) + '"' + (x.leadTime === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></div>' +
         '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>';
       if (!qopts) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
@@ -203,7 +203,7 @@
 
   async function submitQuote(x, status) {
     if (busy) return;
-    var note = $('sxNote').value.trim(), amount = $('sxAmount') ? $('sxAmount').value.trim() : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
+    var note = $('sxNote').value.trim(), amount = $('sxAmount') ? MoneyInput.raw($('sxAmount').value) : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
     $('sxErr').classList.remove('show');
     if (note && note.length < 5) { showErr('Write at least 5 characters, or leave the message empty.'); $('sxNote').focus(); return; }
     if (status === 'quoted') {
@@ -245,7 +245,7 @@
   }
   function submitPayment(x) {
     $('sxErr').classList.remove('show');
-    var amt = $('sxPayAmt').value.trim(), method = $('sxPayMethod').value;
+    var amt = MoneyInput.raw($('sxPayAmt').value), method = $('sxPayMethod').value;
     if (!(Number(amt.replace(/[,\u20B1\s]/g, '')) > 0)) { showErr('Enter the amount received.'); $('sxPayAmt').focus(); return; }
     if (!method) { showErr('Choose how it was paid.'); $('sxPayMethod').focus(); return; }
     post(x, '/payment', { amount: amt, method: method }, 'Payment recorded for ' + x.id + '.');

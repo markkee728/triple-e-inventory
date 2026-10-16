@@ -78,14 +78,14 @@
         <td>${r.scope === 'default' ? 'Default' : r.scope === 'region' ? 'Region' : 'Province'}</td>
         <td>${place}</td>
         <td><label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" data-i="${i}" data-f="available" ${r.available === false ? '' : 'checked'}> <span class="faint">${r.available === false ? 'No' : 'Yes'}</span></label></td>
-        <td><input class="inv-search" type="number" min="0" max="100000" step="0.01" data-i="${i}" data-f="fee" value="${esc(r.fee)}" style="width:120px" ${r.available === false ? 'disabled' : ''}></td>
+        <td><input class="inv-search" type="text" data-money inputmode="decimal" autocomplete="off" data-i="${i}" data-f="fee" value="${esc(MoneyInput.fmt(r.fee))}" style="width:120px" ${r.available === false ? 'disabled' : ''}></td>
         <td>${r.scope === 'default' ? '' : `<button type="button" class="btn-secondary btn-sm" data-del="${i}">Remove</button>`}</td></tr>`;
     }).join('');
   }
   panel.addEventListener('input', (e) => {
     const t = e.target; if (t.dataset.i == null) return;
     if (t.dataset.f === 'available') { rows[+t.dataset.i].available = t.checked; draw(); $('drMsg').textContent = ''; return; }
-    rows[+t.dataset.i][t.dataset.f] = t.value;
+    rows[+t.dataset.i][t.dataset.f] = t.dataset.f === 'fee' ? MoneyInput.raw(t.value) : t.value;
     $('drMsg').textContent = '';
   });
   panel.addEventListener('click', (e) => {
