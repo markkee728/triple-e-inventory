@@ -4343,6 +4343,7 @@ html[data-theme="light"] ::selection { background: rgba(29, 99, 171, 0.25); }
     #printReport .pd-table td { padding: 4px 7px; border-bottom: 0.6px solid #c9d1d9; vertical-align: top; }
     #printReport .pd-table tfoot td { font-weight: 700; border-top: 1.2px solid #1b3a5c; border-bottom: 2.5px double #1b3a5c; background: #f6f8fa; }
     #printReport .pd-small { font-size: 8.5pt; }
+    #printReport .pd-sub { font: 700 9.5pt Arial, sans-serif; margin: 10px 0 4px; color: #1b3a5c; }
     #printReport .pd-small td { padding: 3px 6px; }
     #printReport .r { text-align: right; white-space: nowrap; }
     #printReport thead { display: table-header-group; }

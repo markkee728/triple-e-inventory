@@ -41,6 +41,7 @@
   let CATEGORIES = [];
   const NEW_CATEGORY = '__new__';
   let movementCache = [];
+  let quotesCache = [];     // custom quote requests with their payments (counted in the sales reports once money is received)
   let salesCache = [];      // every POS sale + online order from /api/sales (used by the Sales Transaction Report)
   let currentUser = null;
   let avatarState = { has: false, v: 0 };   // profile photo (stored in the users table)
@@ -151,6 +152,7 @@
       soft('/users', userAccountsData.slice()), soft('/audit', auditLogData.slice()), soft('/reasons', REASONS), soft('/categories', CATEGORIES),
       soft('/sales', { sales: [] })]);
     salesCache = (salesRes && salesRes.sales) || [];
+    try { const qr = await api('/finance/quotes'); quotesCache = Array.isArray(qr) ? qr : []; } catch (e) { if (e.message === 'Not signed in') throw e; console.warn('[api-bridge] /finance/quotes failed: ' + e.message); }
     updateOrderStats();
     // dropdown list = categories table + any category already used by a product (so it is never empty if products exist)
     const catSet = new Map();
@@ -1817,7 +1819,106 @@
         revenue: i.qty * i.price, profit: i.qty * (i.price - i.cost), customer: t.customer || '', method: t.method || '', handledBy: handler
       }));
     });
+    // custom quote orders: every payment received counts on the day it was received (profit is not tracked for custom work)
+    quotesCache.forEach((q) => (q.payments || []).forEach((p) => {
+      const day = saleDay(p.at);
+      if (day < range.from || day > range.to) return;
+      out.push({
+        ref: q.id, source: 'Quote', date: day, product: (q.product || 'Custom order') + ' \u2013 quote payment', qty: 1, unit: 'payment', price: +p.amount || 0,
+        revenue: +p.amount || 0, profit: null, customer: q.customer || '', method: p.method || '', handledBy: q.receivedBy || q.handledBy || 'Finance'
+      });
+    }));
     return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.ref < b.ref ? 1 : -1));
+  }
+  const srcLabel = (src) => (src === 'POS' ? 'POS walk-in' : src === 'Quote' ? 'Custom quote' : 'Online shop');
+  const sumProfit = (rows) => rows.reduce((t, r) => t + (r.profit || 0), 0);
+
+  /* ---- cash shifts + collections (same period), from /api/finance/cash-shifts/report ---- */
+  const cashRep = { key: '', at: 0, data: null, error: '', pending: null, pendingKey: '' };
+  const rsum = (arr, f) => arr.reduce((t, x) => t + (Number(f(x)) || 0), 0);
+  const mergeRows = (map, rows, fields) => (rows || []).forEach((r) => {
+    const m = map.get(r.method) || map.set(r.method, { method: r.method }).get(r.method);
+    fields.forEach((f) => { m[f] = (m[f] || 0) + (Number(r[f]) || 0); });
+  });
+  async function fetchCash(from, to) {            // the server answers up to 92 days at a time, so a long period is asked in pieces
+    const shifts = [], pos = new Map(), online = new Map();
+    let start = from;
+    while (start <= to) {
+      let end = addDays(start, 91); if (end > to) end = to;
+      const d = await api('/finance/cash-shifts/report?from=' + start + '&to=' + end);
+      (d.shifts || []).forEach((x) => shifts.push(x));
+      mergeRows(pos, d.payments && d.payments.pos, ['count', 'total', 'voided', 'voidedTotal', 'returned']);
+      mergeRows(online, d.payments && d.payments.online, ['count', 'collected', 'awaitingCount', 'awaiting', 'cancelled', 'refunded']);
+      start = addDays(end, 1);
+    }
+    shifts.sort((a, b) => new Date(b.openedAt) - new Date(a.openedAt));
+    const closed = shifts.filter((x) => x.closedAt);
+    return {
+      shifts, pos: [...pos.values()], online: [...online.values()],
+      totals: {
+        shifts: shifts.length, open: shifts.length - closed.length, expectedCash: rsum(shifts, (x) => x.expectedCash), countedCash: rsum(closed, (x) => x.closingCash),
+        shortage: rsum(closed, (x) => Math.min(0, x.difference || 0)), overage: rsum(closed, (x) => Math.max(0, x.difference || 0)),
+        needsReview: shifts.filter((x) => (x.flags || []).length).length
+      }
+    };
+  }
+  const cashKey = (range) => range.from + '|' + range.to;
+  const cashFor = (range) => (cashRep.data && cashRep.key === cashKey(range) ? cashRep.data : null);
+  const reportsOpen = () => { const r = $('reports'); return !!r && r.classList.contains('active-page'); };
+  function ensureCash(range) {
+    if (range.invalid) return Promise.resolve();
+    const key = cashKey(range);
+    if (cashRep.key === key && cashRep.data && Date.now() - cashRep.at < 30000) return Promise.resolve();
+    if (cashRep.pending && cashRep.pendingKey === key) return cashRep.pending;
+    cashRep.pendingKey = key; cashRep.error = '';
+    cashRep.pending = fetchCash(range.from, range.to)
+      .then((d) => { cashRep.key = key; cashRep.at = Date.now(); cashRep.data = d; })
+      .catch((e) => { if (e.message === 'Not signed in') return; cashRep.key = key; cashRep.at = Date.now(); cashRep.data = null; cashRep.error = e.message || 'Could not load'; })
+      .finally(() => { cashRep.pending = null; const cur = repRange(); if (cashKey(cur) === key) renderCashPanel(cur); });
+    renderCashPanel(range);
+    return cashRep.pending;
+  }
+  const cashWhen = (t) => (t ? new Date(t).toLocaleString('en-PH', { timeZone: SALE_TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '\u2014');
+  const varText = (x) => (x.difference == null ? '\u2014' : Math.abs(x.difference) < 0.005 ? 'Balanced' : (x.difference < 0 ? 'Short ' : 'Over ') + money(Math.abs(x.difference)));
+  const collectedNet = (d) => rsum(d.pos, (x) => x.total - (x.returned || 0)) + rsum(d.online, (x) => x.collected - (x.refunded || 0));
+  function ensureCashPanel() {
+    if ($('reportCashPanel')) return true;
+    const body = $('reportSalesBody'), host = body && body.closest('.panel');
+    if (!host) return false;
+    const div = document.createElement('div');
+    div.className = 'panel report-detail-panel'; div.id = 'reportCashPanel';
+    div.innerHTML = '<div class="panel-title">Cash Shifts &amp; Collections Report</div><div class="panel-sub report-period-sub" id="reportCashSub">Loading\u2026</div><div id="reportCashBody"></div>';
+    host.insertAdjacentElement('afterend', div);
+    return true;
+  }
+  function renderCashPanel(range) {
+    if (!ensureCashPanel()) return;
+    const sub = $('reportCashSub'), box = $('reportCashBody');
+    if (range.invalid) { sub.textContent = 'Start date must be on or before the end date'; box.innerHTML = ''; return; }
+    const d = cashFor(range);
+    if (!d) {
+      sub.textContent = cashRep.error ? 'Could not load cash shifts: ' + cashRep.error : range.label + ' \u00B7 loading\u2026';
+      box.innerHTML = ''; return;
+    }
+    const t = d.totals, net = t.shortage + t.overage;
+    sub.textContent = range.label + ' \u00B7 ' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + (t.open ? ' (' + t.open + ' still open)' : '') + ' \u00B7 collected ' + money(collectedNet(d)) +
+      ' \u00B7 cash variance ' + (Math.abs(net) < 0.005 ? 'none' : (net < 0 ? '-' : '+') + money(Math.abs(net)));
+    const coll = d.pos.map((x) => '<tr><td>POS walk-in</td><td>' + esc(payLabel(x.method)) + '</td><td>' + num(x.count) + '</td><td>' + esc(money(x.total - (x.returned || 0))) + '</td><td class="dim">' +
+        (x.returned ? esc(money(x.returned)) + ' returned' : '\u2014') + '</td><td class="dim">' + (x.voided ? num(x.voided) + ' voided (' + esc(money(x.voidedTotal)) + ')' : '\u2014') + '</td></tr>')
+      .concat(d.online.map((x) => '<tr><td>Online shop</td><td>' + esc(payLabel(x.method)) + '</td><td>' + num(x.count) + '</td><td>' + esc(money(x.collected - (x.refunded || 0))) + '</td><td class="dim">' +
+        (x.refunded ? esc(money(x.refunded)) + ' refunded' : '\u2014') + '</td><td class="dim">' + [x.awaitingCount ? num(x.awaitingCount) + ' awaiting (' + money(x.awaiting) + ')' : '', x.cancelled ? num(x.cancelled) + ' cancelled' : ''].filter(Boolean).join(' \u00B7 ') + '</td></tr>'));
+    const shiftRows = d.shifts.map((x) =>
+      '<tr><td>' + esc(x.cashierName || '') + '</td><td class="dim">' + esc(cashWhen(x.openedAt)) + '</td><td class="dim">' + (x.closedAt ? esc(cashWhen(x.closedAt)) : 'Open') + '</td>' +
+      '<td>' + esc(money(x.openingCash || 0)) + '</td><td>' + esc(money(x.cashSales || 0)) + '</td><td class="dim">+' + esc(money(x.cashIn || 0)) + ' / -' + esc(money(x.cashOut || 0)) + '</td>' +
+      '<td class="dim">' + esc(money(x.cashReturns || 0)) + '</td><td>' + esc(money(x.expectedCash || 0)) + '</td><td>' + (x.closingCash == null ? '\u2014' : esc(money(x.closingCash))) + '</td>' +
+      '<td class="' + (x.difference == null ? 'dim' : Math.abs(x.difference) < 0.005 ? 'qty-in' : 'qty-out') + '">' + esc(varText(x)) + '</td></tr>').join('');
+    box.innerHTML =
+      '<h4 style="margin:14px 0 6px;font-size:14px">Collections by payment method</h4><div class="table-wrapper"><table><thead><tr><th>Channel</th><th>Method</th><th>Paid transactions</th><th>Collected (net)</th><th>Returns / refunds</th><th>Voided / awaiting / cancelled</th></tr></thead><tbody>' +
+      (coll.length ? coll.join('') : '<tr><td colspan="6" class="report-note">No POS or online payments in this period.</td></tr>') +
+      '</tbody><tfoot>' + (coll.length ? '<tr class="report-foot-row"><td colspan="3">Net collected (POS + online, after returns and refunds)</td><td>' + esc(money(collectedNet(d))) + '</td><td colspan="2"></td></tr>' : '') + '</tfoot></table></div>' +
+      '<h4 style="margin:18px 0 6px;font-size:14px">Cash drawer shifts</h4><div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening cash</th><th>Cash sales</th><th>Added / removed</th><th>Cash refunds</th><th>Expected</th><th>Counted</th><th>Difference</th></tr></thead><tbody>' +
+      (shiftRows || '<tr><td colspan="10" class="report-note">No cash shifts in this period.</td></tr>') + '</tbody><tfoot>' +
+      (d.shifts.length ? '<tr class="report-foot-row"><td colspan="7">' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + ' \u00B7 ' + t.needsReview + ' need review \u00B7 short ' + esc(money(Math.abs(t.shortage))) + ' \u00B7 over ' + esc(money(t.overage)) + '</td><td>' + esc(money(t.expectedCash)) + '</td><td>' + esc(money(t.countedCash)) + '</td><td>' + (Math.abs(net) < 0.005 ? 'Balanced' : (net < 0 ? 'Short ' : 'Over ') + esc(money(Math.abs(net)))) + '</td></tr>' : '') + '</tfoot></table></div>';
   }
 
   function repMovements(range) {
@@ -1940,7 +2041,7 @@
     setText('repStockValue', money(stockValue));
     setText('repMovementsInPeriod', num(moves.length));
     const sales = repSales(range);
-    const saleRevenue = sales.reduce((t, r) => t + r.revenue, 0), saleProfit = sales.reduce((t, r) => t + r.profit, 0);
+    const saleRevenue = sales.reduce((t, r) => t + r.revenue, 0), saleProfit = sumProfit(sales);
     const saleCount = new Set(sales.map((r) => r.ref)).size;
     setText('repSalesInPeriod', num(saleCount));
     setText('repSalesRevenue', money(saleRevenue));
@@ -1987,15 +2088,19 @@
     const slBody = $('reportSalesBody'), slFoot = $('reportSalesFoot');
     if (slBody) {
       slBody.innerHTML = sales.length ? sales.map((r) =>
-        '<tr><td class="mono">' + esc(r.ref) + '<div class="dim" style="font-size:12px">' + (r.source === 'POS' ? 'POS walk-in' : 'Online shop') + '</div></td>' +
+        '<tr><td class="mono">' + esc(r.ref) + '<div class="dim" style="font-size:12px">' + srcLabel(r.source) + '</div></td>' +
         '<td class="dim">' + esc(niceDate(r.date)) + '</td><td>' + esc(r.product) + '</td>' +
         '<td>' + esc(num(r.qty)) + ' ' + esc(r.unit || '') + '</td><td class="dim">' + esc(money(r.price)) + '</td>' +
-        '<td>' + esc(money(r.revenue)) + '</td><td class="' + (r.profit < 0 ? 'qty-out' : 'qty-in') + '">' + esc(money(r.profit)) + '</td>' +
+        '<td>' + esc(money(r.revenue)) + '</td><td class="' + (r.profit == null ? 'dim' : r.profit < 0 ? 'qty-out' : 'qty-in') + '">' + (r.profit == null ? '\u2014' : esc(money(r.profit))) + '</td>' +
         '<td class="dim">' + esc(r.customer) + '</td><td class="dim">' + esc(payLabel(r.method)) + '</td><td class="dim">' + esc(r.handledBy) + '</td></tr>').join('')
         : '<tr><td colspan="10" class="report-note">' + (range.invalid ? 'Fix the date range above.' : 'No sales in this period. Voided, cancelled, unconfirmed and refunded sales are not counted.') + '</td></tr>';
     }
     if (slFoot) slFoot.innerHTML = sales.length ? '<tr class="report-foot-row"><td colspan="5">' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 ' + sales.length + ' line' + (sales.length === 1 ? '' : 's') +
-      ' \u00B7 product sales only (delivery fees not included)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
+      ' \u00B7 product sales and quote payments received (delivery fees not included; profit is not tracked on custom quotes)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
+
+    // cash shifts + collections for the same period (loaded on demand while Reports is open)
+    renderCashPanel(range);
+    if (reportsOpen()) ensureCash(range);
   }
 
   /* ---- CSV export ---- */
@@ -2004,9 +2109,11 @@
     if (isText && /^[=+\-@\t\r]/.test(t)) t = "'" + t;        // stop spreadsheet formula injection
     return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   }
-  function exportReportCsv() {
+  async function exportReportCsv() {
     const range = repRange();
     if (range.invalid) { toast('Fix the date range before exporting', 'error'); return; }
+    await ensureCash(range);
+    const cash = cashFor(range);
     const moves = repMovements(range);
     const row = (arr) => arr.map((c) => (c && c.t !== undefined ? csvCell(c.t, true) : csvCell(c, false))).join(',');
     const T = (v) => ({ t: v });
@@ -2029,10 +2136,19 @@
       row(['Ref', 'Date', 'Product', 'Type', 'Reason', 'Quantity', 'Unit', 'Department', 'Handled by']));
     moves.forEach((m) => lines.push(row([T(m.ref), m.date, T(m.product), m.type === 'in' ? 'In' : 'Out', T(m.reason || ''),
       (m.type === 'in' ? '' : '-') + m.qty, T(m.unit), T(m.department), T(m.handledBy)])));
-    lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online, excludes voided / cancelled / unconfirmed / refunded)')]),
+    lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online + custom quote payments, excludes voided / cancelled / unconfirmed / refunded)')]),
       row(['Sales ref', 'Source', 'Date', 'Product', 'Quantity', 'Unit', 'Unit price', 'Revenue', 'Profit', 'Customer', 'Payment', 'Handled by']));
-    repSales(range).forEach((r) => lines.push(row([T(r.ref), T(r.source === 'POS' ? 'POS walk-in' : 'Online shop'), r.date, T(r.product), r.qty, T(r.unit || ''),
-      r.price.toFixed(2), r.revenue.toFixed(2), r.profit.toFixed(2), T(r.customer), T(payLabel(r.method)), T(r.handledBy)])));
+    repSales(range).forEach((r) => lines.push(row([T(r.ref), T(srcLabel(r.source)), r.date, T(r.product), r.qty, T(r.unit || ''),
+      r.price.toFixed(2), r.revenue.toFixed(2), r.profit == null ? '' : r.profit.toFixed(2), T(r.customer), T(payLabel(r.method)), T(r.handledBy)])));
+    if (cash) {
+      lines.push('', row([T('COLLECTIONS BY PAYMENT METHOD')]), row(['Channel', 'Method', 'Paid transactions', 'Collected (net)', 'Returned / refunded', 'Voided or cancelled', 'Awaiting payment']));
+      cash.pos.forEach((x) => lines.push(row([T('POS walk-in'), T(payLabel(x.method)), x.count, (x.total - (x.returned || 0)).toFixed(2), (x.returned || 0).toFixed(2), x.voided || 0, ''])));
+      cash.online.forEach((x) => lines.push(row([T('Online shop'), T(payLabel(x.method)), x.count, (x.collected - (x.refunded || 0)).toFixed(2), (x.refunded || 0).toFixed(2), x.cancelled || 0, (x.awaiting || 0).toFixed(2)])));
+      lines.push(row(['', '', '', collectedNet(cash).toFixed(2), '', '', '']), '', row([T('CASH SHIFTS IN PERIOD')]),
+        row(['Shift', 'Cashier', 'Opened', 'Closed', 'Opening cash', 'Cash sales', 'Cash added', 'Cash removed', 'Cash refunds', 'Expected', 'Counted', 'Difference', 'Cashier note']));
+      cash.shifts.forEach((x) => lines.push(row([T(x.id), T(x.cashierName || ''), T(cashWhen(x.openedAt)), T(x.closedAt ? cashWhen(x.closedAt) : 'Open'), x.openingCash || 0, x.cashSales || 0, x.cashIn || 0, x.cashOut || 0,
+        x.cashReturns || 0, x.expectedCash || 0, x.closingCash == null ? '' : x.closingCash, x.difference == null ? '' : x.difference, T(x.closingNote || '')])));
+    }
     const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -2046,7 +2162,7 @@
     if (!$('reports')) return;
     // re-read sales each time Reports is opened, so orders confirmed or sold a moment ago are included
     document.querySelectorAll('.nav-item[data-page="reports"]').forEach((n) => n.addEventListener('click', () => {
-      api('/sales').then((r) => { salesCache = (r && r.sales) || []; updateOrderStats(); renderReports(); }).catch((e) => console.warn('[api-bridge] /sales failed: ' + e.message));
+      Promise.all([api('/sales'), api('/finance/quotes').catch(() => null)]).then(([r, q]) => { salesCache = (r && r.sales) || []; if (Array.isArray(q)) quotesCache = q; updateOrderStats(); renderReports(); }).catch((e) => console.warn('[api-bridge] /sales failed: ' + e.message));
     }));
     // sensible defaults for the custom range: the last 7 days
     rep.to = iso(new Date()); rep.from = addDays(rep.to, -6);
@@ -2071,7 +2187,7 @@
     stop('exportCsvBtn', exportReportCsv);
     stop('printReportBtn', () => {
       toast('Tip: in the print window, switch off \u201CHeaders and footers\u201D for a clean document. Choose \u201CSave as PDF\u201D to keep a copy.');
-      setTimeout(() => window.print(), 350);
+      ensureCash(repRange()).then(() => setTimeout(() => window.print(), 350));
     });
 
     const onRange = () => {
@@ -2176,6 +2292,15 @@
       .sort((a, b) => (a.onHand - a.reorderLevel) - (b.onHand - b.reorderLevel));
     const ins = moves.filter((m) => m.type === 'in'), outs = moves.filter((m) => m.type === 'out');
     const sumQty = (arr) => arr.reduce((t, m) => t + (Number(m.qty) || 0), 0);
+    const cash = cashFor(range);
+    const salesRows = repSales(range);
+    const salesRev = salesRows.reduce((t, r) => t + r.revenue, 0), salesProf = sumProfit(salesRows);
+    const salesTxn = new Set(salesRows.map((r) => r.ref)).size;
+    const bySrc = {}; salesRows.forEach((r) => { const b = bySrc[r.source] || (bySrc[r.source] = { refs: new Set(), rev: 0 }); b.refs.add(r.ref); b.rev += r.revenue; });
+    const salesBody = salesRows.map((r) =>
+      '<tr><td>' + esc(r.ref) + '</td><td>' + esc(srcLabel(r.source)) + '</td><td>' + esc(niceDate(r.date)) + '</td><td>' + esc(r.product) +
+      '</td><td class="r">' + esc(num(r.qty)) + (r.unit ? ' ' + esc(r.unit) : '') + '</td><td class="r">' + esc(money(r.revenue)) + '</td><td class="r">' +
+      (r.profit == null ? '&mdash;' : esc(money(r.profit))) + '</td><td>' + esc(r.customer) + '</td><td>' + esc(payLabel(r.method)) + '</td></tr>').join('');
 
     const byDept = {};
     inv.forEach((i) => {
@@ -2222,7 +2347,12 @@
         kv('Quantity received in period', esc(num(sumQty(ins)))) +
         kv('Quantity issued in period', esc(num(sumQty(outs)))) +
         kv('Items at or below reorder level', esc(num(lowItems.length))) +
-        kv('Sales transactions in period', '0 &mdash; not yet recorded in the system') +
+        kv('Sales transactions in period', esc(num(salesTxn)) + (Object.keys(bySrc).length ? ' (' + Object.keys(bySrc).map((k) => bySrc[k].refs.size + ' ' + srcLabel(k).toLowerCase()).join(' / ') + ')' : '')) +
+        kv('Sales revenue in period', esc(money(salesRev))) +
+        kv('Sales profit in period', esc(money(salesProf))) +
+        (cash ? kv('Net collected (POS + online, after returns and refunds)', esc(money(collectedNet(cash)))) +
+          kv('Cash drawer shifts in period', esc(num(cash.totals.shifts)) + (cash.totals.open ? ' (' + cash.totals.open + ' still open)' : '')) +
+          kv('Cash variance (counted vs expected)', Math.abs(cash.totals.shortage + cash.totals.overage) < 0.005 ? 'None' : esc(money(Math.abs(cash.totals.shortage + cash.totals.overage))) + (cash.totals.shortage + cash.totals.overage < 0 ? ' short' : ' over')) : '') +
       '</table>' +
 
       '<h2><span>2.</span> Stock Value by Department</h2>' +
@@ -2244,7 +2374,25 @@
         empty('No stock movements were recorded during this period.')) +
 
       '<h2><span>6.</span> Sales Transactions</h2>' +
-      empty('No sales transactions are recorded for this period. Sales are not yet connected to the inventory database.') +
+      (range.invalid ? empty('The selected date range is invalid (start date is after the end date).') :
+        salesBody ? table('pd-small', [['Reference'], ['Source'], ['Date'], ['Product'], ['Qty', 1], ['Revenue', 1], ['Profit', 1], ['Customer'], ['Payment']], salesBody,
+          '<tr><td colspan="5">' + salesTxn + ' transaction' + (salesTxn === 1 ? '' : 's') + ' &middot; ' + salesRows.length + ' line' + (salesRows.length === 1 ? '' : 's') +
+          ' &middot; POS, online shop and custom quote payments (voided, cancelled, unconfirmed and refunded sales excluded; delivery fees not included)</td><td class="r">' +
+          esc(money(salesRev)) + '</td><td class="r">' + esc(money(salesProf)) + '</td><td colspan="2"></td></tr>') :
+        empty('No sales transactions were recorded during this period.')) +
+
+      '<h2><span>7.</span> Cash Shifts &amp; Collections</h2>' +
+      (range.invalid ? empty('The selected date range is invalid (start date is after the end date).') : !cash ? empty('Cash shift data could not be loaded. Close this preview and print again.') : (
+        '<p class="pd-sub">Collections by payment method</p>' +
+        ((cash.pos.length || cash.online.length) ? table('pd-small', [['Channel'], ['Method'], ['Paid', 1], ['Collected (net)', 1], ['Returns / refunds', 1], ['Voided / awaiting / cancelled']],
+          cash.pos.map((x) => '<tr><td>POS walk-in</td><td>' + esc(payLabel(x.method)) + '</td><td class="r">' + esc(num(x.count)) + '</td><td class="r">' + esc(money(x.total - (x.returned || 0))) + '</td><td class="r">' + (x.returned ? esc(money(x.returned)) : '&mdash;') + '</td><td>' + (x.voided ? esc(num(x.voided)) + ' voided' : '&mdash;') + '</td></tr>').join('') +
+          cash.online.map((x) => '<tr><td>Online shop</td><td>' + esc(payLabel(x.method)) + '</td><td class="r">' + esc(num(x.count)) + '</td><td class="r">' + esc(money(x.collected - (x.refunded || 0))) + '</td><td class="r">' + (x.refunded ? esc(money(x.refunded)) : '&mdash;') + '</td><td>' + ([x.awaitingCount ? esc(num(x.awaitingCount)) + ' awaiting (' + esc(money(x.awaiting)) + ')' : '', x.cancelled ? esc(num(x.cancelled)) + ' cancelled' : ''].filter(Boolean).join(', ') || '&mdash;') + '</td></tr>').join(''),
+          '<tr><td colspan="3">Net collected</td><td class="r">' + esc(money(collectedNet(cash))) + '</td><td colspan="2"></td></tr>') : empty('No POS or online payments in this period.')) +
+        '<p class="pd-sub">Cash drawer shifts</p>' +
+        (cash.shifts.length ? table('pd-small', [['Cashier'], ['Opened'], ['Closed'], ['Opening', 1], ['Cash sales', 1], ['Added / removed', 1], ['Refunds', 1], ['Expected', 1], ['Counted', 1], ['Difference', 1]],
+          cash.shifts.map((x) => '<tr><td>' + esc(x.cashierName || '') + '</td><td>' + esc(cashWhen(x.openedAt)) + '</td><td>' + (x.closedAt ? esc(cashWhen(x.closedAt)) : 'Open') + '</td><td class="r">' + esc(money(x.openingCash || 0)) + '</td><td class="r">' + esc(money(x.cashSales || 0)) + '</td><td class="r">+' + esc(money(x.cashIn || 0)) + ' / -' + esc(money(x.cashOut || 0)) + '</td><td class="r">' + esc(money(x.cashReturns || 0)) + '</td><td class="r">' + esc(money(x.expectedCash || 0)) + '</td><td class="r">' + (x.closingCash == null ? '&mdash;' : esc(money(x.closingCash))) + '</td><td class="r">' + esc(varText(x)) + '</td></tr>').join(''),
+          '<tr><td colspan="7">' + cash.totals.shifts + ' shift' + (cash.totals.shifts === 1 ? '' : 's') + ' &middot; ' + cash.totals.needsReview + ' need review</td><td class="r">' + esc(money(cash.totals.expectedCash)) + '</td><td class="r">' + esc(money(cash.totals.countedCash)) + '</td><td class="r">' + esc(money(Math.abs(cash.totals.shortage + cash.totals.overage))) + '</td></tr>') : empty('No cash shifts were opened during this period.'))
+      )) +
 
       '<div class="pd-sign"><div class="pd-sign-title">Authorisation</div><div class="pd-sign-row">' +
         '<div><div class="pd-line"></div><strong>Prepared by</strong><br>' + esc(who) + (whoRole ? '<br><span>' + esc(whoRole) + '</span>' : '') + '<br><span>Date: ____________</span></div>' +
