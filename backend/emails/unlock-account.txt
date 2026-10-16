@@ -1,0 +1,21 @@
+TRIPLE E METAL PRODUCTS — ACCOUNT LOCKED
+
+Hi {{recipientName}},
+
+We locked your account after {{attempts}} failed sign-in attempts.
+
+  Account:     {{toEmail}}
+  Link valid:  for {{expiresIn}} (one-time use)
+
+Open this link to unlock it:
+{{unlockUrl}}
+
+The {{cooldown}} wait starts only when you open the link. After the
+countdown you can sign in again.
+
+If this wasn't you, don't open the link, and consider changing your password
+with "Forgot password?".
+
+--
+Quality Metal Products Since 1999
+Triple E Metal Products

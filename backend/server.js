@@ -682,16 +682,30 @@ async function audit(client, user, action, detail) {
     [user.id, user.name, user.roleLabel, action, detail]);
 }
 
+require('./login-lockout')({ app, pool, wrap, audit, str, EMAIL_RE });
 app.post('/api/auth/login', wrap(async (req, res) => {
   const email = str(req.body && req.body.email).toLowerCase();
   const password = req.body && req.body.password;
   if (!EMAIL_RE.test(email) || email.length > 254 || typeof password !== 'string' || !password || password.length > 200)
     return res.status(400).json({ error: 'Enter a valid email and password' });
+  const lock = app.locals.loginLock;
   const { rows } = await pool.query(
     `SELECT u.*, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.email = $1`, [email]);
   const u = rows[0];
-  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash)))
+  // locked account: refuse BEFORE checking the password (the cooldown only runs after the emailed link was opened)
+  if (u && u.status === 'active') {
+    const st = await lock.status(u.user_id);
+    if (st) return res.status(423).json(st);
+  }
+  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash))) {
+    if (u && u.status === 'active') {
+      const f = await lock.fail(u, req);
+      if (f.locked) return res.status(423).json({ code: 'LOCKED', secondsLeft: 0, emailSent: f.emailSent,
+        error: 'Too many failed attempts. ' + (f.emailSent ? 'We emailed you an unlock link. Open it to unlock your account.' : 'We could not send the unlock email. Try "Resend unlock link" in a minute.') });
+      return res.status(401).json({ error: 'Invalid email or password', attemptsLeft: f.attemptsLeft });
+    }
     return res.status(401).json({ error: 'Invalid email or password' });
+  }
   // customers must have confirmed BOTH their email and their mobile number (only said after the password is right).
   // Older accounts were marked verified when these checks were added.
   if (u.role_key === 'customer') {
@@ -706,6 +720,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
         error: 'Please verify ' + missing + ' before signing in.' });
     }
   }
+  await lock.clear(u.user_id);                       // right password: the failed-attempt count starts again from 0
   await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
   const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
   await audit(pool, user, 'Login', 'Successful login');

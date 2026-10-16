@@ -617,6 +617,18 @@
   }
   .form-error.show{ display:block; }
   .form-error button{ background:none; border:none; padding:0; color:var(--blue-bright); cursor:pointer; font:inherit; text-decoration:underline; }
+  /* locked-account countdown */
+  .countdown{
+    display:none; margin:0 0 14px; padding:12px 14px; border:1px solid rgba(240,180,60,.45);
+    background:rgba(240,180,60,.08); color:#f0c36a; border-radius:4px; font-size:12.5px; line-height:1.5; text-align:center;
+  }
+  .countdown.show{ display:block; }
+  .countdown.done{ border-color:rgba(74,217,145,0.4); background:rgba(74,217,145,0.08); color:var(--green); }
+  .countdown .cd-time{ display:block; margin-top:4px; font-family:'IBM Plex Mono',monospace; font-size:30px; font-weight:500; letter-spacing:3px; color:#ffd98a; }
+  .countdown.done .cd-time{ display:none; }
+  .countdown .cd-bar{ height:3px; margin-top:10px; background:rgba(240,180,60,.2); border-radius:2px; overflow:hidden; }
+  .countdown .cd-bar i{ display:block; height:100%; width:100%; background:#f0b43c; transition:width 1s linear; }
+  .countdown.done .cd-bar{ display:none; }
   button.linkish{ background:none; border:none; padding:0; color:var(--blue-bright); cursor:pointer; font:inherit; }
   button.linkish:hover{ text-decoration:underline; }
   button.linkish:disabled{ color:var(--steel-light); cursor:default; text-decoration:none; }
@@ -687,6 +699,11 @@
 
         <p class="notice" id="loginNotice" role="status"></p>
         <p class="form-error" id="loginError" role="alert"></p>
+        <div class="countdown" id="loginCountdown" role="timer" aria-live="polite">
+          <span id="cdText">Account unlocked. You can sign in again in</span>
+          <span class="cd-time" id="cdTime">2:00</span>
+          <div class="cd-bar"><i id="cdBar"></i></div>
+        </div>
 
         <form id="loginForm" novalidate>
           <div class="field" id="emailField">
@@ -972,8 +989,52 @@
     emailField.classList.remove('invalid'); passwordField.classList.remove('invalid');
     loginError.classList.remove('show'); loginNotice.classList.remove('show');
   }
-  $('email').addEventListener('input', clearLoginState);
+  $('email').addEventListener('input', () => {
+    clearLoginState();
+    if (cdEmail && clean($('email').value).toLowerCase() !== cdEmail) stopCountdown();   // the countdown belongs to the account that was locked
+  });
   $('password').addEventListener('input', clearLoginState);
+
+  /* ---------- locked account: 3 wrong passwords -> unlock link by email -> countdown starts when the link is opened ---------- */
+  const cdBox = $('loginCountdown'), cdTime = $('cdTime'), cdText = $('cdText'), cdBar = $('cdBar');
+  let lockTimer = null, cdEnd = 0, cdTotal = 120, cdEmail = '';
+  const mmss = (s) => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  function stopCountdown(){
+    clearInterval(lockTimer); lockTimer = null; cdEnd = 0; cdEmail = '';
+    cdBox.classList.remove('show', 'done'); $('loginBtn').disabled = false;
+  }
+  function startCountdown(seconds, total, email, lead){
+    clearInterval(lockTimer);
+    cdEnd = Date.now() + seconds * 1000; cdTotal = total || seconds || 120; cdEmail = email || clean($('email').value).toLowerCase();
+    loginError.classList.remove('show'); loginNotice.classList.remove('show');
+    cdBox.classList.remove('done'); cdBox.classList.add('show');
+    cdText.textContent = lead || 'Your account is unlocked. You can sign in again in';
+    $('loginBtn').disabled = true;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((cdEnd - Date.now()) / 1000));    // based on the clock, so a sleeping tab still shows the right time
+      cdTime.textContent = mmss(left); cdBar.style.width = Math.min(100, left / cdTotal * 100) + '%';
+      if (left <= 0){
+        clearInterval(lockTimer); lockTimer = null;
+        cdBox.classList.add('done'); cdText.textContent = 'You can sign in now.';
+        $('loginBtn').disabled = false; $('password').focus();
+      }
+    };
+    tick(); if (cdEnd > Date.now()) lockTimer = setInterval(tick, 250);
+  }
+  // the account is locked and the link has not been opened yet: no timer, just tell them to check the email
+  function showLocked(msg, email){
+    stopCountdown();
+    loginError.textContent = msg + ' ';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Resend unlock link';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await api('POST', '/api/auth/unlock/resend', { email }).catch(() => null);
+      loginError.classList.remove('show');
+      loginNotice.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
+      loginNotice.classList.add('show');
+    });
+    loginError.appendChild(b); loginError.classList.add('show');
+  }
 
   function showLoginError(msg, withResend){
     loginError.textContent = msg + ' ';
@@ -1014,13 +1075,20 @@
         openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified });
         return;
       }
+      else if (r.status === 423){
+        $('password').value = '';
+        emailField.classList.add('invalid');
+        if (r.data.code === 'COOLDOWN') startCountdown(r.data.secondsLeft, r.data.totalSeconds, emailValue);
+        else showLocked(r.data.error || 'Too many failed attempts. Check your email for the unlock link.', emailValue);
+      }
       else if (r.status === 401 || r.status === 400){
         emailField.classList.add('invalid'); passwordField.classList.add('invalid');
-        showLoginError('Invalid email or password. Please try again.');
+        const left = r.data && r.data.attemptsLeft;
+        showLoginError('Invalid email or password.' + (left ? ' ' + left + (left === 1 ? ' attempt' : ' attempts') + ' left before your account is locked.' : ' Please try again.'));
       } else showLoginError('Something went wrong. Please try again.');
     } catch (err){
       showLoginError('Could not reach the server. Check your connection and try again.');
-    } finally { btn.disabled = false; btn.textContent = 'SIGN IN'; }
+    } finally { btn.disabled = !!lockTimer; btn.textContent = 'SIGN IN'; }
   });
 
   /* =====================================================
@@ -1392,12 +1460,22 @@
   }
   $('noticeBtn').addEventListener('click', () => { clearLoginState(); showScreen('loginScreen'); });
 
-  /* ---------- links from emails:  ?invite=<token> (cashier)   ?verify=<token> (customer email) ---------- */
+  /* ---------- links from emails:  ?invite=<token> (cashier)   ?verify=<token> (customer email)   ?unlock=<token> (locked account) ---------- */
   (async function openEmailLinks(){
     const q = new URLSearchParams(location.search);
-    const invite = q.get('invite'), verify = q.get('verify');
-    if (!invite && !verify) return;
+    const invite = q.get('invite'), verify = q.get('verify'), unlock = q.get('unlock');
+    if (!invite && !verify && !unlock) return;
     history.replaceState(null, '', location.pathname);       // keep the token out of the address bar / history
+    if (unlock){                                              // opening the link is what starts the cooldown
+      try {
+        const r = await api('POST', '/api/auth/unlock', { token: unlock });
+        if (!r.ok) return notice('Account Security', 'This link can\u2019t be used', r.data.error || 'This unlock link is invalid or has expired. Try signing in again to get a new one.');
+        showScreen('loginScreen');
+        if (r.data.email) $('email').value = r.data.email;
+        startCountdown(r.data.secondsLeft, r.data.totalSeconds, clean(r.data.email).toLowerCase(), 'Your account is unlocked. You can sign in again in');
+      } catch (err){ notice('Account Security', 'Could not unlock', 'Could not reach the server. Check your connection and open the link again.'); }
+      return;
+    }
     if (verify){
       notice('Email Verification', 'Verifying your email…', 'One moment please.'); $('noticeBtn').hidden = true;
       try {

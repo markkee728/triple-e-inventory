@@ -136,4 +136,21 @@ function sendVerificationEmail({ to, recipientName, verifyUrl, expiresHours, cha
   });
 }
 
-module.exports = { sendMail, sendCashierInvite, sendVerificationEmail, renderTemplate, isConfigured, escapeHtml };
+// Sign-in lockout: the link that unlocks the account. The cooldown starts only when the link is opened (see login-lockout.js).
+function sendUnlockEmail({ to, recipientName, unlockUrl, expiresMinutes, cooldownSeconds, attempts }) {
+  const mins = Number(expiresMinutes) || 60;
+  const expiresIn = mins % 60 === 0 ? (mins / 60) + (mins === 60 ? ' hour' : ' hours') : mins + ' minutes';
+  const cs = Number(cooldownSeconds) || 120;
+  const cooldown = cs % 60 === 0 ? (cs / 60) + '-minute' : cs + '-second';
+  const vars = { recipientName: recipientName || 'there', unlockUrl, expiresIn, cooldown,
+    attempts: attempts || 3, toEmail: to, year: new Date().getFullYear() };
+  return sendMail({
+    to,
+    subject: 'Unlock your account \u2014 Triple E Metal Products',
+    html: renderTemplate('unlock-account.html', vars),
+    text: renderTemplate('unlock-account.txt', vars, { html: false }),
+    tag: 'account-unlock'
+  });
+}
+
+module.exports = { sendMail, sendCashierInvite, sendVerificationEmail, sendUnlockEmail, renderTemplate, isConfigured, escapeHtml };
