@@ -1,5 +1,7 @@
 /* account-menu.js — the "My Profile / Change Password" window behind the top-bar user menu.
    SHARED by POS_Cashier.html and Shop_Customer.html (same look and behaviour as the Finance Admin menu).
+   Every role edits the same structured profile it signed up with (first / middle / last name, suffix, birthdate, gender,
+   email, Philippine mobile number). Customers also get company information and delivery addresses.
 
    Load it near the end of <body>, BEFORE the page's own script:
        <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
@@ -14,11 +16,10 @@
   'use strict';
 
   var CFG = Object.assign({ roleLabel: 'User', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department', customer: false }, window.ACCOUNT_CFG || {});
-  var CUST = !!CFG.customer;             // customers also edit name parts, birthdate, gender, company info and delivery addresses
+  var CUST = !!CFG.customer;             // customers also edit company info and delivery addresses
   var $ = function (id) { return document.getElementById(id); };
   var EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-  var NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
-  var PHONE_MSG = 'Enter a valid Philippine phone number, e.g. +63 917 123 4567 or 0917 123 4567';
+  var NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;          // letters and spaces only - the same rule as sign-up and the server
   var MAX_PHOTO = 2 * 1024 * 1024;
 
   var user = null;                       // { name, email, role, roleLabel } from /api/auth/me
@@ -84,7 +85,7 @@
         field('acctGender', 'Gender', '<select class="acct-input" id="acctGender"><option value="">Select…</option><option>Male</option><option>Female</option><option>Other</option><option>Prefer Not to Say</option></select>') + '</div>' +
       '<div class="acct-row">' +
         field('acctEmail', 'Email', '<input type="email" class="acct-input" id="acctEmail" maxlength="254" autocomplete="off"><div class="acct-hint" id="acctEmailNote"></div>', true) +
-        field('acctPhone', 'Mobile Number', '<input type="tel" class="acct-input" id="acctPhone" maxlength="20" placeholder="0917 123 4567" autocomplete="off">', true) + '</div>' +
+        field('acctPhone', 'Mobile Number', '<input type="tel" class="acct-input" id="acctPhone" maxlength="20" placeholder="0917 123 4567" autocomplete="off"><div class="acct-hint" id="acctPhoneNote"></div>', true) + '</div>' +
       '<div class="acct-row">' +
         field('acctEmpId', CFG.idLabel, '<input type="text" class="acct-input" id="acctEmpId" readonly autocomplete="off">', true).replace(/ <span class="acct-req"[^>]*>\*<\/span>/, '') + '<div></div></div>';
   }
@@ -125,20 +126,7 @@
             '<div class="acct-hint">JPG or PNG, up to 2MB</div>' +
           '</div>' +
           '<div class="acct-divider"></div>' +
-          (CUST ? custFields() : (
-          '<div class="acct-row">' +
-            '<div class="acct-group"><label class="acct-label" for="acctName">Full Name <span class="acct-req" aria-hidden="true">*</span></label>' +
-              '<input type="text" class="acct-input" id="acctName" maxlength="100" autocomplete="off"></div>' +
-            '<div class="acct-group"><label class="acct-label" for="acctEmpId">' + CFG.idLabel + '</label>' +
-              '<input type="text" class="acct-input" id="acctEmpId" readonly autocomplete="off"></div>' +
-          '</div>' +
-          '<div class="acct-row">' +
-            '<div class="acct-group"><label class="acct-label" for="acctEmail">Email <span class="acct-req" aria-hidden="true">*</span></label>' +
-              '<input type="email" class="acct-input" id="acctEmail" maxlength="254" autocomplete="off"></div>' +
-            '<div class="acct-group"><label class="acct-label" for="acctPhone">Phone <span class="acct-req" aria-hidden="true">*</span></label>' +
-              '<input type="tel" class="acct-input" id="acctPhone" maxlength="30" placeholder="+63 917 123 4567" autocomplete="off"></div>' +
-          '</div>'
-          )) +
+          custFields() +
           '<div class="acct-row">' +
             '<div class="acct-group"><label class="acct-label" for="acctDept">' + CFG.deptLabel + '</label>' +
               '<input type="text" class="acct-input" id="acctDept" readonly autocomplete="off"></div>' +
@@ -247,7 +235,7 @@
     switchTab(tab || 'profile');
     if (tab === 'password') loadOtpOptions();
     if (tab !== 'password' && tab !== 'addresses') loadProfile();
-    var first = tab === 'password' ? $('acctCurPw') : (CUST ? $('acctFirst') : $('acctName'));
+    var first = tab === 'password' ? $('acctCurPw') : $('acctFirst');
     setTimeout(function () { if (first) first.focus(); }, 30);
   }
   function closeModal() {
@@ -261,13 +249,12 @@
   }
 
   /* ---------------- profile form ---------------- */
-  var fields = CUST ? ['acctFirst', 'acctMiddle', 'acctLast', 'acctBirth', 'acctEmail', 'acctPhone', 'acctCompany', 'acctPosition', 'acctTin']
-                    : ['acctName', 'acctEmail', 'acctPhone'];
+  var fields = ['acctFirst', 'acctMiddle', 'acctLast', 'acctBirth', 'acctEmail', 'acctPhone'].concat(CUST ? ['acctCompany', 'acctPosition', 'acctTin'] : []);
   var values = function () {
-    if (!CUST) return { name: clean($('acctName').value), email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value) };
-    return { firstName: clean($('acctFirst').value), middleName: clean($('acctMiddle').value), lastName: clean($('acctLast').value), suffix: $('acctSuffix').value,
-      birthdate: $('acctBirth').value, gender: $('acctGender').value, email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value),
-      companyName: clean($('acctCompany').value), companyPosition: clean($('acctPosition').value), companyTin: clean($('acctTin').value) };
+    var v = { firstName: clean($('acctFirst').value), middleName: clean($('acctMiddle').value), lastName: clean($('acctLast').value), suffix: $('acctSuffix').value,
+      birthdate: $('acctBirth').value, gender: $('acctGender').value, email: clean($('acctEmail').value).toLowerCase(), phone: clean($('acctPhone').value) };
+    if (CUST) { v.companyName = clean($('acctCompany').value); v.companyPosition = clean($('acctPosition').value); v.companyTin = clean($('acctTin').value); }
+    return v;
   };
   function mobileProblem(raw) {
     if (/[^\d+\s().-]/.test(raw)) return 'Mobile number can only have digits, +, spaces and dashes';
@@ -276,51 +263,44 @@
     else if (p[0] !== '9') return 'Enter a valid Philippine mobile number, e.g. 0917 123 4567';
     return /^9\d{9}$/.test(p) ? '' : 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
   }
-  function custProblems(v) {
+  // latest birthdate that is still 18 or older today
+  function adultCutoff() {
+    var t = new Date(), y = t.getFullYear() - 18, m = t.getMonth() + 1, d = t.getDate();
+    if (m === 2 && d === 29 && !((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0)) d = 28;
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+  function personProblems(v) {
     var e = {};
     var nm = function (id, val, label, req) {
       if (!val) { if (req) e[id] = label + ' is required'; return; }
       if (req && val.length < 2) e[id] = label + ' must be at least 2 characters';
       else if (val.length > 50) e[id] = label + ' must be at most 50 characters';
-      else if (!NAME_RE.test(val)) e[id] = "Letters, spaces, . ' and - only";
+      else if (!NAME_RE.test(val)) e[id] = label + ' can only have letters and spaces';
     };
     nm('acctFirst', v.firstName, 'First name', true); nm('acctLast', v.lastName, 'Last name', true); nm('acctMiddle', v.middleName, 'Middle name', false);
-    if (v.birthdate) {
+    var had = saved && saved.birthdate ? saved.birthdate : '';
+    if (!v.birthdate) { if (had) e.acctBirth = 'Birthdate is required'; }
+    else {
       var today = new Date(), iso = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-      if (v.birthdate > iso) e.acctBirth = 'Birthdate cannot be in the future'; else if (v.birthdate < '1900-01-01') e.acctBirth = 'Enter a valid birthdate';
+      if (v.birthdate > iso) e.acctBirth = 'Birthdate cannot be in the future';
+      else if (v.birthdate < '1900-01-01') e.acctBirth = 'Enter a valid birthdate';
+      else if (v.birthdate !== had && v.birthdate > adultCutoff()) e.acctBirth = 'You must be at least 18 years old';     // an unchanged older value is never blocked
     }
-    if (v.companyTin && !/^\d{3}-?\d{3}-?\d{3}(-?\d{3,5})?$/.test(v.companyTin)) e.acctTin = 'TIN must be 9 or 12 digits, e.g. 123-456-789-000';
-    if (v.companyName && v.companyName.length < 2) e.acctCompany = 'Company name must be at least 2 characters';
+    if (CUST) {
+      if (v.companyTin && !/^\d{3}-?\d{3}-?\d{3}(-?\d{3,5})?$/.test(v.companyTin)) e.acctTin = 'TIN must be 9 or 12 digits, e.g. 123-456-789-000';
+      if (v.companyName && v.companyName.length < 2) e.acctCompany = 'Company name must be at least 2 characters';
+    }
     return e;
   }
 
-  function phoneError(raw) {
-    if (/[^\d+\s().-]/.test(raw)) return 'Phone number can only have digits, +, spaces and dashes';
-    var p = raw.replace(/[\s().-]/g, '');
-    if (p.indexOf('+63') === 0) {
-      var r = p.slice(3);
-      if (!/^\d+$/.test(r)) return PHONE_MSG;
-      if (r[0] === '9') return r.length === 10 ? '' : 'A +63 mobile number needs 10 digits after +63, e.g. +63 917 123 4567';
-      return r.length >= 9 && r.length <= 10 ? '' : PHONE_MSG;
-    }
-    if (p.indexOf('09') === 0) return /^09\d{9}$/.test(p) ? '' : 'A 09 mobile number needs 11 digits, e.g. 0917 123 4567';
-    return PHONE_MSG;
-  }
-
   function problems(v) {
-    var e = CUST ? custProblems(v) : {};
-    if (!CUST && !v.name) e.acctName = 'Full name is required';
-    else if (!CUST && v.name.length < 2) e.acctName = 'Full name must be at least 2 characters';
-    else if (!CUST && v.name.length > 100) e.acctName = 'Full name must be at most 100 characters';
-    else if (!CUST && !NAME_RE.test(v.name)) e.acctName = "Full name can only have letters, spaces, . ' and -";
+    var e = personProblems(v);
     if (!v.email) e.acctEmail = 'Email is required';
     else if (v.email.length > 254 || !EMAIL_FORMAT.test(v.email)) e.acctEmail = 'Enter a valid email address';
     else if (emailInfo && emailInfo.email === v.email && emailInfo.taken) e.acctEmail = 'That email is already used by another account';
     else if (emailInfo && emailInfo.email === v.email && emailInfo.domainMsg) e.acctEmail = emailInfo.domainMsg;
-    if (!v.phone) e.acctPhone = CUST ? 'Mobile number is required' : 'Phone number is required';
-    else if (CUST) { var mm = mobileProblem(v.phone); if (mm) e.acctPhone = mm; }
-    else if (v.phone.length < 7) e.acctPhone = 'Phone number must be at least 7 characters';
-    else { var m = phoneError(v.phone); if (m) e.acctPhone = m; }
+    if (!v.phone) e.acctPhone = 'Mobile number is required';
+    else { var mm = mobileProblem(v.phone); if (mm) e.acctPhone = mm; }
     return e;
   }
 
@@ -364,17 +344,19 @@
 
   function fill(p) {
     saved = p;
-    if (CUST) {
-      $('acctFirst').value = p.firstName || ''; $('acctMiddle').value = p.middleName || ''; $('acctLast').value = p.lastName || '';
-      $('acctSuffix').value = p.suffix || ''; $('acctBirth').value = p.birthdate || ''; $('acctGender').value = p.gender || '';
-      $('acctCompany').value = p.companyName || ''; $('acctPosition').value = p.companyPosition || ''; $('acctTin').value = p.companyTin || '';
-      $('acctBirth').max = new Date().toISOString().slice(0, 10);
-      var note = $('acctEmailNote');
-      note.textContent = p.pendingEmail ? 'Waiting for you to confirm ' + p.pendingEmail + ' — check that inbox. Your current email still works.'
-        : (p.emailVerified ? 'Verified' : 'Not verified yet');
-      note.classList.toggle('tick', !p.pendingEmail && !!p.emailVerified);
-      note.style.color = !p.pendingEmail && p.emailVerified ? 'var(--green)' : '';
-    } else $('acctName').value = p.name || '';
+    $('acctFirst').value = p.firstName || ''; $('acctMiddle').value = p.middleName || ''; $('acctLast').value = p.lastName || '';
+    $('acctSuffix').value = p.suffix || ''; $('acctBirth').value = p.birthdate || ''; $('acctGender').value = p.gender || '';
+    if (CUST) { $('acctCompany').value = p.companyName || ''; $('acctPosition').value = p.companyPosition || ''; $('acctTin').value = p.companyTin || ''; }
+    $('acctBirth').max = new Date().toISOString().slice(0, 10);
+    var note = $('acctEmailNote');
+    note.textContent = p.pendingEmail ? 'Waiting for you to confirm ' + p.pendingEmail + ' — check that inbox. Your current email still works.'
+      : (p.emailVerified ? 'Verified' : 'Not verified yet');
+    note.classList.toggle('tick', !p.pendingEmail && !!p.emailVerified);
+    note.style.color = !p.pendingEmail && p.emailVerified ? 'var(--green)' : '';
+    var pn = $('acctPhoneNote');
+    pn.textContent = p.phoneVerified ? 'Verified' : 'Not verified yet — we will text you a code the next time you sign in.';
+    pn.classList.toggle('tick', !!p.phoneVerified);
+    pn.style.color = p.phoneVerified ? 'var(--green)' : '';
     $('acctEmail').value = p.email || '';
     $('acctPhone').value = p.phone || '';
     var digits = String(p.employeeId || '').replace(/\D/g, '');
@@ -433,7 +415,7 @@
       closeModal();
     } catch (err) {
       if (err.message === 'Not signed in') return;
-      var map = { name: 'acctName', email: 'acctEmail', phone: 'acctPhone', firstName: 'acctFirst', middleName: 'acctMiddle', lastName: 'acctLast',
+      var map = { email: 'acctEmail', phone: 'acctPhone', firstName: 'acctFirst', middleName: 'acctMiddle', lastName: 'acctLast',
         birthdate: 'acctBirth', companyName: 'acctCompany', companyPosition: 'acctPosition', companyTin: 'acctTin' };
       var any = false;
       Object.keys(err.fields || {}).forEach(function (k) { if (map[k] && $(map[k])) { setError(map[k], err.fields[k]); any = true; } });
@@ -627,8 +609,7 @@
       $(id).addEventListener('input', function () { touched[id] = true; if (id === 'acctEmail') checkEmailSoon(); paintForm(true); });
       $(id).addEventListener('blur', function () { touched[id] = true; paintForm(true); });
     });
-    if (!CUST) $('acctName').addEventListener('blur', function () { this.value = clean(this.value); });
-    if (CUST) ['acctSuffix', 'acctGender'].forEach(function (id) { $(id).addEventListener('change', function () { paintForm(true); }); });
+    ['acctSuffix', 'acctGender'].forEach(function (id) { $(id).addEventListener('change', function () { paintForm(true); }); });
     $('acctEmail').addEventListener('blur', function () { this.value = clean(this.value).toLowerCase(); });
     $('acctProfileSave').addEventListener('click', saveProfile);
 

@@ -2613,43 +2613,67 @@
      Required: Full name, Email, Phone.  Photo: JPG/PNG up to 2 MB.
   ===================================================== */
   function setupProfileForm() {
-    const fName = $('profileName'), fEmail = $('profileEmail'), fPhone = $('profilePhone');
+    const fFirst = $('profileFirst'), fMiddle = $('profileMiddle'), fLast = $('profileLast'), fSuffix = $('profileSuffix');
+    const fBirth = $('profileBirth'), fGender = $('profileGender'), fEmail = $('profileEmail'), fPhone = $('profilePhone');
     const saveBtn = $('profileSaveBtn'), cancelBtn = $('profileCancelBtn'), banner = $('profileFormError');
     const overlay = $('accountModalOverlay');
-    if (!fName || !fEmail || !fPhone || !saveBtn) return;
+    if (!fFirst || !fLast || !fEmail || !fPhone || !saveBtn) return;
 
-    const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.'’-]*$/u;
-    const ids = ['profileName', 'profileEmail', 'profilePhone'];
+    // same rules as sign-up and the server (PUT /api/auth/profile): names = letters and spaces, Philippine mobile number, 18+
+    const NAME_RE = /^\p{L}[\p{L}\p{M} ]*$/u;
+    const ids = ['profileFirst', 'profileMiddle', 'profileLast', 'profileBirth', 'profileEmail', 'profilePhone'];
     let saved = null;                 // what the database currently holds
     let loadError = '';               // set when the profile could not be loaded from the server
     let saving = false;
     let emailTaken = null;            // { email, taken, domainMsg, unverified } from the last live check
     let emailTimer = null;
+    let savedVals = '';
     const touched = {};
 
     const values = () => ({
-      name: clean(fName.value),
-      email: clean(fEmail.value).toLowerCase(),
-      phone: clean(fPhone.value)
+      firstName: clean(fFirst.value), middleName: clean(fMiddle.value), lastName: clean(fLast.value), suffix: fSuffix.value,
+      birthdate: fBirth.value, gender: fGender.value,
+      email: clean(fEmail.value).toLowerCase(), phone: clean(fPhone.value)
     });
 
-    // same rules as the server (PUT /api/auth/profile)
+    function mobileProblem(raw) {
+      if (/[^\d+\s().-]/.test(raw)) return 'Mobile number can only have digits, +, spaces and dashes';
+      let p = raw.replace(/[\s().-]/g, '');
+      if (p.indexOf('+63') === 0) p = p.slice(3); else if (p.indexOf('63') === 0) p = p.slice(2); else if (p.indexOf('09') === 0) p = p.slice(1);
+      else if (p[0] !== '9') return 'Enter a valid Philippine mobile number, e.g. 0917 123 4567';
+      return /^9\d{9}$/.test(p) ? '' : 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
+    }
+    function adultCutoff() {          // latest birthdate that is still 18 or older today
+      const t = new Date(); const y = t.getFullYear() - 18, m = t.getMonth() + 1; let d = t.getDate();
+      if (m === 2 && d === 29 && !((y % 4 === 0 && y % 100 !== 0) || y % 400 === 0)) d = 28;
+      return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    }
     function problems(v) {
       const e = {};
-      if (!v.name) e.profileName = 'Full name is required';
-      else if (v.name.length < 2) e.profileName = 'Full name must be at least 2 characters';
-      else if (v.name.length > 100) e.profileName = 'Full name must be at most 100 characters';
-      else if (!NAME_RE.test(v.name)) e.profileName = "Full name can only have letters, spaces, . ' and -";
+      const nm = (id, val, label, req) => {
+        if (!val) { if (req) e[id] = label + ' is required'; return; }
+        if (req && val.length < 2) e[id] = label + ' must be at least 2 characters';
+        else if (val.length > 50) e[id] = label + ' must be at most 50 characters';
+        else if (!NAME_RE.test(val)) e[id] = label + ' can only have letters and spaces';
+      };
+      nm('profileFirst', v.firstName, 'First name', true); nm('profileLast', v.lastName, 'Last name', true); nm('profileMiddle', v.middleName, 'Middle name', false);
+      const had = saved && saved.birthdate ? saved.birthdate : '';
+      if (!v.birthdate) { if (had) e.profileBirth = 'Birthdate is required'; }
+      else {
+        const t = new Date(), iso = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0');
+        if (v.birthdate > iso) e.profileBirth = 'Birthdate cannot be in the future';
+        else if (v.birthdate < '1900-01-01') e.profileBirth = 'Enter a valid birthdate';
+        else if (v.birthdate !== had && v.birthdate > adultCutoff()) e.profileBirth = 'You must be at least 18 years old';   // an unchanged older value is never blocked
+      }
       if (!v.email) e.profileEmail = 'Email is required';
       else if (v.email.length > 254 || !EMAIL_FORMAT.test(v.email)) e.profileEmail = 'Enter a valid email address';
       else if (emailTaken && emailTaken.email === v.email && emailTaken.taken) e.profileEmail = 'That email is already used by another account';
       else if (emailTaken && emailTaken.email === v.email && emailTaken.domainMsg) e.profileEmail = emailTaken.domainMsg;
-      if (!v.phone) e.profilePhone = 'Phone number is required';
-      else if (v.phone.length < 7) e.profilePhone = 'Phone number must be at least 7 characters';
-      else { const m = phoneError(v.phone); if (m) e.profilePhone = m; }
+      if (!v.phone) e.profilePhone = 'Mobile number is required';
+      else { const m = mobileProblem(v.phone); if (m) e.profilePhone = m; }
       return e;
     }
-    const changed = (v) => !!saved && (v.name !== saved.name || v.email !== saved.email.toLowerCase() || v.phone !== (saved.phone || ''));
+    const changed = (v) => !!saved && JSON.stringify(v) !== savedVals;
 
     function paint(onlyTouched) {
       const v = values(), e = problems(v);
@@ -2666,11 +2690,22 @@
       return e;
     }
 
+    // little grey / green line under a box ("Verified", "Not verified yet ...")
+    function note(id, text, ok) {
+      const n = $(id); if (!n) return;
+      n.textContent = text || ''; n.style.color = ok ? '#5fbf8a' : '';
+    }
+
     function fill(p) {
       saved = p;
-      fName.value = p.name || '';
+      fFirst.value = p.firstName || ''; fMiddle.value = p.middleName || ''; fLast.value = p.lastName || '';
+      fSuffix.value = p.suffix || ''; fBirth.value = p.birthdate || ''; fGender.value = p.gender || '';
+      fBirth.max = new Date().toISOString().slice(0, 10);
       fEmail.value = p.email || '';
       fPhone.value = p.phone || '';
+      note('profileEmailNote', p.pendingEmail ? 'Waiting for you to confirm ' + p.pendingEmail + ' — check that inbox. Your current email still works.'
+        : (p.emailVerified ? 'Verified' : 'Not verified yet'), !p.pendingEmail && !!p.emailVerified);
+      note('profilePhoneNote', p.phoneVerified ? 'Verified' : 'Not verified yet — we will text you a code the next time you sign in.', !!p.phoneVerified);
       const set = (id, val) => { const el = $(id); if (el) el.value = val || ''; };
       set('profileEmployeeId', p.employeeId); set('profileDepartment', p.department); set('profileJoined', p.joined);
       const badge = $('profileRoleBadge'); if (badge) badge.textContent = p.roleLabel || '';
@@ -2678,6 +2713,7 @@
       reapplyAvatar();
       ids.forEach((id) => { touched[id] = false; });
       emailTaken = null; showEmailStatus('');
+      savedVals = JSON.stringify(values());
       paint(true);
     }
 
@@ -2740,7 +2776,7 @@
       el.addEventListener('input', () => { touched[id] = true; if (id === 'profileEmail') checkEmailSoon(); paint(true); });
       el.addEventListener('blur', () => { touched[id] = true; paint(true); });
     });
-    fName.addEventListener('blur', () => { fName.value = clean(fName.value); });
+    [fSuffix, fGender].forEach((el) => el.addEventListener('change', () => paint(true)));
     fEmail.addEventListener('blur', () => { fEmail.value = clean(fEmail.value).toLowerCase(); });
 
     saveBtn.addEventListener('click', async () => {
@@ -2762,11 +2798,12 @@
         fill(p);
         currentUser = Object.assign({}, currentUser, { name: p.name, email: p.email });
         safe(applyUser);
-        toast('Profile saved');
+        toast(p.message || 'Profile saved', !!p.message && /could not/i.test(p.message) ? 'error' : undefined);
         if (typeof closeAccountModal === 'function') closeAccountModal();
       } catch (err) {
         if (err.message === 'Not signed in') return;
-        const map = { name: 'profileName', email: 'profileEmail', phone: 'profilePhone' };
+        const map = { name: 'profileFirst', firstName: 'profileFirst', middleName: 'profileMiddle', lastName: 'profileLast',
+          birthdate: 'profileBirth', email: 'profileEmail', phone: 'profilePhone' };
         const fe = mapFields(err.fields, map);
         if (Object.keys(fe).length) showErrors($('profileTabPanel'), banner, fe);
         else { if (banner) { banner.textContent = err.message; banner.classList.add('show'); } }

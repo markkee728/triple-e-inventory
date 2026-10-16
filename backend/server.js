@@ -709,13 +709,14 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     }
     return res.status(401).json({ error: 'Invalid email or password' });
   }
-  // customers must have confirmed BOTH their email and their mobile number (only said after the password is right).
-  // Older accounts were marked verified when these checks were added.
-  if (u.role_key === 'customer') {
+  // EVERY account (customer, cashier, finance) must have confirmed BOTH its email and its mobile number (only said after the password is right).
+  // Staff prove their email by opening the invitation link, so for them only the mobile code is left.
+  // Older accounts were marked verified when these checks were added; an account with no mobile number on file is never blocked.
+  {
     await app.locals.phoneReady;
-    const fresh = (await pool.query('SELECT email_verified_at, phone_verified_at FROM users WHERE user_id = $1', [u.user_id])).rows[0] || {};
+    const fresh = (await pool.query('SELECT email_verified_at, phone_verified_at, phone FROM users WHERE user_id = $1', [u.user_id])).rows[0] || {};
     const emailOk = !EMAIL_VERIFICATION_ON || !!fresh.email_verified_at;
-    const phoneOk = !PHONE_VERIFICATION_ON || !!fresh.phone_verified_at;
+    const phoneOk = !app.locals.phoneOtp.needsPhone(fresh);
     if (!emailOk || !phoneOk) {
       const missing = !emailOk && !phoneOk ? 'your email address and your mobile number' : !emailOk ? 'your email address' : 'your mobile number';
       return res.status(403).json({ code: 'VERIFICATION_REQUIRED', emailVerified: emailOk, phoneVerified: phoneOk, email: u.email,
@@ -748,6 +749,7 @@ const PROFILE_SQL = `SELECT u.user_id, u.full_name, u.username, u.email, u.phone
        to_char(u.created_at AT TIME ZONE $2, 'Mon DD, YYYY') AS joined, (u.avatar IS NOT NULL) AS has_avatar,
        u.first_name, u.middle_name, u.last_name, u.suffix, to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate, u.gender,
        u.company_name, u.company_position, u.company_tin, (u.email_verified_at IS NOT NULL) AS email_verified,
+       (u.phone_verified_at IS NOT NULL) AS phone_verified,
        (SELECT v.new_email FROM email_verifications v WHERE v.user_id = u.user_id AND v.used_at IS NULL AND v.new_email IS NOT NULL
            AND v.expires_at > now() ORDER BY v.created_at DESC LIMIT 1) AS pending_email
   FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1`;
@@ -769,26 +771,29 @@ const profileJson = (u) => {
     suffix: guess ? guess.suffix : (u.suffix || ''), birthdate: u.birthdate || '', gender: u.gender || '',
     companyName: u.company_name || '', companyPosition: u.company_position || '', companyTin: u.company_tin || '',
     emailVerified: !!u.email_verified, pendingEmail: u.pending_email || '',
+    phoneVerified: !app.locals.phoneOtp.needsPhone({ phone: u.phone, phone_verified_at: u.phone_verified ? 1 : null }),
     employeeId: 'TEM-' + String(u.user_id).padStart(4, '0'),
     department: u.role_key === 'finance' ? 'Finance' : u.role_label,
     roleLabel: u.role_label, role: u.role_key, joined: u.joined, hasAvatar: !!u.has_avatar
   };
 };
 app.get('/api/auth/profile', auth(), wrap(async (req, res) => {
-  await app.locals.accountReady;
+  await app.locals.accountReady; await app.locals.phoneReady;
   const { rows } = await pool.query(PROFILE_SQL, [req.user.id, TZ]);
   if (!rows[0]) return res.status(404).json({ error: 'Account not found' });
   res.json(profileJson(rows[0]));
 }));
 app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
-  await app.locals.accountReady;
+  await app.locals.accountReady; await app.locals.phoneReady;
   const H = app.locals.accountHelpers;
   const b = req.body || {};
   const e = {};
   const isCustomer = req.user.role === 'customer';
-  // customers send firstName / middleName / lastName / suffix; staff (and older pages) send one `name`
+  // Customers, cashiers and finance staff all sign up with first / middle / last name + suffix, so they all edit those parts.
+  // Only an old page that still sends one `name` takes the legacy path (the parts are re-split so they never go stale).
+  const structured = b.firstName !== undefined || b.lastName !== undefined || b.middleName !== undefined;
   let name, parts = null;
-  if (isCustomer && (b.firstName !== undefined || b.lastName !== undefined)) { parts = H.nameParts(e, b); name = parts.full; }
+  if (structured) { parts = H.nameParts(e, b); name = parts.full; }
   else {
     name = text(e, 'name', b.name, 'Full name', { min: 2, max: 100 });
     if (name && !e.name && !/^[\p{L}][\p{L}\p{M}\s.'’-]*$/u.test(name)) e.name = 'Full name can only have letters, spaces, . \' and -';
@@ -796,55 +801,63 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
   const email = str(b.email).toLowerCase();
   if (!email) e.email = 'Email is required';
   else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
-  let phone;
-  if (isCustomer) phone = H.mobileField(e, b.phone);                                  // customers: Philippine mobile number
-  else {
-    phone = text(e, 'phone', b.phone, 'Phone number', { min: 7, max: 30 });          // staff: required, mobile or landline
-    if (phone && !e.phone) { const m = phoneError(phone); if (m) e.phone = m; }
+  const phone = H.mobileField(e, b.phone);        // everyone: a Philippine MOBILE number (the verification code is texted to it)
+
+  const current = (await pool.query("SELECT email, phone, to_char(birthdate, 'YYYY-MM-DD') AS birthdate_s FROM users WHERE user_id = $1", [req.user.id])).rows[0];
+  // birthdate + gender for everyone; company details are customer-only. A birthdate that is being changed must still be 18+, and an existing one cannot be wiped.
+  let more = null;
+  if (parts) {
+    const birthChanged = str(b.birthdate) !== ((current && current.birthdate_s) || '');
+    more = { ...H.optionalDetails(e, b, { adult: birthChanged }) };
+    if (isCustomer) Object.assign(more, H.companyDetails(e, b));
   }
-  let more = null;                                                                    // customer-only extras (birthdate, gender, company)
-  if (isCustomer && parts) more = { ...H.optionalDetails(e, b), ...H.companyDetails(e, b) };
   if (Object.keys(e).length) throw new ValidationError(e);
 
   // the email domain must really exist and accept mail (only checked when the email is being changed,
   // so an existing address never blocks a name / phone edit). Done before the transaction: it is a network lookup.
-  const current = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
   const emailChanged = !!current && current.email !== email;
   if (emailChanged) await assertPersonalEmail(email);
-  // a customer's new email only replaces the old one after they click the link sent to it
-  const needsConfirm = isCustomer && emailChanged && EMAIL_VERIFICATION_ON;
+  // a NEW email (any role) only replaces the old one after the link sent to it is opened
+  const needsConfirm = emailChanged && EMAIL_VERIFICATION_ON;
+  // compare numbers in one canonical form, so an old-format number (09171234567) re-saved as +63 917 123 4567 is NOT treated as a new number
+  const canon = (p) => { if (!p) return ''; const m = phMobile(p); return m.value || String(p).replace(/\s+/g, ''); };
+  let phoneChanged = false;
 
   const result = await tx(async (client) => {
     const taken = await client.query('SELECT 1 FROM users WHERE email = $1 AND user_id <> $2', [email, req.user.id]);
     if (taken.rowCount) throw new ValidationError({ email: 'That email is already used by another account' });
     const before = (await client.query("SELECT *, to_char(birthdate, 'YYYY-MM-DD') AS birthdate_s FROM users WHERE user_id = $1 FOR UPDATE", [req.user.id])).rows[0];
     if (!before) throw new ValidationError({ name: 'Account not found' });
+    phoneChanged = canon(before.phone) !== canon(phone);
     const sets = ['full_name = $1', 'phone = $2'], vals = [name, phone || null];
     const add = (col, v) => { vals.push(v); sets.push(col + ' = $' + vals.length); };
     if (!needsConfirm) add('email', email);
-    if (isCustomer && PHONE_VERIFICATION_ON && (before.phone || '') !== (phone || '')) sets.push('phone_verified_at = NULL');   // new number: confirm it at the next sign-in
+    if (PHONE_VERIFICATION_ON && phoneChanged) sets.push('phone_verified_at = NULL');   // a new number is confirmed with a text code at the next sign-in
     if (parts) { add('first_name', parts.first); add('middle_name', parts.middle || null); add('last_name', parts.last); add('suffix', parts.suffix || null); }
+    else { const g = splitFullName(name); add('first_name', g.first); add('last_name', g.last || null); add('suffix', g.suffix || null); }
     if (more) {
       add('birthdate', more.birthdate); add('gender', more.gender);
-      add('company_name', more.companyName); add('company_position', more.companyPosition); add('company_tin', more.companyTin);
+      if (isCustomer) { add('company_name', more.companyName); add('company_position', more.companyPosition); add('company_tin', more.companyTin); }
     }
     vals.push(req.user.id);
     await client.query('UPDATE users SET ' + sets.join(', ') + ' WHERE user_id = $' + vals.length, vals);
     const changed = [];
     if (before.full_name !== name) changed.push('name');
     if (emailChanged) changed.push(needsConfirm ? 'email (awaiting verification)' : 'email');
-    if ((before.phone || '') !== (phone || '')) changed.push('phone');
+    if (phoneChanged) changed.push(PHONE_VERIFICATION_ON ? 'phone (awaiting verification)' : 'phone');
     if (more && ((before.birthdate_s || '') !== (more.birthdate || '') || (before.gender || null) !== more.gender)) changed.push('personal details');
-    if (more && ((before.company_name || null) !== more.companyName || (before.company_position || null) !== more.companyPosition || (before.company_tin || null) !== more.companyTin)) changed.push('company details');
+    if (isCustomer && more && ((before.company_name || null) !== more.companyName || (before.company_position || null) !== more.companyPosition || (before.company_tin || null) !== more.companyTin)) changed.push('company details');
     if (changed.length) await audit(client, { ...req.user, name }, 'Profile updated', 'Changed ' + changed.join(', '));
     return (await client.query(PROFILE_SQL, [req.user.id, TZ])).rows[0];
   });
-  let message = '';
+  const notes = [];
   if (needsConfirm) {
     const sent = await app.locals.startEmailVerification(req, { userId: req.user.id, name: (parts && parts.first) || name, to: email, change: true });
-    message = sent.sent ? 'We sent a confirmation link to ' + email + '. Your email changes once you click it.'
-      : 'Your other details were saved, but the confirmation email could not be sent (' + sent.reason + '). Try again later.';
+    notes.push(sent.sent ? 'We sent a confirmation link to ' + email + '. Your email changes once you click it.'
+      : 'Your other details were saved, but the confirmation email could not be sent (' + sent.reason + '). Try again later.');
   }
+  if (PHONE_VERIFICATION_ON && phoneChanged && phone) notes.push('Your new mobile number will be confirmed with a text code the next time you sign in.');
+  const message = notes.join(' ');
   // the session cookie carries the display name, so refresh it
   const user = { id: req.user.id, name: result.full_name, role: req.user.role, roleLabel: req.user.roleLabel };
   res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
@@ -1350,7 +1363,16 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
   if (Object.keys(e).length) throw new ValidationError(e);
   if (email !== t.email) await assertPersonalEmail(email);
   try {
-    await pool.query('UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4) WHERE user_id = $1', [id, name, email, roleKey]);
+    // keep the split name (first / middle / last / suffix) in step with full_name, otherwise the person's own My Profile still shows the old name.
+    // Only when the name really changed, so a structured middle name is never wiped by an edit that did not touch the name.
+    if (name !== t.full_name) {
+      const g = splitFullName(name);
+      await pool.query(`UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4),
+                          first_name = $5, middle_name = NULL, last_name = $6, suffix = $7 WHERE user_id = $1`,
+        [id, name, email, roleKey, g.first, g.last || null, g.suffix || null]);
+    } else {
+      await pool.query('UPDATE users SET full_name = $2, email = $3, role_id = (SELECT role_id FROM roles WHERE role_key = $4) WHERE user_id = $1', [id, name, email, roleKey]);
+    }
   } catch (err) {
     if (err.code === '23505') throw new ValidationError({ email: 'That email is already used by another account' });
     throw err;

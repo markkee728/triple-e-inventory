@@ -1,6 +1,7 @@
-/* Phone (SMS) verification for customer accounts.
+/* Phone (SMS) verification for every account (customers, cashiers and finance staff).
 
-   A customer must verify BOTH the email (link) and the mobile number (6-digit code) before they can sign in.
+   An account must verify BOTH the email (link) and the mobile number (6-digit code) before they can sign in.
+   Staff: the emailed invitation link already proves the email (step 1 is done at sign-up), so they only do step 2.
    The steps go in order: 1) the email link, 2) the mobile code. The code is only texted once the email is verified.
    It is texted through sms.js (TextBee). Without TextBee set up in .env, the code is printed in the
    server console instead, so it can still be tested on a developer computer.
@@ -36,6 +37,9 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
       return p && p.purpose === 'pending-verification' && Number.isInteger(p.uid) ? p.uid : null;
     } catch { return null; }
   }
+  // An account owes a mobile verification when the feature is on, it has a mobile number, and that number is not confirmed yet.
+  // (Accounts with no number - e.g. the first admin made with scripts/create-user.js - are never blocked.)
+  const needsPhone = (u) => !!phoneVerificationOn && !!u && !!u.phone && !u.phone_verified_at;
   const maskPhone = (p) => { const d = String(p || '').replace(/\D/g, ''); return d.length < 4 ? '' : '+63 *** *** ' + d.slice(-4); };
 
   // small per-IP limiter (resets on restart)
@@ -106,7 +110,7 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
     return { ok: true, sent: !!r.sent, waitSeconds: RESEND_SECONDS, expiresIn: OTP_TTL_MIN * 60,
       message: r.sent ? '' : 'The text message could not be sent (' + (r.reason || 'unknown reason') + '). Try Resend in a minute.' };
   }
-  app.locals.phoneOtp = { sendOtp, issuePendingToken };
+  app.locals.phoneOtp = { sendOtp, issuePendingToken, needsPhone };
 
   async function statusOf(userId) {
     const u = (await pool.query(
@@ -114,7 +118,8 @@ module.exports = function ({ app, pool, wrap, tx, audit, str, phoneVerificationO
          FROM users WHERE user_id = $1 AND status = 'active'`, [userId])).rows[0];
     if (!u) return null;
     return { email: u.email, phoneMasked: maskPhone(u.phone), emailVerified: u.email_verified,
-      phoneVerified: phoneVerificationOn ? u.phone_verified : true, canSignIn: u.email_verified && (phoneVerificationOn ? u.phone_verified : true) };
+      phoneVerified: !needsPhone({ phone: u.phone, phone_verified_at: u.phone_verified ? 1 : null }),
+      canSignIn: u.email_verified && !needsPhone({ phone: u.phone, phone_verified_at: u.phone_verified ? 1 : null }) };
   }
 
   const BAD_TOKEN = 'This verification session expired. Please sign in again to continue.';

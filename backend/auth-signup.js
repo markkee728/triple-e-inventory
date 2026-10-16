@@ -4,6 +4,8 @@
    Staff      : an admin (finance) invites them by email; the email holds a
                 one-time sign-up link, sent through Mailgun (mailer.js).     POST /api/invitations ...
                 The link opens Login_Inventory.html?invite=<token>           GET/POST /api/signup/invite/:token
+                Verification is the same two steps as a customer: 1) email - done by opening the invitation link
+                (it was sent to that address), 2) mobile number - 6-digit text code (phone-otp.js), then sign in.
 
    Only a SHA-256 hash of the invite token is stored, so a copy of the database cannot be used to sign up.
    A link works once, expires (INVITE_TTL_HOURS, default 72) and is replaced when the admin resends it. */
@@ -458,27 +460,38 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const b = req.body || {};
     const e = {};
     await ready;
+    await app.locals.phoneReady;                          // the phone_verified_at column must exist before the account is made
+    // the invited address is known up front, so the password can be checked against it (same rule as customers)
+    const invited = (await pool.query(PENDING_SQL, [hashToken(req.params.token)])).rows[0];
+    if (!invited) return res.status(404).json({ error: BAD_LINK });
     const parts = nameParts(e, b);
     const details = optionalDetails(e, b, { adult: true });
     const name = parts.full;
     const phone = mobileField(e, b.phone);
-    const pw = passwordProblem(b.password, { names: [parts.first, parts.last] });
+    const pw = passwordProblem(b.password, { email: invited.email, names: [parts.first, parts.last] });
     if (pw) e.password = pw;
     else if (b.confirmPassword !== undefined && b.confirmPassword !== b.password) e.confirmPassword = 'Passwords do not match';
     consent(e, b);
     if (Object.keys(e).length) throw new ValidationError(e);
 
     const hash = await bcrypt.hash(b.password, 12);
-    const roleKey = await tx(async (client) => {
+    const made = await tx(async (client) => {
       const r = await client.query(PENDING_SQL + ' FOR UPDATE OF i', [hashToken(req.params.token)]);
       const i = r.rows[0];
       if (!i) { const err = new Error('bad link'); err.badLink = true; throw err; }
-      const id = await createUser(client, { name, parts, email: i.email, phone, hash, roleKey: i.role_key, details, verified: true });   // the invite went to this address, so it is already proven
+      // Step 1 (email) is done: the invitation went to this address and the link was opened, so it is already proven.
+      // Step 2 (mobile code) is still owed - phone_verified_at stays empty until the 6-digit code is entered.
+      const id = await createUser(client, { name, parts, email: i.email, phone, hash, roleKey: i.role_key, details, verified: true });
       await client.query('UPDATE invitations SET used_at = now() WHERE invitation_id = $1', [i.invitation_id]);
-      await audit(client, { id, name, roleLabel: i.label }, 'Account created', 'Signed up from an invitation link');
-      return i.role_key;
+      await audit(client, { id, name, roleLabel: i.label }, 'Account created', 'Signed up from an invitation link (email verified by the invitation)');
+      return { id, roleKey: i.role_key, email: i.email };
     }).catch((err) => { if (err.badLink) return null; throw err; });
-    if (!roleKey) return res.status(404).json({ error: BAD_LINK });
-    res.status(201).json({ ok: true, role: roleKey });
+    if (!made) return res.status(404).json({ error: BAD_LINK });
+
+    // same hand-off as a customer: a short-lived pending token that can only be used for the mobile-code step (never a login session)
+    const phoneRequired = !!phoneVerificationOn;
+    const pendingToken = phoneRequired ? app.locals.phoneOtp.issuePendingToken(made.id) : null;
+    res.status(201).json({ ok: true, role: made.roleKey, email: made.email,
+      verificationRequired: phoneRequired, emailRequired: false, phoneRequired, pendingToken });
   }));
 };

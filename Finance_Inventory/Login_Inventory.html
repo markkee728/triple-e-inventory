@@ -1305,9 +1305,11 @@
     btn.disabled = false; $('suBack').disabled = false; btn.textContent = 'Create Account';
 
     if (r.ok){
-      const email = body.email || clean($('suEmail').value);
+      const email = body.email || r.data.email || clean($('suEmail').value);
       inviteToken = '';
-      if (mode === 'customer' && r.data.verificationRequired){
+      // Customers AND invited staff go through the same verification screen. Staff already proved their email by opening the
+      // invitation link (it was sent to that address), so for them the email step is ticked and only the mobile code is left.
+      if (r.data.verificationRequired){
         resetSignup();
         openVerifyScreen({ email, token: r.data.pendingToken, emailVerified: !r.data.emailRequired, phoneVerified: !r.data.phoneRequired,
                            message: r.data.message, fresh: true });
