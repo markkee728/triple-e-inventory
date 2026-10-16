@@ -36,6 +36,19 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
 
   const peso = (n) => '\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+  /* Live push: every open page keeps one Server-Sent-Events connection (GET /api/notifications/stream).
+     When a notification is created or a low-stock alert is resolved we send a tiny "ping" to the affected
+     users and their page fetches the news at once. Pages also poll every 10 s as a fallback (several Cloud Run
+     instances, a dropped connection, a proxy that buffers). */
+  const streams = new Map();                       // user_id -> Set of open responses
+  function ping(userIds) {
+    for (const uid of new Set((userIds || []).map(Number))) {
+      const set = streams.get(uid);
+      if (!set) continue;
+      for (const res of set) { try { res.write('event: ping\ndata: ' + Date.now() + '\n\n'); } catch (e) { /* closed */ } }
+    }
+  }
+
   async function roleUserIds(roleKey) {
     const { rows } = await pool.query(
       `SELECT u.user_id FROM users u JOIN roles r ON r.role_id = u.role_id
@@ -57,6 +70,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     const severity = ['info', 'warn', 'critical'].includes(n.severity) ? n.severity : 'info';
     const meta = n.meta ? JSON.stringify(n.meta) : null;
     let added = 0;
+    const addedTo = [];
     for (const uid of userIds) {
       try {
         const r = await pool.query(
@@ -66,11 +80,12 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
            ON CONFLICT (user_id, dedupe_key) WHERE (dedupe_key IS NOT NULL AND NOT is_resolved) DO NOTHING
            RETURNING notification_id`,
           [uid, roleKey, category, title, body, link, entityType, entityId, dedupe, severity, meta]);
-        if (r.rowCount) added++;
+        if (r.rowCount) { added++; addedTo.push(uid); }
       } catch (err) {
         console.warn('[notify] insert failed for user ' + uid + ':', err.message);
       }
     }
+    if (addedTo.length) ping(addedTo);
     return added;
   }
 
@@ -101,26 +116,29 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     }
   }
 
+  // the wording of one low-stock alert (also used to keep an OPEN alert accurate while the count keeps dropping)
+  function lowStockSpec(i) {
+    const out = +i.on_hand <= 0;
+    return {
+      category: 'inventory',
+      title: out ? 'Out of stock: ' + i.name : 'Low stock: ' + i.name,
+      body: (i.department ? i.department + ' \u00B7 ' : '') + i.sku + ' \u2014 ' +
+        (out ? 'OUT OF STOCK' : (Number(i.on_hand) + (i.unit ? ' ' + i.unit : '') + ' on hand')) +
+        ', reorder at ' + Number(i.reorder_level) + (i.unit ? ' ' + i.unit : '') +
+        '. This alert stays active until new stock is received and the count rises above the reorder level.',
+      link: 'Finance_Inventory.html#inventory',
+      entityType: 'product',
+      entityId: String(i.product_id),
+      dedupeKey: 'low_stock:' + i.product_id,
+      severity: out ? 'critical' : 'warn',
+      meta: { sku: i.sku, department: i.department }
+    };
+  }
+
   async function notifyLowStock(items) {
     if (!items || !items.length) return 0;
     let n = 0;
-    for (const i of items) {
-      const out = +i.on_hand <= 0;
-      n += await notifyRole('finance', {
-        category: 'inventory',
-        title: out ? 'Out of stock: ' + i.name : 'Low stock: ' + i.name,
-        body: (i.department ? i.department + ' \u00B7 ' : '') + i.sku + ' \u2014 ' +
-          (out ? 'OUT OF STOCK' : (Number(i.on_hand) + (i.unit ? ' ' + i.unit : '') + ' on hand')) +
-          ', reorder at ' + Number(i.reorder_level) + (i.unit ? ' ' + i.unit : '') +
-          '. Open Inventory Monitoring or Stock In / Out to replenish.',
-        link: 'Finance_Inventory.html#inventory',
-        entityType: 'product',
-        entityId: String(i.product_id),
-        dedupeKey: 'low_stock:' + i.product_id,
-        severity: out ? 'critical' : 'warn',
-        meta: { sku: i.sku, department: i.department }
-      });
-    }
+    for (const i of items) n += await notifyRole('finance', lowStockSpec(i));
     return n;
   }
 
@@ -130,6 +148,24 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
   async function syncLowStock() {
     try {
       await ensure();
+      // 1) a product that was "low" and is now completely OUT gets a fresh critical alert (so it pops up and sounds again)
+      await pool.query(
+        `UPDATE notifications n SET is_resolved = TRUE, resolved_at = now()
+           FROM products p
+          WHERE NOT n.is_resolved AND n.dedupe_key = 'low_stock:' || p.product_id
+            AND n.severity <> 'critical' AND p.on_hand <= 0 AND NOT p.is_archived AND p.reorder_level > 0`);
+      // 2) alerts that are still open keep showing the CURRENT count (e.g. 4 left -> 3 left)
+      const still = await pool.query(
+        `SELECT DISTINCT p.product_id, p.sku, p.name, p.unit, p.department, p.on_hand, p.reorder_level
+           FROM products p JOIN notifications n ON n.dedupe_key = 'low_stock:' || p.product_id AND NOT n.is_resolved
+          WHERE NOT p.is_archived AND p.reorder_level > 0 AND p.on_hand <= p.reorder_level`);
+      for (const i of still.rows) {
+        const sp = lowStockSpec(i);
+        await pool.query(
+          `UPDATE notifications SET title = $2, body = $3, severity = $4
+            WHERE dedupe_key = $1 AND NOT is_resolved AND (title <> $2 OR body <> $3 OR severity <> $4)`,
+          [sp.dedupeKey, sp.title, sp.body, sp.severity]);
+      }
       const { rows } = await pool.query(
         `SELECT p.product_id, p.sku, p.name, p.unit, p.department, p.on_hand, p.reorder_level
            FROM products p
@@ -140,11 +176,13 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
                   WHERE n.dedupe_key = 'low_stock:' || p.product_id AND NOT n.is_resolved)`);
       const n = await notifyLowStock(rows);
       // anything that has recovered since must not stay open
-      await pool.query(
+      const done = await pool.query(
         `UPDATE notifications n SET is_resolved = TRUE, resolved_at = now()
            FROM products p
           WHERE NOT n.is_resolved AND n.dedupe_key = 'low_stock:' || p.product_id
-            AND (p.on_hand > p.reorder_level OR p.reorder_level <= 0 OR p.is_archived)`);
+            AND (p.on_hand > p.reorder_level OR p.reorder_level <= 0 OR p.is_archived)
+          RETURNING n.user_id`);
+      if (done.rowCount) ping(done.rows.map((r) => r.user_id));     // pages clear their alarm at once
       return n;
     } catch (err) {
       console.warn('[notify] sync low stock:', err.message);
@@ -159,7 +197,8 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       const keys = productIds.map((id) => 'low_stock:' + id);
       const r = await pool.query(
         `UPDATE notifications SET is_resolved = TRUE, resolved_at = now()
-          WHERE NOT is_resolved AND dedupe_key = ANY($1)`, [keys]);
+          WHERE NOT is_resolved AND dedupe_key = ANY($1) RETURNING user_id`, [keys]);
+      if (r.rowCount) ping(r.rows.map((x) => x.user_id));
       return r.rowCount;
     } catch (err) {
       console.warn('[notify] resolve low stock:', err.message);
@@ -322,6 +361,61 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       role: req.user.role
     });
   }));
+
+  /* One cheap request the pages make every few seconds (and whenever a live ping arrives):
+       unread count, the newest id, UNREAD notifications newer than ?after=<id> (they pop up as toasts),
+       and - for Finance - every low-stock alert that is still open (read or not), which keeps the alarm going. */
+  app.get('/api/notifications/poll', auth(), wrap(async (req, res) => {
+    await ensure();
+    const finance = req.user.role === 'finance';
+    if (finance) await syncLowStock();
+    const role = roleOnly(req);
+    const latest = await pool.query(
+      `SELECT COALESCE(MAX(notification_id), 0)::bigint AS id FROM notifications WHERE user_id = $1` + role, [req.user.id]);
+    const unread = await pool.query(
+      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read` + role, [req.user.id]);
+    let items = [];
+    if (/^\d{1,18}$/.test(String(req.query.after || ''))) {
+      const r = await pool.query(
+        `SELECT notification_id, category, title, body, link, entity_type, entity_id, severity,
+                is_read, is_resolved, created_at, meta,
+                to_char(created_at AT TIME ZONE $3::text, 'Mon DD, YYYY HH12:MI AM') AS when_label
+           FROM notifications
+          WHERE user_id = $1 AND notification_id > $2 AND NOT is_read` + role + `
+          ORDER BY notification_id ASC LIMIT 20`, [req.user.id, req.query.after, TZ]);
+      items = r.rows.map(shape);
+    }
+    let activeLowStock = [];
+    if (finance) {
+      const a = await pool.query(
+        `SELECT notification_id, title, body, link, severity, entity_id FROM notifications
+          WHERE user_id = $1 AND NOT is_resolved AND category = 'inventory' AND dedupe_key LIKE 'low_stock:%'` + role + `
+          ORDER BY (severity = 'critical') DESC, notification_id ASC LIMIT 50`, [req.user.id]);
+      activeLowStock = a.rows.map((r) => ({
+        id: Number(r.notification_id), title: r.title, body: r.body, link: r.link || '',
+        severity: r.severity, productId: r.entity_id }));
+    }
+    res.set('Cache-Control', 'no-store');
+    res.json({ uid: req.user.id, role: req.user.role, unread: unread.rows[0].n,
+      latestId: Number(latest.rows[0].id), items, activeLowStock });
+  }));
+
+  // live push channel (Server-Sent Events): the server only says "something changed", the page then calls /poll
+  app.get('/api/notifications/stream', auth(), (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+    if (res.flushHeaders) res.flushHeaders();
+    res.write('retry: 5000\nevent: ready\ndata: 1\n\n');
+    const uid = Number(req.user.id);
+    if (!streams.has(uid)) streams.set(uid, new Set());
+    streams.get(uid).add(res);
+    const hb = setInterval(() => { try { res.write(': keep-alive\n\n'); } catch (e) { /* closed */ } }, 25000);
+    req.on('close', () => {
+      clearInterval(hb);
+      const set = streams.get(uid);
+      if (set) { set.delete(res); if (!set.size) streams.delete(uid); }
+    });
+  });
 
   app.get('/api/notifications/unread-count', auth(), wrap(async (req, res) => {
     await ensure();

@@ -67,6 +67,273 @@
       '</span></button>';
   }
 
+
+  /* ------------------------------------------------------------------
+     Live alerts: pop-up toasts, sound, and the low-stock alarm.
+     - Every new notification pops up as a toast (all roles, customers included) with a soft chime.
+     - Finance: while ANY product is at/below its reorder level a banner stays on screen and the alarm
+       repeats until stock is received and the count rises above the reorder level. Marking the
+       notification as read does NOT stop it; only restocking does. Sound can be muted or snoozed.
+     ------------------------------------------------------------------ */
+  var ICONS = {
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>',
+    warn: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4M12 17h.01"/>',
+    box: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12"/>',
+    ok: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/>',
+    truck: '<path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+    on: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>',
+    off: '<path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="m23 9-6 6M17 9l6 6"/>',
+    x: '<path d="M18 6 6 18M6 6l12 12"/>'
+  };
+  function svg(name) {
+    return '<svg class="nc-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICONS[name] + '</svg>';
+  }
+  function iconFor(n) {
+    if (n.severity === 'critical' || n.severity === 'warn') return 'warn';
+    if (n.category === 'inventory' || n.category === 'production') return 'box';
+    if (n.category === 'delivery') return 'truck';
+    if (n.category === 'orders' || n.category === 'payment') return 'ok';
+    return 'bell';
+  }
+  function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  // ---- sound (Web Audio, no files needed) ----
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var actx = null;
+  try { if (AC) actx = new AC(); } catch (e) { actx = null; }
+  function soundOn() { return load('tripleE.nc.sound') !== 'off'; }
+  function audioReady() { return !!actx && actx.state === 'running'; }
+  function unlock() {
+    if (actx && actx.state === 'suspended') actx.resume().then(function () { renderBar(); alarmTick(); }).catch(function () {});
+  }
+  ['pointerdown', 'keydown', 'touchstart'].forEach(function (ev) { document.addEventListener(ev, unlock, { passive: true }); });
+
+  function tone(freq, at, dur, type, vol) {
+    var t0 = actx.currentTime + at, o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t0); o.stop(t0 + dur + 0.05);
+  }
+  // returns true when the sound really played (false = muted or the browser still blocks audio)
+  function play(kind) {
+    if (!soundOn() || !actx) return false;
+    if (actx.state !== 'running') { renderBar(); return false; }
+    if (kind === 'chime') {                                   // new notification: two soft rising notes
+      tone(659, 0, 0.45, 'sine', 0.18); tone(880, 0.16, 0.6, 'sine', 0.18);
+    } else if (kind === 'alarm') {                            // low stock: three alternating beeps
+      for (var i = 0; i < 3; i++) tone(i % 2 ? 660 : 880, i * 0.26, 0.2, 'triangle', 0.3);
+    } else if (kind === 'critical') {                         // out of stock: five fast, higher beeps
+      for (var j = 0; j < 5; j++) tone(j % 2 ? 740 : 988, j * 0.2, 0.15, 'square', 0.16);
+    }
+    return true;
+  }
+
+  // ---- toasts ----
+  var toastHost = null;
+  function host() {
+    if (toastHost && document.body.contains(toastHost)) return toastHost;
+    toastHost = document.createElement('div');
+    toastHost.className = 'nc-toasts';
+    toastHost.setAttribute('aria-live', 'polite');
+    document.body.appendChild(toastHost);
+    return toastHost;
+  }
+  function closeToast(el) {
+    if (!el || el._closing) return;
+    el._closing = true; clearTimeout(el._t);
+    el.classList.remove('show');
+    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 250);
+  }
+  function showToast(n) {
+    var h = host();
+    while (h.children.length >= 4) closeToast(h.firstChild);
+    var sev = n.severity === 'critical' ? ' critical' : n.severity === 'warn' ? ' warn' : '';
+    var el = document.createElement('div');
+    el.className = 'nc-toast' + sev;
+    el.setAttribute('role', n.severity === 'info' ? 'status' : 'alert');
+    el.innerHTML = '<span class="nc-t-ico">' + svg(iconFor(n)) + '</span>' +
+      '<span class="nc-t-main"><span class="nc-t-cat">' + esc(LABELS[n.category] || n.category || 'Notice') + '</span>' +
+      '<span class="nc-t-title">' + esc(n.title) + '</span>' +
+      (n.body ? '<span class="nc-t-body">' + esc(n.body) + '</span>' : '') + '</span>' +
+      '<button type="button" class="nc-t-x" aria-label="Dismiss">' + svg('x') + '</button>';
+    el.addEventListener('click', function (e) {
+      if (e.target.closest('.nc-t-x')) { closeToast(el); return; }
+      closeToast(el);
+      if (n.id) markRead(n.id).then(function () { poll(); });
+      go(n.link);
+    });
+    var life = n.severity === 'critical' ? 16000 : n.severity === 'warn' ? 12000 : 8000;
+    var arm = function () { clearTimeout(el._t); el._t = setTimeout(function () { closeToast(el); }, life); };
+    el.addEventListener('mouseenter', function () { clearTimeout(el._t); });
+    el.addEventListener('mouseleave', arm);
+    h.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    arm();
+  }
+
+  // ---- sticky low-stock banner + repeating alarm ----
+  var active = [];                         // open low-stock alerts (Finance)
+  var lastAlarm = 0;
+  var bar = null;
+  function snoozeUntil() { return Number(load('tripleE.nc.snooze')) || 0; }
+  function snoozed() { return snoozeUntil() > Date.now(); }
+  function clock(ms) { return new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
+
+  function ensureBar() {
+    if (bar && document.body.contains(bar)) return bar;
+    bar = document.createElement('div');
+    bar.className = 'nc-alertbar';
+    bar.id = 'ncAlertBar';
+    bar.setAttribute('role', 'alert');
+    bar.hidden = true;
+    bar.innerHTML = '<span class="nc-ab-ico">' + svg('warn') + '</span>' +
+      '<div class="nc-ab-main"><strong id="ncAbTitle"></strong><span id="ncAbText"></span><span class="nc-ab-hint" id="ncAbHint"></span></div>' +
+      '<div class="nc-ab-actions">' +
+      '<button type="button" class="nc-ab-btn primary" id="ncAbView">Review stock</button>' +
+      '<button type="button" class="nc-ab-btn" id="ncAbSnooze">Snooze 10 min</button>' +
+      '<button type="button" class="nc-ab-btn icon" id="ncAbSound" aria-label="Alert sound"></button></div>';
+    document.body.appendChild(bar);
+    bar.querySelector('#ncAbView').addEventListener('click', function () {
+      go((active[0] && active[0].link) || 'Finance_Inventory.html#inventory');
+    });
+    bar.querySelector('#ncAbSnooze').addEventListener('click', function () {
+      if (snoozed()) store('tripleE.nc.snooze', null); else store('tripleE.nc.snooze', String(Date.now() + 10 * 60000));
+      lastAlarm = Date.now(); renderBar();
+    });
+    bar.querySelector('#ncAbSound').addEventListener('click', function () { setSound(!soundOn()); });
+    return bar;
+  }
+
+  function setSound(on) {
+    store('tripleE.nc.sound', on ? 'on' : 'off');
+    if (on) { unlock(); setTimeout(function () { play('chime'); }, 60); }
+    renderBar(); renderSoundBtn();
+  }
+
+  function renderBar() {
+    var b = ensureBar();
+    var bell = $('ncBell');
+    if (bell) bell.classList.toggle('alerting', active.length > 0);
+    if (!active.length) { b.hidden = true; return; }
+    var out = active.filter(function (a) { return a.severity === 'critical'; }).length;
+    var names = active.slice(0, 3).map(function (a) { return a.title.replace(/^(Out of stock|Low stock):\s*/i, ''); });
+    b.hidden = false;
+    b.classList.toggle('critical', out > 0);
+    b.querySelector('#ncAbTitle').textContent = active.length + (active.length === 1 ? ' item needs' : ' items need') +
+      ' restocking' + (out ? ' (' + out + ' out of stock)' : '');
+    b.querySelector('#ncAbText').textContent = names.join(', ') + (active.length > 3 ? ' +' + (active.length - 3) + ' more' : '') +
+      '. This stays active until new stock is received and the count rises above the reorder level.';
+    var hint = b.querySelector('#ncAbHint');
+    if (!soundOn()) hint.textContent = 'Alert sound is off.';
+    else if (snoozed()) hint.textContent = 'Sound snoozed until ' + clock(snoozeUntil()) + '.';
+    else if (!audioReady()) hint.textContent = 'Click anywhere on the page to turn the alert sound on.';
+    else hint.textContent = '';
+    hint.hidden = !hint.textContent;
+    b.querySelector('#ncAbSnooze').textContent = snoozed() ? 'Resume sound' : 'Snooze 10 min';
+    renderSoundBtn();
+  }
+  function renderSoundBtn() {
+    var on = soundOn();
+    var tip = on ? 'Sound on (click to mute)' : 'Sound off (click to turn on)';
+    var barBtn = document.querySelector('#ncAbSound');
+    if (barBtn) { barBtn.innerHTML = svg(on ? 'on' : 'off'); barBtn.title = tip; barBtn.setAttribute('aria-pressed', on ? 'true' : 'false'); }
+    var dropBtn = $('ncSoundBtn');
+    if (dropBtn) {
+      dropBtn.innerHTML = svg(on ? 'on' : 'off') + '<span>' + (on ? 'Sound on' : 'Sound off') + '</span>';
+      dropBtn.title = tip; dropBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+  }
+
+  // the alarm repeats while any low-stock alert is open: every 30 s if something is OUT, otherwise every 60 s
+  function alarmTick() {
+    if (!active.length || !soundOn() || snoozed()) return;
+    var critical = active.some(function (a) { return a.severity === 'critical'; });
+    if (Date.now() - lastAlarm < (critical ? 30000 : 60000)) return;
+    if (play(critical ? 'critical' : 'alarm')) lastAlarm = Date.now();
+  }
+
+  // ---- polling + live ping ----
+  var uid = null, lastSeen = null, polling = false, again = false, es = null, titleBase = null;
+  function key() { return 'tripleE.nc.last.' + uid; }
+
+  function applyTitle(n) {
+    if (titleBase == null) titleBase = document.title.replace(/^\(\d+\+?\)\s*/, '');
+    document.title = (n ? '(' + (n > 99 ? '99+' : n) + ') ' : '') + titleBase;
+  }
+
+  function handleNew(items) {
+    if (!items.length) return;
+    var shown = items.slice(-3);
+    shown.forEach(showToast);
+    if (items.length > shown.length) {
+      showToast({ category: 'system', severity: 'info', title: (items.length - shown.length) + ' more new notifications',
+        body: 'Open the Notification Center to read them.', link: '' });
+    }
+    var low = items.some(function (n) { return n.category === 'inventory' && /^(Low|Out of) stock/i.test(n.title); });
+    var out = items.some(function (n) { return n.severity === 'critical'; });
+    if (low) { if (play(out ? 'critical' : 'alarm')) lastAlarm = Date.now(); }
+    else play('chime');
+    if (dropOpen) loadDrop();
+    if ($('ncPageList')) loadPage(true);
+    window.dispatchEvent(new CustomEvent('triplee:notify', { detail: { items: items } }));
+  }
+
+  async function poll() {
+    if (polling) { again = true; return; }
+    polling = true;
+    try {
+      var d = await api('/notifications/poll' + (lastSeen != null ? '?after=' + lastSeen : ''));
+      if (lastSeen == null) {
+        uid = d.uid;
+        var saved = load(key());
+        saved = saved != null && /^\d+$/.test(saved) ? Number(saved) : null;
+        // came back after being away: pop up what arrived meanwhile; first ever visit: just start from now
+        if (saved != null && saved < d.latestId) d = await api('/notifications/poll?after=' + saved);
+        lastSeen = d.latestId;
+        store(key(), String(lastSeen));
+      } else if (d.latestId > lastSeen) {
+        lastSeen = d.latestId;
+        store(key(), String(lastSeen));
+      }
+      setCount(d.unread || 0);
+      applyTitle(d.unread || 0);
+      applyRole(d.role);
+      active = d.activeLowStock || [];
+      handleNew(d.items || []);
+      renderBar();
+      alarmTick();
+    } catch (e) { /* stay quiet if the API is down; the next poll tries again */ }
+    finally { polling = false; if (again) { again = false; setTimeout(poll, 150); } }
+  }
+
+  function connectLive() {
+    if (!window.EventSource) return;
+    try {
+      es = new EventSource('/api/notifications/stream');
+      es.addEventListener('ping', function () { poll(); });
+      es.addEventListener('ready', function () { poll(); });
+    } catch (e) { es = null; }
+  }
+
+  function startEngine() {
+    ensureBar();
+    var foot = document.querySelector('#ncDrop .nc-drop-foot');
+    if (foot && !$('ncSoundBtn')) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.id = 'ncSoundBtn'; b.className = 'nc-link nc-soundbtn';
+      b.addEventListener('click', function () { setSound(!soundOn()); });
+      foot.appendChild(b);
+    }
+    renderSoundBtn();
+    connectLive();
+    setInterval(alarmTick, 1000);
+    poll();
+  }
+
   function setCount(n) {
     var el = $('ncCount');
     if (!el) return;
@@ -94,13 +361,7 @@
     if (foot) foot.textContent = n ? 'Open the Notification Center to review' : 'You are all caught up';
   }
 
-  async function refreshCount() {
-    try {
-      var d = await api('/notifications/unread-count');
-      setCount(d.unread || 0);
-      applyRole(d.role);
-    } catch (e) { /* stay quiet if the API is down */ }
-  }
+  function refreshCount() { return poll(); }
 
   async function loadDrop() {
     var list = $('ncDropList');
@@ -228,11 +489,9 @@
     var more = $('ncMore');
     if (more) more.addEventListener('click', function () { loadPage(false); });
 
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) { refreshCount(); if (dropOpen) loadDrop(); } });
-    pollTimer = setInterval(function () {
-      if (!document.hidden) refreshCount();
-    }, 15000);
-    refreshCount();
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) { poll(); if (dropOpen) loadDrop(); } });
+    pollTimer = setInterval(poll, 10000);
+    startEngine();
     if ($('ncPageList')) loadPage(true);
     var h = hashOf(location.href);
     if (h && typeof window.navigateToPage !== 'function') setTimeout(function () {
