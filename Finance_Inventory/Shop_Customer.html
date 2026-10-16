@@ -170,6 +170,7 @@ a.nav-item{text-decoration:none}
         <aside class="card sum-card sticky-side"><h3>Order summary</h3><div id="sumLines"></div><div class="sum-ship" id="sumShip" hidden></div>
           <div class="row" style="margin-top:6px"><span class="dim">Subtotal</span><span class="mono" id="s1"></span></div>
           <div class="row"><span class="dim">Delivery</span><span class="mono" id="s2"></span></div>
+          <div class="fee-note" id="s2note" hidden></div>
           <div class="row total"><span>Total</span><span class="mono" id="s3"></span></div>
           <div id="shipBlockBox" class="fulfil-note" hidden style="margin-top:14px"><b>We can't deliver there yet.</b> You can ask us for a delivery quote, or collect your order in store.
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn-primary btn-sm" id="sbQuote">Request a delivery quote</button><button type="button" class="btn-secondary btn-sm" id="sbPickup">Switch to Pickup</button></div></div>
@@ -599,8 +600,32 @@ function renderCheckout() {
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${payLabel(m)}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
-  $('s1').textContent = peso(subtotal()); $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? (shipBlock ? 'Not available' : 'Choose address') : (fee() ? peso(fee()) : 'Free'); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
+  $('s1').textContent = peso(subtotal()); renderFeeRow(); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
   syncBlock();
+}
+/* Delivery line of the order summary: the amount, plus a note saying which rate applies and whether it changed when the address changed. */
+let feeShown = null, feeShownRate = '';      // last fee the customer saw for an address (to tell them when it changes)
+function renderFeeRow() {
+  const s2 = $('s2'), note = $('s2note'), place = window.ShopAddress ? ShopAddress.place() : {};
+  const area = place.province || (place.region || '').replace(/^.* - /, '') || '';
+  let text = '', cls = '';
+  s2.className = 'mono';
+  if (fulfil !== 'Delivery') { s2.textContent = 'Free'; text = 'Pickup in store has no delivery fee.'; feeShown = null; feeShownRate = ''; }
+  else if (shipBlock) {
+    s2.textContent = 'Not available'; s2.classList.add('fee-bad'); cls = 'bad'; feeShown = null; feeShownRate = '';
+    text = shipNoCover ? 'We do not deliver to ' + esc(area || 'this area') + ' yet. Request a delivery quote or pick up in store.' : esc(shipBlock);
+  }
+  else if (shipFee == null) { s2.textContent = 'Choose address'; text = 'The fee depends on where we deliver.'; }
+  else {
+    s2.textContent = shipFee ? peso(shipFee) : 'Free';
+    text = (area ? 'Delivery to ' + esc(area) : 'Delivery rate') + (shipRate && shipRate !== area ? ' · ' + esc(shipRate) + ' rate' : '') + '.';
+    if (feeShown != null && shipFee !== feeShown) {      // the address changed and so did the price
+      text += ' <b>Fee updated: ' + (feeShown ? peso(feeShown) : 'Free') + ' → ' + (shipFee ? peso(shipFee) : 'Free') + '</b>';
+      cls = 'changed'; s2.classList.add('fee-flash'); $('s3').classList.remove('fee-flash'); void $('s3').offsetWidth; $('s3').classList.add('fee-flash');
+    }
+    feeShown = shipFee; feeShownRate = shipRate;
+  }
+  note.hidden = !text; note.className = 'fee-note' + (cls ? ' ' + cls : ''); note.innerHTML = text;
 }
 
 function updateShipSummary() {
@@ -625,7 +650,7 @@ function renderTotals() {
   if (view !== 'checkout') return;
   const i = INFO || {};
   if (fulfil === 'Delivery') $('fulfilNote').innerHTML = '<b>Delivery</b> · ' + (shipBlock ? '<span style="color:#c0392b;font-weight:600">' + esc(shipBlock) + '</span> ' : shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>';
-  $('s2').textContent = fulfil === 'Delivery' && shipFee == null ? (shipBlock ? 'Not available' : 'Choose address') : (fee() ? peso(fee()) : 'Free');
+  renderFeeRow();
   $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
   syncBlock();
 }
