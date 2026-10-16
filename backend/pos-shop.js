@@ -560,6 +560,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         for (const r of all) if (r.scope !== 'province')
           await pool.query('UPDATE delivery_rates SET available = $2 WHERE rate_id = $1', [r.rate_id, r.scope === 'region' && cover.has(rateKey('region', r.name))]);
       }
+      // One-time: apply the starting coverage (NCR / Central Luzon / CALABARZON deliver, everything else blocked) to the saved rates.
+      // Older databases kept every region as "We deliver here: Yes", so unreachable regions were never blocked. Fees and province rows are left alone,
+      // and it never runs again, so Finance can change coverage afterwards in Sales > Orders > Delivery rates.
+      await pool.query('CREATE TABLE IF NOT EXISTS delivery_rates_migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
+      if (!(await pool.query(`SELECT 1 FROM delivery_rates_migrations WHERE name = 'coverage_v2'`)).rowCount) {
+        const covered = new Set(DEFAULT_DELIVERY_RATES.filter((r) => r[0] === 'region' && r[3]).map((r) => rateKey('region', r[1])));
+        const all = (await pool.query('SELECT rate_id, scope, name FROM delivery_rates')).rows;
+        for (const r of all) if (r.scope !== 'province')
+          await pool.query('UPDATE delivery_rates SET available = $2 WHERE rate_id = $1', [r.rate_id, r.scope === 'region' && covered.has(rateKey('region', r.name))]);
+        await pool.query(`INSERT INTO delivery_rates_migrations (name) VALUES ('coverage_v2') ON CONFLICT DO NOTHING`);
+        console.log('[delivery] applied the starting delivery coverage once: NCR, Central Luzon and CALABARZON deliver; other regions are blocked.');
+      }
     } catch (err) { console.warn('[db] could not prepare the delivery rates table:', err.message); }
   }
   const deliveryRatesReady = ensureDeliveryRates();
