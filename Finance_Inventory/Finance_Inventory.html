@@ -160,7 +160,6 @@
             <button type="button" class="burger" id="burgerBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
                 <span class="burger-bar"></span><span class="burger-bar"></span><span class="burger-bar"></span>
             </button>
-            <div class="topbar-title" id="topbarTitle">Dashboard</div>
 
             <div class="topbar-right">
 
@@ -485,10 +484,6 @@
                         Inventory Monitoring
                     </h1>
 
-                    <p>
-                        Real-time stock levels across Raw Materials, Finished Goods, and Finishing Supplies, with low-stock alerts.
-                    </p>
-
                 </div>
 
 
@@ -695,10 +690,6 @@
                     <h1>
                         Stock In / Out
                     </h1>
-
-                    <p>
-                        Record stock coming in (from a supplier, or produced in-house) and stock going out (damage, scrap, returns and corrections). Goods produced in-house go straight into Finished Goods.
-                    </p>
 
                 </div>
 
@@ -1090,9 +1081,6 @@
                             Products
                         </h1>
 
-                        <p class="catalog-sub">
-                            Add, edit and archive product records — name, department, category, unit, price and reorder level all feed inventory and reporting.
-                        </p>
 
                     </div>
 
@@ -1200,9 +1188,6 @@
                             Suppliers
                         </h1>
 
-                        <p class="catalog-sub">
-                            Contact details and the raw materials each supplier provides — feeds Stock In records and reorder decisions. 
-                        </p>
 
                     </div>
 
@@ -1296,7 +1281,6 @@
             <section id="sales-overview" class="page">
                 <div class="catalog-header"><div><div class="catalog-eyebrow">Sales Management</div>
                     <h1 class="catalog-title">Sales &amp; Transactions</h1>
-                    <p class="catalog-sub">Consolidated POS and online sales. Use the sidebar for channel-specific operations.</p>
                 </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
                 <div id="salesAdminRoot"></div>
                 <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div></div><div id="soPay" style="padding:0 18px 18px"></div></div>
@@ -1312,9 +1296,6 @@
                     <div>
                         <div class="catalog-eyebrow">Sales &amp; Transactions / Online</div>
                         <h1 class="catalog-title">Online Orders</h1>
-                        <p class="catalog-sub">
-                            Orders placed in the online shop, for delivery or pickup. Update an order&rsquo;s status here and the customer sees it on their orders page.
-                        </p>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
@@ -1363,9 +1344,6 @@
                     <div>
                         <div class="catalog-eyebrow">Sales &amp; Transactions / POS</div>
                         <h1 class="catalog-title">POS Management</h1>
-                        <p class="catalog-sub">
-                            Monitor walk-in POS sales and cashier cash shifts together. Online orders are managed separately.
-                        </p>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
@@ -1417,7 +1395,7 @@
             <section id="reviews" class="page"></section>
 
             <section id="customers" class="page">
-              <div class="catalog-header"><div><div class="catalog-eyebrow">Customer Management</div><h1 class="catalog-title">Customer Profiles</h1><p class="catalog-sub">Registered customer accounts and walk-in customers recorded at the POS. Customer records are separate from staff user management.</p></div></div>
+              <div class="catalog-header"><div><div class="catalog-eyebrow">Customer Management</div><h1 class="catalog-title">Customer Profiles</h1></div></div>
               <div class="customer-tabs" role="tablist" aria-label="Customer type"><button type="button" role="tab" class="customer-tab active" id="custTabReg" aria-selected="true" data-cust-tab="reg">Registered customers</button><button type="button" role="tab" class="customer-tab" id="custTabWalk" aria-selected="false" data-cust-tab="walk">Walk-in customers</button></div>
               <div class="panel customer-directory" id="registeredDirectory"><div class="panel-head"><div><div class="panel-title">Registered Customers</div><div class="panel-sub" id="customerCount">Loading customers…</div></div><button type="button" class="btn-secondary" id="customerRefresh">↻ Refresh</button></div>
               <div class="customer-toolbar"><label class="customer-search-label" for="customerSearch">Search customer profiles</label><input class="inv-search" id="customerSearch" placeholder="Search by name or email…" autocomplete="off"><select class="inv-select" id="customerStatusFilter" aria-label="Filter customer status"><option value="all">All statuses</option><option value="active">Active</option><option value="inactive">Disabled</option></select></div>
@@ -1442,9 +1420,6 @@
                             User Account Management
                         </h1>
 
-                        <p class="catalog-sub">
-                            View system accounts, their roles and status, and invite new users.
-                        </p>
 
                     </div>
 
@@ -1583,9 +1558,6 @@
                             Audit Log
                         </h1>
 
-                        <p class="catalog-sub">
-                            A read-only record of logins, record changes and account activity across the system.
-                        </p>
 
                     </div>
 
@@ -1726,7 +1698,6 @@
                     <div>
                         <div class="catalog-eyebrow">Alerts</div>
                         <h1 class="catalog-title">Notification Center</h1>
-                        <p class="catalog-sub" id="ncPageSub">Low stock, orders, payments, production, and other alerts for Finance.</p>
                     </div>
                     <div class="catalog-actions">
                         <button type="button" class="btn-secondary" id="ncPageMarkAll">Mark all as read</button>
@@ -1768,9 +1739,6 @@
                             Inventory & Sales Reports
                         </h1>
 
-                        <p class="catalog-sub">
-                            Stock value, movement and sales transaction reporting across the full product catalog.
-                        </p>
 
                     </div>
 

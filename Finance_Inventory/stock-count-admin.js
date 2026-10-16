@@ -58,7 +58,7 @@
     var sec = document.createElement('section');
     sec.id = 'stockcount'; sec.className = 'page';
     sec.innerHTML =
-      '<div class="welcome"><h1>Stock Count</h1><p>Count what is really on the shelves, compare it with what the system says, and post the differences as stock corrections.</p></div>' +
+      '<div class="welcome"><h1>Stock Count</h1></div>' +
       '<div id="scBody"></div>';
     after.parentNode.insertBefore(sec, after.nextSibling);
 

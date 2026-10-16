@@ -92,7 +92,7 @@
     <button type="button" class="burger" id="burgerBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
       <span class="burger-bar"></span><span class="burger-bar"></span><span class="burger-bar"></span>
     </button>
-    <div class="topbar-titlewrap"><span class="topbar-crumb">Counter</span><div class="topbar-title" id="topbarTitle">Point of Sale</div></div>
+    
     <div class="topbar-right">
       <div class="nc-wrap" id="ncWrap">
         <button type="button" class="nc-bell" id="ncBell" aria-label="Notifications" aria-haspopup="true" aria-expanded="false">
@@ -201,7 +201,7 @@
 
     <!-- ===== PAGE: TODAY'S SALES ===== -->
     <section class="page" id="page-sales">
-      <div class="welcome"><h1>Today's Sales</h1><p>Receipts rung up at this counter today.</p></div>
+      <div class="welcome"><h1>Today's Sales</h1></div>
       <div class="stats">
         <div class="stat-card green"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div><div class="stat-label">Sales total</div><div class="stat-value mono" id="stTotal" style="font-family:Oswald,sans-serif">₱0.00</div><div class="stat-foot">Excludes voided</div></div>
         <div class="stat-card"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/></svg></div><div class="stat-label">Transactions</div><div class="stat-value" id="stCount">0</div><div class="stat-foot" id="stAvg">Avg ₱0.00</div></div>
@@ -220,7 +220,7 @@
 
     <!-- ===== PAGE: WALK-IN QUOTE REQUESTS ===== -->
     <section class="page" id="page-notifications">
-      <div class="welcome"><h1>Notification Center</h1><p id="ncPageSub">POS transaction updates and void / return request results.</p></div>
+      <div class="welcome"><h1>Notification Center</h1></div>
       <div class="nc-page-tools">
         <div class="nc-chips">
           <button type="button" class="nc-chip on" data-nc-cat="">All</button>
@@ -241,7 +241,7 @@
     </section>
 
     <section class="page" id="page-quotes">
-      <div class="welcome"><h1>Quote Requests</h1><p>For walk-in or phone customers who want a price on a bulk order or a custom size. Finance replies with the quote.</p></div>
+      <div class="welcome"><h1>Quote Requests</h1></div>
       <div class="pq-layout">
         <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
@@ -276,7 +276,7 @@
     </section>
 
     <section class="page" id="page-shift">
-      <div class="welcome"><h1>Cash Shift</h1><p>Your cash drawer: open it, record cash added or removed, and count it when you finish.</p></div>
+      <div class="welcome"><h1>Cash Shift</h1></div>
       <div id="csApp" aria-live="polite"><div class="panel cs-loading">Loading your shift…</div></div>
       <div class="panel cs-history"><div class="panel-head"><div><div class="panel-title">My shift history</div><div class="panel-sub">Your last 50 shifts</div></div></div><div class="table-wrapper"><table><thead><tr><th>Shift</th><th>Opened</th><th>Closed</th><th>Length</th><th class="cs-r">Cash sales</th><th class="cs-r">Counted</th><th>Result</th></tr></thead><tbody id="shiftHistory"></tbody></table></div></div>
     </section>
@@ -377,7 +377,6 @@ const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDig
 const pesoShort = n => '₱' + Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 let PRODUCTS = [], cart = [], sales = [], method = 'Cash', voidId = null, cat = '', view = 'grid';
-const PAGE_TITLES = { terminal: 'Point of Sale', sales: "Today's Sales", shift: 'Cash Shift', quotes: 'Quote Requests', notifications: 'Notifications' };
 const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
@@ -487,7 +486,7 @@ function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
   if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
-  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); $('topbarTitle').textContent = PAGE_TITLES[p]; document.querySelector('.topbar-crumb').textContent = p === 'terminal' || p === 'quotes' ? 'Counter' : p === 'notifications' ? 'Alerts' : 'Reports'; setNav(false); updateFab(); window.scrollTo(0, 0);
+  if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); setNav(false); updateFab(); window.scrollTo(0, 0);
 }
 $('userChipBtn').onclick = e => { e.stopPropagation(); const o = $('userDropdown').classList.toggle('open'); $('userChipBtn').setAttribute('aria-expanded', o); };
 document.addEventListener('click', e => { if (!e.target.closest('#userMenuWrap')) $('userDropdown').classList.remove('open'); });
