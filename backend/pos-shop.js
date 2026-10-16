@@ -413,7 +413,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!externalId || !invoiceId) return res.status(400).json({ error: 'Missing invoice identifiers' });
     const { rows } = await pool.query(
       'SELECT * FROM orders WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId]);
-    if (!rows.length) { await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true}); }
+    if (!rows.length) {
+      if (app.locals.quoteXendit && await app.locals.quoteXendit.handle(event, externalId, invoiceId)) return res.json({ received: true });   // an accepted custom quote paid online
+      await handlePosXenditWebhook(event, externalId, invoiceId); return res.json({received:true});
+    }
     await applyShopInvoice(rows[0], event, invoiceId);
     res.json({ received: true });
   }));

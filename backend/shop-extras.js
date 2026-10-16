@@ -57,7 +57,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: months instead of a date, dropdown choices, reply details, customer answer
       for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
-                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT'])
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
@@ -155,7 +155,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededMonths: q.needed_months || undefined, neededBy: dateStr(q.needed_by),          // neededBy only exists on requests made before the months field
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
-      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined,
+      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
       quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
@@ -294,22 +294,26 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (note.length > 500) throw bad('note', 'Please keep the note under 500 characters');
     const next = { accept: 'accepted', decline: 'declined', renew: 'new' }[action];
     // accepting a quote needs a payment method: the online customer chooses one, the cashier's walk-in quote is automatically pay on pickup
-    const chosen = str((req.body || {}).payMethod);
-    if (action === 'accept' && !autoPay && !QUOTE_OPTIONS.payMethods.includes(chosen)) throw bad('payMethod', 'Choose how you will pay');
+    const chosen = str((req.body || {}).payMethod);                      // 'online' (Xendit) or 'cod' (pay on pickup / cash on delivery)
+    if (action === 'accept' && !autoPay && !['online', 'cod'].includes(chosen)) throw bad('payMethod', 'Choose how you will pay: online or on pickup / delivery');
     const q = await tx(async (client) => {
       const cur = (await client.query(`SELECT * FROM quote_requests WHERE quote_no = $1 AND ${where} FOR UPDATE`, [req.params.no, ...params])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
       if (cur.status !== 'quoted') throw bad('status', cur.status === 'new' ? 'This request has not been answered yet' : 'This quote was already answered or closed');
       const vu = dateStr(cur.valid_until);
       if (action === 'accept' && vu && vu < todayPH()) throw bad('status', 'This quote has expired. Ask for a new quote instead');
-      const payMethod = action === 'accept' ? (autoPay ? payOnLabel(cur.fulfillment) : chosen) : null;
+      const payMethod = action === 'accept' ? (autoPay || chosen === 'cod' ? payOnLabel(cur.fulfillment) : 'Xendit') : null;
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
         [cur.quote_id, next, note || null, payMethod]);
       await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
       return r.rows[0];
     });
-    res.json({ ok: true, status: q.status });
+    let checkoutUrl, payError;
+    if (action === 'accept' && q.pay_method === 'Xendit') {                // start the online payment right away; if it cannot start, the customer can tap Pay now later
+      try { checkoutUrl = await quoteCheckoutUrl(q); } catch (e) { payError = 'Online payment could not be started right now. Tap Pay now on your quote to try again.'; console.warn('[xendit] quote checkout failed:', e.message); }
+    }
+    res.json({ ok: true, status: q.status, checkoutUrl, payError });
     Promise.resolve(pingFinance({ category: 'orders', title: action === 'accept' ? 'Quote accepted' : action === 'decline' ? 'Quote declined' : 'New quote requested',
       body: `${q.contact_name} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'asked for a new quote on'} ${q.quote_no}` + (q.quoted_amount != null ? ' (' + peso(q.quoted_amount) + ')' : '') + (action === 'accept' && q.pay_method ? '. Payment: ' + q.pay_method : '') + '.',
       link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no })).catch(() => {});
@@ -319,7 +323,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
         `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
         ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
-        action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `Next: open Finance > Quote Requests, record the ${q.pay_method || ''} payment and move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
+        action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `The customer is paying online through Xendit. You will be notified when the payment arrives; then move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
 
@@ -441,6 +445,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const next = QFLOW[at + 1];
       if (!next) throw bad('status', 'This quote is already completed');
       if (target !== next) throw bad('status', `The next step is "${stepLabel(next, cur.fulfillment)}". Steps cannot be skipped or moved backwards`);
+      if (next === 'preparing' && cur.pay_method === 'Xendit' && round2(+cur.quoted_amount - (+cur.paid_amount || 0)) > 0.004)
+        throw bad('payment', 'The customer chose to pay online and has not paid yet. Wait for the Xendit payment, or record a payment received another way first');
       if (next === 'completed') {
         if (receivedBy.length < 2 || receivedBy.length > 80) throw bad('receivedBy', `Enter the name of the person who ${cur.fulfillment === 'Delivery' ? 'received' : 'picked up'} the order (2 to 80 characters)`);
         const owed = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
@@ -496,6 +502,92 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await send(u && u.email, `Payment received for ${q.quote_no}`, [`Hi ${q.contact_name},`, body, ...signoff()], 'quote-payment');
     })().catch((e) => console.error('[mail] quote payment failed:', e.message));
   }));
+
+
+  /* ---------- Paying an accepted quote ----------
+     When the customer accepts they choose:  'online' -> Xendit (GCash, Maya, card, bank; the invoice is for the balance)
+                                             'cod'    -> pay on pickup / cash on delivery (Finance records the cash when it is collected)
+     An online payment is only trusted when it comes from Xendit itself (signed callback, or the server asking Xendit directly). */
+  const xBase = 'https://api.xendit.co';
+  async function xenditCall(url, opt = {}) {
+    const key = process.env.XENDIT_SECRET_KEY;
+    if (!key) throw new Error('Online payment is not set up yet');
+    const r = await fetch(url, { method: opt.method || 'GET', headers: { Authorization: 'Basic ' + Buffer.from(key + ':').toString('base64'), 'Content-Type': 'application/json' },
+      body: opt.body ? JSON.stringify(opt.body) : undefined });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(data.message || 'Xendit request failed'); e.status = r.status; throw e; }
+    return data;
+  }
+  const owedOn = (q) => round2(+q.quoted_amount - (+q.paid_amount || 0));
+  // returns the Xendit checkout link for what the customer still owes (re-uses a still-open invoice)
+  async function quoteCheckoutUrl(q) {
+    const owed = owedOn(q); if (!(owed > 0)) return null;
+    if (q.xendit_invoice_id) {
+      try { const ex = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`);
+        if (ex.status === 'PENDING' && ex.invoice_url && Number(ex.amount) === owed) return ex.invoice_url; } catch (_) { /* make a new one below */ }
+    }
+    const base = baseUrl(); if (!base) throw new Error('APP_BASE_URL is not set');
+    const externalId = `triplee-quote-${q.quote_no}-${q.quote_id}-${Date.now()}`;
+    const inv = await xenditCall(`${xBase}/v2/invoices`, { method: 'POST', body: {
+      external_id: externalId, amount: owed, currency: 'PHP', description: `Triple-E Metal Products quote ${q.quote_no}`,
+      success_redirect_url: `${base}/Shop_Customer.html?quotepay=return&quote=${encodeURIComponent(q.quote_no)}`,
+      failure_redirect_url: `${base}/Shop_Customer.html?quotepay=failed&quote=${encodeURIComponent(q.quote_no)}`, invoice_duration: 86400 } });
+    await pool.query('UPDATE quote_requests SET xendit_invoice_id = $2, xendit_external_id = $3 WHERE quote_id = $1', [q.quote_id, inv.id, externalId]);
+    return inv.invoice_url;
+  }
+  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is kept on the payment)
+  async function applyQuoteInvoice(q, event, invoiceId) {
+    if (!['PAID', 'SETTLED'].includes(String(event.status))) return null;
+    let done = null;
+    await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_id = $1 FOR UPDATE', [q.quote_id])).rows[0];
+      if (!cur) return;
+      const pays = Array.isArray(cur.payments) ? cur.payments : [];
+      if (pays.some((p) => p.ref === invoiceId)) return;
+      const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
+      if (!(amount > 0)) return;
+      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, updated_at = now() WHERE quote_id = $1 RETURNING *',
+        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays.concat([{ amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
+      await audit(client, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, 'Record edited', `Quote ${cur.quote_no}: online payment of ${peso(amount)} received (Xendit invoice ${invoiceId})`);
+      done = { q: r.rows[0], amount };
+    });
+    if (done) {
+      const q2 = done.q, bal = Math.max(0, owedOn(q2));
+      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(done.amount)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : ' Fully paid.'),
+        link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q2.quote_no })).catch(() => {});
+      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(done.amount)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
+        link: 'Shop_Customer.html', entityType: 'quote', entityId: q2.quote_no }, 'customer')).catch(() => {});
+    }
+    return done;
+  }
+  const accepting = (q) => ['accepted', 'preparing', 'ready'].includes(q.status);
+  app.post('/api/shop/quotes/:no/pay', auth('customer'), wrap(async (req, res) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
+    if (!q) throw bad('id', 'Quote request not found');
+    if (!accepting(q)) throw bad('status', 'Only an accepted quote can be paid');
+    if (q.pay_method !== 'Xendit') throw bad('payment', 'This quote is set to ' + String(q.pay_method || 'pay later').toLowerCase());
+    if (!(owedOn(q) > 0)) throw bad('payment', 'This quote is already fully paid');
+    let url; try { url = await quoteCheckoutUrl(q); } catch (e) { console.warn('[xendit] quote checkout failed:', e.message); throw bad('payment', 'Online payment is not available right now. Please try again later or contact us'); }
+    res.json({ checkoutUrl: url });
+  }));
+  // the customer's page calls this after paying: ask Xendit directly, so the payment is saved even if the callback never arrives
+  app.post('/api/shop/quotes/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
+    if (!q) throw bad('id', 'Quote request not found');
+    if (q.pay_method === 'Xendit' && q.xendit_invoice_id && owedOn(q) > 0) {
+      try { const inv = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`); await applyQuoteInvoice(q, inv, q.xendit_invoice_id); }
+      catch (e) { console.warn('[xendit] quote payment check failed:', e.message); }
+    }
+    const c = (await pool.query('SELECT paid_amount, quoted_amount FROM quote_requests WHERE quote_id = $1', [q.quote_id])).rows[0];
+    res.json({ paidAmount: +c.paid_amount, balance: Math.max(0, owedOn(c)) });
+  }));
+  // called by the Xendit webhook in pos-shop.js; returns true when the invoice belonged to a quote
+  app.locals.quoteXendit = { handle: async (event, externalId, invoiceId) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId])).rows[0];
+    if (!q) return false;
+    await applyQuoteInvoice(q, event, invoiceId);
+    return true;
+  } };
 
   /* =====================================================
      2. Minimum order

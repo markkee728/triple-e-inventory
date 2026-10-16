@@ -15,3 +15,7 @@ ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS received_by TEXT;
 ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
 ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check
   CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed'));
+-- payment method chosen when the quote is accepted (online customer picks one; cashier/walk-in quotes are automatically 'Pay on pickup' / 'Pay on delivery')
+ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS pay_method TEXT;
+ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS xendit_invoice_id TEXT;   -- online payment (Xendit) of an accepted quote
+ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS xendit_external_id TEXT;

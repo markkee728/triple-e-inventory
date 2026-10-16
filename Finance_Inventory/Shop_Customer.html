@@ -1096,12 +1096,12 @@ async function loadQuotes() {
   const ready = QUOTES.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready for you to accept or decline';
   $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const key = q.expired ? 'expired' : q.status, st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
     const pickup = q.fulfillment !== 'Delivery';
-    const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote' + (q.payMethod ? ' and chose to pay by ' + q.payMethod : '') + '. Our team will contact you to arrange payment and ' + (pickup ? 'pickup' : 'delivery') + '.', preparing: 'We are preparing your order.' + (q.leadTime ? ' Estimated time: ' + q.leadTime + '.' : ''),
+    const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote' + (q.payOnline ? (q.balance > 0 ? '. Please complete your online payment.' : '. Your online payment was received.') : q.payMethod ? ' and will pay ' + q.payMethod.replace(/^Pay /, '') + '.' : '.') + ' Our team will contact you to arrange ' + (pickup ? 'pickup' : 'delivery') + '.', preparing: 'We are preparing your order.' + (q.leadTime ? ' Estimated time: ' + q.leadTime + '.' : ''),
       ready: pickup ? 'Your order is ready. Please pick it up at our shop.' : 'Your order is on its way to you.', completed: pickup ? 'Picked up. Thank you for ordering!' : 'Delivered. Thank you for ordering!', declined: 'You declined this quote.', closed: 'This request is closed.' }[key] || '';
     const flow = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status);
-    const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${esc(q.payMethod)}</span></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
+    const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payOnline && q.balance > 0 && ['accepted', 'preparing', 'ready'].includes(q.status) ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.balance)} now</button></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
-    const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose a payment method</option>${((QOPTS && QOPTS.payMethods) || ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']).map(m => `<option>${esc(m)}</option>`).join('')}</select></div>` : '';
+    const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
@@ -1126,10 +1126,18 @@ $('quoteList').addEventListener('click', async e => {            // accept / dec
   const ask = { accept: 'Accept quote ' + id + '? Our team will then contact you to arrange payment and ' + 'delivery or pickup.', decline: 'Decline quote ' + id + '?', renew: 'Ask our team for a new quote on ' + id + '?' }[action];
   if (!confirm(ask)) return;
   b.disabled = true;
-  try { await api('/api/shop/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action, payMethod }) });
+  try { const r = await api('/api/shop/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action, payMethod }) });
+    if (r && r.checkoutUrl) { toast('Quote accepted. Taking you to the payment page...'); location.href = r.checkoutUrl; return; }
+    if (r && r.payError) { toast(r.payError, true); loadQuotes(); return; }
     toast(action === 'accept' ? 'Quote accepted. We will contact you soon.' : action === 'decline' ? 'Quote declined.' : 'Sent back. We will send a new quote.'); }
   catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
   loadQuotes();
+});
+$('quoteList').addEventListener('click', async e => {            // pay an accepted quote online
+  const b = e.target.closest('[data-qpaynow]'); if (!b || b.disabled) return; b.disabled = true;
+  try { const r = await api('/api/shop/quotes/' + encodeURIComponent(b.dataset.qpaynow) + '/pay', { method: 'POST', body: '{}' }); if (r && r.checkoutUrl) { location.href = r.checkoutUrl; return; } }
+  catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
+  b.disabled = false;
 });
 async function openQuote(sku) { show('quote'); await ensureQuoteFields(); if (sku && prod(sku)) { $('qProduct').value = sku; quoteProductChanged(); } if ($('qQty')) $('qQty').focus(); }
 $('qProduct').onchange = quoteProductChanged;
@@ -1301,10 +1309,16 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
     }
     return paid;
   };
-  const refreshOrders = async () => { try { await verifyPending(); const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
+  const verifyQuotes = async () => { for (const q of (QUOTES || []).filter(x => x.payOnline && x.balance > 0 && ['accepted', 'preparing', 'ready'].includes(x.status))) { try { await api('/api/shop/quotes/' + encodeURIComponent(q.id) + '/verify-payment', { method: 'POST', body: '{}' }); } catch (e) {} } };
+  const refreshOrders = async () => { try { await verifyQuotes(); await verifyPending(); const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
   setInterval(refreshOrders, 15000);
   // Back from the payment page: show My Orders and check every few seconds until the payment is confirmed.
-  if (/[?&]payment=return/.test(location.search)) {
+  if (/[?&]quotepay=(return|failed)/.test(location.search)) {          // back from paying a quote
+    const ok = /quotepay=return/.test(location.search), qn = (location.search.match(/[?&]quote=([^&]+)/) || [])[1];
+    history.replaceState(null, '', location.pathname); show('quote');
+    if (ok && qn) { for (let i = 0; i < 4; i++) { try { const r = await api('/api/shop/quotes/' + qn + '/verify-payment', { method: 'POST', body: '{}' }); if (r.balance <= 0) break; } catch (e) { break; } await new Promise(r => setTimeout(r, 2500)); } await loadQuotes(); toast('Thank you! We are checking your payment.'); }
+    else { loadQuotes(); toast('Payment was not completed. Tap Pay now on your quote to try again.', true); }
+  } else if (/[?&]payment=return/.test(location.search)) {
     history.replaceState(null, '', location.pathname);
     const last = orders.find(o => o.method === 'Xendit');
     if (last) { openPayModal(last, null); } else { show('orders'); }
