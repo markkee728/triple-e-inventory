@@ -1628,6 +1628,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const prev = o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(target)
         ? (await client.query('SELECT * FROM order_deliveries WHERE order_id = $1', [o.order_id])).rows[0] : null;
       const dispatch = o.fulfillment === 'Delivery' && target === 'Out for Delivery' ? delivery.dispatchFields(b.delivery, o) : null;
+      if (dispatch) dispatch.trackingNo = await delivery.trackingFor(client, prev);   // generated here, never typed by Finance
       const arrived = o.fulfillment === 'Delivery' && target === 'Delivered' ? await delivery.deliveredFields(client, b.delivery, o, prev) : null;
 
       if (target === 'Paid') await confirmOrder(client, o, req.user, note);   // also deducts stock and writes its own history line

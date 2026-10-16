@@ -178,6 +178,31 @@
 
   /* ---------- delivery dialog: rider / courier details when the order leaves, proof when it arrives ---------- */
   const COURIERS = ['Own rider', 'Lalamove', 'Grab Express', 'Borzo', 'LBC', 'J&T Express', '2GO', 'Other'];
+  const PARCEL_COURIERS = ['LBC', 'J&T Express', '2GO'];   // rider name is optional for these (same list as the server)
+  // Same rules as backend/order-delivery.js, so Finance sees the problem before sending. Each returns '' when OK, otherwise the message.
+  const COURIER_RE = /^[\p{L}\d][\p{L}\d\s&.'\/-]{1,59}$/u, NAME_RE = /^\p{L}[\p{L}\s.'\u2019-]{1,79}$/u;
+  const MOBILE_MSG = 'Enter a valid Philippine mobile number, e.g. 0917 123 4567 or +63 917 123 4567';
+  const PLATE_MSG = 'Enter a valid Philippine plate number, e.g. ABC 1234 (car or truck) or 123 ABC / AB 12345 (motorcycle)';
+  const PLATE_PATTERNS = [/^[A-Z]{3}\d{3,4}$/, /^\d{3}[A-Z]{3}$/, /^[A-Z]{2}\d{4,5}$/, /^[A-Z]\d{3}[A-Z]{2}$/, /^[A-Z]{2}\d{3}[A-Z]$/, /^\d[A-Z]{3}\d{2}$/, /^[A-Z]\d{4}[A-Z]$/, /^[A-Z]\d[A-Z]\d{3}$/, /^[A-Z]\d{2}[A-Z]\d{2}$/];
+  const isParcel = (c) => PARCEL_COURIERS.some(x => x.toLowerCase() === String(c || '').trim().toLowerCase());
+  function courierMsg(v) { return v.length >= 2 && v.length <= 60 && COURIER_RE.test(v) ? '' : 'Enter who delivers it, e.g. Own rider, Lalamove, LBC (2–60 characters, letters and numbers only)'; }
+  function nameMsg(v, courier) {
+    if (!v) return isParcel(courier) ? '' : 'Enter the rider or driver name';
+    if (v.length < 2 || v.length > 80) return 'The rider name must be 2–80 characters';
+    return NAME_RE.test(v) ? '' : 'The rider name can only have letters, spaces, . - and apostrophes';
+  }
+  function phoneMsg(v) {                               // optional, but if typed it must be a Philippine mobile number
+    if (!v) return '';
+    if (/[^\d+\s().-]/.test(v)) return 'The rider phone can only have digits, +, spaces and dashes';
+    let p = v.replace(/[\s().-]/g, '');
+    if (p.indexOf('+63') === 0) p = p.slice(3); else if (p.indexOf('63') === 0) p = p.slice(2); else if (p.indexOf('09') === 0) p = p.slice(1);
+    return /^9\d{9}$/.test(p) ? '' : MOBILE_MSG;
+  }
+  function plateMsg(v) {                               // optional, but if typed it must look like an LTO plate
+    if (!v) return '';
+    const u = v.toUpperCase();
+    return !/[^A-Z0-9\s-]/.test(u) && PLATE_PATTERNS.some(re => re.test(u.replace(/[\s-]/g, ''))) ? '' : PLATE_MSG;
+  }
   const pad2 = (n) => String(n).padStart(2, '0');
   const toLocalInput = (ms) => { const d = new Date(ms); return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()); };
   const fromLocalInput = (v) => (v ? new Date(v).toISOString() : '');
@@ -256,14 +281,14 @@
         fld('notes', 'Delivery note', '<textarea id="dl_notes" class="sa-in" maxlength="300" placeholder="e.g. Left with the guard, signed the delivery receipt">' + esc(d.notes || '') + '</textarea>', true) +
         '<div class="full"><label>Proof of delivery' + (o.proofRequired ? star : ' (optional)') + '</label><div class="faint" style="font-size:12.5px">Photo of the items at the door, or of the signed delivery receipt. Up to 3 photos.</div><div class="dl-photos" id="dlPhotos"></div><input type="file" id="dlFile" accept="image/*" style="display:none"><div class="sa-err" id="dl_proof_err"></div></div></div>';
     } else {
-      body += (mode === 'dispatch' ? '<div class="sa-banner warn" style="font-size:14px">The customer is told who is bringing the order. Enter the rider\'s name, or a tracking number for a courier parcel.</div>' : '') +
+      body += (mode === 'dispatch' ? '<div class="sa-banner warn" style="font-size:14px">The customer is told who is bringing the order. A tracking number is made automatically when you send it out.</div>' : '') +
         '<div class="dl-grid">' +
         fld('courier', 'Delivered by' + star, txt('courier', d.courier || (mode === 'dispatch' ? 'Own rider' : ''), 60, 'Own rider, Lalamove, LBC…', ' list="dlCouriers"') + '<datalist id="dlCouriers">' + COURIERS.map(c => '<option value="' + esc(c) + '">').join('') + '</datalist>') +
         fld('dispatchedAt', 'Left on', '<input type="datetime-local" id="dl_dispatchedAt" class="sa-in" value="' + (d.dispatchedAt ? toLocalInput(d.dispatchedAt) : nowIn) + '" max="' + nowIn + '">') +
-        fld('driverName', 'Rider / driver name', txt('driverName', d.driverName, 80, 'e.g. Juan Dela Cruz')) +
-        fld('driverPhone', 'Rider phone', txt('driverPhone', d.driverPhone, 20, '0917 123 4567', ' inputmode="tel"'), false, 'Only Finance sees this.') +
-        fld('vehiclePlate', 'Plate number', txt('vehiclePlate', d.vehiclePlate, 15, 'ABC 1234')) +
-        fld('trackingNo', 'Tracking number', txt('trackingNo', d.trackingNo, 60, 'For courier parcels (LBC, J&T…)'), false, 'Shown to the customer.') +
+        fld('driverName', 'Rider / driver name', txt('driverName', d.driverName, 80, 'e.g. Juan Dela Cruz', ' autocapitalize="words"'), false, 'Optional for LBC, J&amp;T Express and 2GO.') +
+        fld('driverPhone', 'Rider phone', txt('driverPhone', d.driverPhone, 20, '0917 123 4567', ' inputmode="tel"'), false, 'Philippine mobile number. Only Finance sees this.') +
+        fld('vehiclePlate', 'Plate number', txt('vehiclePlate', d.vehiclePlate, 12, 'ABC 1234', ' autocapitalize="characters" style="text-transform:uppercase"'), false, 'LTO format, e.g. ABC 1234 or 123 ABC.') +
+        fld('trackingNo', 'Tracking number', '<input type="text" id="dl_trackingNo" class="sa-in" value="' + esc(d.trackingNo || '') + '" placeholder="Generated when you send it out" readonly tabindex="-1" style="opacity:.8;cursor:not-allowed">', false, 'Made by the system, cannot be edited. Shown to the customer.') +
         fld('notes', 'Delivery note', '<textarea id="dl_notes" class="sa-in" maxlength="300" placeholder="Internal. e.g. call before arriving, gate is blue">' + esc(d.notes || '') + '</textarea>', true, 'Only Finance sees this.') + '</div>';
     }
     body += '<div class="sa-banner bad" id="dlTopErr" style="display:none"></div><div class="sa-actions"><button type="button" class="btn-primary" id="dlGo">' + (mode === 'deliver' ? 'Mark delivered' : mode === 'edit' ? 'Save changes' : 'Send out for delivery') + '</button><button type="button" class="btn-secondary" id="dlCancel">Cancel</button></div></div>';
@@ -288,10 +313,16 @@
       body = { status: 'Delivered', receivedBy: v('receivedBy'), delivery: { deliveredAt: fromLocalInput(v('deliveredAt')), notes: v('notes') } };
     } else {
       let bad = false;
-      if (v('courier').length < 2) { dlErr('courier', 'Enter who delivers it, e.g. Own rider, Lalamove, LBC'); bad = true; }
-      if (!v('driverName') && !v('trackingNo')) { dlErr('driverName', 'Enter the rider name (or a tracking number for a courier parcel)'); bad = true; }
-      if (bad) return;
-      const delivery = { courier: v('courier'), driverName: v('driverName'), driverPhone: v('driverPhone'), vehiclePlate: v('vehiclePlate'), trackingNo: v('trackingNo'), notes: v('notes'), dispatchedAt: fromLocalInput(v('dispatchedAt')) };
+      const checks = [['courier', courierMsg(v('courier'))], ['driverName', nameMsg(v('driverName'), v('courier'))], ['driverPhone', phoneMsg(v('driverPhone'))], ['vehiclePlate', plateMsg(v('vehiclePlate'))]];
+      if (v('notes').length > 300) checks.push(['notes', 'The delivery note must be 300 characters or fewer']);
+      const at = v('dispatchedAt') ? new Date(v('dispatchedAt')).getTime() : NaN;
+      if (v('dispatchedAt') && Number.isNaN(at)) checks.push(['dispatchedAt', 'Enter a valid date and time']);
+      else if (at > Date.now() + 5 * 60 * 1000) checks.push(['dispatchedAt', 'The dispatch time cannot be in the future']);
+      else if (at < o.createdAt - 60000) checks.push(['dispatchedAt', 'The dispatch time cannot be earlier than when the order was placed']);
+      checks.forEach(([k, m]) => { if (m) { dlErr(k, m); bad = true; } });
+      if (bad) { const f = document.querySelector('#dlOverlay .sa-bad'); if (f) f.focus(); return; }
+      // trackingNo is not sent: the server generates it (and keeps the same one when the rider details are corrected later)
+      const delivery = { courier: v('courier'), driverName: v('driverName'), driverPhone: v('driverPhone'), vehiclePlate: v('vehiclePlate').toUpperCase(), notes: v('notes'), dispatchedAt: fromLocalInput(v('dispatchedAt')) };
       if (mode === 'edit') { path = '/orders/' + encodeURIComponent(o.id) + '/delivery'; body = delivery; }
       else { path = '/orders/' + encodeURIComponent(o.id) + '/status'; body = { status: 'Out for Delivery', delivery }; }
     }
@@ -329,6 +360,22 @@
     try { const id = await uploadProof(dlg.o.id, await shrinkPhoto(file)); if (dlg) { dlg.photos.push(id); dlg.touched = true; } }
     catch (err) { if (dlg) dlErr('proof', err.message); }
     if (dlg) { dlg.busy = false; paintPhotos(); }
+  });
+  // while typing: plate letters turn capital, phone / rider-name boxes refuse characters they can never contain
+  document.addEventListener('input', (e) => {
+    if (!dlg) return; const t = e.target;
+    if (t.id === 'dl_vehiclePlate') t.value = t.value.toUpperCase().replace(/[^A-Z0-9\s-]/g, '');
+    else if (t.id === 'dl_driverPhone') t.value = t.value.replace(/[^\d+\s().-]/g, '');
+    else if (t.id === 'dl_driverName') t.value = t.value.replace(/\d/g, '');
+  });
+  // when leaving a box: show its problem right away instead of waiting for the Send button
+  document.addEventListener('focusout', (e) => {
+    if (!dlg || dlg.mode === 'deliver' || dlg.busy) return;
+    const t = e.target, val = (k) => ($('dl_' + k) ? $('dl_' + k).value.trim().replace(/\s+/g, ' ') : '');
+    if (t.id === 'dl_courier') { dlErr('courier', courierMsg(val('courier'))); const n = $('dl_driverName_err'); if (n && n.textContent) dlErr('driverName', nameMsg(val('driverName'), val('courier'))); }   // re-check the name only if it was already flagged (e.g. courier changed to LBC)
+    else if (t.id === 'dl_driverName') dlErr('driverName', nameMsg(val('driverName'), val('courier')));
+    else if (t.id === 'dl_driverPhone') dlErr('driverPhone', phoneMsg(val('driverPhone')));
+    else if (t.id === 'dl_vehiclePlate') dlErr('vehiclePlate', plateMsg(val('vehiclePlate')));
   });
   document.addEventListener('mousedown', (e) => { if (dlg && e.target.id === 'dlOverlay') closeDlg(); });
   document.addEventListener('keydown', (e) => { if (dlg && e.key === 'Escape') closeDlg(); });
