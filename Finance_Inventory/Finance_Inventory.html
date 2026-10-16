@@ -3537,14 +3537,15 @@
                             type="number"
                             id="npReorder"
                             class="form-input"
-                            placeholder="0"
+                            placeholder="Auto"
                             inputmode="decimal"
                             min="0"
                             step="0.01"
-                            required autocomplete="off">
+                            readonly autocomplete="off">
+                        <label class="check-row" style="margin-top:6px"><input type="checkbox" id="npReorderManual"><span class="check-label">Set manually</span></label>
                     </div>
-
                 </div>
+                <div class="field-hint" id="npReorderHint" style="margin:-4px 0 12px"></div>
 
                 <div class="form-row">
 
@@ -3555,11 +3556,29 @@
 
                     <div class="form-group">
                         <label class="form-label" for="npLocation">Storage Location <span class="required-mark">*</span></label>
-                        <input type="text" id="npLocation" class="form-input" placeholder="e.g. Warehouse C" autocomplete="off">
+                        <select id="npLocation" class="form-select"><option value="">Select a location…</option></select>
+                        <div id="npLocationNewWrap" style="display:none; margin-top:8px">
+                            <input type="text" id="npLocationNew" class="form-input" placeholder="Type the new storage location" maxlength="100" autocomplete="off">
+                        </div>
                     </div>
 
                 </div>
 
+                <div id="npSupplierPickWrap" style="display:none">
+                    <div class="form-section-label">
+                        Sourcing
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="npSupplier">
+                            Supplier
+                            <span class="required-mark">*</span>
+                        </label>
+                        <select id="npSupplier" class="form-select">
+                            <option value="">Select a supplier…</option>
+                        </select>
+                        <div class="field-hint" id="npSupplierHint"></div>
+                    </div>
+                </div>
                 <div id="npSupplierSection" style="display:none">
                     <div class="form-section-label">
                         Sourcing

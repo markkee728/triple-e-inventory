@@ -458,6 +458,86 @@
         : '<div class="sup-empty">In-house production — made by the company, so no supplier is needed.</div>');
   }
 
+  /* ---------- Storage location dropdown (locations already used by products + a starter list; last option adds a new one) ---------- */
+  const NEW_LOCATION = '__new_location__';
+  const STARTER_LOCATIONS = ['Warehouse A', 'Warehouse B', 'Warehouse C', 'Storeroom'];
+  function locationList() {
+    const seen = new Map();
+    STARTER_LOCATIONS.concat((productCatalogData || []).map((p) => p && p.location)).forEach((l) => {
+      l = clean(l); if (l && !seen.has(l.toLowerCase())) seen.set(l.toLowerCase(), l);
+    });
+    return Array.from(seen.values()).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }
+  function fillLocations(keep) {
+    const sel = $('npLocation');
+    if (!sel || sel.tagName !== 'SELECT') return;
+    sel.innerHTML = '<option value="">Select a location…</option>' +
+      locationList().map((l) => '<option value="' + esc(l) + '">' + esc(l) + '</option>').join('') +
+      '<option value="' + NEW_LOCATION + '">+ Add new location…</option>';
+    setLocationValue(keep);
+  }
+  function setLocationValue(name) {
+    const sel = $('npLocation'); if (!sel) return;
+    name = clean(name);
+    if (name && name !== NEW_LOCATION && ![].some.call(sel.options, (o) => o.value.toLowerCase() === name.toLowerCase())) {
+      const opt = document.createElement('option');      // an older product whose location is not in the list
+      opt.value = name; opt.textContent = name; sel.insertBefore(opt, sel.lastElementChild);
+    }
+    const hit = [].find.call(sel.options, (o) => name && o.value.toLowerCase() === name.toLowerCase());
+    sel.value = hit ? hit.value : '';
+    syncLocationNew();
+  }
+  function syncLocationNew() {
+    const wrap = $('npLocationNewWrap'); if (!wrap) return;
+    const isNew = $('npLocation').value === NEW_LOCATION;
+    wrap.style.display = isNew ? '' : 'none';
+    if (!isNew) { $('npLocationNew').value = ''; $('npLocationNew').classList.remove('field-invalid'); wrap.querySelectorAll('.field-msg').forEach((n) => n.remove()); }
+  }
+  // the location to save: the chosen one, or the typed new name (matched to an existing one ignoring upper/lower case)
+  function chosenLocation(errs) {
+    const v = $('npLocation').value;
+    if (!v) { errs.npLocation = 'Choose the storage location'; return ''; }
+    if (v !== NEW_LOCATION) return v;
+    const typed = vText(errs, 'npLocationNew', 'Storage location', { min: 2, max: 100 });
+    const same = locationList().find((l) => l.toLowerCase() === String(typed).toLowerCase());
+    return same || typed;
+  }
+
+  /* ---------- Supplier dropdown (new Raw Materials / Finishing Supplies only; Finished Goods are made in-house) ---------- */
+  function fillSupplierPick() {
+    const sel = $('npSupplier'); if (!sel) return;
+    const active = (supplierData || []).filter((s) => s.status !== 'archived');
+    sel.innerHTML = '<option value="">Select a supplier…</option>' +
+      active.map((s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>').join('');
+    $('npSupplierHint').textContent = active.length ? 'Who you buy this material from. You can link more suppliers later in Supplier Management.'
+      : 'No active suppliers yet. Add one in Suppliers first, then come back to create this product.';
+  }
+  function syncSupplierPick() {
+    const wrap = $('npSupplierPickWrap'); if (!wrap) return;
+    const show = !productModalState() && NEEDS_SUPPLIER.indexOf($('npDept').value) >= 0;
+    wrap.style.display = show ? '' : 'none';
+    if (!show) { $('npSupplier').value = ''; $('npSupplier').classList.remove('field-invalid'); wrap.querySelectorAll('.field-msg').forEach((n) => n.remove()); }
+  }
+
+  /* ---------- Reorder level: automatic (average daily use x lead + safety days) unless "Set manually" ---------- */
+  let REORDER = { leadDays: 7, safetyDays: 3, lookbackDays: 90, minHistoryDays: 14 };
+  function syncReorderUI(product) {
+    const manual = $('npReorderManual'), box = $('npReorder'), hint = $('npReorderHint');
+    if (!manual || !box || !hint) return;
+    const auto = !manual.checked;
+    box.readOnly = auto;
+    if (auto) {
+      box.value = product && product.reorderLevel != null ? product.reorderLevel : '';
+      box.placeholder = 'Auto';
+      hint.textContent = product && product.reorderAuto && product.reorderBasis ? product.reorderBasis
+        : 'Automatic: average daily use over the last ' + REORDER.lookbackDays + ' days × (' + REORDER.leadDays + ' lead-time days + ' + REORDER.safetyDays + ' safety days). ' +
+          'A new product has no usage history yet, so it starts at 0 and calculates itself after ' + REORDER.minHistoryDays + ' days of use. Tick "Set manually" to enter a starting level now.';
+    } else {
+      box.placeholder = '0';
+      hint.textContent = 'You are setting this yourself. Untick "Set manually" to let the system work it out from usage.';
+    }
+  }
+
   /* ---------- Category dropdown (list comes from the database; last option adds a new one) ---------- */
   function fillCategories(keep) {
     const sel = $('npCategory');
@@ -536,7 +616,10 @@
     $('npSupplierSection').style.display = product ? '' : 'none';
     if (product) renderProductSupplierList(product);
     fillCategories(product ? product.category : '');
-    $('npLocation').value = product && product.location ? product.location : '';
+    fillLocations(product && product.location ? product.location : '');
+    fillSupplierPick(); syncSupplierPick();
+    $('npReorderManual').checked = product ? !product.reorderAuto : false;   // new products are automatic; old ones stay manual until someone unticks it
+    syncReorderUI(product);
     $('npListPrice').value = product && product.listPrice ? product.listPrice : '';
     syncPriceField();
     // SKU and opening stock are fixed once a product exists (stock only changes through Stock In / Out)
@@ -547,15 +630,22 @@
   }
 
   const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
-    unitCost: 'npUnitCost', listPrice: 'npListPrice', reorderLevel: 'npReorder', onHand: 'npOnHand', location: 'npLocation' };
+    unitCost: 'npUnitCost', listPrice: 'npListPrice', reorderLevel: 'npReorder', onHand: 'npOnHand', location: 'npLocation', supplier: 'npSupplier' };
 
   function setupProductModal() {
     const overlay = $('newProductModalOverlay'), form = $('newProductForm');
     if (!overlay || !form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
-    $('npDept').addEventListener('change', () => { syncPriceField(); validateField('npListPrice', false); });
+    $('npDept').addEventListener('change', () => { syncPriceField(); validateField('npListPrice', false); syncSupplierPick(); });
+    $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });
+    $('npReorderManual').addEventListener('change', () => {
+      const sku = productModalState(), product = sku ? productCatalogData.find((p) => p.sku === sku) : null;
+      if ($('npReorderManual').checked) { if (!product) $('npReorder').value = ''; $('npReorder').focus(); }
+      syncReorderUI(product);
+    });
+    api('/reorder-settings').then((r) => { if (r && r.leadDays != null) { REORDER = r; syncReorderUI(null); } }).catch(() => {});
     $('npCategory').addEventListener('change', () => { syncCategoryNew(); if ($('npCategory').value === NEW_CATEGORY) $('npCategoryNew').focus(); });
-    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); }, 0));
+    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); }, 0));
     new MutationObserver(() => { if (overlay.classList.contains('open')) onProductModalOpen(); })
       .observe(overlay, { attributes: true, attributeFilter: ['class'] });
 
@@ -580,14 +670,18 @@
       else if (!/^[A-Za-z][A-Za-z./ ]{0,19}$/.test(unit)) errs.npUnit = 'Unit must be letters only, e.g. kg or pcs';
       const unitCost = vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
       const listPrice = sellsNow() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : 0;
-      const reorderLevel = vNum(errs, 'npReorder', 'Reorder level');
+      const reorderManual = $('npReorderManual').checked;
+      const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level') : null;
       const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand');
-      const location = vText(errs, 'npLocation', 'Storage location', { min: 2, max: 100 });
+      const location = chosenLocation(errs);
+      let supplierCode = '';
+      if (!editing && NEEDS_SUPPLIER.indexOf(department) >= 0) { supplierCode = $('npSupplier').value; if (!supplierCode) errs.npSupplier = 'Choose the supplier for this material'; }
       if (Object.keys(errs).length) return showErrors(form, banner, errs);
 
       clearErrors(form); hideBanner(banner);
-      const payload = { sku, name, department, category, unit, unitCost, listPrice, reorderLevel, location: location || null };
-      if (!editing) payload.onHand = onHand;
+      const payload = { sku, name, department, category, unit, unitCost, listPrice, reorderAuto: !reorderManual, location: location || null };
+      if (reorderManual) payload.reorderLevel = reorderLevel;
+      if (!editing) { payload.onHand = onHand; if (supplierCode) payload.supplierCode = supplierCode; }
       try {
         if (editing) await api('/products/' + encodeURIComponent(editing), { method: 'PUT', body: JSON.stringify(payload) });
         else await api('/products', { method: 'POST', body: JSON.stringify(payload) });
@@ -1439,9 +1533,11 @@
       npUnit: selectRule('npUnit', 'Choose a unit'),
       npUnitCost: numRule('npUnitCost', 'Unit cost', { max: 1e7 }),
       npOnHand: () => $('npOnHand').readOnly ? '' : numRule('npOnHand', 'On hand')(),
-      npReorder: numRule('npReorder', 'Reorder level'),
+      npReorder: () => ($('npReorderManual') && $('npReorderManual').checked ? numRule('npReorder', 'Reorder level')() : ''),   // automatic = nothing to type
       npListPrice: () => sellsNow() ? numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })() : '',
-      npLocation: textRule('npLocation', 'Storage location', { min: 2, max: 100 }),
+      npLocation: selectRule('npLocation', 'Choose the storage location'),
+      npLocationNew: textRule('npLocationNew', 'Storage location', { min: 2, max: 100 }),
+      npSupplier: () => (!productModalState() && NEEDS_SUPPLIER.indexOf($('npDept').value) >= 0 && !$('npSupplier').value ? 'Choose the supplier for this material' : ''),
       /* supplier */
       newSupplierName: () => {
         const m = textRule('newSupplierName', 'Supplier name', { min: 2 })();

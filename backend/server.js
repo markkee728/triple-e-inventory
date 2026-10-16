@@ -569,12 +569,15 @@ function validateProduct(b, { creating }) {
   const listPrice = department === 'Finished Goods'
     ? number(e, 'listPrice', b.listPrice, 'Selling price', { max: 1e7, gt: true })
     : 0;
-  const reorderLevel = number(e, 'reorderLevel', b.reorderLevel, 'Reorder level', { max: 1e8 });
+  // Reorder level is worked out automatically from usage (reorder.js) unless Finance ticks "Set manually".
+  // reorderAuto: true = automatic, false = manual, null = flag not sent (an older form): keep the saved flag and read the level as before.
+  const reorderAuto = b.reorderAuto === undefined ? (creating ? true : null) : b.reorderAuto === true;
+  const reorderLevel = reorderAuto === true ? null : number(e, 'reorderLevel', b.reorderLevel, 'Reorder level', { max: 1e8 });
   const onHand = creating ? number(e, 'onHand', b.onHand, 'On hand', { max: 1e8 }) : null;
   const location = text(e, 'location', b.location, 'Storage location', { min: 2, max: 100 });
 
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, name, department, category, unit, unitCost, listPrice, reorderLevel, onHand, location: location || null };
+  return { sku, name, department, category, unit, unitCost, listPrice, reorderLevel, reorderAuto, onHand, location: location || null };
 }
 function validateSupplier(b, stored, creating) {
   // `stored` = the supplier's current phone/email when editing; an old value left unchanged is not re-checked
@@ -912,6 +915,8 @@ app.get('/api/categories', auth('finance'), wrap(async (req, res) => {
 }));
 
 /* ---------- products / inventory ---------- */
+const reorder = require('./reorder')({ pool });   // automatic reorder level (average daily use x lead + safety days)
+app.get('/api/reorder-settings', auth('finance'), (req, res) => res.json(reorder.settings));
 const productSelect = `
   SELECT v.*, COALESCE((
       SELECT json_agg(json_build_object('code', s.code, 'name', s.name, 'primary', ps.is_primary, 'status', s.status)
@@ -919,6 +924,9 @@ const productSelect = `
         FROM product_suppliers ps JOIN suppliers s USING (supplier_id)
        WHERE ps.product_id = v.product_id), '[]'::json) AS suppliers
     FROM v_inventory v WHERE NOT v.is_archived ORDER BY v.department, v.name`;
+// reorder_auto / reorder_basis live on products (the view does not have them), so the list adds them here
+const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, COALESCE((')
+  .replace('FROM v_inventory v WHERE', 'FROM v_inventory v JOIN products p ON p.product_id = v.product_id WHERE');
 
 app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
   const { rows } = await pool.query(productSelect);
@@ -928,10 +936,12 @@ app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
 }));
 
 app.get('/api/products', auth('finance'), wrap(async (req, res) => {
-  const { rows } = await pool.query(productSelect);
+  await reorder.ready;
+  const { rows } = await pool.query(productSelectFull);
   res.json(rows.map(r => ({ sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
     grade: r.grade || '', form: r.form || '', unit: r.unit, costUnit: r.unit, status: r.stock_status, available: +r.on_hand,
-    reorderLevel: +r.reorder_level, stdCost: +r.unit_cost, listPrice: +r.selling_price, location: r.location,
+    reorderLevel: +r.reorder_level, reorderAuto: !!r.reorder_auto, reorderBasis: r.reorder_basis || '',
+    stdCost: +r.unit_cost, listPrice: +r.selling_price, location: r.location,
     margin: r.selling_price > 0 ? +(((r.selling_price - r.unit_cost) / r.selling_price) * 100).toFixed(1) : 0,
     primarySource: r.primary_source || (r.suppliers.length ? r.suppliers[0].name : null),
     suppliers: r.suppliers })));
@@ -983,32 +993,47 @@ async function assertProductNameFree(client, name, sku) {
 }
 app.post('/api/products', auth('finance'), wrap(async (req, res) => {
   const p = validateProduct(req.body || {}, { creating: true });
+  await reorder.ready;
+  // Raw Materials and Finishing Supplies are bought, so a new one must name its supplier. Finished Goods are made in-house: no supplier.
+  const supplierCode = str((req.body || {}).supplierCode);
+  if (NEEDS_SUPPLIER.includes(p.department) && !supplierCode) throw new ValidationError({ supplier: 'Choose the supplier for this material' });
   await tx(async (client) => {
     await assertProductNameFree(client, p.name, null);
+    let supplier = null;
+    if (NEEDS_SUPPLIER.includes(p.department)) {
+      supplier = (await client.query(`SELECT supplier_id, name FROM suppliers WHERE code = $1 AND status = 'active'`, [supplierCode])).rows[0];
+      if (!supplier) throw new ValidationError({ supplier: 'That supplier is missing or archived. Choose another' });
+    }
     const ins = await client.query(
-      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,location)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice || 0, p.reorderLevel, p.location]);
+      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING product_id`,
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location]);
     const id = ins.rows[0].product_id;
+    if (supplier) await client.query('INSERT INTO product_suppliers (product_id, supplier_id, is_primary) VALUES ($1,$2,TRUE)', [id, supplier.supplier_id]);
     if (p.onHand > 0) await client.query(
       `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note)
        VALUES ($1,'in','count_correction_up',$2,$3,'Opening balance')`, [id, p.onHand, req.user.id]);
-    await audit(client, req.user, 'Record added', `Product ${p.sku} — ${p.name}`);
+    await reorder.recalc(client, p.sku);   // no-op unless automatic; writes the "needs usage history" note for a new product
+    await audit(client, req.user, 'Record added', `Product ${p.sku} — ${p.name}` + (supplier ? ` — supplier ${supplier.name}` : ''));
   });
   res.status(201).json({ ok: true });
 }));
 
 app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
   const p = validateProduct({ ...req.body, sku: req.params.sku }, { creating: false });
+  await reorder.ready;
   const found = await tx(async (client) => {
     await client.query(`SELECT set_config('app.user_id', $1, true)`, [String(req.user.id)]);
     await assertProductNameFree(client, p.name, p.sku);
     const r = await client.query(
       `UPDATE products SET name=$2, department=$3, category_id=$4, unit=$5, unit_cost=$6,
-              selling_price=COALESCE($7, selling_price), reorder_level=$8, location=$9
+              selling_price=COALESCE($7, selling_price), reorder_level=COALESCE($8, reorder_level), location=$9,
+              reorder_auto=COALESCE($10::boolean, reorder_auto),
+              reorder_basis=CASE WHEN $10::boolean IS FALSE THEN NULL ELSE reorder_basis END
         WHERE sku=$1 AND NOT is_archived RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location]);
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location, p.reorderAuto]);
     if (!r.rowCount) return false;
+    await reorder.recalc(client, p.sku);   // if it is (now) automatic, work the level out straight away
     await audit(client, req.user, 'Record edited', `Product ${p.sku}`);
     return true;
   });
@@ -1252,6 +1277,8 @@ require('./stock-count')({ app, pool, auth, wrap, tx, audit, ValidationError, st
 
 /* ---------- in-app Notification Center (bell, history, role-based events) ---------- */
 app.locals.notifications = require('./notifications')({ app, pool, auth, wrap, TZ });
+
+reorder.start();   // recalculate automatic reorder levels now and every 6 hours
 
 /* ---------- production (material requirements, produced-internally Stock In, production history) ---------- */
 productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
