@@ -172,6 +172,13 @@
             '<div class="acct-strength-label" id="acctStrengthLabel">Strength: —</div></div>' +
           '<div class="acct-group"><label class="acct-label" for="acctConfPw">Confirm New Password</label>' +
             '<input type="password" class="acct-input" id="acctConfPw" placeholder="Re-enter new password" autocomplete="new-password"></div>' +
+          '<div class="acct-group" id="acctOtpGroup\" style=\"display:none\"><label class="acct-label" for="acctOtpCode">Verification code</label>' +
+            '<div id="acctOtpChannels" style="display:flex;flex-direction:column;gap:6px;margin:0 0 8px"></div>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+              '<input type="text" class="acct-input" id="acctOtpCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="6-digit code" style="flex:1">' +
+              '<button type="button" class="btn-secondary" id="acctOtpSend" style="white-space:nowrap;padding:10px 14px;border-radius:6px;cursor:pointer">Send code</button>' +
+            '</div>' +
+            '<div class="acct-hint" id="acctOtpHint" style="display:block;margin-top:6px">Choose where to receive the code, then tap Send code.</div></div>' +
           '<div class="acct-checklist" id="acctChecklist">' +
             '<div class="acct-check" data-rule="length"><span class="acct-dot"></span>At least 8 characters</div>' +
             '<div class="acct-check" data-rule="upper"><span class="acct-dot"></span>One uppercase letter (A–Z)</div>' +
@@ -227,6 +234,7 @@
     document.querySelectorAll('.acct-tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === tab); });
     $('acctProfilePanel').classList.toggle('active', tab === 'profile');
     $('acctPasswordPanel').classList.toggle('active', tab === 'password');
+    if (tab === 'password' && !otpInfo) loadOtpOptions();
     if (CUST) {
       $('acctAddressPanel').classList.toggle('active', tab === 'addresses');
       if (tab === 'addresses' && window.ShopAddress) ShopAddress.openIn('acctAddrBox');
@@ -237,6 +245,7 @@
     $('acctOverlay').classList.add('open');
     document.body.style.overflow = 'hidden';
     switchTab(tab || 'profile');
+    if (tab === 'password') loadOtpOptions();
     if (tab !== 'password' && tab !== 'addresses') loadProfile();
     var first = tab === 'password' ? $('acctCurPw') : (CUST ? $('acctFirst') : $('acctName'));
     setTimeout(function () { if (first) first.focus(); }, 30);
@@ -505,8 +514,59 @@
     return rules;
   }
 
+  /* ---- one-time code for changing the password: the user picks email or text message ---- */
+  var otpInfo = null, otpTimer = null;
+  var OTP_CHANNELS = [['email', 'Email'], ['sms', 'Text message']];
+  function otpChannel() { var r = document.querySelector('input[name="acctOtpCh"]:checked'); return r ? r.value : ''; }
+  function otpHint(msg, bad) { var h = $('acctOtpHint'); h.textContent = msg; h.style.color = bad ? 'var(--red)' : ''; }
+  function otpCooldown(sec) {
+    var btn = $('acctOtpSend'); clearInterval(otpTimer);
+    if (!(sec > 0)) { btn.disabled = false; btn.textContent = 'Send code'; return; }
+    btn.disabled = true; btn.textContent = 'Resend in ' + sec + 's';
+    otpTimer = setInterval(function () {
+      sec--;
+      if (sec <= 0) { clearInterval(otpTimer); btn.disabled = false; btn.textContent = 'Resend code'; }
+      else btn.textContent = 'Resend in ' + sec + 's';
+    }, 1000);
+  }
+  async function loadOtpOptions() {
+    try {
+      otpInfo = await api('/auth/password/options');
+    } catch (err) { otpInfo = null; return; }
+    var grp = $('acctOtpGroup');
+    grp.style.display = otpInfo.required ? '' : 'none';
+    if (!otpInfo.required) return;
+    var box = $('acctOtpChannels'), html = '', first = true;
+    OTP_CHANNELS.forEach(function (c) {
+      var o = otpInfo[c[0]];
+      html += '<label style="display:flex;align-items:center;gap:8px;font-size:14px;' + (o ? '' : 'opacity:.5') + '">' +
+        '<input type="radio" name="acctOtpCh" value="' + c[0] + '"' + (o ? '' : ' disabled') + (o && first ? ' checked' : '') + '> ' +
+        c[1] + (o ? ' — ' + o.masked : ' (not available on this account)') + '</label>';
+      if (o) first = false;
+    });
+    box.innerHTML = html;
+    if (first) { otpHint('No verified email or mobile number is on this account, so a code cannot be sent. Ask the Finance/Admin team for help.', true); $('acctOtpSend').disabled = true; }
+    else otpHint('Choose where to receive the code, then tap Send code.');
+  }
+  async function sendOtp() {
+    var ch = otpChannel(); clearError('acctOtpCode');
+    if (!ch) return otpHint('Choose email or text message first.', true);
+    var btn = $('acctOtpSend'); btn.disabled = true;
+    try {
+      var r = await api('/auth/password/otp', { method: 'POST', body: JSON.stringify({ channel: ch }) });
+      if (r.sent || r.recent) otpHint(r.recent ? r.message : 'Code sent to your ' + (ch === 'sms' ? 'mobile number' : 'email') + '. It expires in ' + Math.round((r.expiresIn || 600) / 60) + ' minutes.');
+      else otpHint(r.message || 'The code could not be sent.', true);
+      otpCooldown(r.waitSeconds || 60);
+      $('acctOtpCode').focus();
+    } catch (err) {
+      if (err.message === 'Not signed in') return;
+      otpHint(err.message, true); btn.disabled = false;
+    }
+  }
+
   function resetPassword() {
-    ['acctCurPw', 'acctNewPw', 'acctConfPw'].forEach(function (id) { $(id).value = ''; clearError(id); });
+    ['acctCurPw', 'acctNewPw', 'acctConfPw', 'acctOtpCode'].forEach(function (id) { if ($(id)) { $(id).value = ''; clearError(id); } });
+    clearInterval(otpTimer); if ($('acctOtpSend')) otpCooldown(0);
     $('acctPasswordBanner').classList.remove('show');
     paintPassword();
   }
@@ -515,7 +575,9 @@
     var banner = $('acctPasswordBanner');
     var cur = $('acctCurPw').value, pw = $('acctNewPw').value, conf = $('acctConfPw').value;
     var rules = pwRules(pw, conf);
-    ['acctCurPw', 'acctNewPw', 'acctConfPw'].forEach(clearError);
+    ['acctCurPw', 'acctNewPw', 'acctConfPw', 'acctOtpCode'].forEach(clearError);
+    var needCode = !!(otpInfo && otpInfo.required), code = $('acctOtpCode').value.trim();
+    if (needCode && !/^\d{6}$/.test(code)) { setError('acctOtpCode', 'Enter the 6-digit code we sent you'); banner.textContent = 'Send yourself a code, then enter it here.'; banner.classList.add('show'); return; }
     if (!cur.trim() || !Object.keys(rules).every(function (k) { return rules[k]; })) {
       banner.textContent = 'Check the fields above — passwords must match and meet all requirements.';
       banner.classList.add('show');
@@ -526,7 +588,7 @@
     var btn = $('acctPwSave'), label = btn.textContent;
     btn.disabled = true; btn.textContent = 'Updating…';
     try {
-      await api('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword: cur, newPassword: pw }) });
+      await api('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword: cur, newPassword: pw, code: code }) });
       toast('Password updated');
       closeModal();
     } catch (err) {
@@ -534,7 +596,8 @@
       var f = err.fields || {};
       if (f.currentPassword) setError('acctCurPw', f.currentPassword);
       if (f.newPassword) setError('acctNewPw', f.newPassword);
-      banner.textContent = (f.currentPassword || f.newPassword) ? 'Please fix the highlighted fields.' : (err.status === 404 ? 'The backend is running an old server.js: replace it and restart.' : err.message);
+      if (f.code) setError('acctOtpCode', f.code);
+      banner.textContent = (f.currentPassword || f.newPassword || f.code) ? 'Please fix the highlighted fields.' : (err.status === 404 ? 'The backend is running an old server.js: replace it and restart.' : err.message);
       banner.classList.add('show');
     } finally { btn.disabled = false; btn.textContent = label; }
   }
@@ -575,6 +638,8 @@
 
     ['acctNewPw', 'acctConfPw'].forEach(function (id) { $(id).addEventListener('input', paintPassword); });
     $('acctPwSave').addEventListener('click', savePassword);
+    $('acctOtpSend').addEventListener('click', sendOtp);
+    $('acctOtpCode').addEventListener('input', function () { this.value = this.value.replace(/\D/g, '').slice(0, 6); clearError('acctOtpCode'); });
     paintPassword();
     paintAvatar();
   }

@@ -842,9 +842,11 @@ app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   const row = (await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.id])).rows[0];
   if (!row || !(await bcrypt.compare(cur, row.password_hash))) throw new ValidationError({ currentPassword: 'Current password is incorrect' });
   const hash = await bcrypt.hash(next, 12);
+  const needCode = app.locals.passwordOtp && app.locals.passwordOtp.enabledForChange();     // PASSWORD_OTP=off in .env skips the code
   await tx(async (client) => {
+    if (needCode) await app.locals.passwordOtp.consume(client, req.user.id, 'change', b.code);   // 6-digit code sent by email or text
     await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
-    await audit(client, req.user, 'Profile updated', 'Changed password');
+    await audit(client, req.user, 'Profile updated', 'Changed password' + (needCode ? ' (with a one-time code)' : ''));
   });
   res.json({ ok: true });
 }));
@@ -1338,6 +1340,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
 require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON, emailVerificationOn: EMAIL_VERIFICATION_ON });
+require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, str, EMAIL_RE });   // forgot / change password codes by email or text
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });

@@ -58,6 +58,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     for (const n of (ctx.names || [])) if (String(n).length >= 4 && low.includes(String(n).toLowerCase())) return 'Password must not contain your name';
     return '';
   }
+  app.locals.passwordProblem = passwordProblem;     // password-otp.js uses the same rules for "forgot password"
 
   /* Name: new form sends firstName / middleName / lastName / suffix; the old form sent one `name` (still accepted). */
   function nameParts(e, b) {
@@ -161,7 +162,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
          RETURNING user_id`,
         [name, username, email, hash, roleKey, phone, parts.structured ? parts.first : null, parts.middle || null,
          parts.structured ? parts.last : null, parts.suffix || null, details.birthdate || null, details.gender || null,
-         TERMS_VERSION, !!verified]);
+         TERMS_VERSION + '-' + roleKey, !!verified]);   // e.g. 2026-10-customer / 2026-10-cashier / 2026-10-finance
       return r.rows[0].user_id;
     } catch (err) {
       if (err.code === '23505') throw new ValidationError({ email: 'That email already has an account. Try signing in instead.' });
