@@ -836,7 +836,13 @@ function deliveryBlock(o) {
   if (d.trackingNo) lines.push(`Tracking no.: ${esc(d.trackingNo)}`);
   if (d.dispatchedAt) lines.push(`Left us: ${at(d.dispatchedAt)}`);
   if (d.deliveredAt) lines.push(`Delivered: ${at(d.deliveredAt)}${d.receivedBy ? ' · received by ' + esc(d.receivedBy) : ''}`);
+  if (d.customerReceivedAt) lines.push(`You confirmed you received it: ${at(d.customerReceivedAt)}`);
   return lines.length ? `<div class="ship-to"><b>Delivery</b>${lines.join('<br>')}</div>` : '';
+}
+// after Finance marks a delivery order Delivered, the customer can confirm it really arrived (one tap, once)
+function receivedBlock(o) {
+  if (o.fulfillment !== 'Delivery' || o.status !== 'Delivered' || (o.delivery && o.delivery.customerReceivedAt)) return '';
+  return `<div class="refund-row"><button class="btn-primary btn-sm" data-received="${esc(o.id)}">I received my order</button><span class="dim">Tap this once everything has arrived.</span></div>`;
 }
 function cancelBlock(o) {
   if (['Delivered', 'Picked Up', 'Cancelled'].includes(o.status)) return '';
@@ -857,6 +863,7 @@ function renderOrders() {
     ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View receipt</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
+    ${receivedBlock(o)}
     ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
@@ -1219,12 +1226,20 @@ $('quoteForm').onsubmit = async e => {
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review],[data-received]'); if (!el) return; const d = el.dataset;
   if (d.receipt) return openReceipt(d.receipt);
   if (d.notify) return setAlert(d.notify, true);
   if (d.unnotify) return setAlert(d.unnotify, false);
   if (d.quote !== undefined && el.dataset.quote !== '') { closeProductDetails(); return openQuote(d.quote); }
   if (d.review) return openReview(d.review);
+  if (d.received) {
+    if (!window.confirm('Confirm that you received order ' + d.received + ' and everything arrived?')) return;
+    el.disabled = true;
+    api('/api/shop/orders/' + encodeURIComponent(d.received) + '/confirm-received', { method: 'POST', body: '{}' })
+      .then(async () => { toast('Thank you! We recorded that you received ' + d.received + '.'); const v = await loadOrders(); if (v.length) orders = v; renderOrders(); })
+      .catch(err => { toast(err.message || 'Could not save this. Please try again.', true); el.disabled = false; });
+    return;
+  }
   if (d.view) show(d.view);
   if (d.details) openProductDetails(d.details);
   if (d.xendit) {

@@ -257,7 +257,7 @@
       const dl = s.delivery, d2 = (ms) => (ms ? fmtDate(ms) : '');
       h += '<div class="sa-h">Delivery</div><dl class="sa-info">' +
         infoRow('Delivered by', dl.courier) + infoRow('Rider', dl.driverName) + infoRow('Rider phone', dl.driverPhone) + infoRow('Plate number', dl.vehiclePlate) +
-        infoRow('Tracking number', dl.trackingNo) + infoRow('Left on', d2(dl.dispatchedAt)) + infoRow('Delivered on', d2(dl.deliveredAt)) + infoRow('Delivery note', dl.notes) +
+        infoRow('Tracking number', dl.trackingNo) + infoRow('Left on', d2(dl.dispatchedAt)) + infoRow('Delivered on', d2(dl.deliveredAt)) + infoRow('Customer confirmed', s.status === 'Delivered' ? (dl.customerReceivedAt ? d2(dl.customerReceivedAt) : 'Not yet') : '') + infoRow('Delivery note', dl.notes) +
         (dl.proofIds && dl.proofIds.length ? '<div><dt>Proof of delivery</dt><dd>' + dl.proofIds.map((id, i) => '<a href="/api/orders/' + encodeURIComponent(s.ref) + '/delivery-proof/' + id + '" target="_blank" rel="noopener">Photo ' + (i + 1) + '</a>').join(', ') + '</dd></div>' : '') + '</dl>';
     }
     h += '<div class="sa-h">Items</div><table class="sa-lines"><thead><tr><th>Product</th><th class="sa-num">Qty</th><th class="sa-num">Price</th><th class="sa-num">Amount</th></tr></thead><tbody>' +

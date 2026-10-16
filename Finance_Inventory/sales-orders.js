@@ -49,6 +49,7 @@
     if (d.trackingNo) h += line('<b>Tracking:</b> ' + esc(d.trackingNo));
     if (d.dispatchedAt) h += line('<b>Left:</b> ' + esc(when(d.dispatchedAt)));
     if (o.status === 'Delivered') h += line('<b>Delivered:</b> ' + (d.deliveredAt ? esc(when(d.deliveredAt)) : '—') + (o.receivedBy ? ' · received by ' + esc(o.receivedBy) : ''));
+    if (o.status === 'Delivered') h += line('<b>Customer confirmed:</b> ' + (d.customerReceivedAt ? esc(when(d.customerReceivedAt)) : '<span style="opacity:.7">not yet</span>'));
     if (d.notes) h += line('<b>Note:</b> ' + esc(d.notes));
     if (d.proofIds && d.proofIds.length)
       h += line('<b>Proof:</b> ' + d.proofIds.map((id, i) => '<a href="/api/orders/' + encodeURIComponent(o.id) + '/delivery-proof/' + id + '" target="_blank" rel="noopener">Photo ' + (i + 1) + '</a>').join(', '));

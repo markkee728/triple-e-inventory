@@ -94,6 +94,7 @@ module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, Valid
         uploaded_by INT REFERENCES users(user_id),
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('CREATE INDEX IF NOT EXISTS idx_odp_order ON order_delivery_proofs (order_id)');
+      await pool.query('ALTER TABLE order_deliveries ADD COLUMN IF NOT EXISTS customer_received_at TIMESTAMPTZ');   // the customer's own "I received it" tap
     } catch (err) { console.warn('[db] could not prepare the delivery tables:', err.message); }
   })();
 
@@ -204,12 +205,14 @@ module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, Valid
     courier: r && r.courier || undefined, driverName: r && r.driver_name || undefined, driverPhone: r && r.driver_phone || undefined,
     vehiclePlate: r && r.vehicle_plate || undefined, trackingNo: r && r.tracking_no || undefined,
     dispatchedAt: r ? ms(r.dispatched_at) : undefined, notes: r && r.delivery_notes || undefined, deliveredAt: r ? ms(r.delivered_at) : undefined,
+    customerReceivedAt: r ? ms(r.customer_received_at) : undefined,
     proofIds: proofIds || []
   } : undefined);
   // What the customer sees: who is bringing it and when, never the rider's personal phone, internal notes or the photos
-  const customerJson = (r, order) => (r && (r.dispatched_at || r.delivered_at) ? {
+  const customerJson = (r, order) => (r && (r.dispatched_at || r.delivered_at || r.customer_received_at) ? {
     courier: r.courier || undefined, driverName: r.driver_name || undefined, vehiclePlate: r.vehicle_plate || undefined,
-    trackingNo: r.tracking_no || undefined, dispatchedAt: ms(r.dispatched_at), deliveredAt: ms(r.delivered_at), receivedBy: order.received_by || undefined
+    trackingNo: r.tracking_no || undefined, dispatchedAt: ms(r.dispatched_at), deliveredAt: ms(r.delivered_at), receivedBy: order.received_by || undefined,
+    customerReceivedAt: ms(r.customer_received_at)
   } : undefined);
 
   /* ---------- routes ---------- */
@@ -224,6 +227,27 @@ module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, Valid
     if (o.status !== 'Out for Delivery') throw bad('id', 'Delivery details can be changed only while the order is Out for Delivery');
     return o;
   }
+
+  // The customer confirms the parcel arrived. Only after Finance has marked it Delivered, only the customer who owns the order, only once.
+  // Finance's proof photos and "received by" stay as they are: this is a second, independent record.
+  app.post('/api/shop/orders/:no/confirm-received', auth('customer'), wrap(async (req, res) => {
+    await ready;
+    await tx(async (client) => {
+      const r = await client.query('SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2 FOR UPDATE', [req.params.no, req.user.id]);
+      if (!r.rowCount) throw bad('id', 'Order not found');
+      const o = r.rows[0];
+      if (o.fulfillment !== 'Delivery') throw bad('id', 'Only delivery orders can be confirmed here');
+      if (o.status !== 'Delivered') throw bad('id', 'You can confirm once the order is marked Delivered');
+      const cur = (await client.query('SELECT customer_received_at FROM order_deliveries WHERE order_id = $1', [o.order_id])).rows[0];
+      if (cur && cur.customer_received_at) throw bad('id', 'You already confirmed that you received this order');
+      await client.query(`INSERT INTO order_deliveries (order_id, customer_received_at, updated_at) VALUES ($1, now(), now())
+        ON CONFLICT (order_id) DO UPDATE SET customer_received_at = now(), updated_at = now()`, [o.order_id]);
+      await client.query(`INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note) VALUES ($1,$2,$2,$3,$4)`,
+        [o.order_id, o.status, req.user.id, 'Customer confirmed the order was received']);
+      await audit(client, req.user, 'Record edited', `Customer confirmed receipt of ${o.order_no}`);
+    });
+    res.json({ ok: true });
+  }));
 
   // Correct the rider / courier details after the order has already left (e.g. the rider was swapped)
   app.post('/api/orders/:no/delivery', auth('finance'), wrap(async (req, res) => {
