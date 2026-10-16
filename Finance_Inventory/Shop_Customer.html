@@ -363,7 +363,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=5"></script>
-<script src="quote-fields.js?v=1"></script>
+<script src="quote-fields.js?v=2"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -1085,6 +1085,7 @@ function quoteProductChanged() {
   const p = prod($('qProduct').value);
   $('qNameWrap').hidden = !!p; if (p) qErr('productName', '');
   if (!qMounted) return;
+  QuoteFields.autofill('q', p ? p.specs : null);
   if (p) QuoteFields.setUnit('q', p.unit);
   QuoteFields.setHint('q', p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '');
 }

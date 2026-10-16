@@ -175,6 +175,15 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(QUOTE_OPTIONS));
 
   // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
+  // Size and details that the product's own database record already states (Finance fills them in under the product's
+  // online specifications). Same mapping as QuoteFields.autofill in quote-fields.js: Material, Size (or Dimensions), Thickness, Finish.
+  const SPEC_ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
+  function productSpecs(shopSpecs) {
+    const src = shopSpecs && typeof shopSpecs === 'object' && !Array.isArray(shopSpecs) ? shopSpecs : {}, out = {};
+    const lower = {}; Object.keys(src).forEach((k) => { lower[k.trim().toLowerCase()] = str(src[k]); });
+    Object.keys(SPEC_ALIAS).forEach((key) => { const hit = SPEC_ALIAS[key].map((a) => lower[a]).find(Boolean); if (hit) out[key] = hit.slice(0, 80); });
+    return out;
+  }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
     if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
@@ -184,11 +193,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
 
     // the product (or a described custom item)
-    let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '';
+    let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '', fromProduct = {};
     if (str(b.sku)) {
-      const p = (await pool.query(`SELECT sku, name, unit FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
+      const p = (await pool.query(`SELECT sku, name, unit, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
       if (!p) throw bad('sku', 'That product is not available');
-      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase();
+      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs);
     } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
 
     // amount required: a number plus a unit from the list (or the product's own unit)
@@ -209,6 +218,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
     const specs = {};
     for (const key of Object.keys(SPEC_LABEL)) {
+      if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
       if (!QUOTE_OPTIONS[key].includes(v)) {

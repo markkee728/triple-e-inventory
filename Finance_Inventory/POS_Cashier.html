@@ -319,7 +319,7 @@
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
 <script src="account-menu.js"></script>
-<script src="quote-fields.js?v=1"></script>
+<script src="quote-fields.js?v=2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
@@ -894,6 +894,7 @@ async function ensurePqFields() {                 // the dropdown choices come f
 function pqProductChanged() {
   const p = prod($('pqProduct').value);
   $('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
+  if (pqMounted) QuoteFields.autofill('pq', p ? p.specs : null);
   if (pqMounted && p) QuoteFields.setUnit('pq', p.unit);
 }
 const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };

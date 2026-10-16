@@ -91,6 +91,7 @@
   }
   function reset(p) {
     $(p + 'Qty').value = ''; $(p + 'Months').value = ''; $(p + 'Notes').value = ''; $(p + 'NotesCount').textContent = '0 / 1000';
+    autofill(p, null);
     FIELDS.forEach(function (f) { $(p + 'S_' + f[0]).value = ''; var c = $(p + 'C_' + f[0]); if (c) { c.value = ''; c.hidden = true; } });
     ['quantity', 'neededMonths'].concat(FIELDS.map(function (f) { return f[0]; })).forEach(function (k) { setErr(p, k, ''); });
   }
@@ -107,6 +108,29 @@
     if (!has) { var o = document.createElement('option'); o.value = u; o.textContent = u; sel.appendChild(o); }
     sel.value = u;
   }
+  // Fill Material / Size / Thickness / Finish from the chosen product's own record (its online specifications) and lock them,
+  // so the customer or cashier does not retype what the database already knows. Anything the record does not state stays a dropdown.
+  // Call with the product's specs object, or with nothing (custom item) to unlock everything. Same mapping as productSpecs() in shop-extras.js.
+  var ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
+  function autofill(p, specs) {
+    var lower = {}; Object.keys(specs || {}).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
+    Object.keys(ALIAS).forEach(function (k) {
+      var sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
+      var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0];
+      var note = $(p + 'A_' + k);
+      if (!note) { note = document.createElement('small'); note.id = p + 'A_' + k; note.className = 'q-hint'; sel.parentNode.insertBefore(note, sel.nextSibling); }
+      if (v) {
+        if (!Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); sel.setAttribute('data-added', v); }
+        sel.value = v; sel.disabled = true; if (c) { c.hidden = true; c.value = ''; }
+        note.textContent = 'Taken from the product details.'; note.hidden = false; sel.setAttribute('data-auto', '1');
+      } else {
+        if (sel.getAttribute('data-auto')) { sel.value = ''; sel.removeAttribute('data-auto'); }
+        sel.disabled = false; note.textContent = ''; note.hidden = true;
+        var added = sel.getAttribute('data-added'); if (added && sel.value !== added) { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === added) o.remove(); }); sel.removeAttribute('data-added'); }
+      }
+      setErr(p, k, '');
+    });
+  }
   function setHint(p, text) { var h = $(p + 'QtyHint'); if (h) h.textContent = text || ''; }
   function setQuantity(p, n) { $(p + 'Qty').value = n == null ? '' : String(n); }
   function setNotes(p, text) { $(p + 'Notes').value = text || ''; $(p + 'NotesCount').textContent = ($(p + 'Notes').value.length) + ' / 1000'; }
@@ -116,5 +140,5 @@
     '.qx-title{margin:6px 0 10px;font-size:13.5px;font-weight:700;color:var(--text-dim)}.qx-custom{margin-top:8px}';
   document.head.appendChild(st);
 
-  window.QuoteFields = { mount: mount, read: read, validate: validate, reset: reset, showServerError: showServerError, setUnit: setUnit, setHint: setHint, setQuantity: setQuantity, setNotes: setNotes };
+  window.QuoteFields = { mount: mount, read: read, validate: validate, reset: reset, showServerError: showServerError, setUnit: setUnit, autofill: autofill, setHint: setHint, setQuantity: setQuantity, setNotes: setNotes };
 })();
