@@ -283,6 +283,9 @@ a.nav-item{text-decoration:none}
   </div>
   <div id="payDone" hidden></div>
   <div class="modal-actions" style="justify-content:center"><button class="btn-secondary" id="payClose">Close</button></div></div></div>
+<div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:560px;max-height:92vh;overflow:auto">
+  <div id="rcptBody"></div>
+  <div class="modal-actions" style="justify-content:center;flex-wrap:wrap"><button class="btn-primary" id="rcptPrint">Print / Save as PDF</button><button class="btn-secondary" id="rcptOrders">View my orders</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
@@ -683,18 +686,12 @@ async function checkPay() {
   } catch (e) {}
 }
 async function showPaid() {
+  const id = payOrderId;
   try { orders = await loadOrders(); } catch (e) {}
-  const o = orders.find(x => x.id === payOrderId); if (!o) return;
-  $('payTitle').innerHTML = 'Payment successful ' + IC_CHECK; $('payFor').textContent = 'Order ' + o.id + ' is confirmed. Thank you!';
-  $('payWait').hidden = true; $('payDone').hidden = false;
-  $('payDone').innerHTML = '<div class="card" style="text-align:left;padding:14px;margin:12px 0">'
-    + o.items.map(it => `<div class="row"><span>${esc(it.qty)} × ${esc(it.name)}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')
-    + (o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : '')
-    + `<div class="row total"><span>Total paid</span><span class="mono">${peso(o.total)}</span></div>`
-    + `<div class="dim" style="font-size:12.5px;margin-top:8px">${esc(new Date(o.createdAt).toLocaleString('en-PH'))} · ${esc(payLabel(o.method))} · ${esc(o.fulfillment)}</div></div>`
-    + `<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn-primary" data-receipt="${esc(o.id)}">Print receipt</button><button class="btn-secondary" id="payOrders">View my orders</button></div>`;
-  $('payOrders').onclick = () => { closePay(); show('orders'); };
-  renderOrders(); syncCounts();
+  const o = orders.find(x => x.id === id); if (!o) return;
+  receiptShown.add(id);
+  closePay(); renderOrders(); syncCounts();
+  openReceipt(id, true);                       // payment confirmed: show the receipt straight away
 }
 function closePay() { stopPayPoll(); payOrderId = null; closeModal('payBg'); }
 function openPayModal(order, url) {
@@ -710,33 +707,89 @@ function openPayModal(order, url) {
 }
 $('payClose').onclick = () => { const was = payOrderId; closePay(); if (was) { show('orders'); } };
 document.addEventListener('visibilitychange', () => { if (!document.hidden && payOrderId) checkPay(); });
+/* ----- receipt (shown automatically after a successful online payment, and from My Orders) ----- */
+const receiptShown = new Set();
+const RCPT_CSS = `
+.rcpt-ok{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:rgba(46,160,102,.12);border:1px solid rgba(46,160,102,.45);margin-bottom:14px;text-align:left}
+.rcpt-ok .rc{width:40px;height:40px;border-radius:50%;background:#2ea066;color:#fff;display:flex;align-items:center;justify-content:center;flex:none;font-size:20px}
+.rcpt-ok b{display:block;font-size:16px}.rcpt-ok span{font-size:13.5px;opacity:.8}
+.rcpt{background:#fff;color:#16202b;border-radius:12px;padding:0 0 4px;box-shadow:0 8px 24px rgba(0,0,0,.14);font:14px/1.5 Inter,Arial,sans-serif;overflow:hidden;text-align:left;border-top:5px solid #1f5fa8}
+.rcpt *{box-sizing:border-box}
+.rcpt-head{text-align:center;padding:20px 22px 14px;border-bottom:1px dashed #cfd7e0}
+.rcpt-brand{font-family:Oswald,Arial,sans-serif;font-weight:600;font-size:22px;letter-spacing:.5px;color:#16202b}
+.rcpt-contact{font-size:12.5px;color:#5b6877;margin-top:2px;overflow-wrap:anywhere}
+.rcpt-titlerow{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.rcpt-title{font-size:12.5px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#1f5fa8}
+.rcpt-pill{font-size:11.5px;font-weight:700;letter-spacing:1.4px;padding:2px 10px;border-radius:99px;border:1.5px solid #2ea066;color:#1e8a56;background:#eaf7f0}
+.rcpt-pill.wait{border-color:#d69e2e;color:#9a6a05;background:#fff6e0}
+.rcpt-meta{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;padding:16px 22px;border-bottom:1px dashed #cfd7e0}
+.rcpt-meta div small{display:block;font-size:11px;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#7a8794;margin-bottom:1px}
+.rcpt-meta div span{font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.rcpt-meta .full{grid-column:1/-1}
+.rcpt-meta .mono{font-family:"IBM Plex Mono",monospace;font-weight:600}
+.rcpt-items{padding:6px 22px 4px}
+.rcpt-items table{width:100%;border-collapse:collapse}
+.rcpt-items th{font-size:11px;font-weight:600;letter-spacing:.9px;text-transform:uppercase;color:#7a8794;text-align:left;padding:10px 0 6px;border-bottom:1px solid #dfe5ec}
+.rcpt-items td{padding:9px 0;border-bottom:1px solid #eef1f5;vertical-align:top}
+.rcpt-items .r{text-align:right;white-space:nowrap}
+.rcpt-items .qty{color:#5b6877;white-space:nowrap;padding-right:10px}
+.rcpt-tot{margin:6px 22px 0;padding:12px 0 6px}
+.rcpt-tot div{display:flex;justify-content:space-between;padding:3px 0;color:#5b6877}
+.rcpt-tot .grand{margin-top:6px;padding:12px 14px;background:#f1f6fb;border-radius:10px;color:#16202b;font-weight:700;font-size:17px;align-items:center}
+.rcpt-tot .grand span:last-child{font-family:"IBM Plex Mono",monospace;color:#1f5fa8}
+.rcpt-foot{text-align:center;padding:12px 22px 16px;font-size:12.5px;color:#7a8794;border-top:1px dashed #cfd7e0;margin-top:10px}
+.rcpt-foot b{display:block;color:#16202b;font-size:14px;margin-bottom:2px}
+@media(max-width:420px){.rcpt-meta{grid-template-columns:1fr}.rcpt-head,.rcpt-meta,.rcpt-items{padding-left:16px;padding-right:16px}.rcpt-tot{margin-left:16px;margin-right:16px}}
+`;
+(function () { const st = document.createElement('style'); st.textContent = RCPT_CSS; document.head.appendChild(st); })();
+const isPaidOrder = o => o.paymentStatus === 'paid' || !['Pending Confirmation', 'Cancelled'].includes(o.status);
+function receiptHtml(o) {
+  const i = INFO || {}, paid = isPaidOrder(o);
+  const when = new Date(o.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+  const contact = [i.address, i.phone, i.email].filter(Boolean).map(esc).join(' · ');
+  const where = o.fulfillment === 'Delivery' ? (o.address || '—') : 'Pickup' + (i.address ? ' at ' + i.address : '');
+  const rows = o.items.map(it => `<tr><td class="qty">${esc(it.qty)} ×</td><td>${esc(it.name)}</td><td class="r">${peso(it.price)}</td><td class="r">${peso(it.qty * it.price)}</td></tr>`).join('');
+  return `<div class="rcpt">
+    <div class="rcpt-head">
+      <div class="rcpt-brand">Triple E Metal Products</div>
+      ${contact ? `<div class="rcpt-contact">${contact}</div>` : ''}
+      <div class="rcpt-titlerow"><span class="rcpt-title">Order receipt</span><span class="rcpt-pill${paid ? '' : ' wait'}">${paid ? 'PAID' : 'UNPAID'}</span></div>
+    </div>
+    <div class="rcpt-meta">
+      <div><small>Order no.</small><span class="mono">${esc(o.id)}</span></div>
+      <div><small>Date</small><span>${esc(when)}</span></div>
+      <div><small>Customer</small><span>${esc(USER.name || '')}</span></div>
+      <div><small>Payment</small><span>${esc(payLabel(o.method))}</span></div>
+      <div><small>${esc(o.fulfillment)}</small><span>${esc(where)}</span></div>
+      <div><small>Order status</small><span>${esc(o.status)}</span></div>
+    </div>
+    <div class="rcpt-items"><table><thead><tr><th colspan="2">Item</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="rcpt-tot">
+      <div><span>Subtotal</span><span>${peso(o.subtotal)}</span></div>
+      ${o.deliveryFee ? `<div><span>Delivery fee</span><span>${peso(o.deliveryFee)}</span></div>` : ''}
+      <div class="grand"><span>${paid ? 'Total paid' : 'Total due'}</span><span>${peso(o.total)}</span></div>
+    </div>
+    <div class="rcpt-foot"><b>Thank you for shopping with us!</b>Keep this receipt for your records.</div>
+  </div>`;
+}
+function openReceipt(id, justPaid) {
+  const o = orders.find(x => x.id === id); if (!o) return;
+  const banner = justPaid ? `<div class="rcpt-ok"><div class="rc">${IC_CHECK}</div><div><b>Payment successful</b><span>We received your payment of ${peso(o.total)}. Your order is confirmed.</span></div></div>` : '';
+  $('rcptBody').innerHTML = banner + receiptHtml(o);
+  $('rcptPrint').onclick = () => printReceipt(o.id);
+  $('rcptOrders').onclick = () => { closeModal('receiptBg'); show('orders'); };
+  $('receiptBg').classList.add('show');
+}
 function printReceipt(id) {
   const o = orders.find(x => x.id === id); if (!o) return;
-  const i = INFO || {}, w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your receipt.', true);
-  const rows = o.items.map(it => `<tr><td>${esc(it.qty)} × ${esc(it.name)}</td><td class="r">${peso(it.price)}</td><td class="r">${peso(it.qty * it.price)}</td></tr>`).join('');
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(o.id)}</title><style>
-    body{font:14px/1.5 Arial,sans-serif;color:#111;max-width:640px;margin:30px auto;padding:0 16px}
-    h1{font-size:20px;margin:0}h2{font-size:15px;margin:22px 0 6px}.muted{color:#555;font-size:13px}
-    table{width:100%;border-collapse:collapse}td,th{padding:6px 0;border-bottom:1px solid #ddd;text-align:left}.r{text-align:right}th.r{text-align:right}
-    .tot td{border-bottom:0;font-weight:bold;font-size:15px}.btn{margin-top:22px;padding:8px 16px}@media print{.btn{display:none}}
-  </style></head><body>
-    <h1>Triple E Metal Products</h1>
-    <div class="muted">${[i.address, i.phone, i.email].filter(Boolean).map(esc).join(' · ')}</div>
-    <h2>Order receipt</h2>
-    <table><tr><td>Order no.</td><td class="r"><b>${esc(o.id)}</b></td></tr>
-    <tr><td>Date</td><td class="r">${esc(new Date(o.createdAt).toLocaleString('en-PH'))}</td></tr>
-    <tr><td>Customer</td><td class="r">${esc(USER.name || '')}</td></tr>
-    <tr><td>${esc(o.fulfillment)}</td><td class="r">${esc(o.fulfillment === 'Delivery' ? (o.address || '') : 'Pickup' + (i.address ? ' at ' + i.address : ''))}</td></tr>
-    <tr><td>Payment</td><td class="r">${esc(payLabel(o.method))}</td></tr><tr><td>Status</td><td class="r">${esc(o.status)}</td></tr></table>
-    <h2>Items</h2>
-    <table><tr><th>Item</th><th class="r">Price</th><th class="r">Amount</th></tr>${rows}
-    <tr><td colspan="2">Subtotal</td><td class="r">${peso(o.subtotal)}</td></tr>
-    ${o.deliveryFee ? `<tr><td colspan="2">Delivery</td><td class="r">${peso(o.deliveryFee)}</td></tr>` : ''}
-    <tr class="tot"><td colspan="2">Total</td><td class="r">${peso(o.total)}</td></tr></table>
-    <p class="muted" style="margin-top:20px">Thank you for shopping with Triple E Metal Products.</p>
-    <button class="btn" onclick="print()">Print</button>
-  </body></html>`);
-  w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 300);
+  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your receipt.', true);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(o.id)}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap">
+    <style>body{margin:0;padding:24px 14px;background:#eef1f5}.sheet{max-width:580px;margin:0 auto}
+    @media print{body{background:#fff;padding:0}.rcpt{box-shadow:none;border:1px solid #cfd7e0}}
+    .rcpt,.rcpt *{-webkit-print-color-adjust:exact;print-color-adjust:exact}${RCPT_CSS}</style></head>
+    <body><div class="sheet">${receiptHtml(o)}</div></body></html>`);
+  w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
 }
 
 /* ----- orders ----- */
@@ -771,7 +824,7 @@ function renderOrders() {
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}${done ? reviewBtn(it) : ''}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
-    ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">Print receipt</button></div>` : ''}
+    ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View receipt</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
@@ -1120,7 +1173,7 @@ $('quoteForm').onsubmit = async e => {
 /* ----- events ----- */
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review]'); if (!el) return; const d = el.dataset;
-  if (d.receipt) return printReceipt(d.receipt);
+  if (d.receipt) return openReceipt(d.receipt);
   if (d.notify) return setAlert(d.notify, true);
   if (d.unnotify) return setAlert(d.unnotify, false);
   if (d.quote !== undefined && el.dataset.quote !== '') { closeProductDetails(); return openQuote(d.quote); }
@@ -1194,7 +1247,7 @@ $('q').oninput = $('sort').onchange = $('inStock').onchange = renderCatalog;
 $('q').onkeydown = e => { if (e.key === 'Escape') { $('shopDetailsBg').style.display='none'; $('q').value = ''; renderCatalog(); } };
 document.addEventListener('keydown', e => {
   if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); show('catalog'); $('q').focus(); }
-  if (e.key === 'Escape') { closeProductDetails(); setNav(false); closeModal('cancelBg'); closeModal('refundBg'); closeModal('reviewBg'); $('userDropdown').classList.remove('open'); }
+  if (e.key === 'Escape') { closeProductDetails(); setNav(false); closeModal('cancelBg'); closeModal('refundBg'); closeModal('reviewBg'); closeModal('receiptBg'); $('userDropdown').classList.remove('open'); }
 });
 $('toCheckout').onclick = () => show('checkout');
 $('place').onclick = placeOrder;
@@ -1229,11 +1282,16 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   // Ask the server to check any unpaid online order with Xendit, so a payment is saved even if Xendit's callback never reaches us.
   const verifyPending = async () => {
     const pending = orders.filter(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation');
-    let paid = false;
+    let paid = false; const paidNow = [];
     for (const o of pending) {
-      try { const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' }); if (r.paymentStatus === 'paid') paid = true; } catch (e) {}
+      try { const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' }); if (r.paymentStatus === 'paid') { paid = true; paidNow.push(o.id); } } catch (e) {}
     }
-    if (paid && !$('payBg').classList.contains('show')) toast('Payment received. Thank you! Your order is confirmed.');
+    if (paid && !$('payBg').classList.contains('show')) {
+      try { orders = await loadOrders(); } catch (e) {}
+      const id = paidNow.find(x => !receiptShown.has(x));
+      if (id) { receiptShown.add(id); renderOrders(); syncCounts(); openReceipt(id, true); }
+      else toast('Payment received. Thank you! Your order is confirmed.');
+    }
     return paid;
   };
   const refreshOrders = async () => { try { await verifyPending(); const o = await loadOrders(); orders = o; $('navOrderCount').textContent = orders.length; if (view === 'orders') renderOrders(); } catch (e) {} };
