@@ -31,11 +31,20 @@ const DEFAULT_DELIVERY_RATES = [
   ['region', 'Region XIII - Caraga', 550, false],
   ['region', 'BARMM - Bangsamoro Autonomous Region', 550, false]
 ];
-// "Region IV-A - CALABARZON" and "region iv-a" are the same region; provinces compare on their plain name
-const rateKey = (scope, name) => {
-  const t = String(name || '').toLowerCase();
-  return (scope === 'region' ? t.split(' - ')[0].split('(')[0] : t).replace(/\b(province|city) of\b/g, '').replace(/[^a-z0-9]/g, '');
-};
+// A region has many spellings: "Region VI - Western Visayas", "Western Visayas - Region VI", "Region IV-A (CALABARZON)", "NCR - National Capital Region"...
+// They are all reduced to one key (its region number or its short name), so a rate saved under one spelling matches an address that uses another.
+const REGION_NAMES = [['ncr', /\bncr\b|national capital/], ['car', /\bcar\b|cordillera/], ['nir', /\bnir\b|negros island/], ['barmm', /barmm|bangsamoro/],
+  ['ivb', /mimaropa/], ['iva', /calabarzon/], ['i', /ilocos/], ['ii', /cagayan valley/], ['iii', /central luzon/], ['v', /bicol/], ['vi', /western visayas/],
+  ['vii', /central visayas/], ['viii', /eastern visayas/], ['ix', /zamboanga/], ['x', /northern mindanao/], ['xi', /davao/], ['xii', /soccsksargen/], ['xiii', /caraga/]];
+function regionKey(name) {
+  const t = String(name || '').toLowerCase().replace(/[()]/g, ' ');
+  const roman = t.match(/\bregion\s+([ivx]+)(?:\s*-?\s*([ab]))?\b/);
+  if (roman) return 'r:' + roman[1] + (roman[2] || '');
+  const hit = REGION_NAMES.find(([, re]) => re.test(t));
+  return hit ? 'r:' + hit[0] : 'x:' + t.replace(/[^a-z0-9]/g, '');
+}
+const rateKey = (scope, name) => scope === 'region' ? regionKey(name)
+  : String(name || '').toLowerCase().replace(/\b(province|city) of\b/g, '').replace(/[^a-z0-9]/g, '');
 const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card', 'Xendit'];
 // Order life-cycle. An order can only move one step forward; the last step ends it.
 const FLOW = {
