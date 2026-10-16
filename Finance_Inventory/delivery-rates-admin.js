@@ -9,6 +9,13 @@
     'Region V - Bicol Region', 'Region VI - Western Visayas', 'NIR - Negros Island Region', 'Region VII - Central Visayas',
     'Region VIII - Eastern Visayas', 'Region IX - Zamboanga Peninsula', 'Region X - Northern Mindanao', 'Region XI - Davao Region',
     'Region XII - SOCCSKSARGEN', 'Region XIII - Caraga', 'BARMM - Bangsamoro Autonomous Region'];
+  // Recommended coverage: NCR near, Central Luzon + CALABARZON nearby, everything else not delivered (customers can request a quote or pick up)
+  const RECOMMENDED = { 'NCR - National Capital Region': [150, true], 'Region III - Central Luzon': [250, true], 'Region IV-A - CALABARZON': [250, true],
+    'CAR - Cordillera Administrative Region': [350, false], 'Region I - Ilocos Region': [350, false], 'Region II - Cagayan Valley': [350, false],
+    'MIMAROPA - Region IV-B': [350, false], 'Region V - Bicol Region': [350, false], 'Region VI - Western Visayas': [450, false],
+    'NIR - Negros Island Region': [450, false], 'Region VII - Central Visayas': [450, false], 'Region VIII - Eastern Visayas': [450, false],
+    'Region IX - Zamboanga Peninsula': [550, false], 'Region X - Northern Mindanao': [550, false], 'Region XI - Davao Region': [550, false],
+    'Region XII - SOCCSKSARGEN': [550, false], 'Region XIII - Caraga': [550, false], 'BARMM - Bangsamoro Autonomous Region': [550, false] };
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const host = document.querySelector('#orders .sales-log-panel');
   if (!host) return;
@@ -23,6 +30,7 @@
         <div class="panel-sub">The delivery fee of an order depends on where it is delivered. A province rate wins over a region rate; anything not listed uses &ldquo;All other areas&rdquo;. Untick &ldquo;We deliver here&rdquo; for places you do not cover: customers there cannot place a delivery order (they can still pick up). Pickup is always free.</div>
       </div>
       <div class="inv-filters">
+        <button type="button" class="btn-secondary btn-sm" id="drRecommended" title="NCR, Central Luzon and CALABARZON only; every other region blocked">Use recommended coverage</button>
         <button type="button" class="btn-secondary btn-sm" id="drAddRegion">Add region</button>
         <button type="button" class="btn-secondary btn-sm" id="drAddProvince">Add province</button>
         <button type="button" class="btn-primary btn-sm" id="drSave">Save rates</button>
@@ -84,6 +92,14 @@
     const del = e.target.closest('[data-del]');
     if (del) { rows.splice(+del.dataset.del, 1); draw(); }
   });
+  $('drRecommended').onclick = () => {
+    if (!window.confirm('Set every region to the recommended coverage (deliver to NCR, Central Luzon and CALABARZON only; block all other regions and "All other areas")?\nProvince exceptions you added are kept. Nothing changes until you press Save rates.')) return;
+    const keep = rows.filter((r) => r.scope === 'province');
+    const def = rows.find((r) => r.scope === 'default') || { scope: 'default', name: 'All other areas', fee: 150 };
+    rows = [Object.assign({}, def, { available: false })]
+      .concat(REGIONS.map((n) => ({ scope: 'region', name: n, fee: RECOMMENDED[n][0], available: RECOMMENDED[n][1] })), keep).sort(order);
+    draw(); $('drMsg').textContent = 'Recommended coverage loaded. Review it, then press Save rates.';
+  };
   $('drAddRegion').onclick = () => {
     const free = REGIONS.find((n) => !rows.some((r) => r.scope === 'region' && r.name === n)) || REGIONS[0];
     rows.push({ scope: 'region', name: free, fee: (rows.find((r) => r.scope === 'default') || {}).fee || 0 }); draw();
