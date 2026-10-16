@@ -13,7 +13,7 @@
     $('npShopSpecs').value = ''; renderSpecRows();
     $('npShopImages').value = '';
     $('npShopVisible').checked = true;  // new products are shown in the shop by default (untick to hide)
-    $('npShopMinOrder').value = '1';
+    $('npShopMinOrder').value = '20';
     renderThumbs();
     loadedSku = ''; dirty = false;
   }
@@ -93,7 +93,7 @@
       renderSpecRows();
       $('npShopImages').value = (data.images || []).map(i => i.url).join('\n'); renderThumbs();
       $('npShopVisible').checked = !!data.visible;
-      $('npShopMinOrder').value = data.minOrder || 1;
+      $('npShopMinOrder').value = data.minOrder || 20;
       loadedSku = key;
       status('Online shop details loaded.');
     } catch (error) {
@@ -123,7 +123,7 @@
       specs[name] = value;
     }
     const minOrder = Number($('npShopMinOrder').value);
-    if (!Number.isFinite(minOrder) || minOrder <= 0) throw new Error('Minimum order must be a number above 0 (use 1 for no minimum).');
+    if (!Number.isFinite(minOrder) || minOrder < 20 || minOrder > 50) throw new Error('Minimum order must be between 20 and 50. The maximum is simply what is in stock.');
     const images = $('npShopImages').value.split('\n').map(s=>s.trim()).filter(Boolean)
       .map(url=>({url,alt:$('npName').value.trim() || key}));
     await request('/api/finance/shop-products/' + encodeURIComponent(key), {

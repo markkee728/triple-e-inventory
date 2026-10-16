@@ -197,6 +197,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       sale_id BIGINT, error_message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS customer_name TEXT');
     await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS customer_phone TEXT');
+    await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS delivery JSONB');      // POS delivery sale: fee + address, kept until the payment is verified
   }
   // Optional walk-in customer details typed by the cashier at checkout (name and/or phone). Blank = anonymous walk-in.
   function readCustomer(b) {
@@ -206,6 +207,24 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (phone && !/^\+?[0-9][0-9 ()-]{5,18}[0-9]$/.test(phone)) throw bad('customerPhone', 'Enter a valid phone number (digits only, e.g. 09171234567)');
     return { name: name || null, phone: phone || null };
   }
+  /* POS delivery mode. The cashier picks Pickup (default) or Delivery. Delivery needs the customer's name + Philippine mobile number
+     (these become the customer record in Customer Management > Walk-in Customers) and the same structured address the online shop uses
+     (house/street + Region > Province > City > Barangay + ZIP, checked by validateShipTo). The fee comes from the delivery rates by
+     region / province, exactly like an online order, and is added to the sale total. Returns null for a normal counter sale. */
+  async function readPosDelivery(db, b) {
+    const f = str(b && b.fulfillment) || 'Pickup';
+    if (!['Pickup', 'Delivery'].includes(f)) throw bad('fulfillment', 'Choose Pickup or Delivery');
+    if (f === 'Pickup') return null;
+    const name = str(b.customerName), phone = str(b.customerPhone).replace(/[\s().-]/g, '');
+    if (name.length < 2 || name.length > 50 || !/^[\p{L}][\p{L}\p{M} .'’-]*$/u.test(name)) throw bad('customerName', 'Enter the customer’s full name (2–50 characters: letters, spaces, . \' and -)');
+    if (!/^(\+63|0)9\d{9}$/.test(phone)) throw bad('customerPhone', 'Enter a valid mobile number, e.g. 0917 123 4567');
+    const ship = await validateShipTo(Object.assign({}, b.shipTo || {}, { recipient: name }));
+    const q = await deliveryFeeFor(db, ship);
+    if (!q.available) throw bad('region', `Sorry, we do not deliver to ${ship.province || ship.region} yet.`);
+    return { name, phone, ship, fee: round2(q.fee) };
+  }
+  const posDeliveryCols = (d) => d ? { fee: d.fee, recipient: d.ship.recipient, line: d.ship.addressLine, landmark: d.ship.landmark || null, barangay: d.ship.barangay,
+    city: d.ship.city, province: d.ship.province, region: d.ship.region, zip: d.ship.zip, full: d.ship.fullAddress } : null;
   const posPaymentsReady = ensurePosPayments().catch(e => { console.error('[db] POS Xendit schema:', e.message); throw e; });
   posPaymentsReady.catch(() => {});          // already logged above; without this a database that is not reachable yet at boot would crash the whole server (unhandled rejection)
   app.post('/api/pos/xendit-checkout', auth('cashier'), wrap(async (req, res) => {
@@ -215,16 +234,19 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
     const lines = readLines(b.items);
     const cust = readCustomer(b);
+    const dlv = await readPosDelivery(pool, b);
+    if (dlv) { cust.name = dlv.name; cust.phone = dlv.phone; }
     // Override prices are deliberately rejected here until approved override handling is implemented.
     if ((b.items || []).some(i => i && i.price !== undefined)) throw bad('items', 'Xendit checkout currently requires standard catalog prices');
     const items = await loadSellable(pool, lines, { lock: false });
-    const amount = round2(items.reduce((sum, i) => sum + lineCents(i.price, i.qty), 0) / 100);
+    if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(pool, items);          // minimum order (the maximum is the stock, checked above)
+    const amount = round2(items.reduce((sum, i) => sum + lineCents(i.price, i.qty), 0) / 100 + (dlv ? dlv.fee : 0));
     if (!Number.isFinite(amount) || amount <= 0) throw bad('amount', 'Invalid checkout total');
     const crypto = require('crypto');
     const externalId = 'triplee-pos-' + crypto.randomUUID();
     const snapshot = items.map(i => ({ sku: i.sku, qty: i.qty, price: i.price }));
-    const created = await pool.query(`INSERT INTO pos_xendit_payments (cashier_id,cashier_name,external_id,amount,items,customer_name,customer_phone)
-      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7) RETURNING payment_id`, [req.user.id,req.user.name,externalId,amount,JSON.stringify(snapshot),cust.name,cust.phone]);
+    const created = await pool.query(`INSERT INTO pos_xendit_payments (cashier_id,cashier_name,external_id,amount,items,customer_name,customer_phone,delivery)
+      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb) RETURNING payment_id`, [req.user.id,req.user.name,externalId,amount,JSON.stringify(snapshot),cust.name,cust.phone,dlv ? JSON.stringify(posDeliveryCols(dlv)) : null]);
     const id = created.rows[0].payment_id;
     try {
       const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
@@ -281,16 +303,19 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         throw new Error('POS Xendit paid amount/currency mismatch');
       const lines = readLines(p.items.map(i=>({sku:i.sku,qty:i.qty})));   // loadSellable needs the SKU -> qty Map that readLines builds (a plain array here caused "is not iterable")
       const items = await loadSellable(client,lines,{lock:true});
-      const currentTotal = round2(items.reduce((sum,i)=>sum+lineCents(i.price,i.qty),0)/100);
+      const dl = p.delivery || null;                                  // delivery fee + address saved when the checkout was made
+      const currentTotal = round2(items.reduce((sum,i)=>sum+lineCents(i.price,i.qty),0)/100 + (dl ? +dl.fee : 0));
       if (Math.round(currentTotal*100)!==Math.round(Number(p.amount)*100)) {
         await client.query("UPDATE pos_xendit_payments SET status='review',error_message='Price changed after payment; manual reconciliation required' WHERE payment_id=$1",[p.payment_id]);
         kind = 'review'; info = p; return;
       }
       const vat = round2(currentTotal * VAT_RATE / (1+VAT_RATE));
       const {rows:sales} = await client.query(`INSERT INTO pos_sales
-        (cashier_id,cashier_name,method,total,vat,tendered,change_given,card_ref,customer_name,customer_phone)
-        VALUES ($1,$2,'Xendit',$3,$4,NULL,NULL,$5,$6,$7) RETURNING *`,
-        [p.cashier_id,p.cashier_name,currentTotal,vat,invoiceId,p.customer_name||null,p.customer_phone||null]);
+        (cashier_id,cashier_name,method,total,vat,tendered,change_given,card_ref,customer_name,customer_phone,
+         fulfillment,delivery_fee,delivery_recipient,delivery_address_line,delivery_landmark,delivery_barangay,delivery_city,delivery_province,delivery_region,delivery_zip,delivery_address)
+        VALUES ($1,$2,'Xendit',$3,$4,NULL,NULL,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
+        [p.cashier_id,p.cashier_name,currentTotal,vat,invoiceId,p.customer_name||null,p.customer_phone||null,
+         dl ? 'Delivery' : 'Walk-in', dl ? +dl.fee : 0, dl&&dl.recipient, dl&&dl.line, dl&&dl.landmark, dl&&dl.barangay, dl&&dl.city, dl&&dl.province, dl&&dl.region, dl&&dl.zip, dl&&dl.full]);
       const sale = sales[0];
       for(const i of items) {
         await client.query(`INSERT INTO pos_sale_items (sale_id,product_id,sku,name,unit,qty,price,list_price,override_by)
@@ -431,6 +456,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS request_id TEXT');
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT');
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT');
+      // POS delivery mode: 'Walk-in' (taken at the counter) or 'Delivery' (address + fee kept on the sale; the fee is part of total)
+      await pool.query(`ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS fulfillment TEXT NOT NULL DEFAULT 'Walk-in',
+        ADD COLUMN IF NOT EXISTS delivery_fee NUMERIC(12,2) NOT NULL DEFAULT 0, ADD COLUMN IF NOT EXISTS delivery_recipient TEXT,
+        ADD COLUMN IF NOT EXISTS delivery_address_line TEXT, ADD COLUMN IF NOT EXISTS delivery_landmark TEXT, ADD COLUMN IF NOT EXISTS delivery_barangay TEXT,
+        ADD COLUMN IF NOT EXISTS delivery_city TEXT, ADD COLUMN IF NOT EXISTS delivery_province TEXT, ADD COLUMN IF NOT EXISTS delivery_region TEXT,
+        ADD COLUMN IF NOT EXISTS delivery_zip TEXT, ADD COLUMN IF NOT EXISTS delivery_address TEXT`);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_sales_cashier_request ON pos_sales (cashier_id, request_id) WHERE request_id IS NOT NULL');
       // online-payment sales are saved with method 'Xendit' (shown as "Online payment"): make sure the method column accepts it
       await pool.query(`DO $$
@@ -699,7 +730,17 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* =====================================================
      POS — cashier
   ===================================================== */
-  app.get('/api/pos/products', auth('cashier'), wrap(async (req, res) => res.json(await catalog())));
+  app.get('/api/pos/products', auth('cashier'), wrap(async (req, res) => {
+    const rows = await catalog();
+    res.json(app.locals.shopExtras ? await app.locals.shopExtras.decorate(rows, null) : rows);      // adds minOrder / maxOrder (same rule as the online shop)
+  }));
+  // Delivery fee for the address the cashier is typing (same rates as the online shop); the server recalculates it when the sale is saved
+  app.get('/api/pos/delivery-fee', auth('cashier'), wrap(async (req, res) => {
+    const region = str(req.query.region), province = str(req.query.province);
+    if (!region && !province) throw bad('region', 'Choose the delivery region first');
+    const q = await deliveryFeeFor(pool, { region, province });
+    res.json({ fee: q.fee, rate: q.rate, scope: q.scope, available: q.available });
+  }));
 
   // ret = returnInfo() result for the sales being sent (optional). total / vat stay as originally charged;
   // refunded is the money already given back, so the till shows total - refunded as the real sale.
@@ -708,7 +749,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     return {
       id: String(s.sale_id), receiptNo: s.receipt_no, total: +s.total, vat: +s.vat, method: s.method,
       tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given,
-      cardRef: s.card_ref || undefined, customerName: s.customer_name || undefined, customerPhone: s.customer_phone || undefined, cashierName: s.cashier_name, createdAt: new Date(s.created_at).getTime(), status: s.status,
+      cardRef: s.card_ref || undefined, customerName: s.customer_name || undefined, customerPhone: s.customer_phone || undefined, cashierName: s.cashier_name,
+      fulfillment: s.fulfillment || 'Walk-in', deliveryFee: +s.delivery_fee || 0,
+      shipTo: s.fulfillment === 'Delivery' ? { recipient: s.delivery_recipient, addressLine: s.delivery_address_line, landmark: s.delivery_landmark || undefined, barangay: s.delivery_barangay,
+        city: s.delivery_city, province: s.delivery_province, region: s.delivery_region, zip: s.delivery_zip, fullAddress: s.delivery_address } : undefined, createdAt: new Date(s.created_at).getTime(), status: s.status,
       refunded: rs ? rs.refunded : 0, returnPending: !!(rs && rs.pending),
       items: items.map(i => {
         const r = ret && ret.items.get(String(i.item_id)) || { approved: 0, pending: 0 };
@@ -776,6 +820,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const method = str(b.method);
     if (!['Cash', 'Card'].includes(method)) throw bad('method', 'Choose Cash or Card');
     const cust = readCustomer(b);
+    const dlv = await readPosDelivery(pool, b);                  // null = normal counter sale; delivery needs name, mobile and a full address
+    if (dlv) { cust.name = dlv.name; cust.phone = dlv.phone; }
 
     // negotiated prices: {sku, qty, price} lines need a valid supervisor approval token
     const overrides = new Map();
@@ -804,13 +850,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (!shiftResult.rowCount) throw bad('cashShift', 'Open your Cash Shift before completing a sale.');
       const cashShiftId = shiftResult.rows[0].shift_id;
       const items = await loadSellable(client, lines, { lock: true });
+      if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);     // minimum order; the maximum is the stock, checked in loadSellable
       const changed = [];
       for (const i of items) {
         const o = overrides.get(i.sku.toUpperCase());
         i.list_price = i.price;
         if (o !== undefined && o !== i.price) { changed.push(`${i.sku} ${peso(i.price)} to ${peso(o)}`); i.price = o; i.override_by = approval.approver; }
       }
-      const total = items.reduce((n, i) => n + lineCents(i.price, i.qty), 0) / 100;
+      const total = round2(items.reduce((n, i) => n + lineCents(i.price, i.qty), 0) / 100 + (dlv ? dlv.fee : 0));   // delivery fee is part of the total
       let tendered = null, change = null, cardRef = null;
       if (method === 'Cash') {
         tendered = round2(Number(b.tendered));
@@ -826,9 +873,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       const vat = round2(total * VAT_RATE / (1 + VAT_RATE));
       const ins = await client.query(
-        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref, cash_shift_id, request_id, customer_name, customer_phone)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId, requestId, cust.name, cust.phone]);
+        `INSERT INTO pos_sales (cashier_id, cashier_name, method, total, vat, tendered, change_given, card_ref, cash_shift_id, request_id, customer_name, customer_phone,
+           fulfillment, delivery_fee, delivery_recipient, delivery_address_line, delivery_landmark, delivery_barangay, delivery_city, delivery_province, delivery_region, delivery_zip, delivery_address)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23) RETURNING *`,
+        [req.user.id, req.user.name, method, total, vat, tendered, change, cardRef, cashShiftId, requestId, cust.name, cust.phone,
+         dlv ? 'Delivery' : 'Walk-in', dlv ? dlv.fee : 0, dlv && dlv.ship.recipient, dlv && dlv.ship.addressLine, dlv && dlv.ship.landmark || null, dlv && dlv.ship.barangay,
+         dlv && dlv.ship.city, dlv && dlv.ship.province, dlv && dlv.ship.region, dlv && dlv.ship.zip, dlv && dlv.ship.fullAddress]);
       const s = ins.rows[0];
       for (const i of items) {
         const li = await client.query(
@@ -838,7 +888,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await postMovement(client, { productId: i.product_id, type: 'out', reason: 'sale', qty: i.qty, userId: req.user.id,
           sourceType: 'pos_sale', sourceId: s.sale_id, note: s.receipt_no });
       }
-      await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)`
+      await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)` + (dlv ? ` · delivery to ${dlv.ship.city}, ${dlv.ship.province} (fee ${peso(dlv.fee)})` : '')
         + (changed.length ? ` · price override approved by ${approval.approverName}: ${changed.join(', ')}` : ''));
       return saleJson(s, items);
     });
@@ -1573,8 +1623,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const net = round2(+s.total - refunded);
       const pending = rets.find(r => r.status === 'pending');
       out.push({
-        source: 'POS', ref: s.receipt_no, createdAt: new Date(s.created_at).getTime(), customer: s.customer_name || 'Walk-in customer', phone: s.customer_phone || '', fulfillment: 'Walk-in',
-        method: s.method, subtotal: net, deliveryFee: 0, total: net, vat: refunded ? round2(net * VAT_RATE / (1 + VAT_RATE)) : +s.vat, status: s.status, cashier: s.cashier_name,
+        source: 'POS', ref: s.receipt_no, createdAt: new Date(s.created_at).getTime(), customer: s.customer_name || 'Walk-in customer', phone: s.customer_phone || '', fulfillment: s.fulfillment === 'Delivery' ? 'Delivery' : 'Walk-in',
+        address: s.fulfillment === 'Delivery' ? (s.delivery_address + (s.delivery_landmark ? ` (Landmark: ${s.delivery_landmark})` : '')) : undefined,
+        method: s.method, subtotal: round2(net - (+s.delivery_fee || 0)), deliveryFee: +s.delivery_fee || 0, total: net, vat: refunded ? round2(net * VAT_RATE / (1 + VAT_RATE)) : +s.vat, status: s.status, cashier: s.cashier_name,
         tendered: s.tendered === null ? undefined : +s.tendered, change: s.change_given === null ? undefined : +s.change_given, cardRef: s.card_ref || undefined,
         items, ...money(items), next: null, canCancel: false, history: [],
         originalTotal: +s.total, refunded, returns: rets, returnRequest: pending || null,

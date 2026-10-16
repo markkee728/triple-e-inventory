@@ -160,7 +160,7 @@
     $('soPosBody').innerHTML = (rows.length || Object.keys(RETURNS).length) ? rows.map(s => {
       const rq = s.returnPending && RETURNS[s.receiptNo];
       const itemsHtml = s.items.map(i => esc(i.qty + ' × ' + i.name) + (i.returnedQty ? ' <span class="faint">(' + esc(i.returnedQty) + ' returned)</span>' : '')).join('<br>');
-      return '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + (s.customerName || s.customerPhone ? esc(s.customerName || '—') + (s.customerPhone ? '<div class="faint" style="font-size:12px">' + esc(s.customerPhone) + '</div>' : '') : '<span class="faint">Walk-in</span>') + '</td><td>' + esc(s.cashierName) + '</td><td>' + itemsHtml + '</td><td>' + peso(s.total) +
+      return '<tr><td>' + esc(s.receiptNo) + '</td><td>' + esc(when(s.createdAt)) + '</td><td>' + (s.customerName || s.customerPhone ? esc(s.customerName || '—') + (s.customerPhone ? '<div class="faint" style="font-size:12px">' + esc(s.customerPhone) + '</div>' : '') : '<span class="faint">Walk-in</span>') + (s.fulfillment === 'Delivery' && s.shipTo ? '<div class="faint" style="font-size:12px;max-width:240px"><b>Delivery</b> · ' + esc(s.shipTo.fullAddress || '') + (s.shipTo.landmark ? ' (Landmark: ' + esc(s.shipTo.landmark) + ')' : '') + '<br>Fee ' + peso(s.deliveryFee || 0) + '</div>' : '') + '</td><td>' + esc(s.cashierName) + '</td><td>' + itemsHtml + '</td><td>' + peso(s.total) +
         (s.refunded ? small('Returned −' + peso(s.refunded) + ', net ' + peso(s.total - s.refunded)) : '') + '</td><td>' + esc(payLabel(s.method)) + '</td><td>' +
         (rq ? pill('Return Pending') : pill(s.status)) +
         (VOIDS[s.receiptNo] ? small('Cashier\'s reason: ' + esc(VOIDS[s.receiptNo].reason)) : '') +

@@ -12,25 +12,26 @@
   sales.filter(s=>(s.customerName||s.customerPhone)&&s.status!=='Voided').forEach(s=>{
    const phone=(s.customerPhone||'').replace(/[^0-9+]/g,'');
    const key=phone?'p:'+phone:'n:'+String(s.customerName).trim().toLowerCase();
-   let c=map.get(key);if(!c){c={name:'',phone:'',count:0,spent:0,last:0};map.set(key,c);}
+   let c=map.get(key);if(!c){c={name:'',phone:'',count:0,deliveries:0,address:'',addressAt:0,spent:0,last:0};map.set(key,c);}
    if(s.createdAt>=c.last){c.last=s.createdAt;c.name=s.customerName||c.name;c.phone=s.customerPhone||c.phone;}
    c.count++;c.spent+=Number(s.total)-Number(s.refunded||0);
+   if(s.fulfillment==='Delivery'&&s.shipTo){c.deliveries++;if(s.createdAt>=c.addressAt){c.addressAt=s.createdAt;c.address=(s.shipTo.fullAddress||'')+(s.shipTo.landmark?' (Landmark: '+s.shipTo.landmark+')':'');}}   // newest delivery address wins
   });
   return Array.from(map.values()).sort((a,b)=>b.last-a.last);
  }
  function render(){
   const body=$('walkinRows');if(!body)return;
   const q=($('walkinSearch')?.value||'').trim().toLowerCase();
-  const rows=people.filter(c=>!q||(c.name+' '+c.phone).toLowerCase().includes(q));
+  const rows=people.filter(c=>!q||(c.name+' '+c.phone+' '+c.address).toLowerCase().includes(q));
   $('walkinCount').textContent=people.length+' walk-in customer(s)';
   $('walkinShowing').textContent='Showing '+rows.length+' of '+people.length+' walk-in customers';
-  body.innerHTML=rows.length?rows.map(c=>'<tr><td>'+esc(c.name||'—')+'</td><td class="dim">'+esc(c.phone||'—')+'</td><td>'+c.count+'</td><td>'+peso(c.spent)+'</td><td class="dim">'+esc(when(c.last))+'</td></tr>').join(''):'<tr><td colspan="5" class="customer-empty">No walk-in customers yet. They appear here when a cashier enters a name or phone on a POS sale.</td></tr>';
+  body.innerHTML=rows.length?rows.map(c=>'<tr><td>'+esc(c.name||'—')+'</td><td class="dim">'+esc(c.phone||'—')+'</td><td class="dim" style="max-width:260px">'+(c.address?esc(c.address)+'<div class="faint" style="font-size:12px">'+c.deliveries+' delivery order'+(c.deliveries===1?'':'s')+'</div>':'—')+'</td><td>'+c.count+'</td><td>'+peso(c.spent)+'</td><td class="dim">'+esc(when(c.last))+'</td></tr>').join(''):'<tr><td colspan="6" class="customer-empty">No walk-in customers yet. They appear here when a cashier enters a name or phone on a POS sale (delivery sales also keep the delivery address).</td></tr>';
  }
  async function load(){
   const body=$('walkinRows');if(!body)return;
-  body.innerHTML='<tr><td colspan="5" class="customer-empty">Loading walk-in customers…</td></tr>';
+  body.innerHTML='<tr><td colspan="6" class="customer-empty">Loading walk-in customers…</td></tr>';
   try{const res=await fetch('/api/pos/sales?all=1',{credentials:'include'});if(!res.ok)throw Error('Could not load POS sales ('+res.status+').');people=group(await res.json());render();}
-  catch(err){body.innerHTML='<tr><td colspan="5" class="customer-empty">'+esc(err.message)+'</td></tr>';$('walkinCount').textContent='Unavailable';}
+  catch(err){body.innerHTML='<tr><td colspan="6" class="customer-empty">'+esc(err.message)+'</td></tr>';$('walkinCount').textContent='Unavailable';}
  }
  function show(tab){
   const walk=tab==='walk';

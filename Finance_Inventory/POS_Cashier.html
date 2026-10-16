@@ -13,6 +13,9 @@
 <link rel="stylesheet" href="cash-shift.css?v=1">
 <link rel="stylesheet" href="notifications.css?v=6">
 <style>
+.fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
+.cust-err{min-height:0;margin-top:4px;font-size:12.5px;color:var(--red,#e35b5b)}.cust-err:empty{display:none}.cust-grid input.is-bad{border-color:var(--red,#e35b5b)!important}
+.min-tag{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:600;background:var(--inset,#1b1f27);color:var(--text-dim)}
 .cust-box{margin:10px 0 12px}.cust-title{font-size:12.5px;font-weight:600;color:var(--text-dim);margin-bottom:6px}.cust-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.cust-grid input{width:100%;box-sizing:border-box}@media(max-width:520px){.cust-grid{grid-template-columns:1fr}}
 .qty input{width:64px;height:30px;border:0;border-radius:0;background:transparent;text-align:center;padding:0 2px;font-family:"IBM Plex Mono",monospace;font-size:14px;box-shadow:none}
 .qty input:focus{background:var(--field);box-shadow:inset 0 0 0 1px var(--blue-bright)}
@@ -173,8 +176,17 @@
           <div class="pay">
             <div class="row"><span class="dim">VAT (12%, included)</span><span class="mono" id="vat">₱0.00</span></div>
             <div class="row total"><span>Total</span><span class="mono" id="total">₱0.00</span></div>
-            <div class="cust-box"><div class="cust-title">Customer details <span class="faint">(optional)</span></div>
-              <div class="cust-grid"><input id="custName" maxlength="80" autocomplete="off" placeholder="Customer name" aria-label="Customer name"><input id="custPhone" maxlength="20" inputmode="tel" autocomplete="off" placeholder="Phone number" aria-label="Customer phone number"></div></div>
+            <div class="row" id="feeRow" hidden><span class="dim">Delivery fee</span><span class="mono" id="feeAmt">₱0.00</span></div>
+            <div class="cust-box">
+              <div class="cust-title">Order type</div>
+              <div class="fseg" role="group" aria-label="Pickup or delivery">
+                <button type="button" class="fseg-btn on" data-fulfil="Pickup">Pickup / Walk-in<small>Customer takes it at the counter</small></button>
+                <button type="button" class="fseg-btn" data-fulfil="Delivery">Delivery<small>We bring it to the customer</small></button>
+              </div>
+              <div class="cust-title" id="custTitle">Customer details <span class="faint">(optional)</span></div>
+              <div class="cust-grid"><div><input id="custName" maxlength="80" autocomplete="off" placeholder="Customer name" aria-label="Customer name"><div class="cust-err" id="custNameErr"></div></div><div><input id="custPhone" maxlength="20" inputmode="tel" autocomplete="off" placeholder="Phone number" aria-label="Customer phone number"><div class="cust-err" id="custPhoneErr"></div></div></div>
+              <div id="dlvHost" hidden></div>
+            </div>
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
@@ -326,6 +338,7 @@
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
 <script src="quote-fields.js?v=2"></script>
+<script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
@@ -366,7 +379,7 @@ async function submitSale(sale) {          // server re-prices from the database
   return api('/api/pos/sales', { method: 'POST', body: JSON.stringify({
     items: sale.items.map(i => i.override ? { sku: i.sku, qty: i.qty, price: i.price } : { sku: i.sku, qty: i.qty }), approvalToken: sale.approvalToken,
     method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef, requestId: sale.requestId,
-    customerName: sale.customerName, customerPhone: sale.customerPhone }) });
+    customerName: sale.customerName, customerPhone: sale.customerPhone, fulfillment: sale.fulfillment, shipTo: sale.shipTo }) });
 }
 async function requestApproval(email, password) {   // finance login at the counter -> short-lived token for price overrides
   return api('/api/pos/override-approval', { method: 'POST', body: JSON.stringify({ email, password }) });
@@ -396,7 +409,13 @@ const fmtQty = n => Number(n).toLocaleString('en-PH', { maximumFractionDigits: 2
 const unitPrice = l => l.price !== undefined ? l.price : prod(l.sku).price;          // negotiated price wins over the list price
 const lineCents = (price, qty) => Math.round(Math.round(price * 100) * Math.round(qty * 100) / 100);   // integer maths, same as the server
 const lineAmt = l => lineCents(unitPrice(l), l.qty) / 100;
-const total = () => cart.reduce((s, l) => s + lineCents(unitPrice(l), l.qty), 0) / 100;
+let fulfil = 'Pickup';                                       // 'Pickup' (counter sale) or 'Delivery'
+const dlvFee = () => fulfil === 'Delivery' && window.PosDelivery ? PosDelivery.fee() : 0;
+const itemsTotal = () => cart.reduce((s, l) => s + lineCents(unitPrice(l), l.qty), 0) / 100;
+const total = () => Math.round((itemsTotal() + dlvFee()) * 100) / 100;      // delivery fee is part of the total, like an online order
+/* Minimum order (manufacturing): the server sends minOrder per product (20-50, never more than the stock); the most a line can have is the stock. */
+const minQty = p => { if (!p) return 1; const m = Number(p.minOrder) || 1; return p.available > 0 ? Math.min(m, p.available) : m; };
+const belowMin = () => cart.find(l => { const p = prod(l.sku); return p && l.qty < minQty(p); });
 const hasOverride = () => cart.some(l => l.price !== undefined);
 const parseMoney = v => { const n = parseFloat(String(v).replace(/[₱,\s]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0; };
 const CARD_RE = /^[A-Z0-9-]{4,30}$/;
@@ -520,12 +539,12 @@ function renderProducts() {
   $('prodGrid').innerHTML = rows.map(p => { const n = inCart(p.sku); return `<button class="pcard" data-add="${esc(p.sku)}" ${p.available <= 0 ? 'disabled' : ''}>
     ${n ? `<span class="in-cart">${n}</span>` : ''}
     <span class="cat-tag">${esc(p.category)}</span><span class="pname">${esc(p.name)}</span><span class="spec">${esc(p.spec || '')} <span class="faint mono" style="font-size:11.5px">· ${esc(p.sku)}</span></span>
-    <span class="foot"><span class="price">${peso(p.price)}<small> / ${esc(p.unit)}</small></span></span>${stockPill(p)}
+    <span class="foot"><span class="price">${peso(p.price)}<small> / ${esc(p.unit)}${minQty(p) > 1 ? ' · min ' + fmtQty(minQty(p)) : ''}</small></span></span>${stockPill(p)}
     <span class="meter"><i class="${p.available <= 0 ? 'out' : p.available <= LOW_STOCK ? 'low' : ''}" style="width:${Math.max(p.available <= 0 ? 100 : 6, Math.min(100, p.available / 1.5))}%"></i></span>
     ${p.available > 0 ? '<span class="add-hint" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>' : ''}</button>`; }).join('');
   $('prodRows').innerHTML = rows.map(p => `<tr>
     <td class="mono dim">${esc(p.sku)}</td><td>${esc(p.name)}<div class="faint" style="font-size:12.5px">${esc(p.spec || '')}</div></td>
-    <td class="dim">${esc(p.unit)}</td><td class="r mono">${peso(p.price)}</td><td class="r">${stockPill(p)}</td>
+    <td class="dim">${esc(p.unit)}${minQty(p) > 1 ? '<span class="min-tag">min ' + fmtQty(minQty(p)) + '</span>' : ''}</td><td class="r mono">${peso(p.price)}</td><td class="r">${stockPill(p)}</td>
     <td class="r"><button class="btn-primary btn-sm" data-add="${esc(p.sku)}" ${p.available <= 0 ? 'disabled' : ''}>Add</button></td></tr>`).join('');
 }
 
@@ -537,10 +556,12 @@ function renderCart() {
       · <button class="link-btn" data-price="${esc(l.sku)}">${ov ? 'Edit price' : 'Change price'}</button>${ov ? ` · <button class="link-btn" data-priceoff="${esc(l.sku)}">Reset</button>` : ''}</div></div>
     <button class="icon-btn" data-rm="${esc(l.sku)}" title="Remove" aria-label="Remove ${esc(p.name)}">${TRASH}</button></div>
     <div class="bot"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><input data-qty="${esc(l.sku)}" value="${l.qty}" inputmode="${frac ? 'decimal' : 'numeric'}" autocomplete="off" aria-label="Quantity of ${esc(p.name)}"><span class="u">${esc(p.unit)}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
-    <span class="mono">${peso(lineAmt(l))}</span></div></div>`; }).join('')
+    <span class="mono">${peso(lineAmt(l))}</span></div>
+    ${minQty(p) > 1 || p.available ? `<div class="faint" style="font-size:12px;margin-top:4px">Min. ${fmtQty(minQty(p))} · max ${fmtQty(p.available)} ${esc(p.unit)} (in stock)</div>` : ''}</div>`; }).join('')
     : '<div class="empty"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>Add products to start a sale.</div>';
   const t = total(), units = cart.length;
   $('total').textContent = peso(t); $('vat').textContent = peso(t * VAT_RATE / (1 + VAT_RATE));
+  $('feeRow').hidden = fulfil !== 'Delivery'; $('feeAmt').textContent = PosDelivery.feeState().known ? peso(dlvFee()) : 'Choose the region';
   $('cartCount').textContent = units; $('clear').disabled = !cart.length;
   updatePay(); updateFab(); renderProducts(); updateHeldBtn(); writeStore();
 }
@@ -553,7 +574,14 @@ function updatePay() {
   const t = total(), tend = parseMoney($('tendered').value);
   $('change').textContent = peso(cents(tend) > cents(t) ? (cents(tend) - cents(t)) / 100 : 0);
   let ok = cart.length > 0 && !busy, msg = '';
-  if (cart.length && method === 'Cash' && cents(tend) < cents(t)) { ok = false; msg = $('tendered').value.trim() ? 'Cash received is less than the total.' : ''; }
+  const short = belowMin();
+  if (short) { ok = false; msg = 'The minimum order for ' + prod(short.sku).name + ' is ' + fmtQty(minQty(prod(short.sku))) + ' ' + prod(short.sku).unit + '.'; }
+  else if (cart.length && fulfil === 'Delivery') {
+    const fs = PosDelivery.feeState();
+    if (!fs.known) { ok = false; msg = 'Choose the delivery region / province to see the delivery fee.'; }
+    else if (!fs.available) { ok = false; msg = 'We do not deliver to this area yet. Choose another address or switch to Pickup.'; }
+  }
+  if (cart.length && method === 'Cash' && cents(tend) < cents(t)) { ok = false; if (!msg) msg = $('tendered').value.trim() ? 'Cash received is less than the total.' : ''; }
   if (cart.length && method === 'Card') {
     const c = cardCode();
     if (!CARD_RE.test(c)) { ok = false; msg = c ? 'Reference must be 4–30 letters, numbers or dashes.' : ''; }
@@ -564,13 +592,14 @@ function updatePay() {
   $('complete').textContent = method === 'Card' && cart.length ? 'Complete sale · Paid by phone ' + peso(t) : 'Complete sale';
 }
 function addToCart(sku) {
-  const p = prod(sku), l = cart.find(x => x.sku === sku), have = l ? l.qty : 0;
-  if (have + 1 > p.available) return toast('Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock.', true);
-  if (l) l.qty = Math.round((l.qty + 1) * 100) / 100; else cart.push({ sku, qty: 1 }); renderCart();
+  const p = prod(sku), l = cart.find(x => x.sku === sku), have = l ? l.qty : 0, step = l ? 1 : minQty(p);   // the first add brings the line up to the minimum order
+  if (have + step > p.available) return toast('Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock.', true);
+  if (l) l.qty = Math.round((l.qty + 1) * 100) / 100; else { cart.push({ sku, qty: step }); if (step > 1) toast('Minimum order for ' + p.name + ' is ' + fmtQty(step) + ' ' + p.unit + ' — added.'); } renderCart();
 }
 function stepDown(sku) {           // the − button: down by 1; removes the line if less than 1 would be left
   const l = cart.find(x => x.sku === sku); if (!l) return;
-  const q = Math.round((l.qty - 1) * 100) / 100;
+  const p = prod(sku), q = Math.round((l.qty - 1) * 100) / 100;
+  if (p && q < minQty(p)) return toast('The minimum order for ' + p.name + ' is ' + fmtQty(minQty(p)) + ' ' + p.unit + '. Use the bin to remove the line.', true);
   if (q < 0.01) cart = cart.filter(x => x !== l); else l.qty = q;
   renderCart();
 }
@@ -581,7 +610,8 @@ function typeQty(input) {          // the typed quantity box
   if (!raw || !Number.isFinite(n) || n <= 0) msg = 'Enter a quantity above zero (use the bin to remove the line).';
   else if (!isFrac(p) && !Number.isInteger(n)) msg = p.name + ' is sold in whole ' + p.unit + ' only.';
   else if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) msg = 'Up to 2 decimal places only.';
-  else if (n > p.available) msg = 'Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock.';
+  else if (n < minQty(p)) msg = 'The minimum order for ' + p.name + ' is ' + fmtQty(minQty(p)) + ' ' + p.unit + '.';
+  else if (n > p.available) msg = 'Only ' + fmtQty(p.available) + ' ' + p.unit + ' in stock (the most you can sell).';
   if (msg) { toast(msg, true); input.value = l.qty; return; }
   l.qty = Math.round(n * 100) / 100; renderCart();
 }
@@ -639,7 +669,7 @@ function renderSales() {
   $('stAvg').textContent = 'Avg ' + peso(live.length ? sum(live) / live.length : 0);
   $('stItems').textContent = live.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
   $('stSplit').textContent = pesoShort(sum(live.filter(s => s.method === 'Cash'))) + ' / ' + pesoShort(sum(live.filter(s => s.method !== 'Cash')));
-  $('saleRows').innerHTML = sales.map(s => `<tr><td class="mono">${s.receiptNo}</td><td class="dim">${new Date(s.createdAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</td>
+  $('saleRows').innerHTML = sales.map(s => `<tr><td class="mono">${s.receiptNo}${s.fulfillment === 'Delivery' ? '<div class="dim" style="font-size:12px;font-family:inherit">Delivery</div>' : ''}</td><td class="dim">${new Date(s.createdAt).toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })}</td>
     <td class="r">${s.items.reduce((n, i) => n + i.qty - (i.returnedQty || 0), 0)}</td><td class="r mono">${peso(s.total)}${s.refunded ? `<div class="dim" style="font-size:12px">returned −${peso(s.refunded)}</div>` : ''}</td><td>${s.method === 'Xendit' ? 'Online payment' : s.method}</td>
     <td><span class="status-pill ${s.returnPending ? 'warn' : s.status === 'Completed' ? 'ok' : s.status === 'Voided' ? 'bad' : 'warn'}">${s.returnPending ? 'Return pending' : s.status}</span></td>
     <td class="r" style="white-space:nowrap"><button class="btn-secondary btn-sm" data-reprint="${s.id}">Reprint</button>
@@ -682,7 +712,9 @@ async function receiptPng(s, reprint) {
     rule();
     for (const i of s.items) { row(fmtQty(i.qty) + (MEASURED_RE.test(String(i.unit).trim()) ? ' ' + i.unit : '') + ' × ' + i.name, peso(lineCents(i.price, i.qty) / 100)); sub('@ ' + peso(i.price) + ' / ' + i.unit + ' · ' + i.sku + (i.listPrice ? ' (list ' + peso(i.listPrice) + ')' : '')); }
     if (s.customerName || s.customerPhone) { rule(); row('Customer', s.customerName || '—', { size: 11 }); if (s.customerPhone) row('Phone', s.customerPhone, { size: 11 }); }
+    if (s.fulfillment === 'Delivery' && s.shipTo) { rule(); center('DELIVERY', { bold: true, size: 12 }); row('Deliver to', s.shipTo.recipient || s.customerName || '—', { size: 11 }); sub(s.shipTo.fullAddress || ''); if (s.shipTo.landmark) sub('Landmark: ' + s.shipTo.landmark); }
     rule();
+    if (s.fulfillment === 'Delivery') { row('Items', peso(Math.round(cents(s.total) - cents(s.deliveryFee || 0)) / 100), { size: 11 }); row('Delivery fee', peso(s.deliveryFee || 0), { size: 11 }); }
     const net = Math.round((cents(s.total) - cents(s.vat))) / 100;
     row('VATable sales', peso(net), { size: 11 }); row('VAT 12% (incl.)', peso(s.vat), { size: 11 });
     gap(4); row('TOTAL', peso(s.total), { bold: true, size: 16 });
@@ -749,7 +781,7 @@ async function beginXendit(draft) {
   if (xenditPayment) { $('xenditPending').hidden = false; return; }
   busy = true; updatePay();
   try {
-    const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({requestId:draft.requestId,customerName:draft.customerName,customerPhone:draft.customerPhone,items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
+    const p = await api('/api/pos/xendit-checkout', {method:'POST',body:JSON.stringify({requestId:draft.requestId,customerName:draft.customerName,customerPhone:draft.customerPhone,fulfillment:draft.fulfillment,shipTo:draft.shipTo,items:draft.items.map(i=>i.override?{sku:i.sku,qty:i.qty,price:i.price}:{sku:i.sku,qty:i.qty})})});
     xenditPayment = p;
     $('xenditPending').hidden = false; $('xenditState').textContent = 'Waiting for verified payment';
     $('xenditLink').href = p.checkoutUrl; $('xenditQR').replaceChildren();
@@ -767,10 +799,13 @@ async function completeSale() {
   if (method === 'Cash' && cents(tend) < cents(t)) return updatePay();
   if (method === 'Card' && (!CARD_RE.test(cardCode()) || !$('cardOk').checked)) return updatePay();
   if (hasOverride() && !approvalOk()) return openReapprove();
+  const short = belowMin(); if (short) return toast('The minimum order for ' + prod(short.sku).name + ' is ' + fmtQty(minQty(prod(short.sku))) + ' ' + prod(short.sku).unit + '.', true);
+  let shipTo; if (fulfil === 'Delivery') { shipTo = readDelivery(); if (!shipTo) return; }
   const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: unitPrice(l), override: l.price !== undefined && l.price !== p.price }; }),
     approvalToken: hasOverride() ? approval.token : undefined,
     method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined, requestId: saleRequestId(),
-    customerName: $('custName').value.trim() || undefined, customerPhone: $('custPhone').value.trim() || undefined };
+    customerName: $('custName').value.trim() || undefined, customerPhone: $('custPhone').value.trim() || undefined,
+    fulfillment: fulfil, shipTo };
   if (method === 'Xendit') return beginXendit(draft);
   busy = true; $('complete').disabled = true; $('complete').textContent = 'Saving…';
   let sale;
@@ -785,11 +820,38 @@ function syncCart() {
   cart = cart.filter(l => { const p = prod(l.sku); if (!p || p.available <= 0) { changed = true; return false; }
     if (!isFrac(p) && !Number.isInteger(l.qty)) { l.qty = Math.max(1, Math.floor(l.qty)); changed = true; }
     if (l.qty > p.available) { l.qty = isFrac(p) ? p.available : Math.floor(p.available); changed = true; }
+    if (l.qty > 0 && l.qty < minQty(p)) { l.qty = minQty(p); changed = true; }
     return l.qty > 0; });
   if (changed) toast('Cart adjusted to the stock available.', true);
   renderCart();
 }
-function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
+/* ----- delivery mode ----- */
+const DLV_PHONE_RE = /^(\+63|0)9\d{9}$/, DLV_NAME_RE = /^[\p{L}][\p{L}\p{M} .'’-]*$/u;
+function custErr(id, msg) { const b = $(id + 'Err'); if (b) b.textContent = msg || ''; $(id).classList.toggle('is-bad', !!msg); }
+function setFulfil(f) {
+  fulfil = f; document.querySelectorAll('[data-fulfil]').forEach(b => b.classList.toggle('on', b.dataset.fulfil === f));
+  $('dlvHost').hidden = f !== 'Delivery';
+  $('custTitle').innerHTML = f === 'Delivery' ? 'Customer details <span class="faint">(required for delivery — saved to Customer Management)</span>' : 'Customer details <span class="faint">(optional)</span>';
+  $('custName').placeholder = f === 'Delivery' ? 'Customer full name' : 'Customer name'; $('custPhone').placeholder = f === 'Delivery' ? 'Mobile no. e.g. 0917 123 4567' : 'Phone number';
+  $('custName').maxLength = f === 'Delivery' ? 50 : 80;
+  if (f !== 'Delivery') { custErr('custName', ''); custErr('custPhone', ''); }
+  if (typeof renderCart === 'function' && ready) renderCart();
+}
+// name + mobile + address, all checked; returns the shipTo object or null (the bad fields are marked)
+function readDelivery() {
+  let bad = false;
+  const name = $('custName').value.trim().replace(/\s+/g, ' '), phone = $('custPhone').value.replace(/[\s().-]/g, '');
+  if (name.length < 2 || name.length > 50 || !DLV_NAME_RE.test(name)) { custErr('custName', 'Enter the customer’s full name (2–50 characters, letters only).'); bad = true; } else custErr('custName', '');
+  if (!DLV_PHONE_RE.test(phone)) { custErr('custPhone', 'Enter a valid mobile number, e.g. 0917 123 4567.'); bad = true; } else custErr('custPhone', '');
+  let ship = null; try { ship = PosDelivery.collect(); } catch (e) { toast(e.message || 'Check the delivery address.', true); bad = true; }
+  if (bad) { if (!ship) { /* address errors are already marked */ } else toast('Please fix the customer name / mobile number.', true); return null; }
+  return ship;
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-fulfil]'); if (b) setFulfil(b.dataset.fulfil); });
+PosDelivery.init({ api, esc, toast, onChange: () => { if (ready) renderCart(); } });
+PosDelivery.mount($('dlvHost'));
+
+function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; setFulfil('Pickup'); PosDelivery.reset(); custErr('custName', ''); custErr('custPhone', ''); $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {

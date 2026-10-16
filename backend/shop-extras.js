@@ -28,7 +28,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   /* ---------------- schema ---------------- */
   const ready = (async () => {
     try {
-      await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty NUMERIC(14,2) NOT NULL DEFAULT 1 CHECK (min_order_qty > 0)');
+      await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty NUMERIC(14,2) NOT NULL DEFAULT 20 CHECK (min_order_qty > 0)');
       await pool.query(`CREATE SEQUENCE IF NOT EXISTS quote_no_seq START 1001`);
       await pool.query(`CREATE TABLE IF NOT EXISTS quote_requests (
         quote_id      BIGSERIAL PRIMARY KEY,
@@ -608,15 +608,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   /* =====================================================
      2. Minimum order
   ===================================================== */
-  // items = rows from loadSellable (product_id, name, unit, qty, on_hand). The minimum never exceeds what is in stock,
-  // so a customer can always buy the last few units.
+  // Manufacturing company: every sale (online shop AND the POS counter) has a minimum order. Finance sets it per product inside
+  // MIN_ORDER_FLOOR..MIN_ORDER_CAP (default 20..50, overridable in .env); anything stored outside that range (old rows default to 1)
+  // is treated as the nearest allowed value. The maximum is simply what is in stock, and the minimum never exceeds the stock,
+  // so the last few units can still be bought.
+  const MIN_ORDER_FLOOR = Number(process.env.MIN_ORDER_FLOOR) > 0 ? Number(process.env.MIN_ORDER_FLOOR) : 20;
+  const MIN_ORDER_CAP = Number(process.env.MIN_ORDER_CAP) >= MIN_ORDER_FLOOR ? Number(process.env.MIN_ORDER_CAP) : Math.max(50, MIN_ORDER_FLOOR);
+  const effectiveMin = (stored, onHand) => {
+    const m = Math.min(MIN_ORDER_CAP, Math.max(MIN_ORDER_FLOOR, Number(stored) || MIN_ORDER_FLOOR));
+    return Number(onHand) > 0 ? Math.min(m, Number(onHand)) : m;
+  };
+  // items = rows from loadSellable (product_id, name, unit, qty, on_hand).
   async function checkMinimums(client, items) {
     try {
       await ready;
       const { rows } = await client.query('SELECT product_id, min_order_qty FROM products WHERE product_id = ANY($1)', [items.map((i) => i.product_id)]);
       const min = new Map(rows.map((r) => [r.product_id, +r.min_order_qty]));
       for (const i of items) {
-        const m = Math.min(min.get(i.product_id) || 1, +i.on_hand);
+        const m = effectiveMin(min.get(i.product_id), i.on_hand);
         if (+i.qty < m) throw bad('items', `${i.name}: the minimum order is ${m} ${i.unit}`);
       }
     } catch (err) { if (err instanceof ValidationError) throw err; console.warn('[shop] minimum order check skipped:', err.message); }
@@ -776,8 +785,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const alerts = new Map(al.rows.map((r) => [r.sku.toUpperCase(), r.notified_at]));
       for (const p of rows) {
         const k = String(p.sku).toUpperCase(), r = by.get(k), a = alerts.get(k);
-        const min = r ? +r.min_order_qty : 1;
-        p.minOrder = p.available > 0 ? Math.min(min, p.available) : min;   // never more than what is in stock
+        p.minOrder = effectiveMin(r ? r.min_order_qty : null, p.available);   // MIN_ORDER_FLOOR..CAP, never more than what is in stock
+        p.maxOrder = Math.max(0, +p.available);                              // the most that can be ordered = what is in stock
         p.rating = r && r.avg != null ? +r.avg : 0;
         p.reviewCount = r && r.cnt ? r.cnt : 0;
         p.notifyMe = alerts.has(k) && !a;
@@ -787,5 +796,5 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     return rows;
   }
 
-  app.locals.shopExtras = { decorate, checkMinimums };
+  app.locals.shopExtras = { decorate, checkMinimums, effectiveMin, MIN_ORDER_FLOOR, MIN_ORDER_CAP };
 };
