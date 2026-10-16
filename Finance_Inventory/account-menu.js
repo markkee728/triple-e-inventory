@@ -147,7 +147,7 @@
           '</div>' +
           '<div class="acct-group"><label class="acct-label">Role</label>' +
             '<div class="acct-role-row"><span class="badge" id="acctRoleBadge">' + CFG.roleLabel + '</span>' +
-            '<span class="acct-role-note">Assigned by system — contact your Admin to change roles</span></div></div>' +
+            (CUST ? '' : '<span class="acct-role-note">Assigned by system — contact your Admin to change roles</span>') + '</div></div>' +
           (CUST ? companyFields() : '') +
           '<div class="acct-banner" id="acctProfileBanner">Please fix the highlighted fields.</div>' +
           '<div class="acct-footer">' +
