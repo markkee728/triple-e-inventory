@@ -57,7 +57,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: months instead of a date, dropdown choices, reply details, customer answer
       for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
-                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT'])
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
@@ -127,6 +127,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
   };
+  // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
+  const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
   const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
   const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
@@ -153,6 +155,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededMonths: q.needed_months || undefined, neededBy: dateStr(q.needed_by),          // neededBy only exists on requests made before the months field
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
+      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined,
       quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
@@ -285,34 +288,38 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
        accept  -> status 'accepted'  (Finance is told and follows up on payment / pickup / delivery)
        decline -> status 'declined'
        renew   -> status 'new'       (the price expired or no longer fits: ask Finance for a fresh quote) */
-  async function respondToQuote(req, res, { where, params, who }) {
+  async function respondToQuote(req, res, { where, params, who, autoPay }) {
     const action = str((req.body || {}).action), note = str((req.body || {}).note);
     if (!['accept', 'decline', 'renew'].includes(action)) throw bad('action', 'Choose accept, decline or ask for a new quote');
     if (note.length > 500) throw bad('note', 'Please keep the note under 500 characters');
     const next = { accept: 'accepted', decline: 'declined', renew: 'new' }[action];
+    // accepting a quote needs a payment method: the online customer chooses one, the cashier's walk-in quote is automatically pay on pickup
+    const chosen = str((req.body || {}).payMethod);
+    if (action === 'accept' && !autoPay && !QUOTE_OPTIONS.payMethods.includes(chosen)) throw bad('payMethod', 'Choose how you will pay');
     const q = await tx(async (client) => {
       const cur = (await client.query(`SELECT * FROM quote_requests WHERE quote_no = $1 AND ${where} FOR UPDATE`, [req.params.no, ...params])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
       if (cur.status !== 'quoted') throw bad('status', cur.status === 'new' ? 'This request has not been answered yet' : 'This quote was already answered or closed');
       const vu = dateStr(cur.valid_until);
       if (action === 'accept' && vu && vu < todayPH()) throw bad('status', 'This quote has expired. Ask for a new quote instead');
+      const payMethod = action === 'accept' ? (autoPay ? payOnLabel(cur.fulfillment) : chosen) : null;
       const r = await client.query(
-        `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, updated_at = now() WHERE quote_id = $1 RETURNING *`,
-        [cur.quote_id, next, note || null]);
+        `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, next, note || null, payMethod]);
       await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
       return r.rows[0];
     });
     res.json({ ok: true, status: q.status });
     Promise.resolve(pingFinance({ category: 'orders', title: action === 'accept' ? 'Quote accepted' : action === 'decline' ? 'Quote declined' : 'New quote requested',
-      body: `${q.contact_name} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'asked for a new quote on'} ${q.quote_no}` + (q.quoted_amount != null ? ' (' + peso(q.quoted_amount) + ')' : '') + '.',
+      body: `${q.contact_name} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'asked for a new quote on'} ${q.quote_no}` + (q.quoted_amount != null ? ' (' + peso(q.quoted_amount) + ')' : '') + (action === 'accept' && q.pay_method ? '. Payment: ' + q.pay_method : '') + '.',
       link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no })).catch(() => {});
     (async () => {
       const to = financeTo(); if (!to) return;
       const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
       await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
         `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
-        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
-        action === 'accept' ? `Next: open Finance > Quote Requests, record the payment and move it to Preparing.` : 'Open Finance > Quote Requests to see it.'], 'quote-response');
+        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
+        action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `Next: open Finance > Quote Requests, record the ${q.pay_method || ''} payment and move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
 
@@ -350,7 +357,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
   }));
 
-  app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], who: 'the cashier (walk-in customer)' })));
+  app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], autoPay: true, who: 'the cashier (walk-in customer)' })));
 
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(

@@ -634,6 +634,13 @@
   .fp-choice b{ display:block; font-size:14px; color:var(--text); }
   .fp-choice small{ display:block; font-size:11.5px; color:var(--text-dim); margin-top:2px; }
   #fpForm1[hidden], #fpForm2[hidden]{ display:none; }
+  /* account unlock countdown */
+  .ul-clock{ font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-size:52px; font-weight:700; text-align:center; letter-spacing:.06em; color:var(--blue-bright); margin:14px 0 10px; }
+  .ul-clock.done{ color:var(--green); }
+  .ul-bar{ height:6px; border-radius:4px; background:rgba(255,255,255,0.08); overflow:hidden; margin:0 0 12px; }
+  .ul-bar i{ display:block; height:100%; width:0; background:var(--blue-bright); transition:width 1s linear; }
+  .ul-bar.done i{ background:var(--green); }
+  .lock-timer{ font-family:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace; font-weight:700; }
   /* terms / privacy window */
   .legal-overlay{
     position:fixed; inset:0; z-index:50; display:none; align-items:center; justify-content:center; padding:18px;
@@ -951,6 +958,20 @@
         <p class="back-row"><a href="#" class="link" id="fpBack">Back to sign in</a></p>
       </div>
 
+      <!-- ===== ACCOUNT UNLOCK COUNTDOWN ===== -->
+      <div class="screen" id="unlockScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Account Unlock</span>
+        </div>
+        <h1 id="ulTitle">Unlocking your account</h1>
+        <p class="sub" id="ulText">Please wait for the countdown to finish. You can sign in again when it reaches zero.</p>
+        <div class="ul-clock" id="ulClock" role="timer" aria-live="off">02:00</div>
+        <div class="ul-bar"><i id="ulBar"></i></div>
+        <p class="hint" id="ulEmail" style="text-align:center"></p>
+        <button type="button" class="submit" id="ulBtn" disabled>SIGN IN IN 02:00</button>
+      </div>
+
       <!-- ===== VERIFY RESULT / LINK PROBLEMS ===== -->
       <div class="screen" id="noticeScreen">
         <div class="brand-mark">
@@ -1035,6 +1056,54 @@
   $('email').addEventListener('input', clearLoginState);
   $('password').addEventListener('input', clearLoginState);
 
+  /* ---------- lockout: countdown shown on the sign-in page and on the unlock page ---------- */
+  const mmss = (n) => String(Math.floor(n / 60)).padStart(2, '0') + ':' + String(n % 60).padStart(2, '0');
+  let loginLockTimer = null;
+  function stopLoginLock(){ clearInterval(loginLockTimer); loginLockTimer = null; $('loginBtn').disabled = false; $('loginBtn').textContent = 'SIGN IN'; }
+  function startLoginLock(secs){            // the person tried to sign in while the unlock countdown is running
+    clearInterval(loginLockTimer);
+    const end = Date.now() + secs * 1000, btn = $('loginBtn');
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      if (left <= 0){ stopLoginLock(); loginError.classList.remove('show'); loginNotice.textContent = 'Your account is unlocked. You can sign in now.'; loginNotice.classList.add('show'); return; }
+      loginError.innerHTML = 'Your account is unlocking. You can sign in again in <span class="lock-timer">' + mmss(left) + '</span>.';
+      loginError.classList.add('show'); btn.disabled = true; btn.textContent = 'WAIT ' + mmss(left);
+    };
+    tick(); if (loginLockTimer !== null || secs > 0) loginLockTimer = setInterval(tick, 500);
+  }
+  function showLockedError(msg){            // locked, link not opened yet: offer a new link
+    loginError.textContent = msg + ' ';
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Send me a new unlock link';
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      const r = await api('POST', '/api/auth/unlock/resend', { email: clean($('email').value).toLowerCase() }).catch(() => null);
+      loginError.classList.remove('show');
+      loginNotice.textContent = r && r.data && r.data.message ? r.data.message : 'Could not reach the server. Try again.';
+      loginNotice.classList.add('show');
+    });
+    loginError.appendChild(b); loginError.classList.add('show');
+  }
+
+  /* the unlock page (email link ?unlock=<token>): opening the link starts the countdown on the server */
+  let unlockTimer = null;
+  function showUnlock(data){
+    const total = data.cooldown || 120, end = Date.now() + (data.secondsLeft || 0) * 1000;
+    $('ulEmail').textContent = data.email ? 'Account: ' + data.email : '';
+    showScreen('unlockScreen');
+    clearInterval(unlockTimer);
+    const paint = () => {
+      const left = data.state === 'ready' ? 0 : Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      $('ulClock').textContent = mmss(left); $('ulClock').classList.toggle('done', left === 0);
+      $('ulBar').style.width = Math.min(100, Math.round((total - left) / total * 100)) + '%'; $('ulBar').parentNode.classList.toggle('done', left === 0);
+      $('ulBtn').disabled = left > 0; $('ulBtn').textContent = left > 0 ? 'SIGN IN IN ' + mmss(left) : 'GO TO SIGN IN';
+      $('ulTitle').textContent = left > 0 ? 'Unlocking your account' : 'Your account is unlocked';
+      $('ulText').textContent = left > 0 ? 'Please wait for the countdown to finish. You can sign in again when it reaches zero.' : 'You can sign in now. If you forgot your password, use \u201cForgot password?\u201d on the sign-in page.';
+      if (left <= 0) clearInterval(unlockTimer);
+    };
+    paint(); unlockTimer = setInterval(paint, 500);
+    $('ulBtn').onclick = () => { if (data.email) $('email').value = data.email; $('password').value = ''; stopLoginLock(); showScreen('loginScreen'); $('password').focus(); };
+  }
+
   function showLoginError(msg, withResend){
     loginError.textContent = msg + ' ';
     if (withResend){
@@ -1074,13 +1143,18 @@
         openVerifyScreen({ email: r.data.email || emailValue, token: r.data.pendingToken, emailVerified: r.data.emailVerified, phoneVerified: r.data.phoneVerified });
         return;
       }
+      else if (r.status === 423){
+        $('password').value = '';
+        if (r.data.code === 'LOCK_COOLDOWN') startLoginLock(r.data.secondsLeft || 0);
+        else showLockedError(r.data.error || 'Your account is locked.');
+      }
       else if (r.status === 401 || r.status === 400){
         emailField.classList.add('invalid'); passwordField.classList.add('invalid');
         showLoginError('Invalid email or password. Please try again.');
       } else showLoginError('Something went wrong. Please try again.');
     } catch (err){
       showLoginError('Could not reach the server. Check your connection and try again.');
-    } finally { btn.disabled = false; btn.textContent = 'SIGN IN'; }
+    } finally { if (loginLockTimer === null){ btn.disabled = false; btn.textContent = 'SIGN IN'; } }
   });
 
   /* =====================================================
@@ -1456,9 +1530,19 @@
   /* ---------- links from emails:  ?invite=<token> (cashier)   ?verify=<token> (customer email) ---------- */
   (async function openEmailLinks(){
     const q = new URLSearchParams(location.search);
-    const invite = q.get('invite'), verify = q.get('verify');
-    if (!invite && !verify) return;
+    const invite = q.get('invite'), verify = q.get('verify'), unlock = q.get('unlock');
+    if (!invite && !verify && !unlock) return;
     history.replaceState(null, '', location.pathname);       // keep the token out of the address bar / history
+    if (unlock){
+      notice('Account Unlock', 'Checking your unlock link…', 'One moment please.'); $('noticeBtn').hidden = true;
+      try {
+        const r = await api('POST', '/api/auth/unlock', { token: unlock });
+        $('noticeBtn').hidden = false;
+        if (r.ok) showUnlock(r.data);
+        else notice('Account Unlock', 'This link can\u2019t be used', r.data.error || 'This unlock link is invalid or has expired. Try signing in, and ask for a new link if your account is still locked.');
+      } catch (err){ $('noticeBtn').hidden = false; notice('Account Unlock', 'Could not unlock', 'Could not reach the server. Check your connection and open the link again.'); }
+      return;
+    }
     if (verify){
       notice('Email Verification', 'Verifying your email…', 'One moment please.'); $('noticeBtn').hidden = true;
       try {

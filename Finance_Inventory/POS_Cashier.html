@@ -904,7 +904,7 @@ async function loadPosQuotes() {
   $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
     const actions = q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
       <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
-      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Finance will take the payment and start preparing it.</div>'
+      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Finance will start preparing it.</div>'
       : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
       : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
       : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
@@ -919,9 +919,9 @@ async function loadPosQuotes() {
 $('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
   const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
   const action = b.dataset.pqresp, id = b.dataset.qid;
-  if (!confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
+  if (!confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
   b.disabled = true;
-  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Finance has been told.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
+  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Payment will be collected on pickup. Finance has been told.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
   catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
   loadPosQuotes();
 });

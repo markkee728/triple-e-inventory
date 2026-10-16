@@ -684,8 +684,19 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT u.*, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.email = $1`, [email]);
   const u = rows[0];
-  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash)))
+  const lock = app.locals.lockout;                           // login-lockout.js (3 wrong passwords -> locked until the emailed link + countdown)
+  if (u && u.status === 'active' && lock) {
+    const st = await lock.state(u.user_id);
+    if (st.locked) return res.status(423).json(st.cooling
+      ? { code: 'LOCK_COOLDOWN', secondsLeft: st.secondsLeft, error: 'Your account is unlocking. Please wait for the countdown to finish.' }
+      : { code: 'LOCKED', error: 'Your account is locked after too many wrong passwords. Open the unlock link we emailed you.' });
+  }
+  if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash))) {
+    if (u && u.status === 'active' && lock && (await lock.fail(u, req)).locked)
+      return res.status(423).json({ code: 'LOCKED', justLocked: true, error: 'Too many wrong passwords. Your account is locked. We emailed you an unlock link.' });
     return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  if (lock) await lock.success(u.user_id);
   // customers must have confirmed BOTH their email and their mobile number (only said after the password is right).
   // Older accounts were marked verified when these checks were added.
   if (u.role_key === 'customer') {
@@ -1340,6 +1351,7 @@ app.get('/api/audit', auth('finance'), wrap(async (req, res) => {
 /* ---------- sign-up: customers sign up directly; staff get an emailed invite link (Mailgun) ---------- */
 require('./auth-signup')({ app, pool, auth, wrap, tx, audit, ValidationError, str, text, EMAIL_FORMAT, phoneError, phMobile, assertEmailDomain: assertPersonalEmail, emailVerificationOn: EMAIL_VERIFICATION_ON, phoneVerificationOn: PHONE_VERIFICATION_ON, TZ });
 require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: PHONE_VERIFICATION_ON, emailVerificationOn: EMAIL_VERIFICATION_ON });
+require('./login-lockout')({ app, pool, wrap, audit, str, EMAIL_RE });   // lock after 3 wrong passwords, unlock by emailed link + 2-minute countdown
 require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, str, EMAIL_RE });   // forgot / change password codes by email or text
 /* ---------- POS + online shop (finished goods only) ---------- */
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });

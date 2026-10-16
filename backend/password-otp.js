@@ -150,6 +150,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
       await consume(client, u.user_id, 'reset', b.code);
       await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, u.user_id]);
       await audit(client, { id: u.user_id, name: u.full_name, roleLabel: u.label }, 'Profile updated', 'Reset password with a one-time code');
+      await client.query('DELETE FROM login_lockouts WHERE user_id = $1', [u.user_id]).catch(() => {});   // proving the email/phone also lifts a sign-in lock
     });
     res.json({ ok: true });
   }));
