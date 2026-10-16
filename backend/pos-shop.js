@@ -34,7 +34,7 @@ const DEFAULT_DELIVERY_RATES = [
 // "Region IV-A - CALABARZON" and "region iv-a" are the same region; provinces compare on their plain name
 const rateKey = (scope, name) => {
   const t = String(name || '').toLowerCase();
-  return (scope === 'region' ? t.split(' - ')[0] : t).replace(/\b(province|city) of\b/g, '').replace(/[^a-z0-9]/g, '');
+  return (scope === 'region' ? t.split(' - ')[0].split('(')[0] : t).replace(/\b(province|city) of\b/g, '').replace(/[^a-z0-9]/g, '');
 };
 const ONLINE_METHODS = ['Online Banking', 'E-Wallet', 'Card', 'Xendit'];
 // Order life-cycle. An order can only move one step forward; the last step ends it.
@@ -554,7 +554,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     } catch (err) { console.warn('[db] could not prepare the delivery rates table:', err.message); }
   }
   const deliveryRatesReady = ensureDeliveryRates();
-  const rateRows = async (db) => { await deliveryRatesReady; try { return (await (db || pool).query('SELECT rate_id, scope, name, fee, available FROM delivery_rates ORDER BY scope, name')).rows; } catch { return []; } };
+  // The built-in starting rates. Used when the delivery_rates table cannot be read or is empty, so a database problem can never turn into
+  // "we deliver everywhere for the standard fee": uncovered areas stay blocked.
+  const BUILT_IN_RATES = DEFAULT_DELIVERY_RATES.map(([scope, name, fee, available], i) => ({ rate_id: -(i + 1), scope, name, fee, available }));
+  const rateRows = async (db) => {
+    await deliveryRatesReady;
+    try {
+      const rows = (await (db || pool).query('SELECT rate_id, scope, name, fee, available FROM delivery_rates ORDER BY scope, name')).rows;
+      if (rows.length) return rows;
+      console.warn('[delivery] the delivery_rates table is empty - using the built-in starting rates. Open Sales > Orders > Delivery rates and save.');
+    } catch (err) { console.warn('[delivery] could not read delivery_rates - using the built-in starting rates:', err.message); }
+    return BUILT_IN_RATES;
+  };
   // Most specific rate wins: province, then region, then the "all other areas" rate, then DELIVERY_FEE from .env
   async function deliveryFeeFor(db, { region, province } = {}) {
     const rows = await rateRows(db);
@@ -564,7 +575,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const reg = hit('region', region);
     if (reg) return { fee: +reg.fee, rate: reg.name, scope: 'region', available: reg.available !== false };
     const def = rows.find((r) => r.scope === 'default');
-    return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default', available: def ? def.available !== false : true };
+    return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default', available: def ? def.available !== false : false };   // no "all other areas" row: not covered
   }
   const ratesSummary = async () => {
     const rows = await rateRows();
@@ -1311,7 +1322,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
     });
     res.status(201).json({ ok: true, cancelled: instant });
-    if (instant) notify(req.params.no, 'Cancelled', { reason });
+    if (instant) notify(req.params.no, 'Cancelled', { reason, by: 'customer' });
     else later(() => Promise.all([
       pingFinance({ category: 'orders', title: 'Cancellation requested',
         body: req.params.no + ' — ' + reason + ' (customer ' + req.user.name + '). Approve or reject it on Sales Transactions.',
@@ -1387,7 +1398,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await confirmOrder(client, o, req.user);
     });
     res.json({ ok: true });
-    notify(req.params.no, 'Paid');
+    notify(req.params.no, 'Paid', { by: 'finance' });     // Finance confirmed it by hand: tell the customer, not Finance
   }));
 
   app.post('/api/orders/:no/cancel-decision', auth('finance'), wrap(async (req, res) => {

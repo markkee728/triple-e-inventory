@@ -31,6 +31,9 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       ON notifications (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL AND NOT is_resolved`);
   })().catch((e) => { schemaReady = null; throw e; }));
 
+  // Only show rows that belong to the role the user has NOW (a user whose role changed must not keep seeing the old role's alerts)
+  const roleOnly = (req) => " AND role_key = '" + String(req.user.role || '').replace(/[^a-z_]/gi, '') + "'";
+
   const peso = (n) => '\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   async function roleUserIds(roleKey) {
@@ -200,39 +203,36 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       Paid: {
         customer: { category: 'payment', title: 'Payment confirmed',
           body: 'Order ' + no + ' is confirmed. Payment of ' + peso(o.total) + ' is recorded and we will start packing next.' },
-        finance: { category: 'payment', title: 'Order payment confirmed',
+        // Finance is told when a payment arrives by itself (online gateway); not when Finance confirmed the order by hand
+        finance: extra && extra.by === 'finance' ? null : { category: 'payment', title: 'Order payment confirmed',
           body: no + ' is now Paid (' + peso(o.total) + ', ' + o.payment_method + '). Stock is reserved.' }
       },
       Packed: {
         customer: { category: 'delivery', title: 'Order packed',
-          body: 'Order ' + no + ' is packed' + (o.fulfillment === 'Delivery' ? ' and waiting for the delivery run.' : '. We will tell you when it is ready for pickup.') },
-        finance: { category: 'delivery', title: 'Order packed', body: no + ' was marked Packed.' }
+          body: 'Order ' + no + ' is packed' + (o.fulfillment === 'Delivery' ? ' and waiting for the delivery run.' : '. We will tell you when it is ready for pickup.') }
       },
       'Out for Delivery': {
         customer: { category: 'delivery', title: 'Out for delivery',
-          body: 'Order ' + no + ' is out for delivery. Please keep your phone nearby.' },
-        finance: { category: 'delivery', title: 'Order out for delivery', body: no + ' is out for delivery.' }
+          body: 'Order ' + no + ' is out for delivery. Please keep your phone nearby.' }
       },
       'Ready for Pickup': {
         customer: { category: 'delivery', title: 'Ready for pickup',
-          body: 'Order ' + no + ' is ready for pickup. Please bring your order number and a valid ID.' },
-        finance: { category: 'delivery', title: 'Order ready for pickup', body: no + ' is ready for pickup.' }
+          body: 'Order ' + no + ' is ready for pickup. Please bring your order number and a valid ID.' }
       },
       Delivered: {
         customer: { category: 'delivery', title: 'Order delivered',
-          body: 'Order ' + no + ' was delivered' + (o.received_by ? ' (received by ' + o.received_by + ')' : '') + '.' },
-        finance: { category: 'delivery', title: 'Order delivered', body: no + ' was marked Delivered.' }
+          body: 'Order ' + no + ' was delivered' + (o.received_by ? ' (received by ' + o.received_by + ')' : '') + '.' }
       },
       'Picked Up': {
         customer: { category: 'delivery', title: 'Order picked up',
-          body: 'Order ' + no + ' was picked up' + (o.received_by ? ' by ' + o.received_by : '') + '.' },
-        finance: { category: 'delivery', title: 'Order picked up', body: no + ' was marked Picked Up.' }
+          body: 'Order ' + no + ' was picked up' + (o.received_by ? ' by ' + o.received_by : '') + '.' }
       },
       Cancelled: {
-        customer: { category: 'orders', title: 'Cancellation approved',
+        customer: { category: 'orders', title: 'Order cancelled',
           body: 'Order ' + no + ' was cancelled' + (reason ? ': ' + reason : '.') },
-        finance: { category: 'orders', title: 'Order cancelled',
-          body: no + ' was cancelled' + (reason ? ': ' + reason : '.') }
+        // Finance is only told when the CUSTOMER cancelled (instant cancel); cancellations Finance approves or does itself need no alert
+        finance: extra && extra.by === 'customer' ? { category: 'orders', title: 'Customer cancelled an order',
+          body: no + ' was cancelled by the customer' + (reason ? ': ' + reason : '.') } : null
       },
       cancel_declined: {
         customer: { category: 'orders', title: 'Cancellation declined',
@@ -292,11 +292,11 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     const offset = Math.min(Math.max(parseInt(req.query.offset, 10) || 0, 0), 5000);
     // list query: $1 = user, $2 = time zone, [$3 = category], then limit / offset
     const args = [req.user.id, TZ];
-    let where = 'user_id = $1';
+    let where = 'user_id = $1' + roleOnly(req);
     if (unread) where += ' AND NOT is_read';
     // count query uses its own parameters (an unused parameter makes Postgres reject the query)
     const cArgs = [req.user.id];
-    let cWhere = 'user_id = $1';
+    let cWhere = 'user_id = $1' + roleOnly(req);
     if (unread) cWhere += ' AND NOT is_read';
     if (category) {
       args.push(category); where += ' AND category = $' + args.length;
@@ -313,7 +313,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       args);
     const total = await pool.query(`SELECT COUNT(*)::int AS n FROM notifications WHERE ` + cWhere, cArgs);
     const unreadQ = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read`, [req.user.id]);
+      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read` + roleOnly(req), [req.user.id]);
     const count = { rows: [{ n: total.rows[0].n, unread: unreadQ.rows[0].n }] };
     res.json({
       items: rows.map(shape),
@@ -327,7 +327,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     await ensure();
     if (req.user.role === 'finance') await syncLowStock();
     const { rows } = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read`, [req.user.id]);
+      `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read` + roleOnly(req), [req.user.id]);
     res.json({ unread: rows[0].n, role: req.user.role });
   }));
 
@@ -346,7 +346,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     await ensure();
     const r = await pool.query(
       `UPDATE notifications SET is_read = TRUE, read_at = COALESCE(read_at, now())
-        WHERE user_id = $1 AND NOT is_read`, [req.user.id]);
+        WHERE user_id = $1 AND NOT is_read` + roleOnly(req), [req.user.id]);
     res.json({ ok: true, updated: r.rowCount });
   }));
 
