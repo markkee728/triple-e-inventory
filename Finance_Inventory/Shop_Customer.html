@@ -181,19 +181,13 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== REQUEST A QUOTE ===== -->
     <section class="page" id="quote">
-      <div class="page-head"><div><h1>Request a quote</h1><p>For bulk orders or custom sizes. Our team replies with a price, usually within one working day.</p></div></div>
+      <div class="page-head"><div><h1>Request a quote</h1><p>For bulk orders or custom sizes. Our team replies with a price, usually within one working day. You then accept or decline it right here.</p></div></div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>What do you need?</div>
           <div class="q-field"><label for="qProduct">Product</label><select id="qProduct"></select></div>
           <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Describe the item</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="qE_productName"></div></div>
-          <div class="q-grid">
-            <div class="q-field"><label for="qQty">Quantity</label><input id="qQty" maxlength="60" placeholder="e.g. 200 sheets"><small id="qQtyHint" class="q-hint"></small><div class="err-text" id="qE_quantity"></div></div>
-            <div class="q-field"><label for="qNeeded">Needed by <span class="q-optional">(optional)</span></label><input id="qNeeded" type="date"><div class="err-text" id="qE_neededBy"></div></div>
-          </div>
-          <div class="q-field"><label for="qDetails">Sizes and details</label>
-            <textarea id="qDetails" rows="4" maxlength="2000" placeholder="Length, width, thickness, finish, cutting or bending needed, anything else we should know"></textarea>
-            <div class="q-meta"><div class="err-text" id="qE_details"></div><span class="q-count" id="qDetailsCount">0 / 2000</span></div></div>
+          <div id="qFields"><p class="dim">Loading the form…</p></div>
 
           <div class="qf-sec"><span class="qf-num">2</span>How will you receive it?</div>
           <div id="qDeliveryAnchor" tabindex="-1"></div>
@@ -364,6 +358,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=2"></script>
+<script src="quote-fields.js?v=1"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -660,12 +655,11 @@ function syncBlock() {
   $('place').disabled = blocked; $('place').title = blocked ? shipBlock : '';
   $('shipBlockBox').hidden = !(blocked && shipNoCover);
 }
-function quoteForCart() {
+async function quoteForCart() {
   const place = window.ShopAddress ? ShopAddress.place() : {}, first = cart[0] && prod(cart[0].sku);
-  show('quote');
-  if (first) { $('qProduct').value = first.sku; quoteProductChanged(); $('qQty').value = cart[0].qty + ' ' + first.unit; }
-  $('qDetails').value = 'Delivery quote for: ' + cart.map(l => l.qty + ' × ' + prod(l.sku).name).join('; ') + '. Delivery area: ' + [place.province, place.region].filter(Boolean).join(', ') + '.';
-  $('qDetailsCount').textContent = $('qDetails').value.length + ' / 2000';
+  show('quote'); if (!(await ensureQuoteFields())) return;
+  if (first) { $('qProduct').value = first.sku; quoteProductChanged(); QuoteFields.setQuantity('q', cart[0].qty); QuoteFields.setUnit('q', first.unit); }
+  QuoteFields.setNotes('q', 'Delivery quote for: ' + cart.map(l => l.qty + ' × ' + prod(l.sku).name).join('; ') + '. Delivery area: ' + [place.province, place.region].filter(Boolean).join(', ') + '.');
   const r = document.querySelector('input[name="qFulfil"][value="Delivery"]'); if (r) { r.checked = true; renderQuoteReceive(); }
   $('qQty').focus();
 }
@@ -984,23 +978,19 @@ async function setAlert(sku, on) {
 
 /* ----- request a quote ----- */
 let QUOTES = [], QADDRS = [], qAddr = null;      // qAddr: id of the chosen saved address, 'new' = typed in, null = nothing chosen yet
-const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote sent'], closed: ['', 'Closed'] };
+const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
+let QOPTS = null, qMounted = false;
 const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 function qErr(field, msg) {                         // show / clear the message under one field
   const box = $('qE_' + field); if (box) box.textContent = msg || '';
-  const el = { productName: 'qProductName', quantity: 'qQty', neededBy: 'qNeeded', details: 'qDetails', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' }[field];
+  const el = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' }[field];
   if (el) $(el).classList.toggle('is-bad', !!msg);
   return !msg;
 }
 const QCHECK = {                                    // one rule per field; each returns an error message or ''
   productName: () => $('qProduct').value || $('qProductName').value.trim().length >= 3 ? '' : 'Tell us what you need (at least 3 characters).',
-  quantity: () => { const v = $('qQty').value.trim(); if (!v) return 'Enter the quantity you need.';
-    const n = parseFloat((v.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]); return n > 0 ? '' : 'Start with a number, e.g. 200 sheets.'; },
-  neededBy: () => { const v = $('qNeeded').value; if (!v) return ''; if (v < todayISO()) return 'The date cannot be in the past.';
-    return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
-  details: () => { const n = $('qDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
   contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   city: () => qAddr === 'new' && !/\p{L}/u.test($('qCity').value.trim()) ? 'Enter the city or municipality.' : '',
@@ -1015,14 +1005,20 @@ function renderQuote() {
   if (keep && prod(keep)) sel.value = keep;
   if (!$('qName').value) $('qName').value = USER.name || '';
   if (!$('qPhone').value && $('phone') && $('phone').value) $('qPhone').value = $('phone').value;
-  $('qNeeded').min = todayISO();
-  quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses();
+  ensureQuoteFields(); quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses();
+}
+async function ensureQuoteFields() {            // the dropdown choices come from the server so they always match what it accepts
+  if (qMounted) return true;
+  try { QOPTS = await api('/api/shop/quote-options'); } catch (e) { $('qFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return false; }
+  if (qMounted) return true;
+  QuoteFields.mount($('qFields'), { prefix: 'q', options: QOPTS }); qMounted = true; quoteProductChanged(); return true;
 }
 function quoteProductChanged() {
   const p = prod($('qProduct').value);
   $('qNameWrap').hidden = !!p; if (p) qErr('productName', '');
-  $('qQty').placeholder = p ? 'e.g. 200 ' + p.unit + (p.unit.endsWith('s') ? '' : 's') : 'e.g. 200 sheets';
-  $('qQtyHint').textContent = p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '';
+  if (!qMounted) return;
+  if (p) QuoteFields.setUnit('q', p.unit);
+  QuoteFields.setHint('q', p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '');
 }
 async function loadQuoteAddresses() {
   try { QADDRS = await api('/api/shop/addresses'); if (!Array.isArray(QADDRS)) QADDRS = []; } catch (e) { QADDRS = []; }
@@ -1042,42 +1038,58 @@ function renderQuoteReceive() {
     + (QADDRS.length ? `<div class="addr-card addr-new ${qAddr === 'new' ? 'on' : ''}" data-qaddr="new" role="radio" tabindex="0" aria-checked="${qAddr === 'new'}"><span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><b>Deliver to a different area</b></div></div>` : '');
   $('qAddrNew').hidden = qAddr !== 'new';
 }
+const qAgo = ms => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+const qDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 async function loadQuotes() {
   try { QUOTES = await api('/api/shop/quotes'); } catch (e) { QUOTES = []; }
   if (!Array.isArray(QUOTES)) QUOTES = [];
-  const open = QUOTES.filter(q => q.status === 'new').length; $('navQuoteCount').textContent = open; $('navQuoteCount').hidden = !open;
-  $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const st = QSTATUS[q.status] || ['', q.status];
+  const ready = QUOTES.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready for you to accept or decline';
+  $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const key = q.expired ? 'expired' : q.status, st = QSTATUS[key] || ['', q.status];
+    const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote. Our team will contact you to confirm payment and ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.', declined: 'You declined this quote.', closed: q.quotedAmount != null ? 'This request is closed.' : 'This request is closed.' }[key] || '';
+    const actions = q.status === 'quoted' ? `<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
-      <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)} · ${new Date(q.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })}</div>
+      <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
       ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
-      ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}</div>`; }).join('')
+      ${q.leadTime ? `<div class="row"><span>Ready in</span><span>${esc(q.leadTime)}</span></div>` : ''}
+      ${q.validUntil && q.status === 'quoted' ? `<div class="row"><span>${q.expired ? 'Expired on' : 'Price valid until'}</span><span>${qDay(q.validUntil)}</span></div>` : ''}
+      ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
+      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${actions}</div>`; }).join('')
     : '<p class="dim">You have not sent a request yet.</p>';
 }
-function openQuote(sku) { show('quote'); if (sku && prod(sku)) { $('qProduct').value = sku; quoteProductChanged(); } $('qQty').focus(); }
+$('quoteList').addEventListener('click', async e => {            // accept / decline / ask for a new quote
+  const b = e.target.closest('[data-qresp]'); if (!b || b.disabled) return;
+  const action = b.dataset.qresp, id = b.dataset.qid;
+  const ask = { accept: 'Accept quote ' + id + '? Our team will then contact you to arrange payment and ' + 'delivery or pickup.', decline: 'Decline quote ' + id + '?', renew: 'Ask our team for a new quote on ' + id + '?' }[action];
+  if (!confirm(ask)) return;
+  b.disabled = true;
+  try { await api('/api/shop/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) });
+    toast(action === 'accept' ? 'Quote accepted. We will contact you soon.' : action === 'decline' ? 'Quote declined.' : 'Sent back. We will send a new quote.'); }
+  catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
+  loadQuotes();
+});
+async function openQuote(sku) { show('quote'); await ensureQuoteFields(); if (sku && prod(sku)) { $('qProduct').value = sku; quoteProductChanged(); } if ($('qQty')) $('qQty').focus(); }
 $('qProduct').onchange = quoteProductChanged;
 document.querySelectorAll('input[name="qFulfil"]').forEach(r => r.onchange = () => { qErr('fulfillment', ''); $('qE_address').textContent = ''; renderQuoteReceive(); });
 $('qDeliveryBox').addEventListener('click', e => { const el = e.target.closest('[data-qaddr]'); if (!el) return; qAddr = el.dataset.qaddr === 'new' ? 'new' : Number(el.dataset.qaddr); $('qE_address').textContent = ''; renderQuoteReceive(); });
 $('qDeliveryBox').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-qaddr]')) { e.preventDefault(); e.target.click(); } });
 // check a field when the customer leaves it, and clear its message as soon as they fix it
-[['qProductName', 'productName'], ['qQty', 'quantity'], ['qNeeded', 'neededBy'], ['qDetails', 'details'], ['qName', 'contactName'], ['qPhone', 'phone'], ['qCity', 'city'], ['qBrgy', 'barangay'], ['qStreet', 'street']].forEach(([id, f]) => {
+[['qProductName', 'productName'], ['qName', 'contactName'], ['qPhone', 'phone'], ['qCity', 'city'], ['qBrgy', 'barangay'], ['qStreet', 'street']].forEach(([id, f]) => {
   $(id).addEventListener('blur', () => qField(f));
   $(id).addEventListener('input', () => { if ($(id).classList.contains('is-bad')) qField(f); $('qErr').textContent = ''; });
 });
-$('qNeeded').addEventListener('change', () => qField('neededBy'));
 $('qPhone').addEventListener('input', () => { const p = $('qPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
-$('qQty').addEventListener('input', () => { $('qE_quantity').textContent = $('qQty').classList.contains('is-bad') ? $('qE_quantity').textContent : ''; });
-$('qDetails').addEventListener('input', () => { $('qDetailsCount').textContent = $('qDetails').value.length + ' / 2000'; });
 function validateQuote() {
-  const f = qFulfil(), fields = ['productName', 'quantity', 'neededBy', 'details'];
+  const f = qFulfil(), fields = ['productName'];
   if (f === 'Delivery' && qAddr === 'new') fields.push('city', 'barangay', 'street');
   fields.push('contactName', 'phone');
-  const idOf = { productName: 'qProductName', quantity: 'qQty', neededBy: 'qNeeded', details: 'qDetails', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' };
+  const idOf = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' };
   let first = null; fields.forEach(k => { if (!qField(k) && !first) first = idOf[k]; });
+  const qf = qMounted ? QuoteFields.validate('q') : { ok: false, focus: null }; if (!qf.ok && !first) first = qf.focus || 'qFields';
   if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
   else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
   // focus the field that comes first on the page
-  const order = ['qProduct', 'qProductName', 'qQty', 'qNeeded', 'qDetails', 'qDeliveryAnchor', 'qAddrList', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
+  const order = ['qProduct', 'qProductName', 'qQty', 'qMonths', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qDeliveryAnchor', 'qAddrList', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
   return { ok: !first, focus: bad };
 }
@@ -1085,20 +1097,20 @@ $('quoteForm').onsubmit = async e => {
   e.preventDefault(); const err = $('qErr'); err.textContent = '';
   const v = validateQuote();
   if (!v.ok) { err.textContent = 'Please fix the highlighted fields.'; const el = $(v.focus) || document.querySelector('.q-seg'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus({ preventScroll: true }); } return; }
-  const f = qFulfil(), body = { sku: $('qProduct').value || undefined, productName: $('qProductName').value.trim(), quantity: $('qQty').value.trim(), details: $('qDetails').value.trim(),
-    neededBy: $('qNeeded').value || undefined, fulfillment: f, contactName: $('qName').value.trim(), phone: $('qPhone').value.replace(/[\s().-]/g, '') };
+  const f = qFulfil(), body = { sku: $('qProduct').value || undefined, productName: $('qProductName').value.trim(), ...QuoteFields.read('q'),
+    fulfillment: f, contactName: $('qName').value.trim(), phone: $('qPhone').value.replace(/[\s().-]/g, '') };
   if (f === 'Delivery') { if (qAddr === 'new') Object.assign(body, { city: $('qCity').value.trim(), barangay: $('qBrgy').value.trim(), street: $('qStreet').value.trim() }); else body.addressId = qAddr; }
   $('qSend').disabled = true;
   try { await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify(body) }); }
   catch (er) {                                       // show the server's message under the field it belongs to
     $('qSend').disabled = false;
-    const fe = er.fields || {}, map = { contactName: 1, phone: 1, quantity: 1, details: 1, neededBy: 1, productName: 1, city: 1, barangay: 1, street: 1 };
-    let shown = false; Object.keys(fe).forEach(k => { if (map[k]) { qErr(k, fe[k]); shown = true; } else if (k === 'fulfillment') { qErr('fulfillment', fe[k]); shown = true; } else if (k === 'address') { $('qE_address').textContent = fe[k]; shown = true; } });
+    const fe = er.fields || {}, map = { contactName: 1, phone: 1, productName: 1, city: 1, barangay: 1, street: 1 };
+    let shown = QuoteFields.showServerError('q', fe); Object.keys(fe).forEach(k => { if (map[k]) { qErr(k, fe[k]); shown = true; } else if (k === 'fulfillment') { qErr('fulfillment', fe[k]); shown = true; } else if (k === 'address') { $('qE_address').textContent = fe[k]; shown = true; } });
     if (!shown) err.textContent = (fe && Object.values(fe)[0]) || er.message; return;
   }
   $('qSend').disabled = false;
-  ['qQty', 'qDetails', 'qNeeded', 'qProductName'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); $('qProduct').value = ''; $('qDetailsCount').textContent = '0 / 2000';
-  ['productName', 'quantity', 'neededBy', 'details'].forEach(k => qErr(k, '')); quoteProductChanged();
+  $('qProductName').value = ''; $('qProductName').classList.remove('is-bad'); $('qProduct').value = ''; QuoteFields.reset('q');
+  qErr('productName', ''); quoteProductChanged();
   toast('Request sent. We will reply soon.'); loadQuotes();
 };
 

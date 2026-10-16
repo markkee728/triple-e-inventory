@@ -252,12 +252,7 @@
           <div class="qf-sec"><span class="qf-num">2</span>What do they need?</div>
           <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select></div>
           <div class="q-field" id="pqNameWrap"><label for="pqItem">Describe the item</label><input id="pqItem" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="pqE_productName"></div></div>
-          <div class="q-grid">
-            <div class="q-field"><label for="pqQty">Quantity</label><input id="pqQty" maxlength="60" placeholder="e.g. 200 sheets"><div class="err-text" id="pqE_quantity"></div></div>
-            <div class="q-field"><label for="pqNeeded">Needed by <span class="q-optional">(optional)</span></label><input id="pqNeeded" type="date"><div class="err-text" id="pqE_neededBy"></div></div>
-          </div>
-          <div class="q-field"><label for="pqDetails">Sizes and details</label><textarea id="pqDetails" rows="3" maxlength="2000" placeholder="Length, width, thickness, finish, cutting or bending needed"></textarea>
-            <div class="q-meta"><div class="err-text" id="pqE_details"></div><span class="q-count" id="pqCount">0 / 2000</span></div></div>
+          <div id="pqFields"><p class="dim">Loading the form…</p></div>
           <div class="qf-sec"><span class="qf-num">3</span>Pickup or delivery?</div>
           <div class="q-seg" role="radiogroup" aria-label="Pickup or delivery">
             <label class="q-opt"><input type="radio" name="pqFulfil" value="Pickup" checked><span class="q-opt-body"><b>Pickup</b><small>Customer collects at the shop</small></span></label>
@@ -324,6 +319,7 @@
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
 <script src="account-menu.js"></script>
+<script src="quote-fields.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
@@ -872,15 +868,13 @@ let POSQ = [];
 const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
 const pqToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-const PQ_IDS = { productName: 'pqItem', quantity: 'pqQty', neededBy: 'pqNeeded', details: 'pqDetails', contactName: 'pqName', phone: 'pqPhone', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
+const PQ_IDS = { productName: 'pqItem', contactName: 'pqName', phone: 'pqPhone', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
+let pqMounted = false;
 function pqErr(f, msg) { const b = $('pqE_' + f); if (b) b.textContent = msg || ''; if (PQ_IDS[f]) $(PQ_IDS[f]).classList.toggle('is-bad', !!msg); return !msg; }
 const PQ_CHECK = {
   contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
   phone: () => { const v = $('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   productName: () => $('pqProduct').value || $('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
-  quantity: () => { const v = $('pqQty').value.trim(); if (!v) return 'Enter the quantity.'; return parseFloat((v.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]) > 0 ? '' : 'Start with a number, e.g. 200 sheets.'; },
-  neededBy: () => { const v = $('pqNeeded').value; if (!v) return ''; if (v < pqToday()) return 'The date cannot be in the past.'; return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
-  details: () => { const n = $('pqDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
   city: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqCity').value.trim()) ? 'Enter the city or municipality.' : '',
   barangay: () => pqFulfil() === 'Delivery' && !/\p{L}/u.test($('pqBrgy').value.trim()) ? 'Enter the barangay.' : '',
   street: () => { const v = $('pqStreet').value.trim(); return pqFulfil() === 'Delivery' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
@@ -890,47 +884,65 @@ function renderPosQuoteForm() {
   const sel = $('pqProduct'), keep = sel.value;
   sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map(p => `<option value="${esc(p.sku)}">${esc(p.name)}${p.spec ? ' — ' + esc(p.spec) : ''} (${esc(p.sku)})</option>`).join('');
   if (keep && prod(keep)) sel.value = keep;
-  $('pqNeeded').min = pqToday(); pqProductChanged();
+  ensurePqFields(); pqProductChanged();
+}
+async function ensurePqFields() {                 // the dropdown choices come from the server so they always match what it accepts
+  if (pqMounted) return;
+  let o; try { o = await api('/api/pos/quote-options'); } catch (e) { $('pqFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return; }
+  if (pqMounted) return;
+  QuoteFields.mount($('pqFields'), { prefix: 'pq', options: o }); pqMounted = true; pqProductChanged();
 }
 function pqProductChanged() {
   const p = prod($('pqProduct').value);
   $('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
-  $('pqQty').placeholder = p ? 'e.g. 200 ' + p.unit + (p.unit.endsWith('s') ? '' : 's') : 'e.g. 200 sheets';
+  if (pqMounted && p) QuoteFields.setUnit('pq', p.unit);
 }
-const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], closed: ['', 'Closed'] };
+const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
+const pqDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 async function loadPosQuotes() {
   try { POSQ = await api('/api/pos/quotes'); if (!Array.isArray(POSQ)) POSQ = []; } catch (e) { if (!(e instanceof TypeError)) toast(e.message, true); POSQ = []; }
-  const ready = POSQ.filter(q => q.status === 'quoted').length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
-  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = PQ_STATUS[q.status] || ['', q.status];
+  const ready = POSQ.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
+  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const key = q.expired ? 'expired' : q.status, st = PQ_STATUS[key] || ['', q.status];
+    const actions = q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
+      <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
+      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Finance will follow up on payment and ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.</div>' : '';
     return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
       <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
-      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
+      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
       ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
-      ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}
-      ${q.status === 'quoted' ? '<div class="pq-call">Call or text the customer with this price.</div>' : ''}</div>`; }).join('')
+      ${q.leadTime ? `<div class="pq-sub">Ready in ${esc(q.leadTime)}${q.validUntil && q.status === 'quoted' ? ' · price ' + (q.expired ? 'expired ' : 'valid until ') + pqDay(q.validUntil) : ''}</div>` : ''}
+      ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}${actions}</div>`; }).join('')
     : '<p class="dim">No requests logged yet.</p>';
 }
+$('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
+  const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
+  const action = b.dataset.pqresp, id = b.dataset.qid;
+  if (!confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
+  b.disabled = true;
+  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Finance has been told.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
+  catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
+  loadPosQuotes();
+});
 $('pqProduct').onchange = pqProductChanged;
 document.querySelectorAll('input[name="pqFulfil"]').forEach(r => r.onchange = () => { $('pqArea').hidden = pqFulfil() !== 'Delivery'; ['city', 'barangay', 'street'].forEach(f => pqErr(f, '')); });
 Object.keys(PQ_IDS).forEach(f => { const el = $(PQ_IDS[f]); el.addEventListener('blur', () => pqField(f)); el.addEventListener('input', () => { if (el.classList.contains('is-bad')) pqField(f); $('pqErr').textContent = ''; }); });
-$('pqNeeded').addEventListener('change', () => pqField('neededBy'));
 $('pqPhone').addEventListener('input', () => { const p = $('pqPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
-$('pqDetails').addEventListener('input', () => { $('pqCount').textContent = $('pqDetails').value.length + ' / 2000'; });
 $('pqForm').onsubmit = async e => {
   e.preventDefault(); const err = $('pqErr'); err.textContent = '';
-  const f = pqFulfil(), fields = ['contactName', 'phone', 'productName', 'quantity', 'neededBy', 'details'].concat(f === 'Delivery' ? ['city', 'barangay', 'street'] : []);
+  const f = pqFulfil(), fields = ['contactName', 'phone', 'productName'].concat(f === 'Delivery' ? ['city', 'barangay', 'street'] : []);
   let first = null; fields.forEach(k => { if (!pqField(k) && !first) first = PQ_IDS[k]; });
+  const qf = pqMounted ? QuoteFields.validate('pq') : { ok: false, focus: 'pqFields' }; if (!qf.ok && !first) first = qf.focus;
   if (first) { err.textContent = 'Please fix the highlighted fields.'; const el = $(first); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); el.focus({ preventScroll: true }); return; }
   const body = { contactName: $('pqName').value.trim(), phone: $('pqPhone').value.replace(/[\s().-]/g, ''), sku: $('pqProduct').value || undefined, productName: $('pqItem').value.trim(),
-    quantity: $('pqQty').value.trim(), neededBy: $('pqNeeded').value || undefined, details: $('pqDetails').value.trim(), fulfillment: f };
+    ...QuoteFields.read('pq'), fulfillment: f };
   if (f === 'Delivery') Object.assign(body, { city: $('pqCity').value.trim(), barangay: $('pqBrgy').value.trim(), street: $('pqStreet').value.trim() });
   $('pqSend').disabled = true;
   let r;
   try { r = await api('/api/pos/quotes', { method: 'POST', body: JSON.stringify(body) }); }
-  catch (er) { $('pqSend').disabled = false; err.textContent = er.message; return; }
+  catch (er) { $('pqSend').disabled = false; if (!QuoteFields.showServerError('pq', er.fields)) err.textContent = (er.fields && Object.values(er.fields)[0]) || er.message; else err.textContent = 'Please fix the highlighted fields.'; return; }
   $('pqSend').disabled = false;
-  ['pqName', 'pqPhone', 'pqItem', 'pqQty', 'pqNeeded', 'pqDetails', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); });
-  Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; $('pqCount').textContent = '0 / 2000'; pqProductChanged();
+  ['pqName', 'pqPhone', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); });
+  Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; QuoteFields.reset('pq'); pqProductChanged();
   document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; $('pqArea').hidden = true;
   toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
 };

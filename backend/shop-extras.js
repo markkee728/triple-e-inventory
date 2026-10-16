@@ -1,5 +1,5 @@
 /* shop-extras.js — extras for a metal-products shop:
-     1. Request a quote           customer form -> Finance (list, reply, close)
+     1. Request a quote           customer form -> Finance replies with a price -> customer accepts / declines
      2. Minimum order             products.min_order_qty (set by Finance in the product form), enforced on online orders
      3. Back-in-stock alerts      customer taps "Notify me" on an out-of-stock item; an email goes out when stock returns
      4. Verified reviews          only customers whose order is Delivered / Picked Up; Finance can hide a review
@@ -55,6 +55,14 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
+      // quote flow: months instead of a date, dropdown choices, reply details, customer answer
+      for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT'])
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
+      await pool.query(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%accepted%') THEN
+          ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','closed'));
+        END IF; END $$`);
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
         user_id     INT NOT NULL REFERENCES users(user_id),
@@ -98,14 +106,52 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   /* =====================================================
      1. Request a quote
+     Flow:  customer (shop) or cashier (walk-in) sends a request  ->  status 'new'
+            Finance replies with an amount, lead time and validity  ->  'quoted'
+            customer accepts / declines (or asks for a new quote)    ->  'accepted' / 'declined' / back to 'new'
+            Finance follows up on an accepted quote and closes it    ->  'closed'
   ===================================================== */
-  const quoteJson = (q) => ({
-    id: q.quote_no, status: q.status, product: q.product_name || undefined, sku: q.product_sku || undefined,
-    quantity: q.quantity, details: q.details, neededBy: q.needed_by ? String(q.needed_by).slice(0, 10) : undefined,
-    fulfillment: q.fulfillment || undefined, area: q.area || undefined,
-    quotedAmount: q.quoted_amount == null ? undefined : +q.quoted_amount, replyNote: q.reply_note || undefined,
-    source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
-  });
+  const QUOTE_OPTIONS = {
+    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24],                 // "needed within" (months from today, no calendar date)
+    units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
+    material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
+    size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft', 'Not applicable'],
+    thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
+    finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
+    service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
+    customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
+    leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
+    validDays: [3, 7, 14, 30]
+  };
+  const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
+  const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
+  const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+  const dateStr = (d) => {                                                  // pg gives DATE columns as JS dates
+    if (!d) return undefined;
+    if (typeof d === 'string') return d.slice(0, 10);
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  };
+
+  const quoteJson = (q) => {
+    const validUntil = dateStr(q.valid_until);
+    return {
+      id: q.quote_no, status: q.status, product: q.product_name || undefined, sku: q.product_sku || undefined,
+      quantity: q.quantity, details: q.details, specs: q.specs || undefined,
+      neededMonths: q.needed_months || undefined, neededBy: dateStr(q.needed_by),          // neededBy only exists on requests made before the months field
+      fulfillment: q.fulfillment || undefined, area: q.area || undefined,
+      quotedAmount: q.quoted_amount == null ? undefined : +q.quoted_amount, replyNote: q.reply_note || undefined,
+      leadTime: q.lead_time || undefined, validUntil,
+      expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
+      respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
+      source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
+    };
+  };
+
+  app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(QUOTE_OPTIONS));
+  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(QUOTE_OPTIONS));
+  app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(QUOTE_OPTIONS));
 
   // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
   async function readQuote(b, { fallbackName, userId }) {
@@ -115,22 +161,45 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const phone = str(b.phone).replace(/[\s().-]/g, '');
     if (!phone) throw bad('phone', 'Enter your mobile number so we can reach you');
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
-    const quantity = str(b.quantity);
-    if (!quantity) throw bad('quantity', 'Tell us how much you need, e.g. 200 sheets');
-    if (quantity.length > 60) throw bad('quantity', 'Please keep the quantity short, e.g. 200 sheets');
-    if (!(parseFloat((quantity.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]) > 0)) throw bad('quantity', 'Start with a number greater than 0, e.g. 200 sheets');
-    const details = str(b.details);
-    if (details.length < 10 || details.length > 2000) throw bad('details', 'Describe what you need (sizes, thickness, finish) in at least 10 characters');
-    let neededBy = null;
-    if (str(b.neededBy)) {
-      const d = str(b.neededBy);
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || Number.isNaN(Date.parse(d))) throw bad('neededBy', 'Choose a valid date');
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });      // YYYY-MM-DD in Philippine time
-      const limit = new Date(Date.parse(today) + 730 * 86400000).toISOString().slice(0, 10);
-      if (d < today) throw bad('neededBy', 'The date cannot be in the past');
-      if (d > limit) throw bad('neededBy', 'Choose a date within the next 2 years');
-      neededBy = d;
+
+    // the product (or a described custom item)
+    let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '';
+    if (str(b.sku)) {
+      const p = (await pool.query(`SELECT sku, name, unit FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
+      if (!p) throw bad('sku', 'That product is not available');
+      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase();
+    } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
+
+    // amount required: a number plus a unit from the list (or the product's own unit)
+    const raw = String(b.quantity == null ? '' : b.quantity).replace(/,/g, '').trim();
+    const qty = Number(raw);
+    if (!raw) throw bad('quantity', 'Enter how much you need');
+    if (!Number.isFinite(qty) || qty <= 0) throw bad('quantity', 'Enter a number greater than 0');
+    if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
+    const unit = str(b.quantityUnit).toLowerCase();
+    if (!QUOTE_OPTIONS.units.includes(unit) && !(unit && unit === productUnit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
+
+    // how soon: whole months from today, picked from a list (no calendar date, so nothing in the past can be chosen)
+    const neededMonths = Number(b.neededMonths);
+    if (!Number.isInteger(neededMonths) || !QUOTE_OPTIONS.months.includes(neededMonths)) throw bad('neededMonths', 'Choose how many months from now you need it');
+
+    // sizes and details: every one is a dropdown; size and thickness can also be typed in
+    const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
+    const specs = {};
+    for (const key of Object.keys(SPEC_LABEL)) {
+      const v = str(inSpecs[key]);
+      if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
+      if (!QUOTE_OPTIONS[key].includes(v)) {
+        if (!QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase() + ' from the list');
+        if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
+      }
+      specs[key] = v;
     }
+    const notes = str(b.notes);
+    if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
+    if (notes) specs.notes = notes;
+    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k]).concat(notes ? ['Notes: ' + notes] : []).join('\n');
 
     // delivery or pickup is required; delivery needs an address (a saved one, or the city and barangay typed in)
     const fulfillment = str(b.fulfillment);
@@ -152,27 +221,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-
-    let sku = null, productName = str(b.productName).slice(0, 120) || null;
-    if (str(b.sku)) {
-      const p = (await pool.query(`SELECT sku, name FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
-      if (!p) throw bad('sku', 'That product is not available');
-      sku = p.sku; productName = p.name;
-    } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
-    return { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName };
+    return { contactName, phone, quantity, details, specs, neededMonths, fulfillment, area, sku, productName };
   }
 
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_months, fulfillment, area';
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededMonths, v.fulfillment, v.area];
+  const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
+  const needText = (m) => m + (m === 1 ? ' month' : ' months');
+
   app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
-    const { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName } = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
+    const v = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
     const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE customer_id = $1 AND status = 'new'`, [req.user.id])).rows[0].n;
     if (open >= MAX_OPEN_QUOTES) throw bad('quote', `You already have ${open} requests waiting for an answer. Please wait for our reply first`);
 
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, contact_name, phone, product_sku, product_name, quantity, details, needed_by, fulfillment, area)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [req.user.id, contactName, phone, sku, productName, quantity, details, neededBy, fulfillment, area]);
-      await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${productName ? ' \u2014 ' + productName : ''} (${quantity})`);
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        [req.user.id, ...insertVals(v)]);
+      await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
       return r.rows[0];
     });
     res.status(201).json(quoteJson(row));
@@ -181,12 +247,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     (async () => {
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
       await send(u && u.email, `We received your quote request ${row.quote_no}`, [
-        `Hi ${contactName},`, `Thank you for your request. We will send you a quote soon.`, '',
-        `Reference: ${row.quote_no}`, `Item: ${productName || 'See details'}`, `Quantity: ${quantity}`, ...signoff()], 'quote-received');
-      const to = process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
-      if (to) await send(to, `New quote request ${row.quote_no} from ${contactName}`, [
-        `Customer: ${contactName} (${phone})`, `Item: ${productName || 'See details'}`, `Quantity: ${quantity}`,
-        neededBy ? `Needed by: ${neededBy}` : '', `Receive by: ${fulfillment}${area ? ' \u00B7 ' + area : ''}`, '', details, '',
+        `Hi ${v.contactName},`, `Thank you for your request. We will send you a quote soon.`, '',
+        `Reference: ${row.quote_no}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed within: ${needText(v.neededMonths)}`, ...signoff()], 'quote-received');
+      const to = financeTo();
+      if (to) await send(to, `New quote request ${row.quote_no} from ${v.contactName}`, [
+        `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+        `Needed within: ${needText(v.neededMonths)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
       else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
     })().catch((e) => console.error('[mail] quote emails failed:', e.message));
@@ -197,27 +263,60 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     res.json(rows.map(quoteJson));
   }));
 
-  /* ---- walk-in customers: the cashier logs the request, Finance prices it, the cashier tells the customer ---- */
+  /* After Finance replies, the customer (or the cashier for a walk-in) answers the quote:
+       accept  -> status 'accepted'  (Finance is told and follows up on payment / pickup / delivery)
+       decline -> status 'declined'
+       renew   -> status 'new'       (the price expired or no longer fits: ask Finance for a fresh quote) */
+  async function respondToQuote(req, res, { where, params, who }) {
+    const action = str((req.body || {}).action), note = str((req.body || {}).note);
+    if (!['accept', 'decline', 'renew'].includes(action)) throw bad('action', 'Choose accept, decline or ask for a new quote');
+    if (note.length > 500) throw bad('note', 'Please keep the note under 500 characters');
+    const next = { accept: 'accepted', decline: 'declined', renew: 'new' }[action];
+    const q = await tx(async (client) => {
+      const cur = (await client.query(`SELECT * FROM quote_requests WHERE quote_no = $1 AND ${where} FOR UPDATE`, [req.params.no, ...params])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (cur.status !== 'quoted') throw bad('status', cur.status === 'new' ? 'This request has not been answered yet' : 'This quote was already answered or closed');
+      const vu = dateStr(cur.valid_until);
+      if (action === 'accept' && vu && vu < todayPH()) throw bad('status', 'This quote has expired. Ask for a new quote instead');
+      const r = await client.query(
+        `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, updated_at = now() WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, next, note || null]);
+      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
+      return r.rows[0];
+    });
+    res.json({ ok: true, status: q.status });
+    (async () => {
+      const to = financeTo(); if (!to) return;
+      const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
+      await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
+        `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
+        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
+        action === 'accept' ? `Next: contact the customer to confirm payment and ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}, then close the request in Finance > Quote Requests.` : 'Open Finance > Quote Requests to see it.'], 'quote-response');
+    })().catch((e) => console.error('[mail] quote response failed:', e.message));
+  }
+
+  app.post('/api/shop/quotes/:no/respond', auth('customer'), wrap((req, res) => respondToQuote(req, res, { where: 'customer_id = $2', params: [req.user.id], who: 'the customer' })));
+
+  /* ---- walk-in customers: the cashier logs the request, Finance prices it, the cashier tells the customer and records the answer ---- */
   const MAX_OPEN_POS_QUOTES = 50;
   app.post('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
-    const { contactName, phone, quantity, details, neededBy, fulfillment, area, sku, productName } = await readQuote(req.body || {}, { fallbackName: '', userId: null });
+    const v = await readQuote(req.body || {}, { fallbackName: '', userId: null });
     const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE source = 'pos' AND status = 'new'`)).rows[0].n;
     if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, source, created_by, contact_name, phone, product_sku, product_name, quantity, details, needed_by, fulfillment, area)
-         VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-        [req.user.id, contactName, phone, sku, productName, quantity, details, neededBy, fulfillment, area]);
-      await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${productName ? ' \u2014 ' + productName : ''} (${quantity}) for ${contactName}`);
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        [req.user.id, ...insertVals(v)]);
+      await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
       return r.rows[0];
     });
     res.status(201).json({ ...quoteJson(row), customer: row.contact_name, phone: row.phone });
     (async () => {
-      const to = process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
+      const to = financeTo();
       if (!to) return;
-      await send(to, `Walk-in quote request ${row.quote_no} from ${contactName}`, [
-        `Walk-in customer: ${contactName} (${phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${productName || 'See details'}`, `Quantity: ${quantity}`,
-        neededBy ? `Needed by: ${neededBy}` : '', `Receive by: ${fulfillment}${area ? ' \u00B7 ' + area : ''}`, '', details, '',
+      await send(to, `Walk-in quote request ${row.quote_no} from ${v.contactName}`, [
+        `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+        `Needed within: ${needText(v.neededMonths)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
     })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));
   }));
@@ -230,42 +329,60 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
   }));
 
+  app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], who: 'the cashier (walk-in customer)' })));
+
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
          FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
-        ORDER BY (q.status = 'new') DESC, q.created_at DESC LIMIT 300`);
+        ORDER BY (q.status IN ('new','accepted')) DESC, q.created_at DESC LIMIT 300`);
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
   }));
 
+  // Finance: send the quote (amount is required), close a request, or reopen it
   app.post('/api/finance/quotes/:no', auth('finance'), wrap(async (req, res) => {
     const b = req.body || {};
     const status = str(b.status), note = str(b.note);
     if (!['new', 'quoted', 'closed'].includes(status)) throw bad('status', 'Choose a status');
     if (note.length > 1500) throw bad('note', 'The note is too long (max 1500 characters)');
-    let amount = null;
-    if (b.amount !== undefined && b.amount !== null && String(b.amount).trim() !== '') {
-      amount = Number(String(b.amount).replace(/[,\u20B1\s]/g, ''));
-      if (!Number.isFinite(amount) || amount < 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount');
+    if (note && note.length < 5) throw bad('note', 'Write at least 5 characters, or leave the note empty');
+    let amount = null, leadTime = null, validUntil = null;
+    if (status === 'quoted') {
+      const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, '');
+      if (!raw) throw bad('amount', 'Enter the quoted amount');
+      amount = Number(raw);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
       amount = Math.round(amount * 100) / 100;
+      leadTime = str(b.leadTime);
+      if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Choose how long it will take to make or prepare');
+      const days = Number(b.validDays);
+      if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Choose how long the price is valid');
+      validUntil = addDays(todayPH(), days);
     }
-    if (status === 'quoted' && note.length < 5) throw bad('note', 'Write the quote or reply for the customer (at least 5 characters)');
     const q = await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
+      const quoting = status === 'quoted';
       const r = await client.query(
-        `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, handled_by = $5, updated_at = now() WHERE quote_id = $1 RETURNING *`,
-        [cur.quote_id, status, note || cur.reply_note, amount !== null ? amount : cur.quoted_amount, req.user.id]);
-      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${amount !== null ? ' (' + peso(amount) + ')' : ''}`);
+        `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, lead_time = $5, valid_until = $6, handled_by = $7,
+                responded_at = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE responded_at END,
+                response_note = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE response_note END, updated_at = now() WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, status, quoting ? (note || null) : (note || cur.reply_note), quoting ? amount : cur.quoted_amount,
+         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${quoting ? ' (' + peso(amount) + ')' : ''}`);
       return r.rows[0];
     });
     res.json({ ok: true });
-    if (status !== 'new' && note) (async () => {
-      if (!q.customer_id) return;                       // walk-in from the POS: Finance replies by phone
+    if (status !== 'new') (async () => {
+      if (!q.customer_id) return;                       // walk-in from the POS: the cashier / Finance tells them by phone
+      if (status === 'closed' && !note) return;
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
-      await send(u && u.email, status === 'quoted' ? `Your quote ${q.quote_no} is ready` : `Update on your quote request ${q.quote_no}`, [
-        `Hi ${q.contact_name},`, status === 'quoted' ? 'Here is our reply to your quote request.' : 'We have an update on your quote request.', '',
-        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), q.reply_note, ...signoff()], 'quote-reply');
+      if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
+        `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
+        `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}`, `Price valid until: ${dateStr(q.valid_until)}`,
+        ...(q.reply_note ? ['', q.reply_note] : []), '',
+        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
+      else await send(u && u.email, `Update on your quote request ${q.quote_no}`, [`Hi ${q.contact_name},`, 'We have an update on your quote request.', '', q.reply_note, ...signoff()], 'quote-reply');
     })().catch((e) => console.error('[mail] quote reply failed:', e.message));
   }));
 

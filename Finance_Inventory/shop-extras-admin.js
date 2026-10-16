@@ -3,7 +3,7 @@
      Product Reviews  verified-purchase reviews; Finance can hide an inappropriate review (and restore it)
    Needs the two pages (#quotes, #reviews) and the two menu items that Finance_Inventory.html already contains.
    Load it after refund-admin.js:   <script src="shop-extras-admin.js?v=1"></script>
-   Server routes (backend/shop-extras.js): GET /api/finance/quotes · POST /api/finance/quotes/:no
+   Server routes (backend/shop-extras.js): GET /api/finance/quotes · POST /api/finance/quotes/:no · GET /api/finance/quote-options
                                            GET /api/finance/reviews · POST /api/finance/reviews/:id/visibility
    The server checks every rule again; the checks here only give faster feedback. */
 (function () {
@@ -17,7 +17,7 @@
   var day = function (ymd) { return ymd ? new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
   var stars = function (n) { return '<span style="color:var(--amber);letter-spacing:1px" aria-label="' + n + ' out of 5">' + '\u2605'.repeat(n) + '<span style="opacity:.3">' + '\u2605'.repeat(5 - n) + '</span></span>'; };
 
-  var quotes = [], reviews = [], busy = false, openQuote = null, loadingQ = false, loadingR = false;
+  var quotes = [], reviews = [], qopts = null, busy = false, openQuote = null, loadingQ = false, loadingR = false;
 
   async function api(path, options) {
     var res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, options));
@@ -44,16 +44,19 @@
       '.sx-form label{display:block;font-size:13.5px;font-weight:600;color:var(--text-dim);margin:12px 0 6px}.sx-form .form-input{width:100%;box-sizing:border-box}.sx-form textarea{min-height:90px;resize:vertical}' +
       '.sx-err{display:none;margin-top:10px;padding:9px 12px;border-radius:6px;font-size:13.5px;color:var(--red);background:rgba(227,91,91,.1);border:1px solid rgba(227,91,91,.35)}.sx-err.show{display:block}' +
       '.sx-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}' +
+      '.sx-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}' +
       '.sx-empty{padding:22px;text-align:center;color:var(--text-faint)}' +
       '.sx-text{max-width:340px;overflow-wrap:anywhere;white-space:pre-line}' +
-      '@media(max-width:560px){.sx-info{grid-template-columns:1fr}}';
+      '@media(max-width:560px){.sx-info,.sx-two{grid-template-columns:1fr}}';
     var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   }
 
-  var qPill = function (st) {
-    var cls = st === 'quoted' ? 'in' : st === 'closed' ? 'out' : 'low';
-    return '<span class="status-pill ' + cls + '">' + (st === 'new' ? 'New' : st === 'quoted' ? 'Quoted' : 'Closed') + '</span>';
+  var Q_LABEL = { new: 'New', quoted: 'Quote sent', accepted: 'Accepted', declined: 'Declined', closed: 'Closed' };
+  var qPill = function (st, expired) {
+    var cls = st === 'accepted' ? 'in' : st === 'quoted' ? (expired ? 'out' : 'in') : st === 'new' ? 'low' : 'out';
+    return '<span class="status-pill ' + cls + '">' + (expired ? 'Quote expired' : (Q_LABEL[st] || st)) + '</span>';
   };
+  var months = function (m) { return m + (m === 1 ? ' month' : ' months'); };
   var rPill = function (st) { return '<span class="status-pill ' + (st === 'hidden' ? 'out' : 'in') + '">' + (st === 'hidden' ? 'Hidden' : 'Visible') + '</span>'; };
 
   /* ---------------- page skeletons ---------------- */
@@ -61,11 +64,11 @@
     var q = $('quotes'), r = $('reviews');
     if (q) q.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Quote Requests</h1>' +
-      '<p class="catalog-sub">Customers ask for a price on bulk orders or custom sizes. Reply with the quote and they get it by email and on their Request a Quote page.</p></div>' +
+      '<p class="catalog-sub">Customers ask for a price on bulk orders or custom sizes. Reply with the amount, how long it takes and how long the price is valid. The customer gets it by email and can accept or decline on their Request a Quote page.</p></div>' +
       '<button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
-      '<div class="inv-filters"><select id="sxqFilter" class="inv-select"><option value="open">Waiting for a reply</option><option value="all">All requests</option><option value="quoted">Quoted</option><option value="closed">Closed</option></select></div></div>' +
-      '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
+      '<div class="inv-filters"><select id="sxqFilter" class="inv-select"><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="accepted">Accepted</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
+      '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Amount required</th><th>Needed within</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '<p class="catalog-sub">Only customers whose order is Delivered or Picked Up can review a product. Hide a review that is abusive, spam or off-topic; you can restore it later.</p></div>' +
@@ -93,18 +96,19 @@
   }
 
   /* ---------------- quotes ---------------- */
-  var newCount = function () { return quotes.filter(function (x) { return x.status === 'new'; }).length; };
+  var needsAction = function (x) { return x.status === 'new' || x.status === 'accepted'; };
+  var newCount = function () { return quotes.filter(needsAction).length; };
   function renderQuotes() {
     if (!$('sxqBody')) return;
     var f = $('sxqFilter').value, n = newCount();
-    var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? x.status === 'new' : x.status === f); });
-    $('sxqSub').textContent = quotes.length ? (n ? n + ' waiting for your reply' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
+    var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? needsAction(x) : x.status === f); });
+    $('sxqSub').textContent = quotes.length ? (n ? n + ' need your action (new requests to price, or accepted quotes to follow up)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
-        '<td>' + esc(x.quantity) + '</td><td>' + esc(day(x.neededBy) || '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x.status) + '</td>' +
-        '<td style="white-space:nowrap"><button type="button" class="' + (x.status === 'new' ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'new' ? 'Reply' : 'View') + '</button></td></tr>';
+        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededMonths ? months(x.neededMonths) : (day(x.neededBy) || '\u2014')) + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x.status, x.expired) + '</td>' +
+        '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'new' ? 'Reply' : x.status === 'accepted' ? 'Follow up' : 'View') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
   }
@@ -113,11 +117,12 @@
     var n = newCount(), b = nav.querySelector('.sx-badge');
     if (!n) { if (b) b.remove(); return; }
     if (!b) { b = document.createElement('span'); b.className = 'sx-badge'; nav.appendChild(b); }
-    b.textContent = n > 99 ? '99+' : String(n); b.title = n + ' quote request(s) waiting';
+    b.textContent = n > 99 ? '99+' : String(n); b.title = n + ' quote request(s) need your action';
   }
   async function loadQuotes() {
     if (loadingQ) return; loadingQ = true;
     try {
+      if (!qopts) { try { qopts = await api('/finance/quote-options'); } catch (e) { /* the reply form shows a message if this is still missing */ } }
       var d = await api('/finance/quotes'); quotes = Array.isArray(d) ? d : [];
       if (!(openQuote && busy)) renderQuotes();
       if (openQuote && !busy) paintQuote();
@@ -144,23 +149,35 @@
     var x = quotes.find(function (q) { return q.id === openQuote; });
     ensureOverlay();
     if (!x) { closeModal(); return; }
-    var h = '<div class="sx-head"><h2>Quote \u00B7 ' + esc(x.id) + '</h2>' + qPill(x.status) + '</div>' +
+    var o = qopts || { leadTimes: [], validDays: [7] };
+    var h = '<div class="sx-head"><h2>Quote \u00B7 ' + esc(x.id) + '</h2>' + qPill(x.status, x.expired) + '</div>' +
       '<dl class="sx-info">' + info('Customer', x.customer) + info('Phone', x.phone) + info('Email', x.email) + info('Came from', x.source === 'pos' ? 'Walk-in at the counter (no account \u2014 reply by phone)' : 'Online shop') + info('Item', x.product || 'Custom item') + info('SKU', x.sku) +
-      info('Quantity', x.quantity) + info('Needed by', day(x.neededBy)) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
+      info('Amount required', x.quantity) + info('Needed within', x.neededMonths ? months(x.neededMonths) : (x.neededBy ? 'by ' + day(x.neededBy) : '')) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     if (x.status !== 'new') {
-      h += '<div class="sx-box"><b>' + (x.status === 'quoted' ? 'Quote sent' : 'Closed') + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
-        (x.handledBy ? 'By ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') + '</div>';
+      var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', accepted: 'Customer accepted this quote', declined: 'Customer declined this quote', closed: 'Closed' }[x.status] || x.status;
+      h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
+        (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.validUntil ? 'Price valid until: ' + esc(day(x.validUntil)) + '\n' : '') +
+        (x.handledBy ? 'Quoted by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
+        (x.respondedAt && (x.status === 'accepted' || x.status === 'declined') ? '\nAnswered: ' + esc(when(x.respondedAt)) + (x.responseNote ? ' \u2014 ' + esc(x.responseNote) : '') : '') + '</div>';
     }
-    h += '<div class="sx-form">' +
-      '<label for="sxAmount">Quoted amount (\u20B1) <span class="faint" style="font-weight:400">(optional)</span></label><input type="text" class="form-input" id="sxAmount" inputmode="decimal" autocomplete="off" value="' + (x.quotedAmount != null ? Number(x.quotedAmount).toFixed(2) : '') + '">' +
-      '<label for="sxNote">Reply to the customer <span class="faint" style="font-weight:400">(required to send a quote)</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="e.g. 200 sheets at \u20B1820 each, ready in 5 working days. Price valid for 7 days. Delivery is extra.">' + esc(x.status === 'new' ? '' : (x.replyNote || '')) + '</textarea>' +
+    if (x.status === 'accepted') {
+      h += '<div class="sx-box"><b>Next steps</b>1. Contact the customer (' + esc(x.phone || '') + ') to confirm payment and ' + (x.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.\n2. Record the sale: create the order or ring it up at the POS.\n3. Close this request when it is done.</div>';
+    }
+    h += '<div class="sx-form">';
+    if (x.status !== 'accepted') {
+      h += '<label for="sxAmount">Total quoted amount (\u20B1) <span class="faint" style="font-weight:400">(required to send a quote)</span></label><input type="text" class="form-input" id="sxAmount" inputmode="decimal" autocomplete="off" placeholder="e.g. 164000.00" value="' + (x.quotedAmount != null ? Number(x.quotedAmount).toFixed(2) : '') + '">' +
+        '<div class="sx-two"><div><label for="sxLead">Ready in</label><select id="sxLead" class="form-input"><option value="">Choose</option>' + (o.leadTimes || []).map(function (t) { return '<option value="' + esc(t) + '"' + (x.leadTime === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>';
+      if (!qopts) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
+    }
+    h += '<label for="sxNote">' + (x.status === 'accepted' ? 'Closing note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(optional)</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (x.status === 'accepted' ? 'e.g. Order placed, ready for pickup on Friday.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || x.status === 'accepted' ? '' : (x.replyNote || '')) + '</textarea>' +
       '<div class="sx-err" id="sxErr" role="alert"></div>' +
-      '<div class="sx-actions"><button type="button" class="btn-primary" id="sxSend">' + (x.status === 'quoted' ? 'Send updated quote' : 'Send quote') + '</button>' +
-      '<button type="button" class="btn-secondary" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : 'Close request') + '</button>' +
+      '<div class="sx-actions">' + (x.status !== 'accepted' ? '<button type="button" class="btn-primary" id="sxSend">' + (x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>' : '') +
+      '<button type="button" class="' + (x.status === 'accepted' ? 'btn-primary' : 'btn-secondary') + '" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : x.status === 'accepted' ? 'Mark as done and close' : 'Close request') + '</button>' +
       (x.status !== 'new' ? '<button type="button" class="btn-secondary" id="sxReopen">Reopen</button>' : '') + '</div></div>';
     $('sxBody').innerHTML = h;
-    $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
+    if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
     $('sxCloseReq').addEventListener('click', function () { submitQuote(x, 'closed'); });
     if ($('sxReopen')) $('sxReopen').addEventListener('click', function () { submitQuote(x, 'new'); });
   }
@@ -168,18 +185,25 @@
 
   async function submitQuote(x, status) {
     if (busy) return;
-    var note = $('sxNote').value.trim(), amount = $('sxAmount').value.trim();
+    var note = $('sxNote').value.trim(), amount = $('sxAmount') ? $('sxAmount').value.trim() : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
     $('sxErr').classList.remove('show');
-    if (status === 'quoted' && note.length < 5) { showErr('Write the quote or reply for the customer (at least 5 characters).'); $('sxNote').focus(); return; }
-    if (amount && !(Number(amount.replace(/[,\u20B1\s]/g, '')) >= 0)) { showErr('Enter a valid amount, or leave it empty.'); return; }
+    if (note && note.length < 5) { showErr('Write at least 5 characters, or leave the message empty.'); $('sxNote').focus(); return; }
+    if (status === 'quoted') {
+      if (!amount) { showErr('Enter the quoted amount.'); $('sxAmount').focus(); return; }
+      var n = Number(amount.replace(/[,\u20B1\s]/g, ''));
+      if (!(n > 0)) { showErr('Enter a valid amount greater than 0.'); $('sxAmount').focus(); return; }
+      if (!lead) { showErr('Choose how long it will take to make or prepare.'); $('sxLead').focus(); return; }
+    }
     busy = true; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     try {
-      await api('/finance/quotes/' + encodeURIComponent(x.id), { method: 'POST', body: JSON.stringify({ status: status, note: note, amount: amount || undefined }) });
+      var body = { status: status, note: note };
+      if (status === 'quoted') { body.amount = amount; body.leadTime = lead; body.validDays = Number(days); }
+      await api('/finance/quotes/' + encodeURIComponent(x.id), { method: 'POST', body: JSON.stringify(body) });
       toast(status === 'quoted' ? 'Quote sent for ' + x.id + '.' : status === 'closed' ? x.id + ' closed.' : x.id + ' reopened.');
       busy = false; closeModal(); await loadQuotes();
     } catch (e) {
       busy = false; if (e.message === 'Not signed in') return;
-      await loadQuotes(); if (openQuote) { paintQuote(); $('sxNote').value = note; $('sxAmount').value = amount; showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
+      await loadQuotes(); if (openQuote) { paintQuote(); $('sxNote').value = note; if ($('sxAmount')) $('sxAmount').value = amount; if ($('sxLead')) $('sxLead').value = lead; showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
     } finally { busy = false; }
   }
 

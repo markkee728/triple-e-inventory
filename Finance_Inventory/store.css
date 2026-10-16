@@ -246,3 +246,4 @@ html[data-theme="light"] .pd-stockmsg.bad{color:#b53a3a}
 .star-pick button{background:none;border:0;font-size:34px;line-height:1;cursor:pointer;color:var(--border);padding:2px}
 .star-pick button.on{color:var(--amber)}.star-pick button:hover{transform:scale(1.1)}
 @media(max-width:600px){.q-grid{grid-template-columns:1fr}.quote-form{padding:18px 16px 20px}.q-seg{grid-template-columns:1fr}}
+.q-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
