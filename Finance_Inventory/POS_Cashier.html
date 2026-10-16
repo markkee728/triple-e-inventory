@@ -174,7 +174,7 @@
             <div class="row"><span class="dim">VAT (12%, included)</span><span class="mono" id="vat">₱0.00</span></div>
             <div class="row total"><span>Total</span><span class="mono" id="total">₱0.00</span></div>
             <div class="cust-box"><div class="cust-title">Customer details <span class="faint">(optional)</span></div>
-              <div class="cust-grid"><input id="custName" maxlength="80" autocomplete="off" placeholder="Customer name" aria-label="Customer name"><input id="custPhone" maxlength="20" inputmode="tel" autocomplete="off" placeholder="Phone number" aria-label="Customer phone number"></div></div>
+              <div class="cust-grid"><input id="custName" maxlength="50" autocomplete="off" placeholder="Customer name" aria-label="Customer name"><input id="custPhone" maxlength="20" inputmode="tel" autocomplete="off" placeholder="Phone number" aria-label="Customer phone number"></div></div>
             <div class="seg" role="group" aria-label="Payment method">
               <button class="seg-btn on" data-m="Cash"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/></svg>Cash</button>
               <button class="seg-btn" data-m="Card"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Manual Card</button>
@@ -246,7 +246,7 @@
         <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
           <div class="q-grid">
-            <div class="q-field"><label for="pqName">Customer name</label><input id="pqName" maxlength="80" placeholder="e.g. Juan dela Cruz"><div class="err-text" id="pqE_contactName"></div></div>
+            <div class="q-field"><label for="pqName">Customer name</label><input id="pqName" maxlength="50" placeholder="e.g. Juan dela Cruz"><div class="err-text" id="pqE_contactName"></div></div>
             <div class="q-field"><label for="pqPhone">Mobile number</label><input id="pqPhone" type="tel" inputmode="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="pqE_phone"></div><small class="q-hint">We will call or text this number with the price.</small></div>
           </div>
           <div class="qf-sec"><span class="qf-num">2</span>What do they need?</div>
@@ -766,6 +766,12 @@ async function completeSale() {
   if (method === 'Cash' && cents(tend) < cents(t)) return updatePay();
   if (method === 'Card' && (!CARD_RE.test(cardCode()) || !$('cardOk').checked)) return updatePay();
   if (hasOverride() && !approvalOk()) return openReapprove();
+  { // optional walk-in details: a name (2-50 characters) and a mobile number, same rules as the server
+    const cn = $('custName').value.trim().replace(/\s+/g, ' '), cp = $('custPhone').value.replace(/[\s().-]/g, '');
+    if (cn && (cn.length < 2 || cn.length > 50 || !/^\p{L}[\p{L}\p{M} .'’-]*$/u.test(cn))) { $('custName').focus(); return toast('Customer name: 2–50 characters, letters, spaces, . \' and - only.', true); }
+    if (cp && !/^(\+63|0)9\d{9}$/.test(cp)) { $('custPhone').focus(); return toast('Enter a valid mobile number, e.g. 0917 123 4567.', true); }
+  }
+
   const draft = { items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, name: p.name, unit: p.unit, qty: l.qty, price: unitPrice(l), override: l.price !== undefined && l.price !== p.price }; }),
     approvalToken: hasOverride() ? approval.token : undefined,
     method, tendered: method === 'Cash' ? tend : undefined, cardRef: method === 'Card' ? cardCode() : undefined, requestId: saleRequestId(),
@@ -869,13 +875,13 @@ $('voidSend').onclick = async () => {
 
 /* ===== Walk-in quote requests (POS) ===== */
 let POSQ = [];
-const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
+const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M} .'’-]*$/u;
 const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
 const pqToday = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 const PQ_IDS = { productName: 'pqItem', quantity: 'pqQty', neededBy: 'pqNeeded', details: 'pqDetails', contactName: 'pqName', phone: 'pqPhone', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
 function pqErr(f, msg) { const b = $('pqE_' + f); if (b) b.textContent = msg || ''; if (PQ_IDS[f]) $(PQ_IDS[f]).classList.toggle('is-bad', !!msg); return !msg; }
 const PQ_CHECK = {
-  contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
+  contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && v.length <= 50 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (2–50 characters: letters, spaces, . \' and -).'; },
   phone: () => { const v = $('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   productName: () => $('pqProduct').value || $('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
   quantity: () => { const v = $('pqQty').value.trim(); if (!v) return 'Enter the quantity.'; return parseFloat((v.replace(/,/g, '').match(/\d+(\.\d+)?/) || [0])[0]) > 0 ? '' : 'Start with a number, e.g. 200 sheets.'; },

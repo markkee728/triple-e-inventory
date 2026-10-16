@@ -161,7 +161,7 @@ a.nav-item{text-decoration:none}
           <div id="addrBox"></div>
           <div id="contactBox">
             <div class="sec-title">Contact</div>
-            <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" placeholder="0917 123 4567">
+            <label for="phone" style="margin-top:0">Mobile number</label><input id="phone" inputmode="tel" maxlength="20" placeholder="0917 123 4567">
           </div>
           <div class="sec-title">Payment</div>
           <div class="opt-stack" id="payOpts"></div>
@@ -216,7 +216,7 @@ a.nav-item{text-decoration:none}
 
           <div class="qf-sec"><span class="qf-num">3</span>Your contact details</div>
           <div class="q-grid">
-            <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="80" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
+            <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="50" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
             <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
           <div class="err-text q-formerr" id="qErr" role="alert"></div>
@@ -937,7 +937,7 @@ async function setAlert(sku, on) {
 /* ----- request a quote ----- */
 let QUOTES = [], QADDRS = [], qAddr = null;      // qAddr: id of the chosen saved address, 'new' = typed in, null = nothing chosen yet
 const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote sent'], closed: ['', 'Closed'] };
-const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
+const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M} .'’-]*$/u;
 const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 function qErr(field, msg) {                         // show / clear the message under one field
@@ -953,7 +953,7 @@ const QCHECK = {                                    // one rule per field; each 
   neededBy: () => { const v = $('qNeeded').value; if (!v) return ''; if (v < todayISO()) return 'The date cannot be in the past.';
     return v > new Date(Date.now() + 730 * 864e5).toISOString().slice(0, 10) ? 'Choose a date within the next 2 years.' : ''; },
   details: () => { const n = $('qDetails').value.trim().length; return n >= 10 ? '' : 'Add the sizes and details (at least 10 characters). ' + n + ' so far.'; },
-  contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
+  contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && v.length <= 50 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (2–50 characters: letters, spaces, . \' and -).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   city: () => qAddr === 'new' && !/\p{L}/u.test($('qCity').value.trim()) ? 'Enter the city or municipality.' : '',
   barangay: () => qAddr === 'new' && !/\p{L}/u.test($('qBrgy').value.trim()) ? 'Enter the barangay.' : '',

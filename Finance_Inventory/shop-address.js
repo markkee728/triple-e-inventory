@@ -63,7 +63,7 @@
       <div class="addr-form-head"><b>${adding ? (saved.length ? 'New delivery address' : 'Where should we deliver?') : 'Edit address'}</b>
         ${saved.length ? '<button type="button" class="btn-ghost btn-sm" data-addr-cancel>Cancel</button>' : ''}</div>
       <div class="field-grid">
-        <div><label for="ae_recipient">Recipient name</label><input id="ae_recipient" autocomplete="name" maxlength="80" placeholder="Full name of who receives the order"><div class="err-text" id="aeErr_recipient"></div></div>
+        <div><label for="ae_recipient">Recipient name</label><input id="ae_recipient" autocomplete="name" maxlength="50" placeholder="Full name of who receives the order"><div class="err-text" id="aeErr_recipient"></div></div>
         <div><label for="ae_phone">Mobile number</label><input id="ae_phone" inputmode="tel" autocomplete="tel" maxlength="20" placeholder="0917 123 4567"><div class="err-text" id="aeErr_phone"></div></div>
       </div>
       <div class="field-grid">
@@ -252,7 +252,7 @@
   function validateForm(s) {
     clearErrs(); const bad = [];
     const need = (f, ok, msg) => { if (!ok) { setErr(f, msg); bad.push(f); } };
-    need('recipient', s.recipient.length >= 2 && /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u.test(s.recipient), 'Enter the recipient’s full name');
+    need('recipient', s.recipient.length >= 2 && s.recipient.length <= 50 && /^[\p{L}][\p{L}\p{M} .'’-]*$/u.test(s.recipient), 'Enter the recipient’s full name (2–50 characters: letters, spaces, . \' and -)');
     need('phone', /^(\+63|0)9\d{9}$/.test(s.phone), 'Enter a valid mobile number, e.g. 0917 123 4567');
     need('region', !!s.region, 'Choose a region');
     need('province', !!s.province, 'Choose a province');

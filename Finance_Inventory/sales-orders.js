@@ -190,7 +190,7 @@
       } else if (b.dataset.soNext) {
         const no = b.dataset.soNext, to = b.dataset.to, body = { status: to };
         if (FINAL.includes(to)) {                         // the server needs the name of the person who received the order
-          const who = window.prompt('Who ' + (to === 'Delivered' ? 'received the delivery' : 'picked up the order') + '? (2–80 characters)');
+          const who = window.prompt('Who ' + (to === 'Delivered' ? 'received the delivery' : 'picked up the order') + '? (2–50 characters)');
           if (who === null) { b.disabled = false; return; }
           body.receivedBy = who.trim();
         }

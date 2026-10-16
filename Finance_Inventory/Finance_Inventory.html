@@ -1426,7 +1426,7 @@
               <div class="customer-toolbar"><label class="customer-search-label" for="walkinSearch">Search walk-in customers</label><input class="inv-search" id="walkinSearch" placeholder="Search by name or phone…" autocomplete="off"></div>
               <div class="table-wrapper customer-table-scroll"><table class="customer-table"><thead><tr><th>Customer</th><th>Phone</th><th>Purchases</th><th>Total spent</th><th>Last purchase</th></tr></thead><tbody id="walkinRows"><tr><td colspan="5">Loading…</td></tr></tbody></table></div><div class="customer-table-foot"><span id="walkinShowing">—</span><span>Built from POS sales where the cashier entered customer details. Not an account: nothing to edit or disable.</span></div></div>
               <div class="customer-modal" id="customerProfileModal" hidden><div class="customer-modal-backdrop" data-close-customer></div><div class="customer-modal-card" role="dialog" aria-modal="true" aria-labelledby="customerProfileTitle" tabindex="-1"><div class="customer-modal-head"><div><div class="catalog-eyebrow">Customer Management</div><h2 id="customerProfileTitle">Customer Profile</h2></div><button class="customer-modal-close" type="button" id="customerProfileClose" aria-label="Close profile">×</button></div><div id="customerProfileContent" class="customer-modal-content"></div><div class="customer-modal-footer"><span>Read-only customer information</span><button class="btn-secondary" type="button" data-close-customer>Close</button></div></div></div>
-              <div class="customer-modal" id="customerEditModal" hidden><div class="customer-modal-backdrop" data-close-customer-edit></div><div class="customer-modal-card customer-edit-card" role="dialog" aria-modal="true" aria-labelledby="customerEditTitle" tabindex="-1"><form id="customerEditForm" novalidate><div class="customer-modal-head"><div><div class="catalog-eyebrow">Customer Management</div><h2 id="customerEditTitle">Edit Customer</h2></div><button class="customer-modal-close" type="button" data-close-customer-edit aria-label="Close">×</button></div><div class="customer-modal-content"><label class="customer-edit-field" for="customerEditName"><span>Full name</span><input class="inv-search" id="customerEditName" maxlength="80" autocomplete="off" required></label><label class="customer-edit-field" for="customerEditEmail"><span>Email</span><input class="inv-search" id="customerEditEmail" type="email" maxlength="254" autocomplete="off" required></label><p class="customer-edit-error" id="customerEditError" role="alert" hidden></p></div><div class="customer-modal-footer"><span>Password is not changed here</span><span class="customer-edit-actions"><button class="btn-secondary" type="button" data-close-customer-edit>Cancel</button><button class="btn-primary" type="submit" id="customerEditSave">Save changes</button></span></div></form></div></div>
+              <div class="customer-modal" id="customerEditModal" hidden><div class="customer-modal-backdrop" data-close-customer-edit></div><div class="customer-modal-card customer-edit-card" role="dialog" aria-modal="true" aria-labelledby="customerEditTitle" tabindex="-1"><form id="customerEditForm" novalidate><div class="customer-modal-head"><div><div class="catalog-eyebrow">Customer Management</div><h2 id="customerEditTitle">Edit Customer</h2></div><button class="customer-modal-close" type="button" data-close-customer-edit aria-label="Close">×</button></div><div class="customer-modal-content"><label class="customer-edit-field" for="customerEditName"><span>Full name</span><input class="inv-search" id="customerEditName" maxlength="50" autocomplete="off" required></label><label class="customer-edit-field" for="customerEditEmail"><span>Email</span><input class="inv-search" id="customerEditEmail" type="email" maxlength="254" autocomplete="off" required></label><p class="customer-edit-error" id="customerEditError" role="alert" hidden></p></div><div class="customer-modal-footer"><span>Password is not changed here</span><span class="customer-edit-actions"><button class="btn-secondary" type="button" data-close-customer-edit>Cancel</button><button class="btn-primary" type="submit" id="customerEditSave">Save changes</button></span></div></form></div></div>
             </section>
             <section id="usermgmt" class="page">
 
@@ -2461,7 +2461,7 @@
                                 type="text"
                                 class="form-input"
                                 id="profileName"
-                                maxlength="100"
+                                maxlength="50"
                                 required
                                 value="ADMIN" autocomplete="off">
 
@@ -2947,10 +2947,10 @@
 
                         <div class="form-row">
                             <div class="form-group">
-                                <label class="form-label" for="newSupplierPhone">Phone Number</label>
+                                <label class="form-label" for="newSupplierPhone">Mobile Number</label>
                                 <input type="tel" inputmode="tel" id="newSupplierPhone" class="form-input"
                                     placeholder="0917 123 4567" autocomplete="off">
-                                <div class="field-hint">Must start with +63 or 09</div>
+                                <div class="field-hint">Philippine mobile number, e.g. 0917 123 4567 (no landlines)</div>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="newSupplierEmail">Email</label>
@@ -3116,7 +3116,7 @@
 
                     <input
                         type="text"
-                        id="inviteName"
+                        id="inviteName" maxlength="50"
                         class="form-input"
                         required autocomplete="off">
 
@@ -3257,7 +3257,7 @@
 
                     <input
                         type="text"
-                        id="editUserName"
+                        id="editUserName" maxlength="50"
                         class="form-input"
                         required autocomplete="off">
 
