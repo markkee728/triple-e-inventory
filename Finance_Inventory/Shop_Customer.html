@@ -1044,8 +1044,13 @@ async function loadQuotes() {
   try { QUOTES = await api('/api/shop/quotes'); } catch (e) { QUOTES = []; }
   if (!Array.isArray(QUOTES)) QUOTES = [];
   const ready = QUOTES.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready for you to accept or decline';
-  $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const key = q.expired ? 'expired' : q.status, st = QSTATUS[key] || ['', q.status];
-    const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote. Our team will contact you to confirm payment and ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.', declined: 'You declined this quote.', closed: q.quotedAmount != null ? 'This request is closed.' : 'This request is closed.' }[key] || '';
+  $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const key = q.expired ? 'expired' : q.status, st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
+    const pickup = q.fulfillment !== 'Delivery';
+    const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote. Our team will contact you to arrange payment and ' + (pickup ? 'pickup' : 'delivery') + '.', preparing: 'We are preparing your order.' + (q.leadTime ? ' Estimated time: ' + q.leadTime + '.' : ''),
+      ready: pickup ? 'Your order is ready. Please pick it up at our shop.' : 'Your order is on its way to you.', completed: pickup ? 'Picked up. Thank you for ordering!' : 'Delivered. Thank you for ordering!', declined: 'You declined this quote.', closed: 'This request is closed.' }[key] || '';
+    const flow = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status);
+    const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
+    const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
     const actions = q.status === 'quoted' ? `<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
@@ -1053,8 +1058,9 @@ async function loadQuotes() {
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="row"><span>Ready in</span><span>${esc(q.leadTime)}</span></div>` : ''}
       ${q.validUntil && q.status === 'quoted' ? `<div class="row"><span>${q.expired ? 'Expired on' : 'Price valid until'}</span><span>${qDay(q.validUntil)}</span></div>` : ''}
+      ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
-      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${actions}</div>`; }).join('')
+      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${actions}</div>`; }).join('')
     : '<p class="dim">You have not sent a request yet.</p>';
 }
 $('quoteList').addEventListener('click', async e => {            // accept / decline / ask for a new quote

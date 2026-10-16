@@ -902,10 +902,13 @@ const pqDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { m
 async function loadPosQuotes() {
   try { POSQ = await api('/api/pos/quotes'); if (!Array.isArray(POSQ)) POSQ = []; } catch (e) { if (!(e instanceof TypeError)) toast(e.message, true); POSQ = []; }
   const ready = POSQ.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
-  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const key = q.expired ? 'expired' : q.status, st = PQ_STATUS[key] || ['', q.status];
+  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
     const actions = q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
       <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
-      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Finance will follow up on payment and ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.</div>' : '';
+      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Finance will take the payment and start preparing it.</div>'
+      : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
+      : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
+      : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
     return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
       <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
       <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>

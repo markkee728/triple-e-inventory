@@ -56,12 +56,13 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: months instead of a date, dropdown choices, reply details, customer answer
-      for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT'])
+      for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%accepted%') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
           ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
-          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','closed'));
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed'));
         END IF; END $$`);
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
@@ -109,7 +110,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
      Flow:  customer (shop) or cashier (walk-in) sends a request  ->  status 'new'
             Finance replies with an amount, lead time and validity  ->  'quoted'
             customer accepts / declines (or asks for a new quote)    ->  'accepted' / 'declined' / back to 'new'
-            Finance follows up on an accepted quote and closes it    ->  'closed'
+            accepted quote:  Finance records payments and moves it  ->  'preparing' -> 'ready' (Ready for Pickup / Out for Delivery)
+                             -> 'completed' (Picked Up / Delivered; needs the receiver's name and the balance paid)
+            Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
   const QUOTE_OPTIONS = {
     months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24],                 // "needed within" (months from today, no calendar date)
@@ -121,7 +124,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
     customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
     leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
-    validDays: [3, 7, 14, 30]
+    validDays: [3, 7, 14, 30],
+    payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
   };
   const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
   const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
@@ -134,20 +138,34 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   };
 
+  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
+  const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
+    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed' })[st] || st;
   const quoteJson = (q) => {
-    const validUntil = dateStr(q.valid_until);
+    const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
+    const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
+    const progress = [];
+    if (at >= 0 && q.responded_at) progress.push({ status: 'accepted', label: 'Accepted', at: ms(q.responded_at) });
+    (Array.isArray(q.progress) ? q.progress : []).forEach((e) => progress.push({ status: e.s, label: stepLabel(e.s, q.fulfillment), at: e.at, note: e.note || undefined }));
     return {
-      id: q.quote_no, status: q.status, product: q.product_name || undefined, sku: q.product_sku || undefined,
+      id: q.quote_no, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededMonths: q.needed_months || undefined, neededBy: dateStr(q.needed_by),          // neededBy only exists on requests made before the months field
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
-      quotedAmount: q.quoted_amount == null ? undefined : +q.quoted_amount, replyNote: q.reply_note || undefined,
+      quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
       respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
+      paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
+      payments: (Array.isArray(q.payments) ? q.payments : []).map((p) => ({ amount: p.amount, method: p.method, note: p.note || undefined, at: p.at })),
+      progress, next: next || undefined, nextLabel: next ? stepLabel(next, q.fulfillment) : undefined, receivedBy: q.received_by || undefined,
       source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
     };
   };
+  const nc = () => app.locals.notifications;                                   // in-app notification center (fails soft)
+  const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
+  const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
 
   app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(QUOTE_OPTIONS));
   app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(QUOTE_OPTIONS));
@@ -285,13 +303,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       return r.rows[0];
     });
     res.json({ ok: true, status: q.status });
+    Promise.resolve(pingFinance({ category: 'orders', title: action === 'accept' ? 'Quote accepted' : action === 'decline' ? 'Quote declined' : 'New quote requested',
+      body: `${q.contact_name} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'asked for a new quote on'} ${q.quote_no}` + (q.quoted_amount != null ? ' (' + peso(q.quoted_amount) + ')' : '') + '.',
+      link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no })).catch(() => {});
     (async () => {
       const to = financeTo(); if (!to) return;
       const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
       await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
         `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
         ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
-        action === 'accept' ? `Next: contact the customer to confirm payment and ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}, then close the request in Finance > Quote Requests.` : 'Open Finance > Quote Requests to see it.'], 'quote-response');
+        action === 'accept' ? `Next: open Finance > Quote Requests, record the payment and move it to Preparing.` : 'Open Finance > Quote Requests to see it.'], 'quote-response');
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
 
@@ -335,7 +356,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const { rows } = await pool.query(
       `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
          FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
-        ORDER BY (q.status IN ('new','accepted')) DESC, q.created_at DESC LIMIT 300`);
+        ORDER BY (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
   }));
 
@@ -362,6 +383,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const q = await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
+      if (cur.status === 'completed') throw bad('status', 'This quote is already completed and cannot be changed');
+      const started = ['preparing', 'ready'].includes(cur.status) || (cur.status === 'accepted' && +cur.paid_amount > 0);
+      if (started && status !== 'closed') throw bad('status', 'Work or payment has already started on this quote. You can only move it forward or close it');
+      if (status === 'closed' && +cur.paid_amount > 0 && note.length < 5) throw bad('note', 'Payments were received. Write a note about the refund or how it was settled');
       const quoting = status === 'quoted';
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, lead_time = $5, valid_until = $6, handled_by = $7,
@@ -384,6 +409,85 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
       else await send(u && u.email, `Update on your quote request ${q.quote_no}`, [`Hi ${q.contact_name},`, 'We have an update on your quote request.', '', q.reply_note, ...signoff()], 'quote-reply');
     })().catch((e) => console.error('[mail] quote reply failed:', e.message));
+  }));
+
+  /* ---- after acceptance: payments and the pickup / delivery steps (Finance) ---- */
+  const msgFor = (q, st) => {
+    const f = q.fulfillment, bal = Math.max(0, round2(+q.quoted_amount - (+q.paid_amount || 0))), shop = (shopInfo() || {}).address;
+    const owe = bal > 0 ? ` Balance to pay ${f === 'Delivery' ? 'on delivery' : 'at pickup'}: ${peso(bal)}.` : ' Your quote is fully paid.';
+    if (st === 'preparing') return { title: 'We started on your order', body: `${q.quote_no} is now being prepared.${q.lead_time ? ' Estimated time: ' + q.lead_time + '.' : ''}` };
+    if (st === 'ready') return f === 'Delivery'
+      ? { title: 'Your order is out for delivery', body: `${q.quote_no} is on its way${q.area ? ' to ' + q.area : ''}.${owe}` }
+      : { title: 'Your order is ready for pickup', body: `${q.quote_no} is ready${shop ? ' at ' + shop : ' at our shop'}.${owe}` };
+    return { title: f === 'Delivery' ? 'Your order was delivered' : 'Your order was picked up', body: `${q.quote_no} is complete. Thank you for ordering from Triple E Metal Products.` };
+  };
+
+  app.post('/api/finance/quotes/:no/step', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);
+    if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      const at = QFLOW.indexOf(cur.status);
+      if (at < 0) throw bad('status', 'Only an accepted quote can move to the next step');
+      const next = QFLOW[at + 1];
+      if (!next) throw bad('status', 'This quote is already completed');
+      if (target !== next) throw bad('status', `The next step is "${stepLabel(next, cur.fulfillment)}". Steps cannot be skipped or moved backwards`);
+      if (next === 'completed') {
+        if (receivedBy.length < 2 || receivedBy.length > 80) throw bad('receivedBy', `Enter the name of the person who ${cur.fulfillment === 'Delivery' ? 'received' : 'picked up'} the order (2 to 80 characters)`);
+        const owed = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
+        if (owed > 0.004) throw bad('payment', `The balance of ${peso(owed)} is not paid yet. Record the payment first`);
+      }
+      const entry = { s: next, at: Date.now(), note: [next === 'completed' ? 'Received by ' + receivedBy : '', note].filter(Boolean).join(' - ') || undefined };
+      const r = await client.query(
+        `UPDATE quote_requests SET status = $2, received_by = COALESCE($3, received_by), progress = COALESCE(progress, '[]'::jsonb) || $4::jsonb, handled_by = $5, updated_at = now()
+          WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, next, next === 'completed' ? receivedBy : null, JSON.stringify([entry]), req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no} moved from ${stepLabel(cur.status, cur.fulfillment)} to ${stepLabel(next, cur.fulfillment)}`);
+      return r.rows[0];
+    });
+    res.json({ ok: true, status: q.status });
+    const m = msgFor(q, q.status);
+    Promise.resolve(pingUser(q.customer_id, { category: 'delivery', title: m.title, body: m.body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+    if (q.source === 'pos') Promise.resolve(pingUser(q.created_by, { category: 'pos', title: 'Walk-in quote: ' + stepLabel(q.status, q.fulfillment), body: `${q.quote_no} for ${q.contact_name}. ` + (q.status === 'ready' ? 'Tell the customer it is ready.' : ''), link: 'POS_Cashier.html', entityType: 'quote', entityId: q.quote_no }, 'cashier')).catch(() => {});
+    (async () => {
+      if (!q.customer_id) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      await send(u && u.email, `${m.title} (${q.quote_no})`, [`Hi ${q.contact_name},`, m.body, ...signoff()], 'quote-step');
+    })().catch((e) => console.error('[mail] quote step failed:', e.message));
+  }));
+
+  app.post('/api/finance/quotes/:no/payment', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, ''), method = str(b.method), note = str(b.note);
+    if (!raw) throw bad('amount', 'Enter the amount received');
+    let amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
+    amount = round2(amount);
+    if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
+    if (note.length > 100) throw bad('note', 'The note must be 100 characters or fewer');
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (!['accepted', 'preparing', 'ready'].includes(cur.status)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
+      const balance = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
+      if (amount > balance + 0.004) throw bad('amount', `The balance is only ${peso(balance)}`);
+      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([{ amount, method, note: note || undefined, at: Date.now() }]);
+      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, handled_by = $4, updated_at = now() WHERE quote_id = $1 RETURNING *',
+        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays), req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no}: payment of ${peso(amount)} received (${method})`);
+      return r.rows[0];
+    });
+    res.json({ ok: true, paidAmount: +q.paid_amount, balance: Math.max(0, round2(+q.quoted_amount - +q.paid_amount)) });
+    const bal = Math.max(0, round2(+q.quoted_amount - +q.paid_amount));
+    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid.');
+    Promise.resolve(pingUser(q.customer_id, { category: 'payment', title: 'Payment received', body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+    (async () => {
+      if (!q.customer_id) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      await send(u && u.email, `Payment received for ${q.quote_no}`, [`Hi ${q.contact_name},`, body, ...signoff()], 'quote-payment');
+    })().catch((e) => console.error('[mail] quote payment failed:', e.message));
   }));
 
   /* =====================================================
