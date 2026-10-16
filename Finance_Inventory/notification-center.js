@@ -183,10 +183,11 @@
   var bar = null, pill = null;
   // "Hide" folds the banner into a small pill. The alert (and its sound) stays active; a NEW low-stock item opens it again.
   function minIds() { try { return JSON.parse(sessionStorage.getItem('tripleE.nc.barHidden')) || null; } catch (e) { return null; } }
-  function isMin() { var h = minIds(); return !!h && active.length > 0 && active.every(function (a) { return h.indexOf(a.id) >= 0; }); }
+  function pid(a) { return String(a.productId != null && a.productId !== '' ? a.productId : a.id); }
+  function isMin() { var h = minIds(); return !!h && active.length > 0 && active.every(function (a) { return h.indexOf(pid(a)) >= 0; }); }
   function setMin(on) {
     try {
-      if (on) sessionStorage.setItem('tripleE.nc.barHidden', JSON.stringify(active.map(function (a) { return a.id; })));
+      if (on) sessionStorage.setItem('tripleE.nc.barHidden', JSON.stringify(active.map(pid)));
       else sessionStorage.removeItem('tripleE.nc.barHidden');
     } catch (e) { /* storage blocked */ }
     renderBar();
@@ -282,8 +283,18 @@
   }
 
   // ---- polling + live ping ----
-  var uid = null, lastSeen = null, polling = false, again = false, es = null, titleBase = null;
-  function key() { return 'tripleE.nc.last.' + uid; }
+  var uid = null, seen = null, polling = false, again = false, es = null, titleBase = null;
+  function seenKey() { return 'tripleE.nc.seen.' + uid; }
+  function loadSeen() {
+    try { var j = JSON.parse(sessionStorage.getItem(seenKey())); return j && typeof j === 'object' ? j : null; } catch (e) { return null; }
+  }
+  function saveSeen() {
+    try {
+      var ids = Object.keys(seen);
+      if (ids.length > 300) { ids.sort(function (x, y) { return x - y; }).slice(0, ids.length - 300).forEach(function (k) { delete seen[k]; }); }
+      sessionStorage.setItem(seenKey(), JSON.stringify(seen));
+    } catch (e) { /* storage blocked */ }
+  }
 
   function applyTitle(n) {
     if (titleBase == null) titleBase = document.title.replace(/^\(\d+\+?\)\s*/, '');
@@ -293,7 +304,7 @@
   function handleNew(items) {
     if (!items.length) return;
     var shown = items.slice(-3);
-    shown.forEach(showToast);
+    shown.forEach(function (n) { showToast(n); });
     if (items.length > shown.length) {
       showToast({ category: 'system', severity: 'info', title: (items.length - shown.length) + ' more new notifications',
         body: 'Open the Notification Center to read them.', link: '' });
@@ -307,31 +318,51 @@
     window.dispatchEvent(new CustomEvent('triplee:notify', { detail: { items: items } }));
   }
 
+  // if the combined /poll request ever fails, build the same answer from the two list requests that already work
+  async function fallbackPoll() {
+    var f = await api('/notifications?unread=1&limit=10');
+    var inv = await api('/notifications?category=inventory&limit=50');
+    return {
+      uid: uid == null ? 'x' : uid, role: f.role, unread: f.unread || 0, items: f.items || [],
+      activeLowStock: (inv.items || []).filter(function (i) { return !i.isResolved && /^(Low|Out of) stock/i.test(i.title); })
+        .map(function (i) { return { id: i.id, title: i.title, body: i.body, link: i.link, severity: i.severity, productId: i.entityId }; })
+    };
+  }
+
   async function poll() {
     if (polling) { again = true; return; }
     polling = true;
     try {
-      var d = await api('/notifications/poll' + (lastSeen != null ? '?after=' + lastSeen : ''));
-      if (lastSeen == null) {
-        uid = d.uid;
-        var saved = load(key());
-        saved = saved != null && /^\d+$/.test(saved) ? Number(saved) : null;
-        // came back after being away: pop up what arrived meanwhile; first ever visit: just start from now
-        if (saved != null && saved < d.latestId) d = await api('/notifications/poll?after=' + saved);
-        lastSeen = d.latestId;
-        store(key(), String(lastSeen));
-      } else if (d.latestId > lastSeen) {
-        lastSeen = d.latestId;
-        store(key(), String(lastSeen));
+      var d;
+      try { d = await api('/notifications/poll'); }
+      catch (e) {
+        if (e.message === 'Not signed in') throw e;
+        console.warn('[notifications] /poll failed (' + e.message + '), using the list requests instead');
+        d = await fallbackPoll();
       }
+      var items = (d.items || []).slice().sort(function (x, y) { return x.id - y.id; });      // oldest first
+      var fresh;
+      if (seen == null) {
+        uid = d.uid;
+        seen = loadSeen();
+        var first = seen == null;
+        if (first) seen = {};
+        fresh = items.filter(function (n) { return !seen[n.id]; });
+        // first look in this tab: only what happened in the last 10 minutes pops up; older unread ones wait in the bell
+        if (first) fresh = fresh.filter(function (n) { return n.createdAt && Date.now() - Date.parse(n.createdAt) < 600000; });
+      } else {
+        fresh = items.filter(function (n) { return !seen[n.id]; });
+      }
+      items.forEach(function (n) { seen[n.id] = 1; });
+      saveSeen();
       setCount(d.unread || 0);
       applyTitle(d.unread || 0);
       applyRole(d.role);
       active = d.activeLowStock || [];
-      handleNew(d.items || []);
+      handleNew(fresh);
       renderBar();
       alarmTick();
-    } catch (e) { /* stay quiet if the API is down; the next poll tries again */ }
+    } catch (e) { if (e && e.message !== 'Not signed in') console.warn('[notifications]', e.message); }
     finally { polling = false; if (again) { again = false; setTimeout(poll, 150); } }
   }
 

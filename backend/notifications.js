@@ -374,17 +374,14 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       `SELECT COALESCE(MAX(notification_id), 0)::bigint AS id FROM notifications WHERE user_id = $1` + role, [req.user.id]);
     const unread = await pool.query(
       `SELECT COUNT(*)::int AS n FROM notifications WHERE user_id = $1 AND NOT is_read` + role, [req.user.id]);
-    let items = [];
-    if (/^\d{1,18}$/.test(String(req.query.after || ''))) {
-      const r = await pool.query(
-        `SELECT notification_id, category, title, body, link, entity_type, entity_id, severity,
-                is_read, is_resolved, created_at, meta,
-                to_char(created_at AT TIME ZONE $3::text, 'Mon DD, YYYY HH12:MI AM') AS when_label
-           FROM notifications
-          WHERE user_id = $1 AND notification_id > $2 AND NOT is_read` + role + `
-          ORDER BY notification_id ASC LIMIT 20`, [req.user.id, req.query.after, TZ]);
-      items = r.rows.map(shape);
-    }
+    // newest unread notifications (the page remembers which ones it already showed, so only new ones pop up)
+    const recent = await pool.query(
+      `SELECT notification_id, category, title, body, link, entity_type, entity_id, severity,
+              is_read, is_resolved, created_at, meta,
+              to_char(created_at AT TIME ZONE $2::text, 'Mon DD, YYYY HH12:MI AM') AS when_label
+         FROM notifications WHERE user_id = $1 AND NOT is_read` + role + `
+         ORDER BY created_at DESC, notification_id DESC LIMIT 10`, [req.user.id, TZ]);
+    const items = recent.rows.map(shape);
     let activeLowStock = [];
     if (finance) {
       const a = await pool.query(
