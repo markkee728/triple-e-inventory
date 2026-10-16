@@ -204,6 +204,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     return { name: name || null, phone: phone || null };
   }
   const posPaymentsReady = ensurePosPayments().catch(e => { console.error('[db] POS Xendit schema:', e.message); throw e; });
+  posPaymentsReady.catch(() => {});          // already logged above; without this a database that is not reachable yet at boot would crash the whole server (unhandled rejection)
   app.post('/api/pos/xendit-checkout', auth('cashier'), wrap(async (req, res) => {
     await posPaymentsReady;
     const b = req.body || {};
