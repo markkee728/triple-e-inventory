@@ -221,3 +221,88 @@ html[data-theme="light"] .nc-item.unread { background: rgba(31,111,184,.06); }
 .nc-alertpill:hover { border-color: var(--blue-bright, #4a90d9); }
 .nc-ab-btn .nc-svg { width: 15px; height: 15px; }
 @media (max-width: 700px) { .nc-alertpill { left: 12px; bottom: 12px; } }
+
+/* =====================================================================================
+   Phones: the bell must always be visible, tappable and its list must stay on screen
+   (Finance Admin, Cashier and Customer pages all use this file).
+   ===================================================================================== */
+.nc-wrap { flex: none; }
+.nc-bell { flex: none; padding: 0; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.nc-bell:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.nc-drop { max-height: min(480px, calc(100vh - 88px)); max-height: min(480px, calc(100dvh - 88px)); }
+.nc-list { overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+.nc-drop-head { flex-wrap: wrap; }
+.nc-drop-head > div { min-width: 0; }
+.nc-item > span { min-width: 0; }
+.nc-title, .nc-body { overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  /* never let the top bar squeeze the bell away: keep every control in one row with small gaps */
+  .topbar { gap: 8px; }
+  .topbar-right { gap: 6px; min-width: 0; flex-wrap: nowrap; }
+  .topbar-right > * { flex: none; }
+
+  /* 44 x 44 px: the minimum comfortable touch target (the generic button rule made it 42 x 44) */
+  .nc-bell { width: 44px; min-width: 44px; height: 44px; min-height: 44px; }
+  .nc-count { top: -3px; right: -3px; }
+
+  /* The list is anchored to the whole top bar instead of to the bell. Anchored to the bell it ran off the
+     left edge of a small phone; now it is always 8px from both screen edges, directly under the top bar. */
+  .nc-wrap { position: static; }
+  .nc-drop {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: max(8px, env(safe-area-inset-left));
+    right: max(8px, env(safe-area-inset-right));
+    width: auto; max-width: none;
+    max-height: calc(100vh - 84px); max-height: calc(100dvh - 84px);
+    border-radius: 14px;
+  }
+  .nc-drop-head { padding: 12px 14px 10px; gap: 8px; }
+  .nc-drop-head h2 { font-size: 15.5px; }
+  .nc-item { padding: 12px 14px; }
+  .nc-link { min-height: 40px; padding: 0 6px; display: inline-flex; align-items: center; }
+  .nc-drop-foot { padding: 6px 14px calc(6px + env(safe-area-inset-bottom, 0px)); }
+  .nc-soundbtn { margin-left: 0; }
+
+  /* pop-up toasts: full width under the top bar */
+  .nc-toasts {
+    left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right));
+    top: calc(env(safe-area-inset-top, 0px) + 66px); width: auto;
+  }
+  .nc-toast { grid-template-columns: 30px 1fr 32px; gap: 8px; padding: 10px 8px 10px 10px; transform: translateY(-12px); }
+  .nc-t-ico { width: 30px; height: 30px; }
+  .nc-t-x { width: 32px; min-width: 32px; height: 32px; min-height: 32px; }
+
+  /* low-stock banner (Finance): full width, wrapping buttons, clear of the home-bar */
+  .nc-alertbar {
+    left: max(10px, env(safe-area-inset-left)); right: max(10px, env(safe-area-inset-right));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px)); width: auto;
+    grid-template-columns: 32px 1fr; gap: 10px; padding: 12px;
+    max-height: 70vh; max-height: 70dvh; overflow-y: auto;
+  }
+  .nc-ab-ico { width: 32px; height: 32px; }
+  .nc-ab-btn { flex: 1 1 auto; justify-content: center; min-height: 40px; }
+  .nc-ab-btn.icon { flex: 0 0 auto; margin-left: 0; }
+  .nc-alertpill { left: max(10px, env(safe-area-inset-left)); bottom: calc(10px + env(safe-area-inset-bottom, 0px)); max-width: calc(100vw - 20px); }
+  .nc-page-tools { gap: 8px; }
+  .nc-chip { min-height: 38px; }
+}
+
+/* very small phones (320 - 380px wide) */
+@media (max-width: 380px) {
+  .topbar { gap: 4px; padding-left: max(8px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .topbar-right { gap: 4px; }
+  .topbar .burger { margin-right: 0; }
+  .topbar .theme-toggle { padding: 9px 10px; min-width: 40px; justify-content: center; }
+  .topbar .icon-pill { padding: 0 10px; gap: 6px; }
+  .nc-drop-head p { display: none; }
+  .nc-when { margin-left: 0; flex-basis: 100%; }
+  .nc-title { font-size: 14px; }
+  .nc-ab-main strong { font-size: 14px; }
+}
+
+@media (orientation: landscape) and (max-height: 480px) {
+  .nc-drop { max-height: calc(100vh - 70px); max-height: calc(100dvh - 70px); }
+  .nc-alertbar { max-height: 60dvh; }
+}

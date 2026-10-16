@@ -494,15 +494,24 @@
     if (!bell) return;
     bell.addEventListener('click', function (e) {
       e.stopPropagation();
+      // only one menu at a time: on a phone the account menu and the bell list would sit on top of each other
+      var ud = $('userDropdown');
+      if (ud && ud.classList.contains('open')) {
+        ud.classList.remove('open');
+        var chip = $('userChipBtn'); if (chip) chip.setAttribute('aria-expanded', 'false');
+      }
       setDrop(!dropOpen);
     });
+    // capture phase: the account chip stops its click from bubbling, which used to leave the bell list open behind it
     document.addEventListener('click', function (e) {
       if (!e.target.closest('#ncWrap')) setDrop(false);
       if (!e.target.closest('#userMenuWrap')) {
         var ud = $('userDropdown');
         if (ud) ud.classList.remove('open');
       }
-    });
+    }, true);
+    // rotating the phone / resizing: keep the list inside the screen by simply closing it
+    window.addEventListener('orientationchange', function () { setDrop(false); });
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape') setDrop(false);
     });

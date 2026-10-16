@@ -1,4 +1,4 @@
-/* Low-stock alerts: email + text to the Finance team when a product falls to its reorder level.
+/* Low-stock alerts: EMAIL ONLY (no text messages) to the Finance-Admin team when a product falls to its reorder level.
 
    A product is "low" when  on_hand <= reorder_level  (and a reorder level is set). The check runs
      - a few seconds after any change made through the API (a sale, an order, stock in/out, a stock count ...),
@@ -6,14 +6,14 @@
      - whenever  POST/GET /api/low-stock/check  is called with the header  x-cron-key: <LOW_STOCK_CRON_KEY>
        (use Cloud Scheduler for this on Cloud Run, so alerts still go out when the server was idle).
    Every product is alerted ONCE per drop: it is remembered in low_stock_alerts and only alerts again after its
-   stock has been back above the reorder level. Products that go low at the same time share one email and one text.
+   stock has been back above the reorder level. Products that go low at the same time share one email.
 
-   Who is told: every active Finance user (their account email and phone), or the lists below when you set them:
-     LOW_STOCK_EMAIL_TO   comma-separated emails      LOW_STOCK_SMS_TO   comma-separated mobile numbers
-   Switches:  LOW_STOCK_ALERTS=off (everything)   LOW_STOCK_SMS=off (email only)
-   Email uses mailer.js, the text uses sms.js (TextBee). Neither ever breaks a sale or an API call. */
+   Who is told: the account email of every active Finance-Admin user (role 'finance'), or this list when you set it:
+     LOW_STOCK_EMAIL_TO   comma-separated emails
+   EMAIL ONLY: phone numbers and text messages are never used for low-stock alerts.
+   Switch:  LOW_STOCK_ALERTS=off (turns the email off; the in-app bell notification still appears)
+   Email uses mailer.js. It never breaks a sale or an API call. */
 const mailer = require('./mailer');
-const sms = require('./sms');
 const { escapeHtml: esc } = mailer;
 
 const env = (k) => String(process.env[k] || '').trim();
@@ -30,17 +30,13 @@ module.exports = function (app, pool) {
        on_hand    NUMERIC(14,2))`).catch((e) => { schemaReady = null; throw e; }));
 
   async function recipients() {
-    const list = (v) => v.split(',').map((s) => s.trim()).filter(Boolean);
-    let emails = list(env('LOW_STOCK_EMAIL_TO')), phones = list(env('LOW_STOCK_SMS_TO'));
-    if (!emails.length || !phones.length) {
+    let emails = env('LOW_STOCK_EMAIL_TO').split(',').map((x) => x.trim()).filter(Boolean);
+    if (!emails.length) {
       const { rows } = await pool.query(
-        `SELECT u.email, u.phone FROM users u JOIN roles r ON r.role_id = u.role_id WHERE r.role_key = 'finance' AND u.status = 'active'`);
-      if (!emails.length) emails = rows.map((r) => r.email).filter(Boolean);
-      if (!phones.length) phones = rows.map((r) => r.phone).filter(Boolean);
+        `SELECT u.email FROM users u JOIN roles r ON r.role_id = u.role_id WHERE r.role_key = 'finance' AND u.status = 'active'`);
+      emails = rows.map((r) => r.email).filter(Boolean);
     }
-    const seen = new Set();
-    phones = phones.filter((p) => { const e = sms.toE164(p); if (!e || seen.has(e)) return false; seen.add(e); return true; });
-    return { emails: [...new Set(emails.map((e) => e.toLowerCase()))], phones };
+    return { emails: [...new Set(emails.map((e) => e.toLowerCase()))] };
   }
 
   function build(items) {
@@ -63,10 +59,7 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
 </div><p style="font-size:11.5px;color:#8b95a5;margin:14px 4px">You get this because you are a Finance admin of the Triple E Metal inventory system. Each product is reported once until it has been restocked.</p></div></body></html>`;
     const text = ['Low stock alert', '', ...items.map((i) => `- ${i.sku}  ${i.name}: ${+i.on_hand <= 0 ? 'OUT OF STOCK' : qty(i)} (reorder at ${num(i.reorder_level)})`),
       link ? '\nOpen inventory: ' + link : '', '\nTriple E Metal Products'].filter((x) => x !== '').join('\n');
-    // text message: plain characters, at most 3 products, the rest as "+N more"
-    const short = items.slice(0, 3).map((i) => `${i.name} ${+i.on_hand <= 0 ? 'OUT' : num(i.on_hand) + ' left'}`).join('; ');
-    const message = `Triple E Metal LOW STOCK: ${short}${items.length > 3 ? ` +${items.length - 3} more` : ''}. Please restock.`;
-    return { subject, html, text, message };
+    return { subject, html, text };
   }
 
   async function check() {
@@ -92,7 +85,7 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
       const { rows: items } = await pool.query(
         `SELECT product_id, sku, name, unit, department, on_hand, reorder_level FROM products WHERE product_id = ANY($1)
           ORDER BY (on_hand <= 0) DESC, on_hand / NULLIF(reorder_level, 0), name`, [ids]);
-      // in-app Notification Center always records the drop (email/SMS can still be switched off)
+      // in-app Notification Center always records the drop (the email can still be switched off)
       if (app.locals.notifications) await app.locals.notifications.notifyLowStock(items);
       if (off('LOW_STOCK_ALERTS')) return { checked: true, alerted: items.length, inApp: true };
       const to = await recipients();
@@ -102,12 +95,8 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
         const r = await mailer.sendMail({ to: email, subject: m.subject, html: m.html, text: m.text, tag: 'low-stock' }).catch((e) => ({ sent: false, reason: e.message }));
         if (r.sent) delivered++; else console.warn(`[low-stock] email to ${email} not sent: ${r.reason}`);
       }
-      if (!off('LOW_STOCK_SMS')) for (const phone of to.phones) {
-        const r = await sms.sendSms({ to: phone, message: m.message }).catch((e) => ({ sent: false, reason: e.message }));
-        if (r.sent) delivered++; else console.warn(`[low-stock] text to ${phone} not sent: ${r.reason}`);
-      }
-      if (!delivered) console.warn(`[low-stock] ${items.length} low product(s) posted in-app; email/SMS not delivered.`);
-      else console.log(`[low-stock] alerted ${to.emails.length} email(s) / ${to.phones.length} number(s) about ${items.length} product(s)`);
+      if (!delivered) console.warn(`[low-stock] ${items.length} low product(s) posted in-app; email not delivered.`);
+      else console.log(`[low-stock] emailed ${to.emails.length} Finance-Admin address(es) about ${items.length} product(s)`);
       return { checked: true, alerted: items.length };
     } catch (err) {
       console.error('[low-stock] check failed:', err.message);
