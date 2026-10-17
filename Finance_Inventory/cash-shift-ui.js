@@ -60,10 +60,12 @@
   badge();
   if (!current) {
    app.innerHTML = `<div class="cs-hero closed"><div><div class="cs-state"><span class="cs-dot"></span>No open shift</div><div class="cs-meta">Count the cash in your drawer, then enter it below to start selling.</div></div></div>
-   <div class="panel cs-card cs-start"><h3>Start your shift</h3><p>Enter the starting cash (change fund) you put in the drawer.</p>
+   <div class="cs-grid cs-startgrid"><div class="panel cs-card cs-start"><h3>Start your shift</h3><p>Enter the starting cash (change fund) you put in the drawer.</p>
     <div class="cs-field"><label for="csOpening">Starting cash</label><div class="cs-money"><span>₱</span><input id="csOpening" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csOpeningErr"></div>
      <div class="cs-chips">${[500, 1000, 2000, 3000, 5000].map(v => '<button type="button" class="cs-chip" data-fill="' + v + '">' + fmt(v).replace('.00', '') + '</button>').join('')}</div></div>
-    <button class="btn-primary cs-btn" id="csOpenBtn">Open cash shift</button></div>`;
+    <button class="btn-primary cs-btn" id="csOpenBtn">Open cash shift</button></div>
+    <div class="panel cs-card cs-tips"><h3>Before you open</h3><p>A quick check keeps your end-of-shift count accurate.</p>
+     <ol class="cs-steps"><li><b>Count the drawer</b><span>Count every bill and coin currently in the cash drawer.</span></li><li><b>Enter the change fund</b><span>Type the total as your starting cash, or tap a quick amount.</span></li><li><b>Start selling</b><span>Cash sales are tracked automatically and compared to your count when you close.</span></li></ol></div></div>`;
    return;
   }
   const c = current, mv = c.movements || [];
