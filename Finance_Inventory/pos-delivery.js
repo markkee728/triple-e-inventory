@@ -227,7 +227,8 @@
   st.textContent = '.dlv-box{margin-top:10px;padding:12px;border:1px solid var(--border,#2a2f3a);border-radius:10px}' +
     '.dlv-box label{display:block;margin:8px 0 4px;font-size:12.5px;font-weight:600;color:var(--text-dim)}' +
     '.dlv-box input,.dlv-box select{width:100%;box-sizing:border-box}' +
-    '.dlv-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 8px}@media(max-width:520px){.dlv-grid{grid-template-columns:1fr}}' +
+    '.dlv-grid{display:grid;grid-template-columns:1fr;gap:0}.dlv-box select{text-overflow:ellipsis}' +   // one column: the counter's side panel is too narrow for two, and it cut the text off
+    
     '.dlv-box .is-bad{border-color:var(--red,#e35b5b)!important;box-shadow:0 0 0 3px rgba(227,91,91,.14)}' +
     '.dlv-box .err-text{min-height:0;margin-top:4px;font-size:12.5px;color:var(--red,#e35b5b)}.dlv-box .err-text:empty{display:none}' +
     '.dlv-hint{font-size:12.5px;margin-top:4px;color:var(--text-faint,#8b93a1)}.dlv-hint.tick{color:var(--green,#3fb27f)}' +
