@@ -528,7 +528,7 @@ function stockChip(p) {
 }
 /* ----- unit clarity, minimum order, ratings, stock messages ----- */
 const minQty = p => { if (!p) return 1; const m = Number(p.minOrder) || 1; return p.available > 0 ? Math.min(m, p.available) : m; };   // never more than what is in stock
-const soldPer = p => 'Sold per <b>' + esc(p.unit) + '</b>' + (minQty(p) > 1 ? ' · Minimum order <b>' + minQty(p) + ' ' + esc(p.unit) + '</b>' : '') + (p.available > 0 ? ' · Up to <b>' + p.available + ' ' + esc(p.unit) + '</b> available' : '') + (p.fractional ? ' · decimals allowed' : ' · whole ' + esc(p.unit) + 's only');
+const soldPer = p => 'Sold per <b>' + esc(p.unit) + '</b>' + (minQty(p) > 1 ? ' · Minimum order <b>' + minQty(p) + ' ' + esc(p.unit) + '</b>' : '') + (p.available > 0 ? ' · Up to <b>' + p.available + ' ' + esc(p.unit) + '</b> available' : '') + (p.fractional ? ' · decimals allowed' : ' · whole ' + esc(/s$/i.test(p.unit) ? p.unit : p.unit + 's') + ' only');
 function starsHtml(avg) { return '<span class="stars" style="--p:' + Math.max(0, Math.min(100, (avg || 0) / 5 * 100)) + '%" aria-hidden="true"></span>'; }
 function ratingLine(avg, n, link) {
   if (!n) return '';

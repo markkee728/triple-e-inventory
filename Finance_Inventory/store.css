@@ -36,8 +36,9 @@ html[data-theme="light"] .hero{background:linear-gradient(120deg,rgba(31,111,184
 .prod .price-row{display:flex;align-items:baseline;gap:6px;margin-top:auto;padding-top:10px}
 .prod .price{font-family:Oswald,sans-serif;font-weight:600;font-size:23px}
 .prod .per{font-size:13px;color:var(--text-faint)}
-.prod .buy{display:flex;gap:8px;margin-top:10px}
-.prod .buy .btn-primary{flex:1}
+.prod .buy{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.prod .buy .btn-secondary{flex:0 0 auto}
+.prod .buy .btn-primary{flex:1 1 150px;min-width:0;white-space:nowrap}
 .in-cart-note{font-size:12.5px;color:var(--green);margin-top:6px;min-height:18px}
 html[data-theme="light"] .in-cart-note{color:#17794a}
 
@@ -186,8 +187,10 @@ html[data-theme="light"] .in-cart-note{color:#17794a}
 
 /* product photos on the catalog cards */
 .prod-art{cursor:pointer}
-.prod-art:has(.shop-product-image){height:190px;background:var(--card)}
-.shop-product-image{width:100%;height:100%;object-fit:contain;display:block;background:var(--card)}
+.prod-art:has(.shop-product-image){height:190px;background:#fff}
+.shop-product-image{width:100%;height:100%;object-fit:contain;display:block;background:#fff}
+.prod-art:has(.shop-product-image) .chip-pill{z-index:1;background:#0f1a26;box-shadow:0 1px 4px rgba(0,0,0,.25)}
+html[data-theme="light"] .prod-art:has(.shop-product-image) .chip-pill{background:#fff}
 .prod .name a:hover{color:var(--blue-bright)}
 @media(max-width:700px){.prod-art:has(.shop-product-image){height:130px}}
 

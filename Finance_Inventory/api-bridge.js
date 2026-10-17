@@ -1608,7 +1608,7 @@
 
   const isActive = (el) => {
     if (!el || el.disabled) return false;
-    const grp = el.closest('#movementNoteGroup, #npCategoryNewWrap');
+    const grp = el.closest('#movementNoteGroup, #npCategoryNewWrap, #npLocationNewWrap');
     return !(grp && grp.style.display === 'none');
   };
 
