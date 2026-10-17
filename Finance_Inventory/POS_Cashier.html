@@ -28,6 +28,11 @@
 .cartpane .seg-btn{flex-direction:column;gap:6px;min-height:68px;padding:8px 6px;text-align:center;line-height:1.2;font-size:13px}
 .cartpane .seg-btn .sub{display:block;font-size:11px;font-weight:500;opacity:.8}
 .cartpane .seg-btn .ico{width:20px;height:20px;flex:none}
+/* Delivery mode makes the payment area taller than the screen: let the whole side panel scroll (header stays put) so the address,
+   payment and "Complete sale" button can always be reached, instead of being cut off at the bottom. */
+.cartpane{overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain}
+.cartpane .cart-head{position:sticky;top:0;z-index:3;background:var(--panel)}
+.cartpane .lines{flex:1 0 120px}
 #complete{white-space:normal;line-height:1.25;letter-spacing:.4px;font-size:13.5px;min-height:48px;overflow-wrap:anywhere}
 /* walk-in quote requests */
 .pq-layout{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:18px;align-items:start}
