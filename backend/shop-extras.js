@@ -57,7 +57,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
       for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
-                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT', 'request_type TEXT', 'item_type TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
@@ -106,7 +106,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const signoff = () => { const i = shopInfo() || {}; return ['', 'Triple E Metal Products', [i.phone, i.email].filter(Boolean).join(' \u00B7 ')]; };
 
   /* =====================================================
-     1. Request a quote
+     1. Reserve / Pre-order  (the "quote request")
+     A request is a RESERVATION when the item is a catalog product and the whole quantity is in stock (we set it aside), and a
+     PRE-ORDER otherwise (not enough stock, or a custom item we make / order for the date asked). The server decides this, never the browser.
      Flow:  customer (shop) or cashier (walk-in) sends a request  ->  status 'new'
             Finance replies with an amount, lead time and validity  ->  'quoted'
             customer accepts / declines (or asks for a new quote)    ->  'accepted' / 'declined' / back to 'new'
@@ -114,12 +116,14 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
                              -> 'completed' (Picked Up / Delivered; needs the receiver's name and the balance paid)
             Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
+  const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'];
+  const SHEET_SIZES = ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'];
   const QUOTE_OPTIONS = {
     neededMaxMonths: 6,                                                      // "needed by" is a date: from tomorrow up to this many months from today
     units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
     decimalUnits: ['kg', 'linear m'],                                        // every other unit is counted in whole numbers
     material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
-    size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft', 'Not applicable'],
+    size: [...PIPE_SIZES, ...SHEET_SIZES, 'Not applicable'],
     thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
     finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
     service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
@@ -160,16 +164,53 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     { label: 'bronze', words: ['bronze'], materials: ['Bronze'] },
     { label: 'copper', words: ['copper'], materials: ['Copper'] }
   ];
-  QUOTE_OPTIONS.forms = [
-    { label: 'sheets and plates', words: ['sheet', 'plate', 'panel', 'coil'], sizes: ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'] },
-    { label: 'pipes and fittings', words: ['pipe', 'tube', 'fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'] }
+  /* ITEM TYPE is a dropdown the customer (or cashier) picks, and it decides what is offered for size, thickness and cutting / bending:
+       sizes      the sizes that exist for this kind of item (a sheet is never offered a pipe size)
+       na         whether "Not applicable" is a valid size
+       thickness  'required' = a real thickness is needed (sheet) | 'optional' | 'none' = does not apply (a fitting has no sheet thickness)
+       service    the cutting / bending that makes sense for it (a fitting is not bent)
+     For a catalog product the type is taken from the product's name (same words), so a brass elbow is a Fitting / Valve without asking.
+     `words` match the START of a word, so "steel" never matches "tee". The first type that matches wins, so the order matters. */
+  const ALL_SERVICES = QUOTE_OPTIONS.service;
+  QUOTE_OPTIONS.itemTypes = [
+    { value: 'Sheet / Plate', words: ['sheet', 'plate', 'panel', 'coil'], sizes: SHEET_SIZES, na: false, thickness: 'required', service: ALL_SERVICES },
+    { value: 'Pipe / Tube', words: ['pipe', 'tube'], sizes: PIPE_SIZES, na: false, thickness: 'optional', service: ALL_SERVICES },
+    { value: 'Fitting / Valve', words: ['fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: PIPE_SIZES, na: false, thickness: 'none', service: ['None (as is)', 'Drilling / punching', 'Welding / fabrication'] },
+    { value: 'Forged / Die-cast part', words: ['forged', 'die-cast', 'die cast', 'diecast', 'casting', 'housing', 'heat sink', 'heatsink'], sizes: [], na: true, thickness: 'optional', service: ['None (as is)', 'Drilling / punching'] },
+    { value: 'Other', words: [], sizes: [...PIPE_SIZES, ...SHEET_SIZES], na: true, thickness: 'optional', service: ALL_SERVICES }
   ];
+  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const typeFromText = (text) => {
+    const t = String(text || '').toLowerCase();
+    return QUOTE_OPTIONS.itemTypes.find((it) => it.words.some((w) => new RegExp('(^|[^a-z0-9])' + escRe(w), 'i').test(t))) || null;
+  };
+  const typeByName = (name) => QUOTE_OPTIONS.itemTypes.find((it) => it.value === name) || null;
+  // what is really offered for one field once the item type and the material are known (client and server use the same rules)
+  const allowedFor = (key, type, material) => {
+    let list = QUOTE_OPTIONS[key];
+    const r = QUOTE_OPTIONS.rules[material];
+    if (r && r[key]) list = r[key];
+    if (key === 'size') return type.sizes.concat(type.na ? ['Not applicable'] : []);
+    if (key === 'thickness') return type.thickness === 'none' ? ['Not applicable'] : type.thickness === 'required' ? list.filter((v) => v !== 'Not applicable') : list;
+    if (key === 'service') return list.filter((v) => type.service.includes(v));
+    return list;
+  };
   // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
-  const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
-  const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
+  const SPEC_LABEL = { itemType: 'Item type', material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
+  // typed values (the "Other" choice of size / thickness) must be a real measurement with its unit, not any text with a digit in it
+  const NUM = '\\d+(?:\\.\\d+)?(?:-\\d+\\/\\d+|\\/\\d+)?';
+  const CUSTOM_RE = {
+    size: new RegExp('^' + NUM + '(?:\\s*[x\\u00D7]\\s*' + NUM + '){0,2}\\s*(?:mm|cm|m|in|ft|"|\')$', 'i'),
+    thickness: /^\d+(?:\.\d+)?\s*mm$/i
+  };
+  const customOk = (key, v) => v.length >= 2 && v.length <= 40 && CUSTOM_RE[key].test(v) && /[1-9]/.test(v) && (key !== 'thickness' || (parseFloat(v) >= 0.1 && parseFloat(v) <= 50));
+  // units: a catalog product is counted in its own unit ("pcs" = "pc", "sheet" = "sheets"), so the quantity can never be in another unit
+  const UNIT_CANON = { pcs: 'pc', pc: 'pc', piece: 'pc', pieces: 'pc', sheet: 'sheet', sheets: 'sheet', length: 'length', lengths: 'length', box: 'box', boxes: 'box', set: 'set', sets: 'set', roll: 'roll', rolls: 'roll', bundle: 'bundle', bundles: 'bundle', kg: 'kg', kgs: 'kg', 'linear m': 'linear m' };
+  const canon = (u) => UNIT_CANON[String(u || '').toLowerCase().trim()] || String(u || '').toLowerCase().trim();
+  const DECIMAL_CANON = QUOTE_OPTIONS.decimalUnits.map(canon);
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
   const addMonthsISO = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); };
@@ -191,7 +232,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (at >= 0 && q.responded_at) progress.push({ status: 'accepted', label: 'Accepted', at: ms(q.responded_at) });
     (Array.isArray(q.progress) ? q.progress : []).forEach((e) => progress.push({ status: e.s, label: stepLabel(e.s, q.fulfillment), at: e.at, note: e.note || undefined }));
     return {
-      id: q.quote_no, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
+      id: q.quote_no, requestType: q.request_type || undefined, itemType: q.item_type || undefined, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
@@ -233,23 +274,30 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
 
     // the product (or a described custom item)
-    let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '', fromProduct = {};
+    let sku = null, productName = str(b.productName).replace(/\s+/g, ' ').slice(0, 120) || null, productUnit = '', fromProduct = {}, onHand = 0, productType = null;
     if (str(b.sku)) {
-      const p = (await pool.query(`SELECT sku, name, unit, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
+      const p = (await pool.query(`SELECT sku, name, unit, on_hand, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
       if (!p) throw bad('sku', 'That product is not available');
-      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs);
+      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs); onHand = Number(p.on_hand) || 0;
+      productType = typeFromText(p.name);                                 // a catalog product's type comes from its name, so the browser cannot contradict it
     } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
+    else if (productName.length > 120 || !/\p{L}{2}/u.test(productName)) throw bad('productName', 'Enter the item name in words, e.g. Stainless sheet');
 
-    // amount required: a number plus a unit from the list (or the product's own unit)
+    // amount required: a number plus a unit. A catalog product is counted in its own unit; a custom item uses a unit from the list.
     const raw = String(b.quantity == null ? '' : b.quantity).replace(/,/g, '').trim();
     const qty = Number(raw);
     if (!raw) throw bad('quantity', 'Enter how much you need');
     if (!Number.isFinite(qty) || qty <= 0) throw bad('quantity', 'Enter a number greater than 0');
     if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
-    const unit = str(b.quantityUnit).toLowerCase();
-    if (!QUOTE_OPTIONS.units.includes(unit) && !(unit && unit === productUnit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
-    if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
+    let unit = str(b.quantityUnit).toLowerCase();
+    if (sku) {
+      if (canon(unit) !== canon(productUnit)) throw bad('quantity', 'This item is counted in ' + productUnit + '. Please use that unit');
+      unit = productUnit;
+    } else if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    if (!DECIMAL_CANON.includes(canon(unit)) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
+    // RESERVATION = a catalog product with the whole quantity in stock (we set it aside); everything else is a PRE-ORDER (made / ordered for the date)
+    const requestType = sku && qty <= onHand ? 'Reservation' : 'Pre-order';
 
     // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted
     const neededBy = str(b.neededBy), today = todayPH(), latest = addMonthsISO(today, QUOTE_OPTIONS.neededMaxMonths);
@@ -258,22 +306,38 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
     if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
 
-    // sizes and details: every one is a dropdown; size and thickness can also be typed in
+    // sizes and details: every one is a dropdown (size and thickness can also be typed as a measurement). The ITEM TYPE comes first and decides
+    // which sizes, thickness and cutting / bending fit; the MATERIAL then decides finish / thickness / cutting. The browser's choice is re-checked here.
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
     const specs = {};
+    let type = productType;
+    if (!type) {
+      const t = str(inSpecs.itemType);
+      if (!t) throw bad('itemType', 'Choose the item type');
+      type = typeByName(t);
+      if (!type) throw bad('itemType', 'Choose the item type from the list');
+    }
+    specs.itemType = type.value;
     for (const key of Object.keys(SPEC_LABEL)) {
+      if (key === 'itemType') continue;
+      const label = SPEC_LABEL[key].toLowerCase();
       if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
       const v = str(inSpecs[key]);
-      if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
-      const fits = QUOTE_OPTIONS.rules[specs.material];                 // material comes first in SPEC_LABEL; it decides what fits (no rule = anything)
-      const allowed = fits && fits[key] ? fits[key] : QUOTE_OPTIONS[key];
-      if (!allowed.includes(v)) {
-        if (QUOTE_OPTIONS[key].includes(v) && !QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' does not go with ' + specs.material + '. Choose one from the list');
-        if (!QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase() + ' from the list');
-        if (QUOTE_OPTIONS[key].includes(v)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' is not offered for ' + specs.material + '. Choose another or type it');
-        if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
+      if (!v) throw bad(key, 'Choose the ' + label);
+      const allowed = allowedFor(key, type, specs.material);
+      if (allowed.includes(v)) { specs[key] = v; continue; }
+      const typeable = QUOTE_OPTIONS.customAllowed.includes(key) && !(key === 'thickness' && type.thickness === 'none');
+      if (QUOTE_OPTIONS[key].includes(v)) {                             // a real choice, but not for this item / material
+        if (key === 'size') throw bad(key, 'That size is not offered for ' + type.value.toLowerCase() + '. Choose one from the list or type your own');
+        if (key === 'thickness' && type.thickness === 'none') throw bad(key, 'Thickness does not apply to ' + type.value.toLowerCase());
+        if (key === 'thickness' && v === 'Not applicable') throw bad(key, 'Choose the thickness. ' + type.value + ' needs one');
+        if (key === 'service') throw bad(key, 'That is not offered for ' + type.value.toLowerCase() + (specs.material ? ' in ' + specs.material : '') + '. Choose one from the list');
+        if (typeable) throw bad(key, 'That ' + label + ' is not offered for ' + specs.material + '. Choose another or type it');
+        throw bad(key, 'That ' + label + ' does not go with ' + specs.material + '. Choose one from the list');
       }
-      specs[key] = v;
+      if (!typeable) throw bad(key, 'Choose the ' + label + ' from the list');
+      if (!customOk(key, v)) throw bad(key, 'Type the ' + label + ' with its unit, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
+      specs[key] = v.replace(/\s+/g, ' ');
     }
     const notes = str(b.notes);
     if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
@@ -306,11 +370,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName };
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, requestType, itemType: type.value };
   }
 
-  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area';
-  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area];
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, request_type, item_type';
+  const insertPh = (from) => INSERT_COLS.split(',').map((_, i) => '$' + (from + i) + (i === 6 ? '::jsonb' : '')).join(',');   // $n placeholders, specs is jsonb
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area, v.requestType, v.itemType];
   const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
   const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
@@ -321,7 +386,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,${insertPh(2)}) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
       return r.rows[0];
@@ -331,12 +396,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     // email: a copy to the customer and a heads-up to Finance (fire-and-forget)
     (async () => {
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
-      await send(u && u.email, `We received your quote request ${row.quote_no}`, [
-        `Hi ${v.contactName},`, `Thank you for your request. We will send you a quote soon.`, '',
-        `Reference: ${row.quote_no}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
+      await send(u && u.email, `We received your ${v.requestType.toLowerCase()} request ${row.quote_no}`, [
+        `Hi ${v.contactName},`, `Thank you for your request. We will send you a price soon.`, '',
+        `Reference: ${row.quote_no}`, `Type: ${v.requestType}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
       const to = financeTo();
-      if (to) await send(to, `New quote request ${row.quote_no} from ${v.contactName}`, [
-        `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+      if (to) await send(to, `New ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
+        `Type: ${v.requestType}`, `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
         `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
       else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
@@ -401,7 +466,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,${insertPh(2)}) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
       return r.rows[0];
@@ -410,8 +475,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     (async () => {
       const to = financeTo();
       if (!to) return;
-      await send(to, `Walk-in quote request ${row.quote_no} from ${v.contactName}`, [
-        `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+      await send(to, `Walk-in ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
+        `Type: ${v.requestType}`, `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
         `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
     })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));

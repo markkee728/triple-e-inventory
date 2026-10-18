@@ -1,0 +1,913 @@
+/* shop-extras.js — extras for a metal-products shop:
+     1. Request a quote           customer form -> Finance replies with a price -> customer accepts / declines
+     2. Minimum order             products.min_order_qty (set by Finance in the product form), enforced on online orders
+     3. Back-in-stock alerts      customer taps "Notify me" on an out-of-stock item; an email goes out when stock returns
+     4. Verified reviews          only customers whose order is Delivered / Picked Up; Finance can hide a review
+
+   Mounted in server.js:   require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+   Like the other modules it creates its own tables on start (safe to run every time); 006_shop_extras.sql is the same
+   thing for running by hand.  pos-shop.js calls app.locals.shopExtras.decorate / checkMinimums, and both fail soft:
+   if these tables could not be created, the shop and the POS keep working without the extras. */
+const mailer = require('./mailer');
+const makeOrderMail = require('./order-mail');
+const { escapeHtml: esc } = mailer;
+
+const FINAL_STATUS = ['Delivered', 'Picked Up'];
+const MOBILE_RE = /^(\+63|0)9\d{9}$/;
+const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'\u2019-]*$/u;
+const MAX_OPEN_QUOTES = 5;           // a customer can have this many un-answered requests at once
+const BACK_IN_STOCK_DAYS = 7;        // how long the "Back in stock" tag shows for a customer who asked to be told
+
+module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, ValidationError, str }) {
+  const bad = (field, msg) => new ValidationError({ [field]: msg });
+  const { shopInfo } = makeOrderMail(pool);
+  const baseUrl = () => String(process.env.APP_BASE_URL || '').replace(/\/+$/, '');
+  const peso = (n) => '\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const ms = (d) => (d ? new Date(d).getTime() : undefined);
+
+  /* ---------------- schema ---------------- */
+  const ready = (async () => {
+    try {
+      await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS min_order_qty NUMERIC(14,2) NOT NULL DEFAULT 20 CHECK (min_order_qty > 0)');
+      await pool.query(`CREATE SEQUENCE IF NOT EXISTS quote_no_seq START 1001`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS quote_requests (
+        quote_id      BIGSERIAL PRIMARY KEY,
+        quote_no      TEXT UNIQUE NOT NULL DEFAULT ('QR-' || nextval('quote_no_seq')),
+        customer_id   INT NOT NULL REFERENCES users(user_id),
+        contact_name  TEXT NOT NULL,
+        phone         TEXT NOT NULL,
+        product_sku   TEXT,
+        product_name  TEXT,
+        quantity      TEXT NOT NULL,
+        details       TEXT NOT NULL,
+        needed_by     DATE,
+        fulfillment   TEXT CHECK (fulfillment IN ('Delivery','Pickup')),
+        area          TEXT,
+        status        TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new','quoted','closed')),
+        quoted_amount NUMERIC(14,2) CHECK (quoted_amount >= 0),
+        reply_note    TEXT,
+        handled_by    INT REFERENCES users(user_id),
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_customer ON quote_requests (customer_id, created_at DESC)');
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quote_requests (status, created_at DESC)');
+      // walk-in customers logged at the POS have no shop account
+      await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
+      await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
+      // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
+      for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT', 'request_type TEXT', 'item_type TEXT'])
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
+      await pool.query(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
+          ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed'));
+        END IF; END $$`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
+        alert_id    BIGSERIAL PRIMARY KEY,
+        user_id     INT NOT NULL REFERENCES users(user_id),
+        product_id  INT NOT NULL REFERENCES products(product_id),
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        notified_at TIMESTAMPTZ,
+        UNIQUE (user_id, product_id))`);
+      await pool.query(`CREATE TABLE IF NOT EXISTS product_reviews (
+        review_id     BIGSERIAL PRIMARY KEY,
+        product_id    INT NOT NULL REFERENCES products(product_id),
+        user_id       INT NOT NULL REFERENCES users(user_id),
+        order_id      BIGINT NOT NULL,
+        rating        SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        body          TEXT NOT NULL DEFAULT '',
+        status        TEXT NOT NULL DEFAULT 'visible' CHECK (status IN ('visible','hidden')),
+        hidden_by     INT REFERENCES users(user_id),
+        hidden_at     TIMESTAMPTZ,
+        hidden_reason TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (user_id, product_id))`);
+      await pool.query('CREATE INDEX IF NOT EXISTS idx_reviews_product ON product_reviews (product_id, status, created_at DESC)');
+      console.log('[shop] quotes / reviews / stock alerts schema ready');
+    } catch (err) { console.warn('[shop] could not prepare the quotes / reviews / stock alerts schema:', err.message); }
+  })();
+  const whenReady = (req, res, next) => { ready.then(() => next(), next); };
+  ['/api/shop/quotes', '/api/shop/reviews', '/api/shop/my-reviews', '/api/shop/stock-alerts', '/api/finance/quotes', '/api/finance/reviews', '/api/pos/quotes']
+    .forEach((p) => app.use(p, whenReady));
+
+  /* ---------------- mail (never blocks or fails a request) ---------------- */
+  async function send(to, subject, lines, tag) {
+    try {
+      if (!to) return;
+      const text = lines.join('\n');
+      const html = '<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#222">' +
+        lines.map((l) => (l ? '<p style="margin:0 0 10px">' + esc(l) + '</p>' : '')).join('') + '</div>';
+      const r = await mailer.sendMail({ to, subject, html, text, tag });
+      if (!r.sent) console.warn(`[mail] "${subject}" not sent: ${r.reason}`);
+    } catch (err) { console.error(`[mail] "${subject}" failed:`, err.message); }
+  }
+  const signoff = () => { const i = shopInfo() || {}; return ['', 'Triple E Metal Products', [i.phone, i.email].filter(Boolean).join(' \u00B7 ')]; };
+
+  /* =====================================================
+     1. Reserve / Pre-order  (the "quote request")
+     A request is a RESERVATION when the item is a catalog product and the whole quantity is in stock (we set it aside), and a
+     PRE-ORDER otherwise (not enough stock, or a custom item we make / order for the date asked). The server decides this, never the browser.
+     Flow:  customer (shop) or cashier (walk-in) sends a request  ->  status 'new'
+            Finance replies with an amount, lead time and validity  ->  'quoted'
+            customer accepts / declines (or asks for a new quote)    ->  'accepted' / 'declined' / back to 'new'
+            accepted quote:  Finance records payments and moves it  ->  'preparing' -> 'ready' (Ready for Pickup / Out for Delivery)
+                             -> 'completed' (Picked Up / Delivered; needs the receiver's name and the balance paid)
+            Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
+  ===================================================== */
+  const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'];
+  const SHEET_SIZES = ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'];
+  const QUOTE_OPTIONS = {
+    neededMaxMonths: 6,                                                      // "needed by" is a date: from tomorrow up to this many months from today
+    units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
+    decimalUnits: ['kg', 'linear m'],                                        // every other unit is counted in whole numbers
+    material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
+    size: [...PIPE_SIZES, ...SHEET_SIZES, 'Not applicable'],
+    thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
+    finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
+    service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
+    customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
+    leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
+    validDays: [3, 7, 14, 30],
+    payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
+  };
+  /* What fits what. The chosen MATERIAL decides which finish / thickness / cutting are offered (stainless gets stainless finishes, cast iron
+     is not bent...). The words in "Describe the item" only help the form pre-narrow the dropdowns: `families` match a material in the text,
+     `forms` match the kind of item (sheet or pipe / fitting) and so its sizes. 'Not sure (advise me)' has no rule: everything is allowed. */
+  const keepOnly = (master, list) => master.filter((v) => list.includes(v) || v === 'Not applicable' || v === 'Not sure (advise me)');
+  const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
+  const FINISH_METAL = ['Polished', 'Satin / Brushed', 'Matte', 'Raw / Unfinished'];
+  const MATERIAL_FITS = {
+    'Brass':               { finish: [...FINISH_METAL, 'Chrome Plated'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
+    'Bronze':              { finish: FINISH_METAL, thickness: mm(1, 1.2, 1.5, 2, 3, 4.5, 6, 9, 12) },
+    'Copper':              { finish: FINISH_METAL, thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
+    'Stainless Steel 304': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Stainless Steel 316': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Carbon Steel':        { finish: ['Painted', 'Powder Coated', 'Galvanized', 'Raw / Unfinished'], thickness: mm(0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Galvanized Steel':    { finish: ['Galvanized', 'Painted', 'Powder Coated', 'Raw / Unfinished'], thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3) },
+    'Aluminum':            { finish: ['Satin / Brushed', 'Matte', 'Powder Coated', 'Painted', 'Raw / Unfinished'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Cast Iron':           { finish: ['Painted', 'Matte', 'Raw / Unfinished'], thickness: mm(6, 9, 12), service: ['None (as is)', 'Drilling / punching'] }
+  };
+  QUOTE_OPTIONS.rules = {};
+  Object.keys(MATERIAL_FITS).forEach((m) => {
+    const r = MATERIAL_FITS[m];
+    QUOTE_OPTIONS.rules[m] = { finish: keepOnly(QUOTE_OPTIONS.finish, r.finish), thickness: keepOnly(QUOTE_OPTIONS.thickness, r.thickness), service: r.service ? keepOnly(QUOTE_OPTIONS.service, r.service) : QUOTE_OPTIONS.service };
+  });
+  QUOTE_OPTIONS.families = [
+    { label: 'stainless steel', words: ['stainless', 'sus304', 'sus316', 'ss304', 'ss316', 'ss 304', 'ss 316', 'inox'], materials: ['Stainless Steel 304', 'Stainless Steel 316'], grades: { '316': 'Stainless Steel 316', '304': 'Stainless Steel 304' } },
+    { label: 'galvanized steel', words: ['galvanized', 'galvanised', 'gi sheet', 'gi pipe', 'gi tube', 'gi fitting', 'gi coil'], materials: ['Galvanized Steel'] },
+    { label: 'carbon steel', words: ['carbon steel', 'mild steel', 'black iron', 'black steel'], materials: ['Carbon Steel'] },
+    { label: 'cast iron', words: ['cast iron'], materials: ['Cast Iron'] },
+    { label: 'aluminum', words: ['aluminum', 'aluminium'], materials: ['Aluminum'] },
+    { label: 'brass', words: ['brass'], materials: ['Brass'] },
+    { label: 'bronze', words: ['bronze'], materials: ['Bronze'] },
+    { label: 'copper', words: ['copper'], materials: ['Copper'] }
+  ];
+  /* ITEM TYPE is a dropdown the customer (or cashier) picks, and it decides what is offered for size, thickness and cutting / bending:
+       sizes      the sizes that exist for this kind of item (a sheet is never offered a pipe size)
+       na         whether "Not applicable" is a valid size
+       thickness  'required' = a real thickness is needed (sheet) | 'optional' | 'none' = does not apply (a fitting has no sheet thickness)
+       service    the cutting / bending that makes sense for it (a fitting is not bent)
+     For a catalog product the type is taken from the product's name (same words), so a brass elbow is a Fitting / Valve without asking.
+     `words` match the START of a word, so "steel" never matches "tee". The first type that matches wins, so the order matters. */
+  const ALL_SERVICES = QUOTE_OPTIONS.service;
+  QUOTE_OPTIONS.itemTypes = [
+    { value: 'Sheet / Plate', words: ['sheet', 'plate', 'panel', 'coil'], sizes: SHEET_SIZES, na: false, thickness: 'required', service: ALL_SERVICES },
+    { value: 'Pipe / Tube', words: ['pipe', 'tube'], sizes: PIPE_SIZES, na: false, thickness: 'optional', service: ALL_SERVICES },
+    { value: 'Fitting / Valve', words: ['fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: PIPE_SIZES, na: false, thickness: 'none', service: ['None (as is)', 'Drilling / punching', 'Welding / fabrication'] },
+    { value: 'Forged / Die-cast part', words: ['forged', 'die-cast', 'die cast', 'diecast', 'casting', 'housing', 'heat sink', 'heatsink'], sizes: [], na: true, thickness: 'optional', service: ['None (as is)', 'Drilling / punching'] },
+    { value: 'Other', words: [], sizes: [...PIPE_SIZES, ...SHEET_SIZES], na: true, thickness: 'optional', service: ALL_SERVICES }
+  ];
+  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const typeFromText = (text) => {
+    const t = String(text || '').toLowerCase();
+    return QUOTE_OPTIONS.itemTypes.find((it) => it.words.some((w) => new RegExp('(^|[^a-z0-9])' + escRe(w), 'i').test(t))) || null;
+  };
+  const typeByName = (name) => QUOTE_OPTIONS.itemTypes.find((it) => it.value === name) || null;
+  // what is really offered for one field once the item type and the material are known (client and server use the same rules)
+  const allowedFor = (key, type, material) => {
+    let list = QUOTE_OPTIONS[key];
+    const r = QUOTE_OPTIONS.rules[material];
+    if (r && r[key]) list = r[key];
+    if (key === 'size') return type.sizes.concat(type.na ? ['Not applicable'] : []);
+    if (key === 'thickness') return type.thickness === 'none' ? ['Not applicable'] : type.thickness === 'required' ? list.filter((v) => v !== 'Not applicable') : list;
+    if (key === 'service') return list.filter((v) => type.service.includes(v));
+    return list;
+  };
+  // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
+  const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
+  // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
+  const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
+  const SPEC_LABEL = { itemType: 'Item type', material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
+  // typed values (the "Other" choice of size / thickness) must be a real measurement with its unit, not any text with a digit in it
+  const NUM = '\\d+(?:\\.\\d+)?(?:-\\d+\\/\\d+|\\/\\d+)?';
+  const CUSTOM_RE = {
+    size: new RegExp('^' + NUM + '(?:\\s*[x\\u00D7]\\s*' + NUM + '){0,2}\\s*(?:mm|cm|m|in|ft|"|\')$', 'i'),
+    thickness: /^\d+(?:\.\d+)?\s*mm$/i
+  };
+  const customOk = (key, v) => v.length >= 2 && v.length <= 40 && CUSTOM_RE[key].test(v) && /[1-9]/.test(v) && (key !== 'thickness' || (parseFloat(v) >= 0.1 && parseFloat(v) <= 50));
+  // units: a catalog product is counted in its own unit ("pcs" = "pc", "sheet" = "sheets"), so the quantity can never be in another unit
+  const UNIT_CANON = { pcs: 'pc', pc: 'pc', piece: 'pc', pieces: 'pc', sheet: 'sheet', sheets: 'sheet', length: 'length', lengths: 'length', box: 'box', boxes: 'box', set: 'set', sets: 'set', roll: 'roll', rolls: 'roll', bundle: 'bundle', bundles: 'bundle', kg: 'kg', kgs: 'kg', 'linear m': 'linear m' };
+  const canon = (u) => UNIT_CANON[String(u || '').toLowerCase().trim()] || String(u || '').toLowerCase().trim();
+  const DECIMAL_CANON = QUOTE_OPTIONS.decimalUnits.map(canon);
+  const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+  const addMonthsISO = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); };
+  const dateStr = (d) => {                                                  // pg gives DATE columns as JS dates
+    if (!d) return undefined;
+    if (typeof d === 'string') return d.slice(0, 10);
+    const p = (n) => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  };
+
+  const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
+  const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
+  const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
+    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed' })[st] || st;
+  const quoteJson = (q) => {
+    const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
+    const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
+    const progress = [];
+    if (at >= 0 && q.responded_at) progress.push({ status: 'accepted', label: 'Accepted', at: ms(q.responded_at) });
+    (Array.isArray(q.progress) ? q.progress : []).forEach((e) => progress.push({ status: e.s, label: stepLabel(e.s, q.fulfillment), at: e.at, note: e.note || undefined }));
+    return {
+      id: q.quote_no, requestType: q.request_type || undefined, itemType: q.item_type || undefined, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
+      quantity: q.quantity, details: q.details, specs: q.specs || undefined,
+      neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
+      fulfillment: q.fulfillment || undefined, area: q.area || undefined,
+      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
+      quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
+      leadTime: q.lead_time || undefined, validUntil,
+      expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
+      respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
+      paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
+      payments: (Array.isArray(q.payments) ? q.payments : []).map((p) => ({ amount: p.amount, method: p.method, note: p.note || undefined, at: p.at })),
+      progress, next: next || undefined, nextLabel: next ? stepLabel(next, q.fulfillment) : undefined, receivedBy: q.received_by || undefined,
+      source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
+    };
+  };
+  const nc = () => app.locals.notifications;                                   // in-app notification center (fails soft)
+  const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
+  const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
+
+  app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(quoteOptionsNow()));
+
+  // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
+  // Size and details that the product's own database record already states (Finance fills them in under the product's
+  // online specifications). Same mapping as QuoteFields.autofill in quote-fields.js: Material, Size (or Dimensions), Thickness, Finish.
+  const SPEC_ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
+  function productSpecs(shopSpecs) {
+    const src = shopSpecs && typeof shopSpecs === 'object' && !Array.isArray(shopSpecs) ? shopSpecs : {}, out = {};
+    const lower = {}; Object.keys(src).forEach((k) => { lower[k.trim().toLowerCase()] = str(src[k]); });
+    Object.keys(SPEC_ALIAS).forEach((key) => { const hit = SPEC_ALIAS[key].map((a) => lower[a]).find(Boolean); if (hit) out[key] = hit.slice(0, 80); });
+    return out;
+  }
+  async function readQuote(b, { fallbackName, userId }) {
+    const contactName = str(b.contactName) || fallbackName;
+    if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
+    if (contactName.length < 2 || contactName.length > 80 || !NAME_RE.test(contactName)) throw bad('contactName', 'Enter your full name (letters only)');
+    const phone = str(b.phone).replace(/[\s().-]/g, '');
+    if (!phone) throw bad('phone', 'Enter your mobile number so we can reach you');
+    if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
+
+    // the product (or a described custom item)
+    let sku = null, productName = str(b.productName).replace(/\s+/g, ' ').slice(0, 120) || null, productUnit = '', fromProduct = {}, onHand = 0, productType = null;
+    if (str(b.sku)) {
+      const p = (await pool.query(`SELECT sku, name, unit, on_hand, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
+      if (!p) throw bad('sku', 'That product is not available');
+      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs); onHand = Number(p.on_hand) || 0;
+      productType = typeFromText(p.name);                                 // a catalog product's type comes from its name, so the browser cannot contradict it
+    } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
+    else if (productName.length > 120 || !/\p{L}{2}/u.test(productName)) throw bad('productName', 'Enter the item name in words, e.g. Stainless sheet');
+
+    // amount required: a number plus a unit. A catalog product is counted in its own unit; a custom item uses a unit from the list.
+    const raw = String(b.quantity == null ? '' : b.quantity).replace(/,/g, '').trim();
+    const qty = Number(raw);
+    if (!raw) throw bad('quantity', 'Enter how much you need');
+    if (!Number.isFinite(qty) || qty <= 0) throw bad('quantity', 'Enter a number greater than 0');
+    if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
+    let unit = str(b.quantityUnit).toLowerCase();
+    if (sku) {
+      if (canon(unit) !== canon(productUnit)) throw bad('quantity', 'This item is counted in ' + productUnit + '. Please use that unit');
+      unit = productUnit;
+    } else if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    if (!DECIMAL_CANON.includes(canon(unit)) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
+    const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
+    // RESERVATION = a catalog product with the whole quantity in stock (we set it aside); everything else is a PRE-ORDER (made / ordered for the date)
+    const requestType = sku && qty <= onHand ? 'Reservation' : 'Pre-order';
+
+    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted
+    const neededBy = str(b.neededBy), today = todayPH(), latest = addMonthsISO(today, QUOTE_OPTIONS.neededMaxMonths);
+    if (!neededBy) throw bad('neededBy', 'Choose the date you need it');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
+    if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
+    if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
+
+    // sizes and details: every one is a dropdown (size and thickness can also be typed as a measurement). The ITEM TYPE comes first and decides
+    // which sizes, thickness and cutting / bending fit; the MATERIAL then decides finish / thickness / cutting. The browser's choice is re-checked here.
+    const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
+    const specs = {};
+    let type = productType;
+    if (!type) {
+      const t = str(inSpecs.itemType);
+      if (!t) throw bad('itemType', 'Choose the item type');
+      type = typeByName(t);
+      if (!type) throw bad('itemType', 'Choose the item type from the list');
+    }
+    specs.itemType = type.value;
+    for (const key of Object.keys(SPEC_LABEL)) {
+      if (key === 'itemType') continue;
+      const label = SPEC_LABEL[key].toLowerCase();
+      if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
+      const v = str(inSpecs[key]);
+      if (!v) throw bad(key, 'Choose the ' + label);
+      const allowed = allowedFor(key, type, specs.material);
+      if (allowed.includes(v)) { specs[key] = v; continue; }
+      const typeable = QUOTE_OPTIONS.customAllowed.includes(key) && !(key === 'thickness' && type.thickness === 'none');
+      if (QUOTE_OPTIONS[key].includes(v)) {                             // a real choice, but not for this item / material
+        if (key === 'size') throw bad(key, 'That size is not offered for ' + type.value.toLowerCase() + '. Choose one from the list or type your own');
+        if (key === 'thickness' && type.thickness === 'none') throw bad(key, 'Thickness does not apply to ' + type.value.toLowerCase());
+        if (key === 'thickness' && v === 'Not applicable') throw bad(key, 'Choose the thickness. ' + type.value + ' needs one');
+        if (key === 'service') throw bad(key, 'That is not offered for ' + type.value.toLowerCase() + (specs.material ? ' in ' + specs.material : '') + '. Choose one from the list');
+        if (typeable) throw bad(key, 'That ' + label + ' is not offered for ' + specs.material + '. Choose another or type it');
+        throw bad(key, 'That ' + label + ' does not go with ' + specs.material + '. Choose one from the list');
+      }
+      if (!typeable) throw bad(key, 'Choose the ' + label + ' from the list');
+      if (!customOk(key, v)) throw bad(key, 'Type the ' + label + ' with its unit, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
+      specs[key] = v.replace(/\s+/g, ' ');
+    }
+    const notes = str(b.notes);
+    if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
+    if (notes) specs.notes = notes;
+    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k]).concat(notes ? ['Notes: ' + notes] : []).join('\n');
+
+    // delivery or pickup is required; delivery needs an address (a saved one, or the city and barangay typed in)
+    const fulfillment = str(b.fulfillment);
+    if (!['Delivery', 'Pickup'].includes(fulfillment)) throw bad('fulfillment', 'Choose delivery or pickup');
+    let area = null;
+    if (fulfillment === 'Delivery') {
+      if (userId && b.addressId !== undefined && b.addressId !== null && b.addressId !== '') {
+        const id = Number(b.addressId);
+        if (!Number.isInteger(id)) throw bad('address', 'Choose where it should be delivered');
+        const a = (await pool.query('SELECT * FROM customer_addresses WHERE address_id = $1 AND user_id = $2', [id, userId])).rows[0];
+        if (!a) throw bad('address', 'That saved address was not found. Please choose another');
+        area = [a.address_line, a.barangay && (/^(brgy|barangay)/i.test(a.barangay) ? a.barangay : 'Brgy. ' + a.barangay), a.city, a.province, a.zip_code].filter(Boolean).join(', ');
+      } else {
+        const city = str(b.city), barangay = str(b.barangay), street = str(b.street), region = str(b.region), province = str(b.province);
+        // the cashier's walk-in form picks Region > Province > City > Barangay from the address lists, so all four are required there;
+        // the customer's quick "different area" box only types the city and barangay
+        if (!userId || b.region !== undefined || b.province !== undefined) {
+          if (region.length < 2 || region.length > 80) throw bad('region', 'Choose the region');
+          if (province.length < 2 || province.length > 60 || !/\p{L}/u.test(province)) throw bad('province', 'Choose the province');
+        }
+        if (city.length < 2 || city.length > 60 || !/\p{L}/u.test(city)) throw bad('city', 'Enter the city or municipality');
+        if (barangay.length < 2 || barangay.length > 60 || !/\p{L}/u.test(barangay)) throw bad('barangay', 'Enter the barangay');
+        if (street && (street.length < 5 || street.length > 100)) throw bad('street', 'Enter the house no. and street (5 to 100 characters), or leave it empty');
+        area = [street, /^(brgy|barangay)/i.test(barangay) ? barangay : 'Brgy. ' + barangay, city, province].filter(Boolean).join(', ');
+      }
+      area = area.slice(0, 250);
+    }
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, requestType, itemType: type.value };
+  }
+
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, request_type, item_type';
+  const insertPh = (from) => INSERT_COLS.split(',').map((_, i) => '$' + (from + i) + (i === 6 ? '::jsonb' : '')).join(',');   // $n placeholders, specs is jsonb
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area, v.requestType, v.itemType];
+  const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
+  const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+
+  app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
+    const v = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
+    const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE customer_id = $1 AND status = 'new'`, [req.user.id])).rows[0].n;
+    if (open >= MAX_OPEN_QUOTES) throw bad('quote', `You already have ${open} requests waiting for an answer. Please wait for our reply first`);
+
+    const row = await tx(async (client) => {
+      const r = await client.query(
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,${insertPh(2)}) RETURNING *`,
+        [req.user.id, ...insertVals(v)]);
+      await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
+      return r.rows[0];
+    });
+    res.status(201).json(quoteJson(row));
+
+    // email: a copy to the customer and a heads-up to Finance (fire-and-forget)
+    (async () => {
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
+      await send(u && u.email, `We received your ${v.requestType.toLowerCase()} request ${row.quote_no}`, [
+        `Hi ${v.contactName},`, `Thank you for your request. We will send you a price soon.`, '',
+        `Reference: ${row.quote_no}`, `Type: ${v.requestType}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
+      const to = financeTo();
+      if (to) await send(to, `New ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
+        `Type: ${v.requestType}`, `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+        `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
+        `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
+      else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
+    })().catch((e) => console.error('[mail] quote emails failed:', e.message));
+  }));
+
+  app.get('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM quote_requests WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50', [req.user.id]);
+    res.json(rows.map(quoteJson));
+  }));
+
+  /* After Finance replies, the customer (or the cashier for a walk-in) answers the quote:
+       accept  -> status 'accepted'  (Finance is told and follows up on payment / pickup / delivery)
+       decline -> status 'declined'
+       renew   -> status 'new'       (the price expired or no longer fits: ask Finance for a fresh quote) */
+  async function respondToQuote(req, res, { where, params, who, autoPay }) {
+    const action = str((req.body || {}).action), note = str((req.body || {}).note);
+    if (!['accept', 'decline', 'renew'].includes(action)) throw bad('action', 'Choose accept, decline or ask for a new quote');
+    if (note.length > 500) throw bad('note', 'Please keep the note under 500 characters');
+    const next = { accept: 'accepted', decline: 'declined', renew: 'new' }[action];
+    // accepting a quote needs a payment method: the online customer chooses one, the cashier's walk-in quote is automatically pay on pickup
+    const chosen = str((req.body || {}).payMethod);                      // 'online' (Xendit) or 'cod' (pay on pickup / cash on delivery)
+    if (action === 'accept' && !autoPay && !['online', 'cod'].includes(chosen)) throw bad('payMethod', 'Choose how you will pay: online or on pickup / delivery');
+    const q = await tx(async (client) => {
+      const cur = (await client.query(`SELECT * FROM quote_requests WHERE quote_no = $1 AND ${where} FOR UPDATE`, [req.params.no, ...params])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (cur.status !== 'quoted') throw bad('status', cur.status === 'new' ? 'This request has not been answered yet' : 'This quote was already answered or closed');
+      const vu = dateStr(cur.valid_until);
+      if (action === 'accept' && vu && vu < todayPH()) throw bad('status', 'This quote has expired. Ask for a new quote instead');
+      const payMethod = action === 'accept' ? (autoPay || chosen === 'cod' ? payOnLabel(cur.fulfillment) : 'Xendit') : null;
+      const r = await client.query(
+        `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, next, note || null, payMethod]);
+      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
+      return r.rows[0];
+    });
+    let checkoutUrl, payError;
+    if (action === 'accept' && q.pay_method === 'Xendit') {                // start the online payment right away; if it cannot start, the customer can tap Pay now later
+      try { checkoutUrl = await quoteCheckoutUrl(q); } catch (e) { payError = 'Online payment could not be started right now. Tap Pay now on your quote to try again.'; console.warn('[xendit] quote checkout failed:', e.message); }
+    }
+    res.json({ ok: true, status: q.status, checkoutUrl, payError });
+    Promise.resolve(pingFinance({ category: 'orders', title: action === 'accept' ? 'Quote accepted' : action === 'decline' ? 'Quote declined' : 'New quote requested',
+      body: `${q.contact_name} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'asked for a new quote on'} ${q.quote_no}` + (q.quoted_amount != null ? ' (' + peso(q.quoted_amount) + ')' : '') + (action === 'accept' && q.pay_method ? '. Payment: ' + q.pay_method : '') + '.',
+      link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no })).catch(() => {});
+    (async () => {
+      const to = financeTo(); if (!to) return;
+      const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
+      await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
+        `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
+        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
+        action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `The customer is paying online through Xendit. You will be notified when the payment arrives; then move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
+    })().catch((e) => console.error('[mail] quote response failed:', e.message));
+  }
+
+  app.post('/api/shop/quotes/:no/respond', auth('customer'), wrap((req, res) => respondToQuote(req, res, { where: 'customer_id = $2', params: [req.user.id], who: 'the customer' })));
+
+  /* ---- walk-in customers: the cashier logs the request, Finance prices it, the cashier tells the customer and records the answer ---- */
+  const MAX_OPEN_POS_QUOTES = 50;
+  app.post('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
+    const v = await readQuote(req.body || {}, { fallbackName: '', userId: null });
+    const open = (await pool.query(`SELECT count(*)::int AS n FROM quote_requests WHERE source = 'pos' AND status = 'new'`)).rows[0].n;
+    if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
+    const row = await tx(async (client) => {
+      const r = await client.query(
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,${insertPh(2)}) RETURNING *`,
+        [req.user.id, ...insertVals(v)]);
+      await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
+      return r.rows[0];
+    });
+    res.status(201).json({ ...quoteJson(row), customer: row.contact_name, phone: row.phone });
+    (async () => {
+      const to = financeTo();
+      if (!to) return;
+      await send(to, `Walk-in ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
+        `Type: ${v.requestType}`, `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+        `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
+        `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
+    })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));
+  }));
+
+  // everything logged at the counter, newest first, so any cashier can answer "did my quote come back?"
+  app.get('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT q.*, c.full_name AS created_by_name FROM quote_requests q LEFT JOIN users c ON c.user_id = q.created_by
+        WHERE q.source = 'pos' ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 60`);
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
+  }));
+
+  app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], autoPay: true, who: 'the cashier (walk-in customer)' })));
+
+  app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
+         FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
+        ORDER BY (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
+  }));
+
+  // Finance: send the quote (amount is required), close a request, or reopen it
+  app.post('/api/finance/quotes/:no', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const status = str(b.status), note = str(b.note);
+    if (!['new', 'quoted', 'closed'].includes(status)) throw bad('status', 'Choose a status');
+    if (note.length > 1500) throw bad('note', 'The note is too long (max 1500 characters)');
+    if (note && note.length < 5) throw bad('note', 'Write at least 5 characters, or leave the note empty');
+    let amount = null, leadTime = null, validUntil = null;
+    if (status === 'quoted') {
+      const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, '');
+      if (!raw) throw bad('amount', 'Enter the quoted amount');
+      amount = Number(raw);
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
+      amount = Math.round(amount * 100) / 100;
+      leadTime = str(b.leadTime);
+      if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Choose how long it will take to make or prepare');
+      const days = Number(b.validDays);
+      if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Choose how long the price is valid');
+      validUntil = addDays(todayPH(), days);
+    }
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (cur.status === 'completed') throw bad('status', 'This quote is already completed and cannot be changed');
+      const started = ['preparing', 'ready'].includes(cur.status) || (cur.status === 'accepted' && +cur.paid_amount > 0);
+      if (started && status !== 'closed') throw bad('status', 'Work or payment has already started on this quote. You can only move it forward or close it');
+      if (status === 'closed' && +cur.paid_amount > 0 && note.length < 5) throw bad('note', 'Payments were received. Write a note about the refund or how it was settled');
+      const quoting = status === 'quoted';
+      const r = await client.query(
+        `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, lead_time = $5, valid_until = $6, handled_by = $7,
+                responded_at = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE responded_at END,
+                response_note = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE response_note END, updated_at = now() WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, status, quoting ? (note || null) : (note || cur.reply_note), quoting ? amount : cur.quoted_amount,
+         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${quoting ? ' (' + peso(amount) + ')' : ''}`);
+      return r.rows[0];
+    });
+    res.json({ ok: true });
+    if (status !== 'new') (async () => {
+      if (!q.customer_id) return;                       // walk-in from the POS: the cashier / Finance tells them by phone
+      if (status === 'closed' && !note) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
+        `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
+        `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}`, `Price valid until: ${dateStr(q.valid_until)}`,
+        ...(q.reply_note ? ['', q.reply_note] : []), '',
+        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
+      else await send(u && u.email, `Update on your quote request ${q.quote_no}`, [`Hi ${q.contact_name},`, 'We have an update on your quote request.', '', q.reply_note, ...signoff()], 'quote-reply');
+    })().catch((e) => console.error('[mail] quote reply failed:', e.message));
+  }));
+
+  /* ---- after acceptance: payments and the pickup / delivery steps (Finance) ---- */
+  const msgFor = (q, st) => {
+    const f = q.fulfillment, bal = Math.max(0, round2(+q.quoted_amount - (+q.paid_amount || 0))), shop = (shopInfo() || {}).address;
+    const owe = bal > 0 ? ` Balance to pay ${f === 'Delivery' ? 'on delivery' : 'at pickup'}: ${peso(bal)}.` : ' Your quote is fully paid.';
+    if (st === 'preparing') return { title: 'We started on your order', body: `${q.quote_no} is now being prepared.${q.lead_time ? ' Estimated time: ' + q.lead_time + '.' : ''}` };
+    if (st === 'ready') return f === 'Delivery'
+      ? { title: 'Your order is out for delivery', body: `${q.quote_no} is on its way${q.area ? ' to ' + q.area : ''}.${owe}` }
+      : { title: 'Your order is ready for pickup', body: `${q.quote_no} is ready${shop ? ' at ' + shop : ' at our shop'}.${owe}` };
+    return { title: f === 'Delivery' ? 'Your order was delivered' : 'Your order was picked up', body: `${q.quote_no} is complete. Thank you for ordering from Triple E Metal Products.` };
+  };
+
+  app.post('/api/finance/quotes/:no/step', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);
+    if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      const at = QFLOW.indexOf(cur.status);
+      if (at < 0) throw bad('status', 'Only an accepted quote can move to the next step');
+      const next = QFLOW[at + 1];
+      if (!next) throw bad('status', 'This quote is already completed');
+      if (target !== next) throw bad('status', `The next step is "${stepLabel(next, cur.fulfillment)}". Steps cannot be skipped or moved backwards`);
+      if (next === 'preparing' && cur.pay_method === 'Xendit' && round2(+cur.quoted_amount - (+cur.paid_amount || 0)) > 0.004)
+        throw bad('payment', 'The customer chose to pay online and has not paid yet. Wait for the Xendit payment, or record a payment received another way first');
+      if (next === 'completed') {
+        if (receivedBy.length < 2 || receivedBy.length > 80) throw bad('receivedBy', `Enter the name of the person who ${cur.fulfillment === 'Delivery' ? 'received' : 'picked up'} the order (2 to 80 characters)`);
+        const owed = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
+        if (owed > 0.004) throw bad('payment', `The balance of ${peso(owed)} is not paid yet. Record the payment first`);
+      }
+      const entry = { s: next, at: Date.now(), note: [next === 'completed' ? 'Received by ' + receivedBy : '', note].filter(Boolean).join(' - ') || undefined };
+      const r = await client.query(
+        `UPDATE quote_requests SET status = $2, received_by = COALESCE($3, received_by), progress = COALESCE(progress, '[]'::jsonb) || $4::jsonb, handled_by = $5, updated_at = now()
+          WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, next, next === 'completed' ? receivedBy : null, JSON.stringify([entry]), req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no} moved from ${stepLabel(cur.status, cur.fulfillment)} to ${stepLabel(next, cur.fulfillment)}`);
+      return r.rows[0];
+    });
+    res.json({ ok: true, status: q.status });
+    const m = msgFor(q, q.status);
+    Promise.resolve(pingUser(q.customer_id, { category: 'delivery', title: m.title, body: m.body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+    if (q.source === 'pos') Promise.resolve(pingUser(q.created_by, { category: 'pos', title: 'Walk-in quote: ' + stepLabel(q.status, q.fulfillment), body: `${q.quote_no} for ${q.contact_name}. ` + (q.status === 'ready' ? 'Tell the customer it is ready.' : ''), link: 'POS_Cashier.html', entityType: 'quote', entityId: q.quote_no }, 'cashier')).catch(() => {});
+    (async () => {
+      if (!q.customer_id) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      await send(u && u.email, `${m.title} (${q.quote_no})`, [`Hi ${q.contact_name},`, m.body, ...signoff()], 'quote-step');
+    })().catch((e) => console.error('[mail] quote step failed:', e.message));
+  }));
+
+  app.post('/api/finance/quotes/:no/payment', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, ''), method = str(b.method), note = str(b.note);
+    if (!raw) throw bad('amount', 'Enter the amount received');
+    let amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
+    amount = round2(amount);
+    if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
+    if (note.length > 100) throw bad('note', 'The note must be 100 characters or fewer');
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (!['accepted', 'preparing', 'ready'].includes(cur.status)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
+      const balance = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
+      if (amount > balance + 0.004) throw bad('amount', `The balance is only ${peso(balance)}`);
+      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([{ amount, method, note: note || undefined, at: Date.now() }]);
+      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, handled_by = $4, updated_at = now() WHERE quote_id = $1 RETURNING *',
+        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays), req.user.id]);
+      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no}: payment of ${peso(amount)} received (${method})`);
+      return r.rows[0];
+    });
+    res.json({ ok: true, paidAmount: +q.paid_amount, balance: Math.max(0, round2(+q.quoted_amount - +q.paid_amount)) });
+    const bal = Math.max(0, round2(+q.quoted_amount - +q.paid_amount));
+    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid.');
+    Promise.resolve(pingUser(q.customer_id, { category: 'payment', title: 'Payment received', body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+    (async () => {
+      if (!q.customer_id) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      await send(u && u.email, `Payment received for ${q.quote_no}`, [`Hi ${q.contact_name},`, body, ...signoff()], 'quote-payment');
+    })().catch((e) => console.error('[mail] quote payment failed:', e.message));
+  }));
+
+
+  /* ---------- Paying an accepted quote ----------
+     When the customer accepts they choose:  'online' -> Xendit (GCash, Maya, card, bank; the invoice is for the balance)
+                                             'cod'    -> pay on pickup / cash on delivery (Finance records the cash when it is collected)
+     An online payment is only trusted when it comes from Xendit itself (signed callback, or the server asking Xendit directly). */
+  const xBase = 'https://api.xendit.co';
+  async function xenditCall(url, opt = {}) {
+    const key = process.env.XENDIT_SECRET_KEY;
+    if (!key) throw new Error('Online payment is not set up yet');
+    const r = await fetch(url, { method: opt.method || 'GET', headers: { Authorization: 'Basic ' + Buffer.from(key + ':').toString('base64'), 'Content-Type': 'application/json' },
+      body: opt.body ? JSON.stringify(opt.body) : undefined });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(data.message || 'Xendit request failed'); e.status = r.status; throw e; }
+    return data;
+  }
+  const owedOn = (q) => round2(+q.quoted_amount - (+q.paid_amount || 0));
+  // returns the Xendit checkout link for what the customer still owes (re-uses a still-open invoice)
+  async function quoteCheckoutUrl(q) {
+    const owed = owedOn(q); if (!(owed > 0)) return null;
+    if (q.xendit_invoice_id) {
+      try { const ex = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`);
+        if (ex.status === 'PENDING' && ex.invoice_url && Number(ex.amount) === owed) return ex.invoice_url; } catch (_) { /* make a new one below */ }
+    }
+    const base = baseUrl(); if (!base) throw new Error('APP_BASE_URL is not set');
+    const externalId = `triplee-quote-${q.quote_no}-${q.quote_id}-${Date.now()}`;
+    const inv = await xenditCall(`${xBase}/v2/invoices`, { method: 'POST', body: {
+      external_id: externalId, amount: owed, currency: 'PHP', description: `Triple-E Metal Products quote ${q.quote_no}`,
+      success_redirect_url: `${base}/Shop_Customer.html?quotepay=return&quote=${encodeURIComponent(q.quote_no)}`,
+      failure_redirect_url: `${base}/Shop_Customer.html?quotepay=failed&quote=${encodeURIComponent(q.quote_no)}`, invoice_duration: 86400 } });
+    await pool.query('UPDATE quote_requests SET xendit_invoice_id = $2, xendit_external_id = $3 WHERE quote_id = $1', [q.quote_id, inv.id, externalId]);
+    return inv.invoice_url;
+  }
+  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is kept on the payment)
+  async function applyQuoteInvoice(q, event, invoiceId) {
+    if (!['PAID', 'SETTLED'].includes(String(event.status))) return null;
+    let done = null;
+    await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_id = $1 FOR UPDATE', [q.quote_id])).rows[0];
+      if (!cur) return;
+      const pays = Array.isArray(cur.payments) ? cur.payments : [];
+      if (pays.some((p) => p.ref === invoiceId)) return;
+      const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
+      if (!(amount > 0)) return;
+      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, updated_at = now() WHERE quote_id = $1 RETURNING *',
+        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays.concat([{ amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
+      await audit(client, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, 'Record edited', `Quote ${cur.quote_no}: online payment of ${peso(amount)} received (Xendit invoice ${invoiceId})`);
+      done = { q: r.rows[0], amount };
+    });
+    if (done) {
+      const q2 = done.q, bal = Math.max(0, owedOn(q2));
+      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(done.amount)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : ' Fully paid.'),
+        link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q2.quote_no })).catch(() => {});
+      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(done.amount)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
+        link: 'Shop_Customer.html', entityType: 'quote', entityId: q2.quote_no }, 'customer')).catch(() => {});
+    }
+    return done;
+  }
+  const accepting = (q) => ['accepted', 'preparing', 'ready'].includes(q.status);
+  app.post('/api/shop/quotes/:no/pay', auth('customer'), wrap(async (req, res) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
+    if (!q) throw bad('id', 'Quote request not found');
+    if (!accepting(q)) throw bad('status', 'Only an accepted quote can be paid');
+    if (q.pay_method !== 'Xendit') throw bad('payment', 'This quote is set to ' + String(q.pay_method || 'pay later').toLowerCase());
+    if (!(owedOn(q) > 0)) throw bad('payment', 'This quote is already fully paid');
+    let url; try { url = await quoteCheckoutUrl(q); } catch (e) { console.warn('[xendit] quote checkout failed:', e.message); throw bad('payment', 'Online payment is not available right now. Please try again later or contact us'); }
+    res.json({ checkoutUrl: url });
+  }));
+  // the customer's page calls this after paying: ask Xendit directly, so the payment is saved even if the callback never arrives
+  app.post('/api/shop/quotes/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
+    if (!q) throw bad('id', 'Quote request not found');
+    if (q.pay_method === 'Xendit' && q.xendit_invoice_id && owedOn(q) > 0) {
+      try { const inv = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`); await applyQuoteInvoice(q, inv, q.xendit_invoice_id); }
+      catch (e) { console.warn('[xendit] quote payment check failed:', e.message); }
+    }
+    const c = (await pool.query('SELECT paid_amount, quoted_amount FROM quote_requests WHERE quote_id = $1', [q.quote_id])).rows[0];
+    res.json({ paidAmount: +c.paid_amount, balance: Math.max(0, owedOn(c)) });
+  }));
+  // called by the Xendit webhook in pos-shop.js; returns true when the invoice belonged to a quote
+  app.locals.quoteXendit = { handle: async (event, externalId, invoiceId) => {
+    const q = (await pool.query('SELECT * FROM quote_requests WHERE xendit_external_id = $1 AND xendit_invoice_id = $2 LIMIT 1', [externalId, invoiceId])).rows[0];
+    if (!q) return false;
+    await applyQuoteInvoice(q, event, invoiceId);
+    return true;
+  } };
+
+  /* =====================================================
+     2. Minimum order
+  ===================================================== */
+  // Manufacturing company: every sale (online shop AND the POS counter) has a minimum order. Finance sets it per product inside
+  // MIN_ORDER_FLOOR..MIN_ORDER_CAP (default 20..50, overridable in .env); anything stored outside that range (old rows default to 1)
+  // is treated as the nearest allowed value. The maximum is simply what is in stock, and the minimum never exceeds the stock,
+  // so the last few units can still be bought.
+  const MIN_ORDER_FLOOR = Number(process.env.MIN_ORDER_FLOOR) > 0 ? Number(process.env.MIN_ORDER_FLOOR) : 20;
+  const MIN_ORDER_CAP = Number(process.env.MIN_ORDER_CAP) >= MIN_ORDER_FLOOR ? Number(process.env.MIN_ORDER_CAP) : Math.max(50, MIN_ORDER_FLOOR);
+  const effectiveMin = (stored, onHand) => {
+    const m = Math.min(MIN_ORDER_CAP, Math.max(MIN_ORDER_FLOOR, Number(stored) || MIN_ORDER_FLOOR));
+    return Number(onHand) > 0 ? Math.min(m, Number(onHand)) : m;
+  };
+  // items = rows from loadSellable (product_id, name, unit, qty, on_hand).
+  async function checkMinimums(client, items) {
+    try {
+      await ready;
+      const { rows } = await client.query('SELECT product_id, min_order_qty FROM products WHERE product_id = ANY($1)', [items.map((i) => i.product_id)]);
+      const min = new Map(rows.map((r) => [r.product_id, +r.min_order_qty]));
+      for (const i of items) {
+        const m = effectiveMin(min.get(i.product_id), i.on_hand);
+        if (+i.qty < m) throw bad('items', `${i.name}: the minimum order is ${m} ${i.unit}`);
+      }
+    } catch (err) { if (err instanceof ValidationError) throw err; console.warn('[shop] minimum order check skipped:', err.message); }
+  }
+
+  /* =====================================================
+     3. Back-in-stock alerts
+  ===================================================== */
+  app.get('/api/shop/stock-alerts', auth('customer'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT p.sku FROM stock_alerts a JOIN products p ON p.product_id = a.product_id WHERE a.user_id = $1 AND a.notified_at IS NULL`, [req.user.id]);
+    res.json(rows.map((r) => r.sku));
+  }));
+  app.post('/api/shop/stock-alerts', auth('customer'), wrap(async (req, res) => {
+    const p = (await pool.query(
+      `SELECT product_id, name, on_hand FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived AND selling_price > 0 AND shop_visible = TRUE`,
+      [str(req.body && req.body.sku).toUpperCase()])).rows[0];
+    if (!p) throw bad('sku', 'That product is not available');
+    if (+p.on_hand > 0) throw bad('sku', `${p.name} is in stock right now`);
+    await pool.query(
+      `INSERT INTO stock_alerts (user_id, product_id) VALUES ($1,$2)
+       ON CONFLICT (user_id, product_id) DO UPDATE SET notified_at = NULL, created_at = now()`, [req.user.id, p.product_id]);
+    res.status(201).json({ ok: true });
+  }));
+  app.delete('/api/shop/stock-alerts/:sku', auth('customer'), wrap(async (req, res) => {
+    await pool.query(
+      `DELETE FROM stock_alerts WHERE user_id = $1 AND product_id IN (SELECT product_id FROM products WHERE upper(sku) = $2)`,
+      [req.user.id, String(req.params.sku).toUpperCase()]);
+    res.json({ ok: true });
+  }));
+
+  // Claims every waiting alert whose product is available again (the UPDATE claims them, so two server instances never send twice).
+  let lastCheck = 0, checking = false;
+  async function checkAlerts() {
+    if (checking) return;
+    checking = true; lastCheck = Date.now();
+    try {
+      await ready;
+      const { rows } = await pool.query(
+        `UPDATE stock_alerts SET notified_at = now()
+          WHERE alert_id IN (SELECT a.alert_id FROM stock_alerts a JOIN products p ON p.product_id = a.product_id
+                              WHERE a.notified_at IS NULL AND p.on_hand > 0
+                                AND NOT p.is_archived AND p.shop_visible FOR UPDATE OF a SKIP LOCKED)
+        RETURNING user_id, product_id`);
+      for (const r of rows) {
+        const x = (await pool.query(
+          `SELECT u.email, u.full_name, p.name, p.unit, p.selling_price FROM users u, products p WHERE u.user_id = $1 AND p.product_id = $2`,
+          [r.user_id, r.product_id])).rows[0];
+        if (x) await send(x.email, `${x.name} is back in stock`, [
+          `Hi ${x.full_name},`, `Good news: ${x.name} is available again at ${peso(x.selling_price)} per ${x.unit}.`,
+          'Stock can run out quickly, so order soon.', baseUrl() ? `Shop: ${baseUrl()}/Shop_Customer.html` : '', ...signoff()], 'back-in-stock');
+      }
+      if (rows.length) console.log(`[shop] sent ${rows.length} back-in-stock email(s)`);
+    } catch (err) { console.warn('[shop] back-in-stock check failed:', err.message); }
+    finally { checking = false; }
+  }
+  setInterval(checkAlerts, 60 * 1000).unref();   // also runs when the shop is opened (below), because Cloud Run may sleep between visits
+
+  /* =====================================================
+     4. Reviews
+  ===================================================== */
+  const maskName = (n) => { const p = String(n || '').trim().split(/\s+/).filter(Boolean); return p.length > 1 ? `${p[0]} ${p[p.length - 1][0].toUpperCase()}.` : (p[0] || 'Customer'); };
+  const productBySku = async (sku) => (await pool.query(
+    `SELECT product_id, sku, name FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [String(sku).toUpperCase()])).rows[0];
+  // The order that lets this customer review this product: delivered / picked up, and it contains the product.
+  const eligibleOrder = async (userId, productId) => (await pool.query(
+    `SELECT o.order_id, o.order_no FROM orders o JOIN order_items i ON i.order_id = o.order_id
+      WHERE o.customer_id = $1 AND i.product_id = $2 AND o.status = ANY($3)
+      ORDER BY o.status_updated_at DESC NULLS LAST, o.order_id DESC LIMIT 1`, [userId, productId, FINAL_STATUS])).rows[0];
+
+  app.get('/api/shop/my-reviews', auth('customer'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT p.sku, r.rating, r.status FROM product_reviews r JOIN products p ON p.product_id = r.product_id WHERE r.user_id = $1`, [req.user.id]);
+    res.json(rows);
+  }));
+
+  app.get('/api/shop/reviews/:sku', auth('customer', 'finance'), wrap(async (req, res) => {
+    const p = await productBySku(req.params.sku);
+    if (!p) return res.status(404).json({ error: 'Product not found' });
+    const [{ rows: list }, { rows: agg }] = await Promise.all([
+      pool.query(`SELECT r.review_id, r.rating, r.body, r.created_at, r.user_id, u.full_name
+                    FROM product_reviews r JOIN users u ON u.user_id = r.user_id
+                   WHERE r.product_id = $1 AND r.status = 'visible' ORDER BY r.created_at DESC LIMIT 100`, [p.product_id]),
+      pool.query(`SELECT rating, count(*)::int AS n FROM product_reviews WHERE product_id = $1 AND status = 'visible' GROUP BY rating`, [p.product_id])]);
+    const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }; let count = 0, sum = 0;
+    for (const a of agg) { dist[a.rating] = a.n; count += a.n; sum += a.rating * a.n; }
+    const out = {
+      summary: { average: count ? Math.round((sum / count) * 10) / 10 : 0, count, distribution: dist },
+      reviews: list.map((r) => ({ id: Number(r.review_id), rating: r.rating, body: r.body, author: maskName(r.full_name), createdAt: ms(r.created_at), mine: r.user_id === req.user.id })),
+      canReview: false, reviewed: false
+    };
+    if (req.user.role === 'customer') {
+      const mine = (await pool.query('SELECT status FROM product_reviews WHERE user_id = $1 AND product_id = $2', [req.user.id, p.product_id])).rows[0];
+      out.reviewed = !!mine; out.myReviewHidden = !!mine && mine.status === 'hidden';
+      out.canReview = !mine && !!(await eligibleOrder(req.user.id, p.product_id));
+    }
+    res.json(out);
+  }));
+
+  app.post('/api/shop/reviews', auth('customer'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const p = await productBySku(str(b.sku));
+    if (!p) throw bad('sku', 'Product not found');
+    const rating = Number(b.rating), body = str(b.body);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw bad('rating', 'Choose 1 to 5 stars');
+    if (body.length > 1000) throw bad('body', 'Your review is too long (max 1000 characters)');
+    const order = await eligibleOrder(req.user.id, p.product_id);
+    if (!order) throw bad('sku', 'You can review a product after your order with it is Delivered or Picked Up');
+    const r = await pool.query(
+      `INSERT INTO product_reviews (product_id, user_id, order_id, rating, body) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (user_id, product_id) DO NOTHING RETURNING review_id`,
+      [p.product_id, req.user.id, order.order_id, rating, body]);
+    if (!r.rowCount) throw bad('sku', 'You have already reviewed this product');
+    res.status(201).json({ ok: true });
+  }));
+
+  // Finance: see every review (visible and hidden), hide or restore one.
+  app.get('/api/finance/reviews', auth('finance'), wrap(async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
+         FROM product_reviews r JOIN products p ON p.product_id = r.product_id JOIN users u ON u.user_id = r.user_id
+         LEFT JOIN orders o ON o.order_id = r.order_id LEFT JOIN users h ON h.user_id = r.hidden_by
+        ORDER BY r.created_at DESC LIMIT 500`);
+    res.json(rows.map((r) => ({ id: Number(r.review_id), rating: r.rating, body: r.body, status: r.status, product: r.product, sku: r.sku,
+      customer: r.full_name, email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
+      hiddenAt: ms(r.hidden_at), hiddenReason: r.hidden_reason || undefined, hiddenBy: r.hidden_by_name || undefined })));
+  }));
+  app.post('/api/finance/reviews/:id/visibility', auth('finance'), wrap(async (req, res) => {
+    const hide = !!(req.body && req.body.hidden), reason = str(req.body && req.body.reason);
+    if (hide && reason.length < 3) throw bad('reason', 'Write a short reason for hiding this review');
+    if (reason.length > 300) throw bad('reason', 'The reason is too long (max 300 characters)');
+    if (!/^\d{1,15}$/.test(req.params.id)) throw bad('id', 'Review not found');
+    await tx(async (client) => {
+      const r = await client.query(
+        `UPDATE product_reviews SET status = $2, hidden_by = $3, hidden_at = $4, hidden_reason = $5 WHERE review_id = $1
+         RETURNING review_id, product_id`,
+        [req.params.id, hide ? 'hidden' : 'visible', hide ? req.user.id : null, hide ? new Date() : null, hide ? reason : null]);
+      if (!r.rowCount) throw bad('id', 'Review not found');
+      await audit(client, req.user, 'Record edited', `Review #${r.rows[0].review_id} ${hide ? 'hidden' : 'restored'}${hide ? ' \u2014 ' + reason : ''}`);
+    });
+    res.json({ ok: true });
+  }));
+
+  /* =====================================================
+     Used by pos-shop.js: adds min order, rating and alert info to the shop catalog
+  ===================================================== */
+  async function decorate(rows, user) {
+    if (user && Date.now() - lastCheck > 60 * 1000) checkAlerts();        // fire-and-forget
+    try {
+      await ready;
+      const [ex, al] = await Promise.all([
+        pool.query(`SELECT p.sku, p.min_order_qty, r.avg, r.cnt
+                      FROM products p LEFT JOIN (SELECT product_id, ROUND(AVG(rating)::numeric, 1) AS avg, COUNT(*)::int AS cnt
+                                                   FROM product_reviews WHERE status = 'visible' GROUP BY product_id) r ON r.product_id = p.product_id
+                     WHERE p.department = 'Finished Goods'`),
+        user ? pool.query(`SELECT p.sku, a.notified_at FROM stock_alerts a JOIN products p ON p.product_id = a.product_id WHERE a.user_id = $1`, [user.id]) : { rows: [] }]);
+      const by = new Map(ex.rows.map((r) => [r.sku.toUpperCase(), r]));
+      const alerts = new Map(al.rows.map((r) => [r.sku.toUpperCase(), r.notified_at]));
+      for (const p of rows) {
+        const k = String(p.sku).toUpperCase(), r = by.get(k), a = alerts.get(k);
+        p.minOrder = effectiveMin(r ? r.min_order_qty : null, p.available);   // MIN_ORDER_FLOOR..CAP, never more than what is in stock
+        p.maxOrder = Math.max(0, +p.available);                              // the most that can be ordered = what is in stock
+        p.rating = r && r.avg != null ? +r.avg : 0;
+        p.reviewCount = r && r.cnt ? r.cnt : 0;
+        p.notifyMe = alerts.has(k) && !a;
+        p.backInStock = !!a && p.available > 0 && Date.now() - new Date(a).getTime() < BACK_IN_STOCK_DAYS * 86400000;
+      }
+    } catch (err) { console.warn('[shop] could not add min-order / rating info to the catalog:', err.message); }
+    return rows;
+  }
+
+  app.locals.shopExtras = { decorate, checkMinimums, effectiveMin, MIN_ORDER_FLOOR, MIN_ORDER_CAP };
+};
