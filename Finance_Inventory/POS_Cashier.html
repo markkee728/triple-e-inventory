@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css?v=2">
 <link rel="stylesheet" href="cash-shift.css?v=2">
+<link rel="stylesheet" href="cashier-orders.css?v=1">
 <link rel="stylesheet" href="notifications.css?v=6">
 <style>
 .fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
@@ -88,7 +89,8 @@
       <button class="nav-item active" data-page="terminal"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>Point of Sale</button>
       <button class="nav-item" data-page="sales"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Today's Sales<span class="count" id="navSalesCount">0</span></button>
       <button class="nav-item" data-page="shift"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M3 10h18M7 6V4h10v2M16 15h3"/></svg>Cash Shift<span class="count" id="navShiftBadge" hidden></span></button>
-      <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Reserve / Pre-order<span class="count" id="navQuoteCount" hidden>0</span></button>
+      <button class="nav-item" data-page="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Online Orders<span class="count" id="navOrdersBadge" hidden></span></button>
+      <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Quote Requests<span class="count" id="navQuoteCount" hidden>0</span></button>
       </div>
     </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Point of Sale</strong>Triple E Metal Products</div></div>
@@ -257,8 +259,23 @@
       </div>
     </section>
 
+    <section class="page" id="page-orders">
+      <div class="welcome"><h1>Online Orders</h1><p>Confirm, pack and release online orders. Store pickups are paid and handed over here at the counter; deliveries are simply marked out for delivery and delivered.</p></div>
+      <div class="co-toolbar">
+        <div class="co-tabs" id="coTabs" role="tablist" aria-label="Order stages"></div>
+        <div class="co-filters">
+          <input id="coSearch" type="search" placeholder="Search order no., customer or phone" aria-label="Search orders" autocomplete="off" maxlength="60">
+          <select id="coFilter" aria-label="Filter by pickup or delivery"><option value="">Pickup &amp; delivery</option><option value="Pickup">Pickup only</option><option value="Delivery">Delivery only</option></select>
+          <button type="button" class="btn-secondary" id="coRefresh">Refresh</button>
+        </div>
+      </div>
+      <div class="co-msg" id="coMessage" role="status" aria-live="polite"></div>
+      <div class="co-list" id="coList"></div>
+      <div class="co-modal" id="coDetail" hidden role="dialog" aria-modal="true" aria-labelledby="coDetailTitle"></div>
+      <div class="co-modal" id="coAction" hidden role="dialog" aria-modal="true" aria-labelledby="coActionTitle"></div>
+    </section>
     <section class="page" id="page-quotes">
-      <div class="welcome"><h1>Reservations &amp; Pre-orders</h1></div>
+      <div class="welcome"><h1>Quote Requests</h1></div>
       <div class="pq-layout">
         <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
@@ -268,7 +285,7 @@
           </div>
           <div class="qf-sec"><span class="qf-num">2</span>What do they need?</div>
           <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select></div>
-          <div class="q-field" id="pqNameWrap"><label for="pqItem">Item name</label><input id="pqItem" maxlength="120" placeholder="e.g. Stainless sheet"><div class="err-text" id="pqE_productName"></div></div>
+          <div class="q-field" id="pqNameWrap"><label for="pqItem">Describe the item</label><input id="pqItem" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="pqE_productName"></div></div>
           <div id="pqFields"><p class="dim">Loading the form…</p></div>
           <div class="qf-sec"><span class="qf-num">3</span>Pickup or delivery?</div>
           <div class="q-seg" role="radiogroup" aria-label="Pickup or delivery">
@@ -342,7 +359,7 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
-<script src="quote-fields.js?v=3"></script>
+<script src="quote-fields.js?v=2"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -515,6 +532,7 @@ $('sidebarClose').onclick = $('sidebarBackdrop').onclick = () => setNav(false);
 function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
+  if (p === 'orders') cashierOrdersLoad();
   if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
   if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); setNav(false); updateFab(); window.scrollTo(0, 0);
 }
@@ -946,7 +964,7 @@ function pqErr(f, msg) { const b = $('pqE_' + f); if (b) b.textContent = msg || 
 const PQ_CHECK = {
   contactName: () => { const v = $('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
   phone: () => { const v = $('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
-  productName: () => $('pqProduct').value || (/\p{L}{2}/u.test($('pqItem').value) && $('pqItem').value.trim().length >= 3) ? '' : 'Enter the item name in words, e.g. Stainless sheet.',
+  productName: () => $('pqProduct').value || $('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
   region: () => pqFulfil() === 'Delivery' && !$('pqRegion').value ? 'Choose the region.' : '',
   province: () => pqFulfil() === 'Delivery' && !$('pqProvince').value ? 'Choose the province.' : '',
   city: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean($('pqCity').value); return !v ? 'Choose the city or municipality.' : PQG.cities.length && !pqCode(PQG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
@@ -1029,9 +1047,8 @@ async function ensurePqFields() {                 // the dropdown choices come f
 function pqProductChanged() {
   const p = prod($('pqProduct').value);
   $('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
-  if (pqMounted) QuoteFields.autofill('pq', p ? p.specs : null, p ? p.name : null);
+  if (pqMounted) QuoteFields.autofill('pq', p ? p.specs : null);
   if (pqMounted && p) QuoteFields.setUnit('pq', p.unit);
-  if (pqMounted) QuoteFields.setStock('pq', p ? { available: p.available, unit: p.unit } : null);   // in stock = Reservation, not enough = Pre-order
 }
 const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
 const pqDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
@@ -1045,7 +1062,7 @@ async function loadPosQuotes() {
       : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
       : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
       : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
-    return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b>${q.requestType ? `<span class="status-pill">${esc(q.requestType)}</span>` : ''}<span class="status-pill ${st[0]}">${st[1]}</span></div>
+    return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
       <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
       <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
       ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
@@ -1085,7 +1102,7 @@ $('pqForm').onsubmit = async e => {
   ['pqName', 'pqPhone', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); pqResetArea();
   Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; QuoteFields.reset('pq'); pqProductChanged();
   document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; $('pqArea').hidden = true;
-  toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + (r && r.requestType ? ' (' + r.requestType + ')' : '') + '.'); loadPosQuotes();
+  toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
 };
 $('q').oninput = renderProducts;
 $('q').onkeydown = e => {                                   // scanner / keyboard: Enter adds an exact SKU match or the only result
@@ -1134,5 +1151,6 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 <script src="cash-shift-ui.js?v=6"></script>
 <script src="notification-center.js?v=6"></script>
 <script src="page-memory.js?v=1"></script>
+<script src="cashier-orders.js?v=2"></script>
 </body>
 </html>

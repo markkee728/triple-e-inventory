@@ -56,6 +56,7 @@ const CLOCK_SKEW_MS = 5 * 60 * 1000;        // a browser clock a few minutes ahe
 // "Juan Dela Cruz (Lalamove, plate ABC 1234)"  /  "LBC"  — works on a database row (snake_case)
 function carrierText(dl) {
   if (!dl) return '';
+  if (dl.courier === 'Store Dispatch' && !dl.driver_name) return '';   // the shop delivers it itself: no rider is assigned, so there is nothing to name
   const extra = [dl.courier, dl.vehicle_plate && 'plate ' + dl.vehicle_plate].filter(Boolean).join(', ');
   return dl.driver_name ? dl.driver_name + (extra ? ' (' + extra + ')' : '') : (dl.courier || '');
 }
@@ -127,7 +128,7 @@ module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, Valid
     if (driverName) {
       if (driverName.length < 2 || driverName.length > 80) e.driverName = 'The rider name must be 2–80 characters';
       else if (!NAME_RE.test(driverName)) e.driverName = 'The rider name can only have letters, spaces, . - and apostrophes';
-    } else if (!parcel) e.driverName = 'Enter the rider or driver name';
+    } else if (!parcel && courier !== 'Store Dispatch') e.driverName = 'Enter the rider or driver name';
     let driverPhone = null;
     if (str(b.driverPhone)) { const r = phMobile(b.driverPhone); if (r.error) e.driverPhone = r.error; else driverPhone = r.value; }
     let vehiclePlate = null;
@@ -152,14 +153,15 @@ module.exports = function makeDelivery({ app, pool, auth, wrap, tx, audit, Valid
   }
 
   // The details Finance types when the delivery is done. Needs at least one proof photo unless DELIVERY_PROOF_REQUIRED=false.
-  async function deliveredFields(client, input, order, existing) {
+  // opts.proof: true / false overrides DELIVERY_PROOF_REQUIRED (the cashier confirms delivery without a photo: no rider, no upload step)
+  async function deliveredFields(client, input, order, existing, opts) {
     const b = input && typeof input === 'object' ? input : {}, e = {};
     const notes = optional(e, 'notes', b.notes, 'The delivery note', { max: 300 });
     const floor = (existing && existing.dispatched_at) || order.created_at;
     const deliveredAt = b.deliveredAt
       ? when(e, 'deliveredAt', b.deliveredAt, 'The delivery time', { notBefore: floor, notBeforeLabel: existing && existing.dispatched_at ? 'when it was dispatched' : 'when the order was placed' })
       : new Date();
-    if (proofRequired()) {
+    if (opts && typeof opts.proof === 'boolean' ? opts.proof : proofRequired()) {
       const n = await client.query('SELECT count(*)::int AS n FROM order_delivery_proofs WHERE order_id = $1', [order.order_id]);
       if (!n.rows[0].n) e.proof = 'Attach at least one proof-of-delivery photo (the parcel at the door, or the signed delivery receipt)';
     }

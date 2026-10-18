@@ -37,7 +37,7 @@ a.nav-item{text-decoration:none}
       <div class="nav-label">Shop</div>
       <button class="nav-item active" data-view="catalog"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>Catalog</button>
       <button class="nav-item" data-view="cart"><svg class="nav-ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>My Cart<span class="count" id="navCartCount">0</span></button>
-      <button class="nav-item" data-view="quote"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Reserve / Pre-order<span class="count" id="navQuoteCount" hidden>0</span></button>
+      <button class="nav-item" data-view="quote"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Request a Quote<span class="count" id="navQuoteCount" hidden>0</span></button>
     </div>
     <div class="nav-group">
       <div class="nav-label">Account</div>
@@ -117,7 +117,7 @@ a.nav-item{text-decoration:none}
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
         </div>
       </div>
-      <div class="quote-cta"><div><b>Need more than we have, a bulk order or a custom size?</b> Reserve it or pre-order it and our team will send you a price.</div><button type="button" class="btn-secondary btn-sm" data-view="quote">Reserve / Pre-order</button></div>
+      <div class="quote-cta"><div><b>Bulk order or a custom size?</b> Tell us what you need and our team will send you a price.</div><button type="button" class="btn-secondary btn-sm" data-view="quote">Request a quote</button></div>
       <div class="shop-tools">
         <div class="search-wrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="q" placeholder="Search name or SKU…" autocomplete="off" aria-label="Search products"><kbd>/</kbd></div>
         <select id="sort" aria-label="Sort products"><option value="name">Sort: Name A–Z</option><option value="low">Price: low to high</option><option value="high">Price: high to low</option><option value="stock">Most in stock</option></select>
@@ -181,12 +181,12 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== REQUEST A QUOTE ===== -->
     <section class="page" id="quote">
-      <div class="page-head"><div><h1>Reserve / Pre-order</h1><p class="dim" style="margin:6px 0 0;max-width:680px"><b>Reservation:</b> the item is in stock and we set it aside for you. <b>Pre-order:</b> we do not have enough stock, or it is a custom item, so we make or order it for the date you need. Either way we send you a price first, and nothing is charged until you accept it.</p></div></div>
+      <div class="page-head"><div><h1>Request a quote</h1></div></div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>What do you need?</div>
           <div class="q-field"><label for="qProduct">Product</label><select id="qProduct"></select></div>
-          <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Item name</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet"><div class="err-text" id="qE_productName"></div></div>
+          <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Describe the item</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="qE_productName"></div></div>
           <div id="qFields"><p class="dim">Loading the form…</p></div>
 
           <div class="qf-sec"><span class="qf-num">2</span>How will you receive it?</div>
@@ -224,7 +224,7 @@ a.nav-item{text-decoration:none}
           <button type="submit" class="btn-primary btn-lg" id="qSend">Send request</button>
         </form>
         <aside class="sticky-side">
-          <div class="card quote-side" style="margin-bottom:14px"><h3>My reservations &amp; pre-orders</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
+          <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
           <div class="help-line" data-help></div>
         </aside>
       </div>
@@ -368,7 +368,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=6"></script>
-<script src="quote-fields.js?v=3"></script>
+<script src="quote-fields.js?v=2"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -541,7 +541,7 @@ function ratingLine(avg, n, link) {
 }
 function stockMsg(p) {
   if (p.available <= 0) return `<div class="pd-stockmsg bad"><span>Out of stock.${p.notifyMe ? " We'll email you as soon as it is back." : ' Want to know when it is back?'}</span>${p.notifyMe ? `<button type="button" class="btn-secondary btn-sm" data-unnotify="${esc(p.sku)}">Cancel alert</button>` : `<button type="button" class="btn-primary btn-sm" data-notify="${esc(p.sku)}">Notify me</button>`}</div>`;
-  if (p.available <= p.low) return `<div class="pd-stockmsg warn"><span>Only <b>${p.available} ${esc(p.unit)}</b> left. Order soon, or reserve / pre-order if you need more.</span></div>`;
+  if (p.available <= p.low) return `<div class="pd-stockmsg warn"><span>Only <b>${p.available} ${esc(p.unit)}</b> left. Order soon, or request a quote if you need more.</span></div>`;
   return `<div class="pd-stockmsg ok"><span>${p.available} ${esc(p.unit)} in stock</span></div>`;
 }
 function renderChips() {
@@ -985,7 +985,7 @@ async function openProductDetails(sku) {
         <button type="button" class="btn-primary" id="pdAdd" ${p.available <= 0 ? 'disabled' : ''}>${p.available <= 0 ? 'Out of stock' : 'Add to cart'}</button>
       </div>
       <div class="in-cart-note" id="pdNote">${inCart(p.sku) ? inCart(p.sku) + ' already in your cart' : ''}</div>
-      <div class="pd-quote">Need more, or a custom size? <button type="button" class="link-btn" data-quote="${esc(p.sku)}">Reserve / pre-order</button></div>
+      <div class="pd-quote">Need a large quantity or a custom size? <button type="button" class="link-btn" data-quote="${esc(p.sku)}">Request a quote</button></div>
       ${pdPerks()}
     </div>
     <div class="pd-tabs">
@@ -1083,7 +1083,7 @@ function qErr(field, msg) {                         // show / clear the message 
   return !msg;
 }
 const QCHECK = {                                    // one rule per field; each returns an error message or ''
-  productName: () => $('qProduct').value || (/\p{L}{2}/u.test($('qProductName').value) && $('qProductName').value.trim().length >= 3) ? '' : 'Enter the item name in words, e.g. Stainless sheet.',
+  productName: () => $('qProduct').value || $('qProductName').value.trim().length >= 3 ? '' : 'Tell us what you need (at least 3 characters).',
   contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   region: () => qAddr === 'new' && !$('qRegion').value ? 'Choose the region.' : '',
@@ -1173,9 +1173,8 @@ function quoteProductChanged() {
   const p = prod($('qProduct').value);
   $('qNameWrap').hidden = !!p; if (p) qErr('productName', '');
   if (!qMounted) return;
-  QuoteFields.autofill('q', p ? p.specs : null, p ? p.name : null);      // item type, material, size... from the product record, then locked
-  if (p) QuoteFields.setUnit('q', p.unit);                               // a catalog product is counted in its own unit
-  QuoteFields.setStock('q', p ? { available: p.available, unit: p.unit } : null);   // in stock = Reservation, not enough = Pre-order
+  QuoteFields.autofill('q', p ? p.specs : null);
+  if (p) QuoteFields.setUnit('q', p.unit);
   QuoteFields.setHint('q', p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '');
 }
 async function loadQuoteAddresses() {
@@ -1211,7 +1210,7 @@ async function loadQuotes() {
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
-    return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span>${q.requestType ? `<span class="chip-pill">${esc(q.requestType)}</span>` : ''}<span class="chip-pill ${st[0]}">${st[1]}</span></div>
+    return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
       ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
@@ -1270,7 +1269,7 @@ function validateQuote() {
   if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
   else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
   // focus the field that comes first on the page
-  const order = ['qProduct', 'qProductName', 'qS_itemType', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qNeeded', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
+  const order = ['qProduct', 'qProductName', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qNeeded', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
   return { ok: !first, focus: bad };
 }
@@ -1282,7 +1281,7 @@ $('quoteForm').onsubmit = async e => {
     fulfillment: f, contactName: $('qName').value.trim(), phone: $('qPhone').value.replace(/[\s().-]/g, '') };
   if (f === 'Delivery') { if (qAddr === 'new') Object.assign(body, { region: $('qRegion').value, province: $('qProvince').value, city: qClean($('qCity').value), barangay: qClean($('qBrgy').value), street: $('qStreet').value.trim() }); else body.addressId = qAddr; }
   $('qSend').disabled = true;
-  let sent = null; try { sent = await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify(body) }); }
+  try { await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify(body) }); }
   catch (er) {                                       // show the server's message under the field it belongs to
     $('qSend').disabled = false;
     const fe = er.fields || {}, map = { contactName: 1, phone: 1, productName: 1, region: 1, province: 1, city: 1, barangay: 1, street: 1 };
@@ -1292,7 +1291,7 @@ $('quoteForm').onsubmit = async e => {
   $('qSend').disabled = false;
   $('qProductName').value = ''; $('qProductName').classList.remove('is-bad'); $('qProduct').value = ''; QuoteFields.reset('q');
   qErr('productName', ''); quoteProductChanged(); ['qCity', 'qBrgy', 'qStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); qResetArea();
-  toast((sent && sent.requestType ? sent.requestType + ' request sent' : 'Request sent') + '. We will reply with a price soon.'); loadQuotes();
+  toast('Request sent. We will reply soon.'); loadQuotes();
 };
 
 /* ----- events ----- */

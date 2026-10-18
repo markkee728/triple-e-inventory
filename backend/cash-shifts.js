@@ -25,6 +25,9 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
     closing_note TEXT NOT NULL DEFAULT '', CHECK (closed_at IS NULL OR closing_cash IS NOT NULL))`);
    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS one_open_shift_per_cashier ON pos_cash_shifts(cashier_id) WHERE closed_at IS NULL');
    await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS cash_shift_id BIGINT REFERENCES pos_cash_shifts(shift_id)');
+   // online orders paid in cash at handover are counted in the drawer too (pos-shop.js fills these in)
+   await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS cash_shift_id BIGINT');
+   await pool.query("ALTER TABLE orders ADD COLUMN IF NOT EXISTS payment_status TEXT NOT NULL DEFAULT 'unpaid'");
    await pool.query('CREATE INDEX IF NOT EXISTS pos_sales_cash_shift_idx ON pos_sales(cash_shift_id)');
    await pool.query(`CREATE TABLE IF NOT EXISTS pos_cash_movements (
     movement_id BIGSERIAL PRIMARY KEY, shift_id BIGINT NOT NULL REFERENCES pos_cash_shifts(shift_id),
@@ -44,12 +47,13 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
    s.opened_at AS "openedAt", s.closed_at AS "closedAt",
    s.opening_cash::float8 AS "openingCash", s.closing_cash::float8 AS "closingCash", s.closing_note AS "closingNote",
    s.closing_breakdown AS "closingBreakdown",
-   cs.cash_sales::float8 AS "cashSales", cs.cash_tx AS "cashTransactions",
+   (cs.cash_sales + oc.order_cash)::float8 AS "cashSales", (cs.cash_tx + oc.order_cash_tx)::int AS "cashTransactions",
    cs.card_sales::float8 AS "cardSales", cs.card_tx AS "cardTransactions", cs.pending_voids AS "pendingVoids",
    mv.cash_in::float8 AS "cashIn", mv.cash_out::float8 AS "cashOut",
+   oc.order_cash::float8 AS "orderCash", oc.order_cash_tx AS "orderCashTransactions",
    rt.cash_returns::float8 AS "cashReturns", rt.cash_return_tx AS "cashReturnTransactions", rt.pending_returns AS "pendingReturns",
-   (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out - rt.cash_returns)::float8 AS "expectedCash",
-   CASE WHEN s.closed_at IS NOT NULL THEN ROUND(s.closing_cash - (s.opening_cash + cs.cash_sales + mv.cash_in - mv.cash_out - rt.cash_returns), 2)::float8 END AS "difference"
+   (s.opening_cash + cs.cash_sales + oc.order_cash + mv.cash_in - mv.cash_out - rt.cash_returns)::float8 AS "expectedCash",
+   CASE WHEN s.closed_at IS NOT NULL THEN ROUND(s.closing_cash - (s.opening_cash + cs.cash_sales + oc.order_cash + mv.cash_in - mv.cash_out - rt.cash_returns), 2)::float8 END AS "difference"
   FROM pos_cash_shifts s
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(p.total) FILTER (WHERE p.method='Cash'),0) AS cash_sales,
                             COUNT(*) FILTER (WHERE p.method='Cash')::int AS cash_tx,
@@ -57,6 +61,8 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
                             COUNT(*) FILTER (WHERE p.method IN ('Card','Xendit'))::int AS card_tx,
                             COUNT(*) FILTER (WHERE p.status='Void Pending')::int AS pending_voids
                        FROM pos_sales p WHERE p.cash_shift_id = s.shift_id AND p.status <> 'Voided') cs ON true
+  LEFT JOIN LATERAL (SELECT COALESCE(SUM(o.total),0) AS order_cash, COUNT(*)::int AS order_cash_tx
+                       FROM orders o WHERE o.cash_shift_id = s.shift_id AND o.payment_status = 'paid' AND o.status <> 'Cancelled') oc ON true
   LEFT JOIN LATERAL (SELECT COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_in'),0) AS cash_in,
                             COALESCE(SUM(m.amount) FILTER (WHERE m.kind='cash_out'),0) AS cash_out
                        FROM pos_cash_movements m WHERE m.shift_id = s.shift_id) mv ON true
