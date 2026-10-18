@@ -164,7 +164,7 @@ input,select,textarea{width:100%;background:var(--field);border:1px solid var(--
 input::placeholder,textarea::placeholder{color:var(--text-faint)}
 input:focus,select:focus,textarea:focus{border-color:var(--blue-bright);box-shadow:0 0 0 3px rgba(74,144,217,.15)}
 select option{background:var(--card);color:var(--text)}
-.err-text{color:#f0908f;font-size:13px;margin-top:4px;min-height:18px}
+.err-text{color:#f0908f;font-size:13px;margin-top:4px}.err-text:empty{display:none}   /* no blank strip under every field until there is a message */
 html[data-theme="light"] .err-text{color:#c0392b}
 
 /* toolbar */

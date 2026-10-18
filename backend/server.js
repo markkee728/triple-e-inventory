@@ -1313,10 +1313,13 @@ app.get('/api/users', auth('finance'), wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT u.user_id, u.full_name, u.username, u.email, r.label, r.role_key, u.status,
             to_char(u.last_login AT TIME ZONE $1, 'YYYY-MM-DD HH12:MI AM') AS last_login,
+            EXTRACT(EPOCH FROM u.last_login)::bigint AS last_login_epoch,
             (u.avatar IS NOT NULL) AS has_avatar
-       FROM users u JOIN roles r USING (role_id) ORDER BY u.full_name`, [TZ]);
+       FROM users u JOIN roles r USING (role_id)
+      ORDER BY u.last_login DESC NULLS LAST, u.full_name`, [TZ]);   // most recent sign-in first; accounts that never signed in go last
   res.json(rows.map(u => ({ id: u.user_id, name: u.full_name, username: u.username, email: u.email, role: u.label,
-    roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never', hasAvatar: !!u.has_avatar })));
+    roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never',
+    lastLoginAt: u.last_login_epoch == null ? null : Number(u.last_login_epoch), hasAvatar: !!u.has_avatar })));
 }));
 
 // Read-only registered customer details for Finance/Admin Customer Management.

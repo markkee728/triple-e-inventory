@@ -4813,3 +4813,25 @@ html[data-theme="light"] #sales .pos-date-fields input{color-scheme:light;backgr
 #sales .pos-export-btn{margin-left:4px;border-style:dashed}
 #sales .pos-history-search{height:40px;min-width:200px;flex:1 1 240px;max-width:360px;margin-left:auto}
 @media(max-width:760px){#sales .pos-history-toolbar{align-items:stretch}#sales .pos-date-fields input{min-width:0;width:100%}#sales .pos-date-fields label{flex:1 1 125px}#sales .pos-history-search{max-width:none;margin-left:0}}
+
+/* =========================================================
+   TIDY-UP: remove spacing that has no purpose
+   - empty hint / message lines no longer reserve space under fields
+   - Inventory Monitoring and Stock In / Out repeated their own name right under the top bar's title,
+     which pushed the content down by a whole heading plus its margins
+========================================================= */
+.field-hint:empty,
+.field-msg:empty,
+.err-text:empty {
+    display: none;
+}
+
+#inventory > .welcome,
+#stockflow > .welcome {
+    display: none;
+}
+
+#inventory > .stats,
+#stockflow > .stockflow-grid {
+    margin-top: 0;
+}

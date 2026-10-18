@@ -948,7 +948,7 @@ function renderStockLevelsTable(items) {
 
             return `
 
-                <tr>
+                <tr data-sku="${escapeHTML(item.sku)}" title="Double-click to record stock in / out">
 
                     <td>
                         ${escapeHTML(item.name)}
@@ -4246,6 +4246,16 @@ function getInitials(name) {
 }
 
 
+/* Milliseconds of the user's last sign-in (0 = never). Uses the exact time from the server, else reads "YYYY-MM-DD hh:mm AM". */
+function userLoginTime(user) {
+    if (user && typeof user.lastLoginAt === "number") return user.lastLoginAt * 1000;
+    const m = String((user && user.lastLogin) || "").match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!m) return 0;
+    let h = Number(m[4]) % 12;
+    if (/pm/i.test(m[6] || "")) h += 12;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), h, Number(m[5])).getTime();
+}
+
 function renderAccountsTable() {
 
     const tableBody =
@@ -4272,7 +4282,10 @@ function renderAccountsTable() {
     const visible = userAccountsData
         .map((user, index) => ({ user, index }))
         .filter(x => x.user.roleKey !== "customer")
-        .filter(x => roleWanted === "all" || x.user.roleKey === roleWanted);
+        .filter(x => roleWanted === "all" || x.user.roleKey === roleWanted)
+        // latest sign-in on top; accounts that have never signed in go to the bottom (then by name)
+        .sort((a, b) => (userLoginTime(b.user) - userLoginTime(a.user)) ||
+            String(a.user.name || "").localeCompare(String(b.user.name || "")));
 
     if (count && roleWanted !== "all") {
         count.textContent = `${visible.length} of ${staffCount} accounts`;

@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="app-ui.css">
+<link rel="stylesheet" href="app-ui.css?v=2">
 <link rel="stylesheet" href="store.css">
 <link rel="stylesheet" href="notifications.css?v=6">
 <style>
@@ -202,8 +202,12 @@ a.nav-item{text-decoration:none}
             <div class="addr-list" id="qAddrList" role="radiogroup" aria-label="Delivery address"></div>
             <div id="qAddrNew" hidden>
               <div class="q-grid">
-                <div class="q-field"><label for="qCity">City / Municipality</label><input id="qCity" maxlength="60" autocomplete="address-level2" placeholder="e.g. Angeles City"><div class="err-text" id="qE_city"></div></div>
-                <div class="q-field"><label for="qBrgy">Barangay</label><input id="qBrgy" maxlength="60" placeholder="e.g. Balibago"><div class="err-text" id="qE_barangay"></div></div>
+                <div class="q-field"><label for="qRegion">Region</label><select id="qRegion"><option value="">Loading regions…</option></select><div class="err-text" id="qE_region"></div></div>
+                <div class="q-field"><label for="qProvince">Province</label><select id="qProvince" disabled><option value="">Choose a region first</option></select><div class="err-text" id="qE_province"></div></div>
+              </div>
+              <div class="q-grid">
+                <div class="q-field"><label for="qCity">City / Municipality</label><input id="qCity" list="qCityList" maxlength="60" autocomplete="off" disabled placeholder="Choose a province first"><datalist id="qCityList"></datalist><div class="err-text" id="qE_city"></div></div>
+                <div class="q-field"><label for="qBrgy">Barangay</label><input id="qBrgy" list="qBgyList" maxlength="60" autocomplete="off" disabled placeholder="Choose a city first"><datalist id="qBgyList"></datalist><div class="err-text" id="qE_barangay"></div></div>
               </div>
               <div class="q-field"><label for="qStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="qStreet" maxlength="100" autocomplete="address-line1" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="qE_street"></div></div>
               <p class="q-hint">We only need the area to quote the delivery. You will give the full address when you order. <button type="button" class="link-btn" data-view="checkout">Save addresses at checkout</button></p>
@@ -1074,7 +1078,7 @@ const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') |
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 function qErr(field, msg) {                         // show / clear the message under one field
   const box = $('qE_' + field); if (box) box.textContent = msg || '';
-  const el = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' }[field];
+  const el = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', region: 'qRegion', province: 'qProvince', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' }[field];
   if (el) $(el).classList.toggle('is-bad', !!msg);
   return !msg;
 }
@@ -1082,11 +1086,74 @@ const QCHECK = {                                    // one rule per field; each 
   productName: () => $('qProduct').value || $('qProductName').value.trim().length >= 3 ? '' : 'Tell us what you need (at least 3 characters).',
   contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
-  city: () => qAddr === 'new' && !/\p{L}/u.test($('qCity').value.trim()) ? 'Enter the city or municipality.' : '',
-  barangay: () => qAddr === 'new' && !/\p{L}/u.test($('qBrgy').value.trim()) ? 'Enter the barangay.' : '',
+  region: () => qAddr === 'new' && !$('qRegion').value ? 'Choose the region.' : '',
+  province: () => qAddr === 'new' && !$('qProvince').value ? 'Choose the province.' : '',
+  city: () => { if (qAddr !== 'new') return ''; const v = qClean($('qCity').value); return !v ? 'Choose the city or municipality.' : QG.cities.length && !qCode(QG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
+  barangay: () => { if (qAddr !== 'new') return ''; const v = qClean($('qBrgy').value); return !v ? 'Choose the barangay.' : QG.barangays.length && !qCode(QG.barangays, v) ? 'Pick the barangay from the list.' : ''; },
   street: () => { const v = $('qStreet').value.trim(); return qAddr === 'new' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
 };
 const qField = f => qErr(f, QCHECK[f]());
+
+/* Delivery area: Region > Province > City > Barangay. Each box only offers what belongs to the one above it
+   (same /api/geo lists the checkout address form uses), so picking a city offers only that city's barangays. */
+const QG = { regions: [], provinces: [], cities: [], barangays: [], city: '', tok: { prov: 0, city: 0, bgy: 0 } };
+const qClean = v => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+const qCode = (list, name) => { const n = qClean(name).toLowerCase(); const m = list.find(x => x.name.toLowerCase() === n); return m ? m.code : null; };
+const qGeo = async path => { try { return await api(path); } catch (e) { if (e instanceof TypeError) throw new Error('No connection to the server'); throw e; } };
+function qOptions(sel, rows, placeholder, disabled) { sel.innerHTML = '<option value="">' + esc(placeholder) + '</option>' + rows.map(r => `<option value="${esc(r.name)}">${esc(r.name)}</option>`).join(''); sel.disabled = !!disabled; }
+const qList = (id, rows) => { $(id).innerHTML = rows.map(r => `<option value="${esc(r.name)}"></option>`).join(''); };
+const qBox = (id, placeholder, disabled) => { const el = $(id); el.value = ''; el.disabled = !!disabled; el.placeholder = placeholder; };
+function qReset(from) {                                   // clears this level and every level below it
+  const i = ['province', 'city', 'barangay'].indexOf(from);
+  if (i <= 0) { QG.provinces = []; qOptions($('qProvince'), [], 'Choose a region first', true); }
+  if (i <= 1) { QG.cities = []; qList('qCityList', []); qBox('qCity', 'Choose a province first', true); }
+  QG.barangays = []; QG.city = ''; qList('qBgyList', []); qBox('qBrgy', 'Choose a city first', true);
+}
+async function qLoadRegions() {
+  const sel = $('qRegion');
+  try { if (!QG.regions.length) QG.regions = await qGeo('/api/geo/regions'); const keep = sel.value; qOptions(sel, QG.regions, 'Choose a region…'); sel.value = keep; }
+  catch (e) { sel.innerHTML = '<option value="">Could not load regions — tap here to try again</option>'; sel.onfocus = () => { sel.onfocus = null; qLoadRegions(); }; qErr('region', e.message); }
+}
+async function qOnRegion() {
+  qReset('province'); ['region', 'province', 'city', 'barangay'].forEach(f => qErr(f, ''));
+  const reg = QG.regions.find(r => r.name === $('qRegion').value); if (!reg) return;
+  const t = ++QG.tok.prov, psel = $('qProvince');
+  qOptions(psel, [], 'Loading provinces…', true);
+  try {
+    const rows = await qGeo('/api/geo/regions/' + encodeURIComponent(reg.code) + '/provinces'); if (t !== QG.tok.prov) return;
+    if (rows.length) { QG.provinces = rows; qOptions(psel, rows, 'Choose a province…'); return; }
+    QG.provinces = [{ code: 'NCR', name: 'Metro Manila' }];                 // NCR has no provinces
+    qOptions(psel, QG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila';
+    await qLoadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
+  } catch (e) { if (t === QG.tok.prov) { qOptions(psel, [], 'Could not load — choose the region again', true); qErr('province', e.message); } }
+}
+async function qOnProvince() {
+  qReset('city'); ['province', 'city', 'barangay'].forEach(f => qErr(f, ''));
+  const prov = QG.provinces.find(p => p.name === $('qProvince').value); if (!prov) return;
+  await qLoadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
+}
+async function qLoadCities(path) {
+  const t = ++QG.tok.city; qBox('qCity', 'Loading cities…', true);
+  try { const rows = await qGeo(path); if (t !== QG.tok.city) return; QG.cities = rows; qList('qCityList', rows); qBox('qCity', 'Type to search city / municipality…', false); }
+  catch (e) { if (t === QG.tok.city) { qBox('qCity', 'Could not load — choose the province again', true); qErr('city', e.message); } }
+}
+async function qOnCity() {
+  const name = qClean($('qCity').value);
+  if (name && name.toLowerCase() === QG.city.toLowerCase()) return;            // same city again (the browser can fire "change" twice): keep the barangay
+  qReset('barangay'); qErr('city', ''); qErr('barangay', ''); if (!name) return;
+  const city = QG.cities.find(c => c.name.toLowerCase() === name.toLowerCase());
+  if (!city) { if (QG.cities.length) qErr('city', 'Pick the city / municipality from the list.'); return; }
+  $('qCity').value = city.name; QG.city = city.name;
+  const t = ++QG.tok.bgy; qBox('qBrgy', 'Loading barangays…', true);
+  try { const rows = await qGeo('/api/geo/cities/' + encodeURIComponent(city.code) + '/barangays'); if (t !== QG.tok.bgy) return; QG.barangays = rows; qList('qBgyList', rows); qBox('qBrgy', rows.length ? 'Type to search barangay…' : 'Type the barangay', false); }
+  catch (e) { if (t === QG.tok.bgy) qBox('qBrgy', 'Type the barangay', false); }      // list unavailable: typed by hand, the server still checks it
+}
+function qOnBarangay() {
+  qErr('barangay', ''); const name = qClean($('qBrgy').value); if (!name) return;
+  const b = QG.barangays.find(x => x.name.toLowerCase() === name.toLowerCase());
+  if (b) $('qBrgy').value = b.name; else if (QG.barangays.length) qErr('barangay', 'Pick the barangay from the list.');
+}
+function qResetArea() { $('qRegion').value = ''; qReset('province'); ['region', 'province', 'city', 'barangay'].forEach(f => qErr(f, '')); }
 
 function renderQuote() {
   const sel = $('qProduct'), keep = sel.value;
@@ -1094,7 +1161,7 @@ function renderQuote() {
   if (keep && prod(keep)) sel.value = keep;
   if (!$('qName').value) $('qName').value = USER.name || '';
   if (!$('qPhone').value && $('phone') && $('phone').value) $('qPhone').value = $('phone').value;
-  ensureQuoteFields(); quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses();
+  ensureQuoteFields(); quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses(); if (!QG.regions.length) qLoadRegions();
 }
 async function ensureQuoteFields() {            // the dropdown choices come from the server so they always match what it accepts
   if (qMounted) return true;
@@ -1185,6 +1252,8 @@ document.querySelectorAll('input[name="qFulfil"]').forEach(r => r.onchange = () 
 $('qDeliveryBox').addEventListener('click', e => { const el = e.target.closest('[data-qaddr]'); if (!el) return; qAddr = el.dataset.qaddr === 'new' ? 'new' : Number(el.dataset.qaddr); $('qE_address').textContent = ''; renderQuoteReceive(); });
 $('qDeliveryBox').addEventListener('keydown', e => { if ((e.key === 'Enter' || e.key === ' ') && e.target.matches('[data-qaddr]')) { e.preventDefault(); e.target.click(); } });
 // check a field when the customer leaves it, and clear its message as soon as they fix it
+$('qRegion').addEventListener('change', qOnRegion); $('qProvince').addEventListener('change', qOnProvince);
+$('qCity').addEventListener('change', qOnCity); $('qBrgy').addEventListener('change', qOnBarangay);
 [['qProductName', 'productName'], ['qName', 'contactName'], ['qPhone', 'phone'], ['qCity', 'city'], ['qBrgy', 'barangay'], ['qStreet', 'street']].forEach(([id, f]) => {
   $(id).addEventListener('blur', () => qField(f));
   $(id).addEventListener('input', () => { if ($(id).classList.contains('is-bad')) qField(f); $('qErr').textContent = ''; });
@@ -1192,15 +1261,15 @@ $('qDeliveryBox').addEventListener('keydown', e => { if ((e.key === 'Enter' || e
 $('qPhone').addEventListener('input', () => { const p = $('qPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
 function validateQuote() {
   const f = qFulfil(), fields = ['productName'];
-  if (f === 'Delivery' && qAddr === 'new') fields.push('city', 'barangay', 'street');
+  if (f === 'Delivery' && qAddr === 'new') fields.push('region', 'province', 'city', 'barangay', 'street');
   fields.push('contactName', 'phone');
-  const idOf = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' };
+  const idOf = { productName: 'qProductName', contactName: 'qName', phone: 'qPhone', region: 'qRegion', province: 'qProvince', city: 'qCity', barangay: 'qBrgy', street: 'qStreet' };
   let first = null; fields.forEach(k => { if (!qField(k) && !first) first = idOf[k]; });
   const qf = qMounted ? QuoteFields.validate('q') : { ok: false, focus: null }; if (!qf.ok && !first) first = qf.focus || 'qFields';
   if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
   else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
   // focus the field that comes first on the page
-  const order = ['qProduct', 'qProductName', 'qQty', 'qMonths', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qDeliveryAnchor', 'qAddrList', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
+  const order = ['qProduct', 'qProductName', 'qQty', 'qMonths', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
   return { ok: !first, focus: bad };
 }
@@ -1210,18 +1279,18 @@ $('quoteForm').onsubmit = async e => {
   if (!v.ok) { err.textContent = 'Please fix the highlighted fields.'; const el = $(v.focus) || document.querySelector('.q-seg'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus({ preventScroll: true }); } return; }
   const f = qFulfil(), body = { sku: $('qProduct').value || undefined, productName: $('qProductName').value.trim(), ...QuoteFields.read('q'),
     fulfillment: f, contactName: $('qName').value.trim(), phone: $('qPhone').value.replace(/[\s().-]/g, '') };
-  if (f === 'Delivery') { if (qAddr === 'new') Object.assign(body, { city: $('qCity').value.trim(), barangay: $('qBrgy').value.trim(), street: $('qStreet').value.trim() }); else body.addressId = qAddr; }
+  if (f === 'Delivery') { if (qAddr === 'new') Object.assign(body, { region: $('qRegion').value, province: $('qProvince').value, city: qClean($('qCity').value), barangay: qClean($('qBrgy').value), street: $('qStreet').value.trim() }); else body.addressId = qAddr; }
   $('qSend').disabled = true;
   try { await api('/api/shop/quotes', { method: 'POST', body: JSON.stringify(body) }); }
   catch (er) {                                       // show the server's message under the field it belongs to
     $('qSend').disabled = false;
-    const fe = er.fields || {}, map = { contactName: 1, phone: 1, productName: 1, city: 1, barangay: 1, street: 1 };
+    const fe = er.fields || {}, map = { contactName: 1, phone: 1, productName: 1, region: 1, province: 1, city: 1, barangay: 1, street: 1 };
     let shown = QuoteFields.showServerError('q', fe); Object.keys(fe).forEach(k => { if (map[k]) { qErr(k, fe[k]); shown = true; } else if (k === 'fulfillment') { qErr('fulfillment', fe[k]); shown = true; } else if (k === 'address') { $('qE_address').textContent = fe[k]; shown = true; } });
     if (!shown) err.textContent = (fe && Object.values(fe)[0]) || er.message; return;
   }
   $('qSend').disabled = false;
   $('qProductName').value = ''; $('qProductName').classList.remove('is-bad'); $('qProduct').value = ''; QuoteFields.reset('q');
-  qErr('productName', ''); quoteProductChanged();
+  qErr('productName', ''); quoteProductChanged(); ['qCity', 'qBrgy', 'qStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); qResetArea();
   toast('Request sent. We will reply soon.'); loadQuotes();
 };
 

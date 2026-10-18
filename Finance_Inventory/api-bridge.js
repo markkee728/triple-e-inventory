@@ -58,7 +58,11 @@
   const replace = (arr, rows) => arr.splice(0, arr.length, ...rows);
   const safe = (fn) => { try { fn(); } catch (e) { console.warn('[api-bridge]', e.message); } };
   // small helper set for production-admin.js (production / material requirements)
-  window.TripleEBridge = { api, toast, esc, inventory: () => inventoryCache, reload: () => load(), movementType: () => movementType() };
+  window.TripleEBridge = { api, toast, esc, inventory: () => inventoryCache, reload: () => load(), movementType: () => movementType(),
+    // used by quick-stock.js (double-click a row in Inventory Monitoring)
+    reasonsFor: (type, dept) => reasonKeysFor(type, dept).map((k) => ({ key: k, label: REASONS[type][k], help: REASON_HELP[type + ':' + k] || '' })),
+    noteRequired: (reason) => NOTE_REQUIRED.indexOf(reason) >= 0,
+    suppliersFor: (item) => suppliersForItem(item) };
 
   function toast(message, type) {
     const el = document.createElement('div');
@@ -346,26 +350,33 @@
     }
   }
 
-  // Supplier dropdown: suppliers that already supply this product come first; any other active supplier can still be chosen
+  // Suppliers that match a product: only the active suppliers linked to it. If none is linked yet, every active supplier
+  // is offered instead (so a delivery can still be recorded) and `linkedOnly` is false.
+  function suppliersForItem(item) {
+    const active = supplierData.filter((s) => s.status !== 'archived');
+    const linked = item ? active.filter((s) => (s.products || []).some((p) => p.sku === item.sku)) : [];
+    return { list: linked.length ? linked : active, linkedOnly: linked.length > 0, anyActive: active.length > 0 };
+  }
+
+  // Supplier dropdown: shows only the suppliers that supply the chosen product
   function fillMovementSuppliers(item) {
     const sel = $('movementSupplier');
     if (!sel) return;
-    const active = supplierData.filter((s) => s.status !== 'archived');
-    const linked = item ? active.filter((s) => (s.products || []).some((p) => p.sku === item.sku)) : [];
-    const others = active.filter((s) => linked.indexOf(s) < 0);
-    const sig = (item ? item.sku : '') + '|' + active.map((s) => s.id + s.name).join(';');
+    const m = suppliersForItem(item);
+    const sig = (item ? item.sku : '') + '|' + m.linkedOnly + '|' + m.list.map((s) => s.id + s.name).join(';');
     if (sel.dataset.sig !== sig) {
       sel.dataset.sig = sig;
       const prev = sel.value;
       const opt = (s) => '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>';
-      sel.innerHTML = '<option value="">' + (active.length ? 'Select the supplier\u2026' : 'No active suppliers yet') + '</option>' +
-        (linked.length ? '<optgroup label="Supplies this product">' + linked.map(opt).join('') + '</optgroup>' : '') +
-        (others.length ? '<optgroup label="' + (linked.length ? 'Other suppliers' : 'All suppliers') + '">' + others.map(opt).join('') + '</optgroup>' : '');
-      if (prev && active.some((s) => s.id === prev)) sel.value = prev;
-      else if (linked.length === 1) sel.value = linked[0].id;
+      sel.innerHTML = '<option value="">' + (!m.anyActive ? 'No active suppliers yet' : item ? 'Select the supplier\u2026' : 'Choose a product first') + '</option>' +
+        (item ? m.list.map(opt).join('') : '');
+      sel.disabled = !item;
+      if (prev && m.list.some((s) => s.id === prev)) sel.value = prev;
+      else if (m.linkedOnly && m.list.length === 1) sel.value = m.list[0].id;
     }
     const h = $('movementSupplierHint');
-    if (h) h.textContent = item && !linked.length ? 'No supplier is linked to this product yet \u2014 pick the one that delivered it.' : '';
+    if (h) h.textContent = !item ? '' : m.linkedOnly ? 'Showing only suppliers that supply this product.'
+      : 'No supplier is linked to this product yet \u2014 showing all active suppliers. Link one in Supplier Management.';
   }
 
   function refreshMovementForm() {
@@ -380,7 +391,11 @@
     const form = $('movementForm');
     if (!form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
-    $('movementProduct').addEventListener('change', syncMovementForm);
+    $('movementProduct').addEventListener('change', () => {
+      const it = movementItem();                                   // the product decides the department, so the reasons and suppliers match it
+      if (it && $('movementDept').value !== it.department) $('movementDept').value = it.department;
+      syncMovementForm();
+    });
     $('movementDept').addEventListener('change', syncMovementForm);
     form.addEventListener('reset', () => { setTimeout(syncMovementForm, 0); });
     $('movementReason').addEventListener('change', () => {
