@@ -35,3 +35,7 @@
 .qs-recap .in { color: #7fe0ab; } .qs-recap .out { color: #f0908f; }
 html[data-theme="light"] .qs-summary { background: rgba(15, 40, 60, 0.04); }
 @media (max-width: 520px) { #quickStockOverlay .qs-modal { padding: 22px 18px 18px; } .qs-row { grid-template-columns: 1fr; } }
+
+/* Produced Internally: wider window with the materials table */
+#quickStockOverlay .qs-modal.qs-wide { max-width: 720px; }
+.qs-modal .prod-preview { margin: 4px 0 12px; }
