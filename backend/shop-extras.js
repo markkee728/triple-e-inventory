@@ -55,7 +55,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
-      // quote flow: months instead of a date, dropdown choices, reply details, customer answer
+      // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
       for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
                        'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
@@ -115,8 +115,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
             Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
   const QUOTE_OPTIONS = {
-    months: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 18, 24],                 // "needed within" (months from today, no calendar date)
+    neededMaxMonths: 6,                                                      // "needed by" is a date: from tomorrow up to this many months from today
     units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
+    decimalUnits: ['kg', 'linear m'],                                        // every other unit is counted in whole numbers
     material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
     size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft', 'Not applicable'],
     thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
@@ -127,12 +128,51 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
   };
+  /* What fits what. The chosen MATERIAL decides which finish / thickness / cutting are offered (stainless gets stainless finishes, cast iron
+     is not bent...). The words in "Describe the item" only help the form pre-narrow the dropdowns: `families` match a material in the text,
+     `forms` match the kind of item (sheet or pipe / fitting) and so its sizes. 'Not sure (advise me)' has no rule: everything is allowed. */
+  const keepOnly = (master, list) => master.filter((v) => list.includes(v) || v === 'Not applicable' || v === 'Not sure (advise me)');
+  const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
+  const FINISH_METAL = ['Polished', 'Satin / Brushed', 'Matte', 'Raw / Unfinished'];
+  const MATERIAL_FITS = {
+    'Brass':               { finish: [...FINISH_METAL, 'Chrome Plated'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
+    'Bronze':              { finish: FINISH_METAL, thickness: mm(1, 1.2, 1.5, 2, 3, 4.5, 6, 9, 12) },
+    'Copper':              { finish: FINISH_METAL, thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
+    'Stainless Steel 304': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Stainless Steel 316': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Carbon Steel':        { finish: ['Painted', 'Powder Coated', 'Galvanized', 'Raw / Unfinished'], thickness: mm(0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Galvanized Steel':    { finish: ['Galvanized', 'Painted', 'Powder Coated', 'Raw / Unfinished'], thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3) },
+    'Aluminum':            { finish: ['Satin / Brushed', 'Matte', 'Powder Coated', 'Painted', 'Raw / Unfinished'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
+    'Cast Iron':           { finish: ['Painted', 'Matte', 'Raw / Unfinished'], thickness: mm(6, 9, 12), service: ['None (as is)', 'Drilling / punching'] }
+  };
+  QUOTE_OPTIONS.rules = {};
+  Object.keys(MATERIAL_FITS).forEach((m) => {
+    const r = MATERIAL_FITS[m];
+    QUOTE_OPTIONS.rules[m] = { finish: keepOnly(QUOTE_OPTIONS.finish, r.finish), thickness: keepOnly(QUOTE_OPTIONS.thickness, r.thickness), service: r.service ? keepOnly(QUOTE_OPTIONS.service, r.service) : QUOTE_OPTIONS.service };
+  });
+  QUOTE_OPTIONS.families = [
+    { label: 'stainless steel', words: ['stainless', 'sus304', 'sus316', 'ss304', 'ss316', 'ss 304', 'ss 316', 'inox'], materials: ['Stainless Steel 304', 'Stainless Steel 316'], grades: { '316': 'Stainless Steel 316', '304': 'Stainless Steel 304' } },
+    { label: 'galvanized steel', words: ['galvanized', 'galvanised', 'gi sheet', 'gi pipe', 'gi tube', 'gi fitting', 'gi coil'], materials: ['Galvanized Steel'] },
+    { label: 'carbon steel', words: ['carbon steel', 'mild steel', 'black iron', 'black steel'], materials: ['Carbon Steel'] },
+    { label: 'cast iron', words: ['cast iron'], materials: ['Cast Iron'] },
+    { label: 'aluminum', words: ['aluminum', 'aluminium'], materials: ['Aluminum'] },
+    { label: 'brass', words: ['brass'], materials: ['Brass'] },
+    { label: 'bronze', words: ['bronze'], materials: ['Bronze'] },
+    { label: 'copper', words: ['copper'], materials: ['Copper'] }
+  ];
+  QUOTE_OPTIONS.forms = [
+    { label: 'sheets and plates', words: ['sheet', 'plate', 'panel', 'coil'], sizes: ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'] },
+    { label: 'pipes and fittings', words: ['pipe', 'tube', 'fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'] }
+  ];
+  // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
+  const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
   const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
   const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
+  const addMonthsISO = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); };
   const dateStr = (d) => {                                                  // pg gives DATE columns as JS dates
     if (!d) return undefined;
     if (typeof d === 'string') return d.slice(0, 10);
@@ -153,7 +193,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     return {
       id: q.quote_no, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
-      neededMonths: q.needed_months || undefined, neededBy: dateStr(q.needed_by),          // neededBy only exists on requests made before the months field
+      neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
       quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
@@ -170,9 +210,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
   const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
 
-  app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(QUOTE_OPTIONS));
-  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(QUOTE_OPTIONS));
-  app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(QUOTE_OPTIONS));
+  app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(quoteOptionsNow()));
 
   // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
   // Size and details that the product's own database record already states (Finance fills them in under the product's
@@ -208,11 +248,15 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
     const unit = str(b.quantityUnit).toLowerCase();
     if (!QUOTE_OPTIONS.units.includes(unit) && !(unit && unit === productUnit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
 
-    // how soon: whole months from today, picked from a list (no calendar date, so nothing in the past can be chosen)
-    const neededMonths = Number(b.neededMonths);
-    if (!Number.isInteger(neededMonths) || !QUOTE_OPTIONS.months.includes(neededMonths)) throw bad('neededMonths', 'Choose how many months from now you need it');
+    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted
+    const neededBy = str(b.neededBy), today = todayPH(), latest = addMonthsISO(today, QUOTE_OPTIONS.neededMaxMonths);
+    if (!neededBy) throw bad('neededBy', 'Choose the date you need it');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
+    if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
+    if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
 
     // sizes and details: every one is a dropdown; size and thickness can also be typed in
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
@@ -221,8 +265,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
-      if (!QUOTE_OPTIONS[key].includes(v)) {
+      const fits = QUOTE_OPTIONS.rules[specs.material];                 // material comes first in SPEC_LABEL; it decides what fits (no rule = anything)
+      const allowed = fits && fits[key] ? fits[key] : QUOTE_OPTIONS[key];
+      if (!allowed.includes(v)) {
+        if (QUOTE_OPTIONS[key].includes(v) && !QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' does not go with ' + specs.material + '. Choose one from the list');
         if (!QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase() + ' from the list');
+        if (QUOTE_OPTIONS[key].includes(v)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' is not offered for ' + specs.material + '. Choose another or type it');
         if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
       }
       specs[key] = v;
@@ -258,13 +306,13 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-    return { contactName, phone, quantity, details, specs, neededMonths, fulfillment, area, sku, productName };
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName };
   }
 
-  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_months, fulfillment, area';
-  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededMonths, v.fulfillment, v.area];
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area';
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area];
   const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
-  const needText = (m) => m + (m === 1 ? ' month' : ' months');
+  const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
   app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
     const v = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
@@ -285,11 +333,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
       await send(u && u.email, `We received your quote request ${row.quote_no}`, [
         `Hi ${v.contactName},`, `Thank you for your request. We will send you a quote soon.`, '',
-        `Reference: ${row.quote_no}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed within: ${needText(v.neededMonths)}`, ...signoff()], 'quote-received');
+        `Reference: ${row.quote_no}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
       const to = financeTo();
       if (to) await send(to, `New quote request ${row.quote_no} from ${v.contactName}`, [
         `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
-        `Needed within: ${needText(v.neededMonths)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
+        `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
       else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
     })().catch((e) => console.error('[mail] quote emails failed:', e.message));
@@ -364,7 +412,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (!to) return;
       await send(to, `Walk-in quote request ${row.quote_no} from ${v.contactName}`, [
         `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
-        `Needed within: ${needText(v.neededMonths)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
+        `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
     })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));
   }));

@@ -67,7 +67,7 @@
       '<button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
       '<div class="inv-filters"><select id="sxqFilter" class="inv-select"><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
-      '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Amount required</th><th>Needed within</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
+      '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '</div>' +
@@ -107,7 +107,7 @@
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
-        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededMonths ? months(x.neededMonths) : (day(x.neededBy) || '\u2014')) + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + '</td>' +
+        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
@@ -152,7 +152,7 @@
     var o = qopts || { leadTimes: [], validDays: [7] };
     var h = '<div class="sx-head"><h2>Quote \u00B7 ' + esc(x.id) + '</h2>' + qPill(x) + '</div>' +
       '<dl class="sx-info">' + info('Customer', x.customer) + info('Phone', x.phone) + info('Email', x.email) + info('Came from', x.source === 'pos' ? 'Walk-in at the counter (no account \u2014 reply by phone)' : 'Online shop') + info('Item', x.product || 'Custom item') + info('SKU', x.sku) +
-      info('Amount required', x.quantity) + info('Needed within', x.neededMonths ? months(x.neededMonths) : (x.neededBy ? 'by ' + day(x.neededBy) : '')) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
+      info('Quantity', x.quantity) + info('Needed by', x.neededBy ? day(x.neededBy) : (x.neededMonths ? 'within ' + months(x.neededMonths) : '')) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     var inFlow = IN_FLOW.indexOf(x.status) >= 0;
     if (x.status !== 'new') {

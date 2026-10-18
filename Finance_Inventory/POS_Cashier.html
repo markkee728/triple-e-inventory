@@ -1046,7 +1046,7 @@ async function loadPosQuotes() {
       : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
     return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
       <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
-      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
+      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
       ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="pq-sub">Ready in ${esc(q.leadTime)}${q.validUntil && q.status === 'quoted' ? ' · price ' + (q.expired ? 'expired ' : 'valid until ') + pqDay(q.validUntil) : ''}</div>` : ''}
       ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}${actions}</div>`; }).join('')

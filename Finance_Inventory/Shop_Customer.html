@@ -1211,7 +1211,7 @@ async function loadQuotes() {
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
-      <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
+      <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
       ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="row"><span>Ready in</span><span>${esc(q.leadTime)}</span></div>` : ''}
@@ -1269,7 +1269,7 @@ function validateQuote() {
   if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
   else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
   // focus the field that comes first on the page
-  const order = ['qProduct', 'qProductName', 'qQty', 'qMonths', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
+  const order = ['qProduct', 'qProductName', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qNeeded', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
   return { ok: !first, focus: bad };
 }

@@ -19,3 +19,9 @@ ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check
 ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS pay_method TEXT;
 ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS xendit_invoice_id TEXT;   -- online payment (Xendit) of an accepted quote
 ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS xendit_external_id TEXT;
+
+-- Quote requests: "Needed by" is a date again (picked with a date picker: tomorrow up to 6 months ahead, checked by the server).
+-- New requests are saved in needed_by (a DATE column the table already had). needed_months stays only so older requests keep showing
+-- "within N months" in the lists. Nothing is deleted or converted. shop-extras.js also makes sure the column exists on start, so
+-- running this by hand is optional.
+ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS needed_by DATE;
