@@ -70,6 +70,45 @@
 .pq-amount{margin-top:6px;display:flex;justify-content:space-between;font-weight:600}
 .pq-reply{margin-top:6px;padding:8px 10px;border-radius:6px;background:var(--inset);font-size:13px;color:var(--text-dim);white-space:pre-line}
 .pq-call{margin-top:6px;font-size:12.5px;color:var(--green);font-weight:600}
+
+/* quote list redesign: compact cards, filters, collapsible pricing */
+.pq-layout{align-items:stretch}
+.pq-side{display:flex;flex-direction:column;position:sticky;top:12px;align-self:start;max-height:calc(100vh - 96px);min-height:420px;padding:0;overflow:hidden}
+.pq-side-head{padding:16px 18px 12px;border-bottom:1px solid var(--border)}
+.pq-side-title{display:flex;align-items:center;justify-content:space-between;gap:10px;font-family:Oswald,sans-serif;font-size:18px;font-weight:600;letter-spacing:.3px}
+.pq-count{font-family:Inter,sans-serif;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;background:var(--inset);color:var(--text-dim)}
+.pq-search{width:100%;box-sizing:border-box;margin-top:10px;padding:8px 12px;font-size:13.5px}
+.pq-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.pq-tab{border:1px solid var(--border);background:transparent;color:var(--text-dim);font:600 12px Inter,sans-serif;padding:5px 10px;border-radius:999px;cursor:pointer;transition:.15s}
+.pq-tab:hover{border-color:var(--blue-bright);color:var(--text)}
+.pq-tab.on{background:rgba(74,144,217,.16);border-color:var(--blue-bright);color:var(--blue-bright)}
+.pq-tab em{font-style:normal;opacity:.75;margin-left:3px}
+.pq-scroll{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:12px 14px 14px;display:flex;flex-direction:column;gap:10px}
+.pq-card{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px 14px;display:flex;flex-direction:column;gap:6px}
+.pq-card.need{border-left:3px solid var(--amber)}.pq-card.ready{border-left:3px solid var(--green)}
+.pq-card .pq-top{margin:0}
+.pq-who{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:14px;color:var(--text)}
+.pq-who b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pq-src{flex:none;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:4px;background:var(--inset);color:var(--text-dim)}
+.pq-item{font-size:13.5px;color:var(--text)}
+.pq-chips{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12.5px;color:var(--text-faint)}
+.pq-chips span+span::before{content:"";}
+.pq-card .pq-amount{margin:2px 0 0;padding:7px 10px;border-radius:8px;background:var(--inset);font-size:13.5px}
+.pq-card .pq-call{margin:2px 0 0}
+.pq-card .q-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.pq-price-toggle{margin-top:4px;width:100%;justify-content:center}
+.pq-price-form{display:none;grid-template-columns:1fr 1fr;gap:10px;margin-top:6px;padding-top:12px;border-top:1px dashed var(--border)}
+.pq-card.open .pq-price-form{display:grid}
+.pq-price-form .pf{display:flex;flex-direction:column;gap:4px;margin:0;font:600 12px Inter,sans-serif;letter-spacing:0;text-transform:none;color:var(--text-dim)}
+.pq-price-form .pf.full{grid-column:1/-1}
+.pq-price-form input:not([type=checkbox]),.pq-price-form select,.pq-price-form textarea{width:100%;box-sizing:border-box;padding:8px 10px;font-size:13.5px;font-family:Inter,sans-serif;letter-spacing:0;text-transform:none}
+.pq-price-form textarea{resize:vertical;min-height:54px}
+.pq-price-form .pf-check{display:flex;flex-direction:row;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;font:500 13px Inter,sans-serif;letter-spacing:0;text-transform:none;color:var(--text)}
+.pq-price-form .pf-check input{width:16px;height:16px;margin:0;flex:none}
+.pq-price-form .pf-reason[hidden]{display:none}
+.pq-price-form button[type=submit]{grid-column:1/-1;width:100%}
+.pq-empty{padding:28px 12px;text-align:center;color:var(--text-faint);font-size:13.5px}
+@media(max-width:1100px){.pq-side{position:static;max-height:none;min-height:0}.pq-scroll{max-height:560px}}
 </style>
 </head>
 <body>
@@ -306,9 +345,13 @@
           <div class="err-text q-formerr" id="pqErr" role="alert"></div>
           <button type="submit" class="btn-primary" id="pqSend">Save Quotation Request</button>
         </form>
-        <aside class="panel">
-          <div class="panel-head"><div><div class="panel-title">All quotation requests</div><div class="panel-sub">Online and counter requests share one database. Cashier prices standard requests; exceptional or custom pricing goes to Finance for approval.</div></div></div>
-          <div id="pqList"><p class="dim">Loading…</p></div>
+        <aside class="panel pq-side">
+          <div class="pq-side-head">
+            <div class="pq-side-title">Quotation requests <span class="pq-count" id="pqTotal">0</span></div>
+            <input type="search" class="pq-search" id="pqSearch" placeholder="Search name, phone, ID or item…" aria-label="Search quotation requests">
+            <div class="pq-tabs" id="pqTabs" role="tablist"></div>
+          </div>
+          <div class="pq-scroll" id="pqList"><p class="dim">Loading…</p></div>
         </aside>
       </div>
     </section>
@@ -1055,21 +1098,54 @@ const pqDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { m
 async function loadPosQuotes() {
   try { POSQ = await api('/api/pos/quotes'); if (!Array.isArray(POSQ)) POSQ = []; } catch (e) { if (!(e instanceof TypeError)) toast(e.message, true); POSQ = []; }
   const ready = POSQ.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
-  $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
-    const actions = (q.status === 'new' || q.status === 'pending_approval') ? `<form class="pq-price-form" data-qprice="${esc(q.id)}" style="display:grid;gap:8px;margin-top:12px"><strong>Cashier pricing ${q.status === 'pending_approval' ? '— awaiting Finance review' : ''}</strong><label>Total quotation amount (PHP)<input name="amount" type="number" min="0.01" max="999999999" step="0.01" value="${q.proposedAmount || ''}" required></label><label>Preparation time<select name="leadTime" required><option value="">Select preparation time</option>${(window.PQ_OPTIONS?.leadTimes || []).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></label><label>Price validity<select name="validDays" required>${(window.PQ_OPTIONS?.validDays || []).map(x=>`<option value="${esc(x)}">${esc(x)} days</option>`).join('')}</select></label><label>Customer note<textarea name="note" maxlength="1500" rows="2"></textarea></label><label><input type="checkbox" name="customManufacturing"> Custom manufacturing / requires cost review</label><label>Approval justification (required when referred to Finance)<textarea name="reason" maxlength="500" rows="2" placeholder="Reason for pricing exception or custom manufacturing"></textarea></label><div class="err-text" role="alert" data-price-error></div><button class="btn-primary btn-sm" type="submit">${q.status === 'pending_approval' ? 'Resubmit for review' : 'Submit price / request approval'}</button></form>` : q.source !== 'pos' ? '<div class="pq-call">Online customer must accept through their own account.</div>' : q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
-      <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
-      : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Finance will start preparing it.</div>'
-      : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
-      : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
-      : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
-    return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
-      <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)} · ${q.source === 'pos' ? 'Counter' : 'Online'}</div>
-      <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
-      ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
-      ${q.leadTime ? `<div class="pq-sub">Ready in ${esc(q.leadTime)}${q.validUntil && q.status === 'quoted' ? ' · price ' + (q.expired ? 'expired ' : 'valid until ') + pqDay(q.validUntil) : ''}</div>` : ''}
-      ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}${actions}</div>`; }).join('')
-    : '<p class="dim">No quotation requests found.</p>';
+  renderPqList();
 }
+const PQ_GROUPS = { all: ['All', () => true], need: ['Needs pricing', q => q.status === 'new' || q.status === 'pending_approval'], quoted: ['Quoted', q => q.status === 'quoted'], active: ['In progress', q => ['accepted', 'preparing', 'ready'].includes(q.status)], done: ['Closed', q => ['completed', 'declined', 'closed', 'expired'].includes(q.status)] };
+let pqTab = 'all', pqQuery = ''; const pqOpen = new Set();
+function renderPqList() {
+  const total = POSQ.length; $('pqTotal').textContent = total;
+  $('pqTabs').innerHTML = Object.entries(PQ_GROUPS).map(([k, [label, fn]]) => `<button type="button" class="pq-tab${k === pqTab ? ' on' : ''}" data-pqtab="${k}" role="tab" aria-selected="${k === pqTab}">${label}<em>${POSQ.filter(fn).length}</em></button>`).join('');
+  const qs = pqQuery.trim().toLowerCase(), fn = PQ_GROUPS[pqTab][1];
+  const rows = POSQ.filter(fn).filter(q => !qs || [q.id, q.customer, q.phone, q.product].some(v => String(v || '').toLowerCase().includes(qs)));
+  $('pqList').innerHTML = rows.length ? rows.map(pqCard).join('') : '<div class="pq-empty">' + (total ? 'No requests match this filter.' : 'No quotation requests yet.') + '</div>';
+}
+function pqCard(q) {
+  const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
+  const needs = q.status === 'new' || q.status === 'pending_approval', pend = q.status === 'pending_approval', open = pqOpen.has(q.id);
+  const needed = q.neededBy ? 'Needed ' + pqDay(q.neededBy) : q.neededMonths ? 'Within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : '';
+  const chips = [needed, q.fulfillment, q.area].filter(Boolean).map(x => `<span>${esc(x)}</span>`).join('');
+  const opts = window.PQ_OPTIONS || {};
+  const form = `<button type="button" class="btn-secondary btn-sm pq-price-toggle" data-pqtoggle="${esc(q.id)}">${open ? 'Hide pricing' : (pend ? 'Edit & resubmit price' : 'Set price')}</button>
+    <form class="pq-price-form" data-qprice="${esc(q.id)}">
+      <label class="pf full">Total amount (PHP)<input name="amount" type="number" min="0.01" max="999999999" step="0.01" value="${q.proposedAmount || ''}" placeholder="0.00" required></label>
+      <label class="pf">Preparation time<select name="leadTime" required><option value="">Select…</option>${(opts.leadTimes || []).map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></label>
+      <label class="pf">Price validity<select name="validDays" required>${(opts.validDays || []).map(x => `<option value="${esc(x)}">${esc(x)} days</option>`).join('')}</select></label>
+      <label class="pf full">Customer note <span class="q-optional">(optional)</span><textarea name="note" maxlength="1500" rows="2"></textarea></label>
+      <label class="pf-check"><input type="checkbox" name="customManufacturing"${pend ? ' checked' : ''}> Custom manufacturing / needs Finance review</label>
+      <label class="pf full pf-reason"${pend ? '' : ' hidden'}>Approval justification<textarea name="reason" maxlength="500" rows="2" placeholder="Reason for pricing exception or custom manufacturing"></textarea></label>
+      <div class="err-text full" role="alert" data-price-error style="grid-column:1/-1"></div>
+      <button class="btn-primary btn-sm" type="submit">${pend ? 'Resubmit for review' : 'Submit price / request approval'}</button>
+    </form>`;
+  const actions = needs ? form : q.source !== 'pos' ? '<div class="pq-call">Online customer must accept through their own account.</div>' : q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
+      <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
+    : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Finance will start preparing it.</div>'
+    : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
+    : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
+    : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
+  return `<div class="pq-card${needs ? ' need' : ''}${q.status === 'quoted' && !q.expired ? ' ready' : ''}${open && needs ? ' open' : ''}" data-qcard="${esc(q.id)}">
+    <div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
+    <div class="pq-who"><b>${esc(q.customer)}</b><span class="pq-src">${q.source === 'pos' ? 'Counter' : 'Online'}</span></div>
+    <div class="pq-sub">${esc(q.phone)}</div>
+    <div class="pq-item">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}</div>
+    ${chips ? `<div class="pq-chips">${chips}</div>` : ''}
+    ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
+    ${q.leadTime ? `<div class="pq-sub">Ready in ${esc(q.leadTime)}${q.validUntil && q.status === 'quoted' ? ' · price ' + (q.expired ? 'expired ' : 'valid until ') + pqDay(q.validUntil) : ''}</div>` : ''}
+    ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}${actions}</div>`;
+}
+$('pqTabs').addEventListener('click', e => { const b = e.target.closest('[data-pqtab]'); if (!b) return; pqTab = b.dataset.pqtab; renderPqList(); });
+$('pqSearch').addEventListener('input', e => { pqQuery = e.target.value; renderPqList(); });
+$('pqList').addEventListener('click', e => { const t = e.target.closest('[data-pqtoggle]'); if (!t) return; const id = t.dataset.pqtoggle, card = t.closest('.pq-card'); pqOpen.has(id) ? pqOpen.delete(id) : pqOpen.add(id); card.classList.toggle('open'); t.textContent = card.classList.contains('open') ? 'Hide pricing' : 'Set price'; });
+$('pqList').addEventListener('change', e => { if (e.target.name !== 'customManufacturing') return; const r = e.target.closest('form').querySelector('.pf-reason'); r.hidden = !e.target.checked; if (e.target.checked) r.querySelector('textarea').focus(); });
 $('pqList').addEventListener('submit', async e => {
   const form = e.target.closest('[data-qprice]'); if (!form) return;
   e.preventDefault(); const b = form.querySelector('button[type=submit]'), err = form.querySelector('[data-price-error]');
@@ -1081,7 +1157,7 @@ $('pqList').addEventListener('submit', async e => {
   try { const r=await api('/api/pos/quotes/'+encodeURIComponent(form.dataset.qprice)+'/price',
     {method:'POST',body:JSON.stringify(body)});
     toast(r.status==='pending_approval'?'Submitted for Finance approval.':'Quotation priced. Customer can now respond.'); await loadPosQuotes();
-  } catch(ex) {err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Could not save quotation';b.disabled=false;}
+  } catch(ex) {err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Could not save quotation';b.disabled=false; if(/justif|reason/i.test(err.textContent)){const r=form.querySelector('.pf-reason'); if(r) r.hidden=false;}}
 });
 $('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
   const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
