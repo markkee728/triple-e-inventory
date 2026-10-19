@@ -63,7 +63,7 @@
       var k = f[0], sel = $(p + 'S_' + k), c = $(p + 'C_' + k);
       sel.addEventListener('change', function () {
         if (c) { c.hidden = sel.value !== OTHER; if (!c.hidden) c.focus(); }
-        if (k === 'material') { state[p].picked = true; rebuildAll(p, true); }      // the material decides which finishes / thicknesses fit
+        if (k === 'material') { state[p].picked = true; rebuildAll(p, true); updateAvailability(p); }      // the material decides which finishes / thicknesses fit
         check(p, k);
       });
       if (c) { c.addEventListener('input', function () { if (c.classList.contains('is-bad')) check(p, k); }); c.addEventListener('blur', function () { check(p, k); }); }
@@ -73,7 +73,7 @@
     $(p + 'Unit').addEventListener('change', function () { var el = $(p + 'Qty'); if (wholeUnit(p)) el.value = el.value.replace(/\..*$/, ''); if (el.value) check(p, 'quantity'); });
     $(p + 'Needed').addEventListener('change', function () { check(p, 'neededBy'); neededNote(p); });
     $(p + 'Notes').addEventListener('input', function () { $(p + 'NotesCount').textContent = $(p + 'Notes').value.length + ' / 1000'; });
-    $(p + 'Narrow').addEventListener('click', function (e) { if (e.target.getAttribute('data-showall')) { state[p].offKey = state[p].hintKey; refresh(p); } });
+    $(p + 'Narrow').addEventListener('click', function (e) { if (e.target.closest('[data-showall]')) { state[p].offKey = state[p].hintKey; refresh(p); } });
     var item = itemInput(p); if (item) item.addEventListener('input', function () { clearTimeout(state[p].timer); state[p].timer = setTimeout(function () { refresh(p); }, 250); });
     refresh(p);
   }
@@ -104,8 +104,9 @@
     if (k === 'material') return h.materials || o.material;
     if (k === 'size') return h.sizes || o.size;
     var m = matValue(p), mats = m ? [m] : (h.materials || null);
-    if (!mats) return o[k];
-    return o[k].filter(function (v) { return mats.some(function (x) { var r = o.rules[x]; return !r || r[k].indexOf(v) >= 0; }); });
+    if (!mats) return o[k] || [];
+    var filtered = (o[k] || []).filter(function (v) { return mats.some(function (x) { var r = o.rules && o.rules[x]; return !r || !Array.isArray(r[k]) || r[k].indexOf(v) >= 0; }); });
+    return filtered.length ? filtered : (o[k] || []); // Never present an empty selector due to incomplete rule data
   }
   function rebuild(p, k) {
     var o = state[p].options, sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel || sel.getAttribute('data-auto')) return;   // locked from the product record
@@ -118,6 +119,16 @@
   function rebuildAll(p, dependentsOnly) {
     FIELDS.forEach(function (f) { if (!dependentsOnly || ['thickness', 'finish', 'service'].indexOf(f[0]) >= 0) rebuild(p, f[0]); });
   }
+  function updateAvailability(p) {
+    FIELDS.forEach(function (f) {
+      var sel = $(p + 'S_' + f[0]); if (!sel) return;
+      var valid = Array.prototype.filter.call(sel.options, function (x) { return x.value && x.value !== OTHER; }).length;
+      var empty = sel.parentNode.querySelector('.qx-empty');
+      if (!valid && !empty) { empty = document.createElement('small'); empty.className = 'qx-empty q-hint'; sel.parentNode.appendChild(empty); }
+      if (empty) { empty.textContent = valid ? '' : 'No predefined options. Contact staff for a custom specification.'; empty.hidden = !!valid; }
+      sel.setAttribute('aria-label', f[1] + (valid ? ' (' + valid + ' available)' : ' (no predefined options)'));
+    });
+  }
   function refresh(p) {
     var s = state[p]; if (!s) return;
     var h = detect(p); s.hintKey = h && h.key;
@@ -129,8 +140,9 @@
     if (h && h.pick && !s.picked && !msel.getAttribute('data-auto')) msel.value = h.pick;      // only until the person picks a material themselves
     rebuildAll(p, false);
     var note = $(p + 'Narrow');
-    if (h) { note.innerHTML = 'Options narrowed for <b>' + esc([h.famLabel, h.formLabel].filter(Boolean).join(' \u00B7 ')) + '</b>. <button type="button" class="qx-link" data-showall="1">Show all options</button>'; note.hidden = false; }
+    if (h) { note.innerHTML = '<span>Suggested specifications for <b>' + esc([h.famLabel, h.formLabel].filter(Boolean).join(' \u00B7 ')) + '</b>. Choose from the fields below.</span> <button type="button" class="qx-link" data-showall="1">Show all options</button>'; note.hidden = false; }
     else { note.innerHTML = ''; note.hidden = true; }
+    updateAvailability(p);
   }
 
   // ---- checks -------------------------------------------------------------------------------------------------------------
@@ -238,7 +250,7 @@
   st.textContent = '.qx-row{display:flex;gap:8px}.qx-row input{flex:1 1 auto;min-width:0}.qx-row select{flex:0 0 38%;min-width:0}' +
     '.qx-title{margin:6px 0 10px;font-size:13.5px;font-weight:700;color:var(--text-dim)}.qx-custom{margin-top:8px}' +
     '.qx-narrow{margin:-4px 0 12px;font-size:12.5px;color:var(--text-faint)}.qx-narrow b{color:var(--text-dim);font-weight:600}' +
-    '.qx-link{background:none;border:0;padding:0;margin:0;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}';
+    '.qx-link{background:transparent;border:1px solid var(--border,#d5dce5);border-radius:7px;padding:5px 9px;margin:4px 0 0 6px;font:inherit;font-weight:650;color:var(--primary,#2673ad);cursor:pointer;min-height:30px}.qx-link:hover,.qx-link:focus-visible{background:var(--surface-hover,rgba(60,120,180,.08));outline-offset:2px}.qx-narrow{padding:10px 12px;border:1px solid var(--border,#d5dce5);border-radius:9px;background:var(--surface,#f6f8fa);line-height:1.6}.qx-empty{display:block;margin-top:6px}.q-field select{width:100%;max-width:100%;min-height:40px}.q-grid{min-width:0}.q-field{min-width:0}@media(max-width:600px){.qx-narrow{padding:9px}.qx-link{display:inline-block;margin-left:0}}';
   document.head.appendChild(st);
 
   window.QuoteFields = { mount: mount, read: read, validate: validate, reset: reset, showServerError: showServerError, setUnit: setUnit, autofill: autofill, setHint: setHint, setQuantity: setQuantity, setNotes: setNotes };

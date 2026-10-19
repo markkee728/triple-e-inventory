@@ -402,6 +402,21 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
+<div id="pqConfirmOverlay" class="pq-confirm-overlay" hidden role="presentation">
+  <section class="pq-confirm-panel" role="dialog" aria-modal="true" aria-labelledby="pqConfirmTitle" aria-describedby="pqConfirmDesc">
+    <div class="pq-confirm-heading"><h2 id="pqConfirmTitle">Review quotation</h2><button type="button" id="pqConfirmClose" class="btn-secondary" aria-label="Close confirmation">×</button></div>
+    <p id="pqConfirmDesc" class="pq-confirm-description"></p>
+    <div id="pqConfirmSummary" class="pq-confirm-summary"></div>
+    <label class="pq-confirm-check"><input id="pqConfirmAcknowledged" type="checkbox"> <span id="pqConfirmAckLabel">I have verified these details.</span></label>
+    <div id="pqConfirmError" class="err-text" role="alert"></div>
+    <div class="pq-confirm-actions"><button type="button" id="pqConfirmCancel" class="btn-secondary">Edit / Cancel</button><button type="button" id="pqConfirmSubmit" class="btn-primary" disabled>Confirm</button></div>
+  </section>
+</div>
+<style>
+.pq-confirm-overlay:not([hidden]){position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.65);display:flex;align-items:center;justify-content:center;padding:16px}
+.pq-confirm-panel{background:var(--card-bg,var(--surface,#fff));color:var(--text,#172033);border:1px solid var(--border,#dce3ec);border-radius:16px;width:min(100%,510px);max-height:min(90vh,760px);overflow:auto;padding:24px;box-shadow:0 24px 70px rgba(0,0,0,.24)}
+.pq-confirm-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.pq-confirm-heading h2{font-size:1.2rem;margin:0}.pq-confirm-heading button{font-size:1.3rem;padding:4px 12px}.pq-confirm-description{color:var(--muted,#657387);line-height:1.5}.pq-confirm-summary{border:1px solid var(--border,#dce3ec);border-radius:10px;overflow:hidden;margin:16px 0}.pq-confirm-summary .pq-review-row{display:flex;justify-content:space-between;gap:18px;padding:10px 12px;border-bottom:1px solid var(--border,#dce3ec);overflow-wrap:anywhere}.pq-confirm-summary .pq-review-row:last-child{border-bottom:0}.pq-review-row span{color:var(--muted,#657387)}.pq-review-row strong{text-align:right}.pq-confirm-check{display:flex;align-items:flex-start;gap:9px;line-height:1.5;margin:12px 0}.pq-confirm-check input{margin-top:5px;flex-shrink:0}.pq-confirm-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}.pq-confirm-actions button{min-width:125px}@media(max-width:480px){.pq-confirm-panel{padding:16px}.pq-confirm-actions button{flex:1}}
+</style>
 <script src="quote-fields.js?v=2"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
@@ -1146,27 +1161,55 @@ $('pqTabs').addEventListener('click', e => { const b = e.target.closest('[data-p
 $('pqSearch').addEventListener('input', e => { pqQuery = e.target.value; renderPqList(); });
 $('pqList').addEventListener('click', e => { const t = e.target.closest('[data-pqtoggle]'); if (!t) return; const id = t.dataset.pqtoggle, card = t.closest('.pq-card'); pqOpen.has(id) ? pqOpen.delete(id) : pqOpen.add(id); card.classList.toggle('open'); t.textContent = card.classList.contains('open') ? 'Hide pricing' : 'Set price'; });
 $('pqList').addEventListener('change', e => { if (e.target.name !== 'customManufacturing') return; const r = e.target.closest('form').querySelector('.pf-reason'); r.hidden = !e.target.checked; if (e.target.checked) r.querySelector('textarea').focus(); });
+// All cashier quotation actions use the same accessible, themed review dialog.
+let pqConfirmBusy = false;
+function pqConfirm({title, description, rows, acknowledgment, confirmLabel}) {
+  return new Promise(resolve => {
+    const overlay=$('pqConfirmOverlay'), yes=$('pqConfirmSubmit'), ack=$('pqConfirmAcknowledged');
+    const prior=document.activeElement;
+    $('pqConfirmTitle').textContent=title;
+    $('pqConfirmDesc').textContent=description;
+    $('pqConfirmSummary').replaceChildren();
+    for (const [label,value] of rows) {
+      const row=document.createElement('div');row.className='pq-review-row';
+      const l=document.createElement('span');l.textContent=label;
+      const v=document.createElement('strong');v.textContent=String(value??'—');
+      row.append(l,v);$('pqConfirmSummary').append(row);
+    }
+    $('pqConfirmAckLabel').textContent=acknowledgment;
+    $('pqConfirmError').textContent='';ack.checked=false;yes.disabled=true;yes.textContent=confirmLabel;
+    overlay.hidden=false;document.body.style.overflow='hidden';$('pqConfirmCancel').focus();
+    const cleanup=(result)=>{overlay.hidden=true;document.body.style.overflow='';ack.removeEventListener('change',onChange);yes.removeEventListener('click',onYes);$('pqConfirmCancel').removeEventListener('click',onCancel);$('pqConfirmClose').removeEventListener('click',onCancel);overlay.removeEventListener('click',onBackdrop);document.removeEventListener('keydown',onKey);prior?.focus?.();resolve(result)};
+    const onChange=()=>yes.disabled=!ack.checked;
+    const onYes=()=>{if(!pqConfirmBusy&&ack.checked)cleanup(true)};
+    const onCancel=()=>cleanup(false);
+    const onBackdrop=e=>{if(e.target===overlay)onCancel()};
+    const onKey=e=>{if(e.key==='Escape'){e.preventDefault();onCancel()}if(e.key==='Tab'){const controls=Array.from(overlay.querySelectorAll('button,input')).filter(x=>!x.disabled);if(!controls.length)return;const first=controls[0],last=controls[controls.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}};
+    ack.addEventListener('change',onChange);yes.addEventListener('click',onYes);$('pqConfirmCancel').addEventListener('click',onCancel);$('pqConfirmClose').addEventListener('click',onCancel);overlay.addEventListener('click',onBackdrop);document.addEventListener('keydown',onKey);
+  });
+}
 $('pqList').addEventListener('submit', async e => {
-  const form = e.target.closest('[data-qprice]'); if (!form) return;
-  e.preventDefault(); const b = form.querySelector('button[type=submit]'), err = form.querySelector('[data-price-error]');
-  const f = new FormData(form); err.textContent = '';
-  const body = {amount:f.get('amount'),leadTime:f.get('leadTime'),validDays:Number(f.get('validDays')),
-    note:f.get('note'),reason:f.get('reason'),customManufacturing:f.has('customManufacturing')};
-  if (!Number.isFinite(Number(body.amount)) || Number(body.amount) <= 0 || Number(body.amount) > 999999999 || !/^\d+(?:\.\d{1,2})?$/.test(String(body.amount)) || !body.leadTime || !Number.isInteger(body.validDays) || body.validDays <= 0) {err.textContent='Enter a valid peso amount (maximum 2 decimals), preparation time and validity.';return;} if (body.customManufacturing && (!body.reason || body.reason.trim().length < 10)) {err.textContent='Explain the custom manufacturing or approval reason (at least 10 characters).';return;}
-  b.disabled=true;
-  try { const r=await api('/api/pos/quotes/'+encodeURIComponent(form.dataset.qprice)+'/price',
-    {method:'POST',body:JSON.stringify(body)});
-    toast(r.status==='pending_approval'?'Submitted for Finance approval.':'Quotation priced. Customer can now respond.'); await loadPosQuotes();
-  } catch(ex) {err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Could not save quotation';b.disabled=false; if(/justif|reason/i.test(err.textContent)){const r=form.querySelector('.pf-reason'); if(r) r.hidden=false;}}
+  const form=e.target.closest('[data-qprice]');if(!form)return;e.preventDefault();
+  const b=form.querySelector('button[type=submit]'),err=form.querySelector('[data-price-error]'),f=new FormData(form);err.textContent='';
+  const body={amount:f.get('amount'),leadTime:f.get('leadTime'),validDays:Number(f.get('validDays')),note:String(f.get('note')||'').trim(),reason:String(f.get('reason')||'').trim(),customManufacturing:f.has('customManufacturing')};
+  if(!/^\d+(?:\.\d{1,2})?$/.test(String(body.amount))||Number(body.amount)<=0||Number(body.amount)>999999999||!body.leadTime||!Number.isInteger(body.validDays)||body.validDays<=0){err.textContent='Enter a valid peso amount (maximum two decimals), preparation time and validity.';return}
+  if(body.customManufacturing&&body.reason.length<10){err.textContent='Explain the custom manufacturing review reason (at least 10 characters).';return}
+  const q=POSQ.find(x=>String(x.id)===String(form.dataset.qprice));
+  const approved=await pqConfirm({title:'Review quotation pricing',description:'Check the customer request and pricing before sending. Exceptional pricing is routed to Finance for approval.',rows:[['Quotation',form.dataset.qprice],['Customer',q?.customer||'—'],['Product',q?.product||'—'],['Quantity',q?.quantity||'—'],['Requested date',q?.neededBy?pqDay(q.neededBy):'Flexible / not specified'],['Fulfillment',q?.fulfillment||'—'],['Total price',peso(Number(body.amount))],['Preparation time',body.leadTime],['Price valid for',body.validDays+' days'],['Custom manufacturing',body.customManufacturing?'Requires review':'No'],['Customer note',body.note||'None']],acknowledgment:'I checked the specifications, amount, availability and customer details.',confirmLabel:'Confirm pricing'});
+  if(!approved)return;b.disabled=true;
+  try{const r=await api('/api/pos/quotes/'+encodeURIComponent(form.dataset.qprice)+'/price',{method:'POST',body:JSON.stringify(body)});toast(r.status==='pending_approval'?'Submitted for Finance approval.':'Quotation priced. Customer can now respond.');await loadPosQuotes()}
+  catch(ex){err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Could not save quotation';b.disabled=false;if(/justif|reason/i.test(err.textContent)){const reason=form.querySelector('.pf-reason');if(reason)reason.hidden=false}}
 });
-$('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
-  const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
-  const action = b.dataset.pqresp, id = b.dataset.qid;
-  if (!window.confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Confirm customer acceptance before recording it.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
-  b.disabled = true;
-  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Payment will be collected on pickup. Follow up through the order workflow.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
-  catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
-  loadPosQuotes();
+$('pqList').addEventListener('click',async e=>{
+  const b=e.target.closest('[data-pqresp]');if(!b||b.disabled)return;
+  const action=b.dataset.pqresp,id=b.dataset.qid,q=POSQ.find(x=>String(x.id)===String(id));
+  const names={accept:'Record customer acceptance',decline:'Record customer decline',renew:'Request quotation revision'};
+  if(!names[action])return;
+  const ok=await pqConfirm({title:names[action],description:action==='accept'?'Only record acceptance after the walk-in customer has explicitly agreed. This does not collect payment or reserve stock.':'Confirm the customer response before updating the quotation.',rows:[['Quotation',id],['Customer',q?.customer||'—'],['Product',q?.product||'—'],['Quantity',q?.quantity||'—'],['Quoted amount',q?.quotedAmount!=null?peso(q.quotedAmount):'—'],['Action',names[action]]],acknowledgment:action==='accept'?'The customer explicitly accepted this quotation and I verified their response.':'I verified this action with the customer or responsible staff.',confirmLabel:'Confirm response'});
+  if(!ok)return;b.disabled=true;
+  try{await api('/api/pos/quotes/'+encodeURIComponent(id)+'/respond',{method:'POST',body:JSON.stringify({action})});toast(action==='accept'?'Acceptance recorded. Payment is not yet collected.':action==='decline'?'Customer decline recorded.':'Revision requested.')}
+  catch(er){toast((er.fields&&Object.values(er.fields)[0])||er.message,true)}
+  finally{loadPosQuotes()}
 });
 $('pqProduct').onchange = pqProductChanged;
 document.querySelectorAll('input[name="pqFulfil"]').forEach(r => r.onchange = () => { $('pqArea').hidden = pqFulfil() !== 'Delivery'; ['region', 'province', 'city', 'barangay', 'street'].forEach(f => pqErr(f, '')); if (pqFulfil() === 'Delivery' && !PQG.regions.length) pqLoadRegions(); });
