@@ -162,6 +162,7 @@
         (x.handledBy ? 'Handled by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
         (x.respondedAt && x.status !== 'quoted' ? '\nAnswered: ' + esc(when(x.respondedAt)) + (x.responseNote ? ' \u2014 ' + esc(x.responseNote) : '') : '') + '</div>';
     }
+    if (x.status === 'pending_approval') h += '<div class="sx-box"><b>Cashier pricing requires approval</b><p>Proposed total: ' + peso(x.proposedAmount || 0) + '</p><p>Reason: ' + esc(x.approvalReason || 'Not provided') + '</p></div>';
     if (inFlow || x.status === 'completed') {
       var steps = (x.progress || []).map(function (e) { return '\u2022 ' + esc(e.label) + ' \u2014 ' + esc(when(e.at)) + (e.note ? ' (' + esc(e.note) + ')' : ''); }).join('\n');
       h += '<div class="sx-box"><b>Progress</b>' + steps + '</div>';
@@ -187,12 +188,14 @@
     }
     if (x.status !== 'completed') h += '<label for="sxNote">' + (inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(optional' + (inFlow ? ', saved with the step or the cancellation' : '') + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
     h += '<div class="sx-err" id="sxErr" role="alert"></div><div class="sx-actions">';
+    if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve cashier price</button>';
     if (inFlow && x.next) h += '<button type="button" class="btn-primary" id="sxStep">' + esc(x.nextLabel === 'Preparing' ? 'Start preparing' : x.next === 'completed' ? 'Mark ' + String(x.nextLabel).toLowerCase() : 'Mark ' + String(x.nextLabel).toLowerCase()) + '</button>';
     if (!inFlow && x.status !== 'completed') h += '<button type="button" class="btn-primary" id="sxSend">' + (x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
     if (x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : inFlow ? 'Cancel this quote' : 'Close request') + '</button>';
     if (x.status !== 'new' && !inFlow && x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxReopen">Reopen</button>';
     h += '</div></div>';
     $('sxBody').innerHTML = h;
+    if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Cashier price approved.'); });
     if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
     if ($('sxStep')) $('sxStep').addEventListener('click', function () { submitStep(x); });
     if ($('sxPay')) $('sxPay').addEventListener('click', function () { submitPayment(x); });

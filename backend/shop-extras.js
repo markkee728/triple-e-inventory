@@ -53,6 +53,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quote_requests (status, created_at DESC)');
       // walk-in customers logged at the POS have no shop account
       await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS approval_reason TEXT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_amount NUMERIC(14,2)');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_lead_time TEXT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_valid_days INT');
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
@@ -60,9 +64,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
                        'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%pending_approval%') THEN
           ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
-          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed'));
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed','pending_approval'));
         END IF; END $$`);
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
@@ -183,7 +187,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
   const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
-    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed' })[st] || st;
+    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval' })[st] || st;
   const quoteJson = (q) => {
     const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
     const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
@@ -196,7 +200,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
-      quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
+      proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
       respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
@@ -421,11 +425,61 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   app.get('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT q.*, c.full_name AS created_by_name FROM quote_requests q LEFT JOIN users c ON c.user_id = q.created_by
-        WHERE q.source = 'pos' ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 60`);
-    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
+        ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 150`);
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, source: q.source, loggedBy: q.created_by_name || undefined })));
   }));
 
   app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], autoPay: true, who: 'the cashier (walk-in customer)' })));
+
+  // Cashier prices routine requests. Custom manufacturing and exceptions require Finance review.
+  // The monetary ceiling is intentionally configurable; no unapproved company policy is assumed.
+  const cashierQuoteLimit = () => Number(process.env.CASHIER_QUOTE_LIMIT_PHP || 0);
+  const readPrice = (b) => {
+    const raw = String(b.amount ?? '').trim();
+    if (!/^(?:\d{1,9})(?:\.\d{1,2})?$/.test(raw)) throw bad('amount', 'Enter a positive peso amount with up to two decimal places');
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) throw bad('amount', 'Enter a valid amount');
+    const leadTime = str(b.leadTime), days = Number(b.validDays);
+    if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Select a valid preparation time');
+    if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Select a valid quotation period');
+    const note = str(b.note);
+    if (note.length > 1500) throw bad('note', 'Notes cannot exceed 1500 characters');
+    return { amount, leadTime, days, note };
+  };
+  app.post('/api/pos/quotes/:no/price', auth('cashier'), wrap(async (req, res) => {
+    const b = req.body || {}, v = readPrice(b);
+    const reason = str(b.reason);
+    const q = await tx(async client => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quotation not found');
+      if (!['new','pending_approval'].includes(cur.status)) throw bad('status', 'Only new or pending quotations can be priced');
+      const exceptional = b.customManufacturing === true || b.exception === true || !Number.isFinite(cashierQuoteLimit()) || cashierQuoteLimit() <= 0 || v.amount > cashierQuoteLimit();
+      if (exceptional && reason.length < 10) throw bad('reason', 'Explain why Finance approval is required (at least 10 characters)');
+      const result = await client.query(`UPDATE quote_requests SET status=$2, proposed_amount=$3, proposed_lead_time=$4, proposed_valid_days=$5,
+        approval_reason=$6, quoted_amount=CASE WHEN $2='quoted' THEN $3 ELSE quoted_amount END,
+        lead_time=CASE WHEN $2='quoted' THEN $4 ELSE lead_time END,
+        valid_until=CASE WHEN $2='quoted' THEN $7::date ELSE valid_until END,
+        reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now()
+        WHERE quote_id=$1 RETURNING *`, [cur.quote_id, exceptional?'pending_approval':'quoted', v.amount, v.leadTime, v.days,
+          exceptional?reason:null, addDays(todayPH(),v.days),v.note||null,req.user.id]);
+      await audit(client,req.user,'Record edited',`Cashier ${exceptional?'requested approval for':'priced'} quote ${cur.quote_no}`);
+      return result.rows[0];
+    });
+    res.json({ok:true, status:q.status, quote:quoteJson(q)});
+  }));
+  app.post('/api/finance/quotes/:no/approve-price', auth('finance'), wrap(async (req,res) => {
+    const q = await tx(async client => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE',[req.params.no])).rows[0];
+      if (!cur) throw bad('id','Quotation not found');
+      if (cur.status !== 'pending_approval' || !cur.proposed_amount || !cur.proposed_lead_time || !cur.proposed_valid_days) throw bad('status','No pending price proposal');
+      const r = await client.query(`UPDATE quote_requests SET status='quoted', quoted_amount=proposed_amount,
+        lead_time=proposed_lead_time,valid_until=$2::date,handled_by=$3,updated_at=now() WHERE quote_id=$1 RETURNING *`,
+        [cur.quote_id,addDays(todayPH(),cur.proposed_valid_days),req.user.id]);
+      await audit(client,req.user,'Record edited',`Finance approved quotation ${cur.quote_no}`);
+      return r.rows[0];
+    });
+    res.json({ok:true,quote:quoteJson(q)});
+  }));
 
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(

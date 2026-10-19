@@ -304,10 +304,10 @@
             <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street"></div></div>
           </div>
           <div class="err-text q-formerr" id="pqErr" role="alert"></div>
-          <button type="submit" class="btn-primary" id="pqSend">Send to Finance</button>
+          <button type="submit" class="btn-primary" id="pqSend">Save Quotation Request</button>
         </form>
         <aside class="panel">
-          <div class="panel-head"><div><div class="panel-title">Counter requests</div><div class="panel-sub">Quotes that came back are shown first</div></div></div>
+          <div class="panel-head"><div><div class="panel-title">All quotation requests</div><div class="panel-sub">Online and counter requests share one database. Cashier prices standard requests; exceptional or custom pricing goes to Finance for approval.</div></div></div>
           <div id="pqList"><p class="dim">Loading…</p></div>
         </aside>
       </div>
@@ -339,7 +339,7 @@
   <select id="returnReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item given</option><option value="not_as_described">Not as described</option><option value="changed_mind">Customer changed their mind</option><option value="other">Other</option></select>
   <label for="returnDetails" id="returnDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="returnDetails" rows="2" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="returnErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="returnSend">Send to Finance</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation Request</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
   <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" onclick="closeModal('holdBg')">Cancel</button></div></div></div>
@@ -1040,7 +1040,7 @@ function renderPosQuoteForm() {
 }
 async function ensurePqFields() {                 // the dropdown choices come from the server so they always match what it accepts
   if (pqMounted) return;
-  let o; try { o = await api('/api/pos/quote-options'); } catch (e) { $('pqFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return; }
+  let o; try { o = await api('/api/pos/quote-options'); window.PQ_OPTIONS=o; } catch (e) { $('pqFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return; }
   if (pqMounted) return;
   QuoteFields.mount($('pqFields'), { prefix: 'pq', options: o }); pqMounted = true; pqProductChanged();
 }
@@ -1050,30 +1050,43 @@ function pqProductChanged() {
   if (pqMounted) QuoteFields.autofill('pq', p ? p.specs : null);
   if (pqMounted && p) QuoteFields.setUnit('pq', p.unit);
 }
-const PQ_STATUS = { new: ['warn', 'Waiting for Finance'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
+const PQ_STATUS = { pending_approval: ['warn', 'Finance approval pending'], new: ['warn', 'Awaiting pricing'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
 const pqDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 async function loadPosQuotes() {
   try { POSQ = await api('/api/pos/quotes'); if (!Array.isArray(POSQ)) POSQ = []; } catch (e) { if (!(e instanceof TypeError)) toast(e.message, true); POSQ = []; }
   const ready = POSQ.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
   $('pqList').innerHTML = POSQ.length ? POSQ.map(q => { const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
-    const actions = q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
+    const actions = (q.status === 'new' || q.status === 'pending_approval') ? `<form class="pq-price-form" data-qprice="${esc(q.id)}" style="display:grid;gap:8px;margin-top:12px"><strong>Cashier pricing ${q.status === 'pending_approval' ? '— awaiting Finance review' : ''}</strong><label>Total quotation amount (PHP)<input name="amount" type="number" min="0.01" max="999999999" step="0.01" value="${q.proposedAmount || ''}" required></label><label>Preparation time<select name="leadTime" required><option value="">Select preparation time</option>${(window.PQ_OPTIONS?.leadTimes || []).map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')}</select></label><label>Price validity<select name="validDays" required>${(window.PQ_OPTIONS?.validDays || []).map(x=>`<option value="${esc(x)}">${esc(x)} days</option>`).join('')}</select></label><label>Customer note<textarea name="note" maxlength="1500" rows="2"></textarea></label><label><input type="checkbox" name="customManufacturing"> Custom manufacturing / requires cost review</label><label>Approval justification (required when referred to Finance)<textarea name="reason" maxlength="500" rows="2" placeholder="Reason for pricing exception or custom manufacturing"></textarea></label><div class="err-text" role="alert" data-price-error></div><button class="btn-primary btn-sm" type="submit">${q.status === 'pending_approval' ? 'Resubmit for review' : 'Submit price / request approval'}</button></form>` : q.source !== 'pos' ? '<div class="pq-call">Online customer must accept through their own account.</div>' : q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
       <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
       : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Finance will start preparing it.</div>'
       : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
       : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
       : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
     return `<div class="pq-row"><div class="pq-top"><b>${esc(q.id)}</b><span class="status-pill ${st[0]}">${st[1]}</span></div>
-      <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)}</div>
+      <div class="pq-sub"><b>${esc(q.customer)}</b> · ${esc(q.phone)} · ${q.source === 'pos' ? 'Counter' : 'Online'}</div>
       <div class="pq-sub">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · ${esc(q.fulfillment || '')}${q.area ? ' · ' + esc(q.area) : ''}</div>
       ${q.quotedAmount != null ? `<div class="pq-amount"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="pq-sub">Ready in ${esc(q.leadTime)}${q.validUntil && q.status === 'quoted' ? ' · price ' + (q.expired ? 'expired ' : 'valid until ') + pqDay(q.validUntil) : ''}</div>` : ''}
       ${q.replyNote ? `<div class="pq-reply">${esc(q.replyNote)}</div>` : ''}${actions}</div>`; }).join('')
-    : '<p class="dim">No requests logged yet.</p>';
+    : '<p class="dim">No quotation requests found.</p>';
 }
+$('pqList').addEventListener('submit', async e => {
+  const form = e.target.closest('[data-qprice]'); if (!form) return;
+  e.preventDefault(); const b = form.querySelector('button[type=submit]'), err = form.querySelector('[data-price-error]');
+  const f = new FormData(form); err.textContent = '';
+  const body = {amount:f.get('amount'),leadTime:f.get('leadTime'),validDays:Number(f.get('validDays')),
+    note:f.get('note'),reason:f.get('reason'),customManufacturing:f.has('customManufacturing')};
+  if (!body.amount || !body.leadTime || !body.validDays) {err.textContent='Complete the price, preparation time and validity.';return;}
+  b.disabled=true;
+  try { const r=await api('/api/pos/quotes/'+encodeURIComponent(form.dataset.qprice)+'/price',
+    {method:'POST',body:JSON.stringify(body)});
+    toast(r.status==='pending_approval'?'Submitted for Finance approval.':'Quotation priced. Customer can now respond.'); await loadPosQuotes();
+  } catch(ex) {err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Could not save quotation';b.disabled=false;}
+});
 $('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
   const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
   const action = b.dataset.pqresp, id = b.dataset.qid;
-  if (!confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
+  if (!window.confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
   b.disabled = true;
   try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Payment will be collected on pickup. Finance has been told.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
   catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
