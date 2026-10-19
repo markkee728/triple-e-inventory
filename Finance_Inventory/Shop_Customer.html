@@ -221,7 +221,7 @@ a.nav-item{text-decoration:none}
             <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
           <div class="err-text q-formerr" id="qErr" role="alert"></div>
-          <button type="submit" class="btn-primary btn-lg" id="qSend">Send request</button>
+          <button type="submit" class="btn-primary btn-lg" id="qSend">Review Request</button>
         </form>
         <aside class="sticky-side">
           <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
@@ -229,6 +229,12 @@ a.nav-item{text-decoration:none}
         </aside>
       </div>
     </section>
+
+
+<style>
+.tq-overlay{position:fixed;inset:0;background:rgba(10,22,35,.68);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.tq-overlay[hidden]{display:none!important}.tq-dialog{width:min(590px,100%);max-height:88vh;overflow:auto;background:var(--card-bg,var(--surface,#fff));color:var(--text,#202c3a);border:1px solid var(--border,#d7dfe6);border-radius:16px;padding:24px;box-shadow:0 20px 65px rgba(0,0,0,.25)}.tq-dialog h2{margin:0 0 6px;font-size:1.25rem}.tq-dialog p{line-height:1.5}.tq-line{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#d7dfe6);padding:9px 0;overflow-wrap:anywhere}.tq-line span:first-child{color:var(--muted,#66758a);flex:0 0 36%}.tq-line strong{text-align:right}.tq-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.tq-note{padding:12px;border-radius:9px;background:var(--bg,#f1f5f9);font-size:.9rem;margin-top:12px}.tq-error{color:#c03b39;margin-top:8px}.tq-dialog textarea{width:100%;min-height:85px;margin-top:8px;padding:10px;border:1px solid var(--border,#d7dfe6);border-radius:8px;background:var(--bg,#fff);color:inherit}@media(max-width:520px){.tq-dialog{padding:16px}.tq-actions button{flex:1}.tq-line{font-size:.9rem}}
+</style>
+<div class="tq-overlay" id="tqOverlay" hidden><div class="tq-dialog" role="dialog" aria-modal="true" aria-labelledby="tqTitle" tabindex="-1"><h2 id="tqTitle">Review quotation request</h2><p id="tqSubtitle">Check your details before submitting.</p><div id="tqDetails"></div><div class="tq-note" id="tqDisclaimer">This is a quotation request, not a reservation, order or payment.</div><div class="tq-error" id="tqError" role="alert"></div><div class="tq-actions"><button type="button" class="btn-secondary" id="tqBack">Edit details</button><button type="button" class="btn-primary" id="tqConfirm">Confirm &amp; Submit</button></div></div></div>
 
     <!-- ===== ORDERS ===== -->
     <section class="page" id="notifications">
@@ -1208,6 +1214,8 @@ async function loadQuotes() {
     const flow = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status);
     const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payOnline && q.balance > 0 && ['accepted', 'preparing', 'ready'].includes(q.status) ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.balance)} now</button></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
+    const clarification=q.clarification;
+    const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--border,#cbd8e5);border-radius:10px;background:var(--surface,#f6f9fc)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`<form data-clarify-quote="${esc(q.id)}"><label>Response to cashier *<textarea name="response" rows="3" minlength="10" maxlength="1500" required placeholder="Describe the requested dimensions, thickness, finish or other specifications"></textarea></label><p class="dim">Include measurement units and accurate values. Original details are retained for review.</p><button class="btn-primary btn-sm" type="submit">Review & Send Details</button><span data-clarify-error role="alert" style="color:#b32929"></span></form>`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
@@ -1218,27 +1226,19 @@ async function loadQuotes() {
       ${q.validUntil && q.status === 'quoted' ? `<div class="row"><span>${q.expired ? 'Expired on' : 'Price valid until'}</span><span>${qDay(q.validUntil)}</span></div>` : ''}
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
-      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${actions}</div>`; }).join('')
+      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
     : '<p class="dim">You have not sent a request yet.</p>';
 }
-$('quoteList').addEventListener('click', async e => {            // accept / decline / ask for a new quote
-  const b = e.target.closest('[data-qresp]'); if (!b || b.disabled) return;
-  const action = b.dataset.qresp, id = b.dataset.qid;
-  let payMethod;
-  if (action === 'accept') {            // accepting means choosing how you will pay, so Finance knows
-    const sel = b.closest('.quote-row').querySelector('[data-qpay]');
-    payMethod = sel && sel.value;
-    if (!payMethod) { if (sel) sel.focus(); toast('Choose how you will pay first.', true); return; }
-  }
-  const ask = { accept: 'Accept quote ' + id + '? Our team will then contact you to arrange payment and ' + 'delivery or pickup.', decline: 'Decline quote ' + id + '?', renew: 'Ask our team for a new quote on ' + id + '?' }[action];
-  if (!confirm(ask)) return;
-  b.disabled = true;
-  try { const r = await api('/api/shop/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action, payMethod }) });
-    if (r && r.checkoutUrl) { toast('Quote accepted. Taking you to the payment page...'); location.href = r.checkoutUrl; return; }
-    if (r && r.payError) { toast(r.payError, true); loadQuotes(); return; }
-    toast(action === 'accept' ? 'Quote accepted. We will contact you soon.' : action === 'decline' ? 'Quote declined.' : 'Sent back. We will send a new quote.'); }
-  catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
-  loadQuotes();
+$('quoteList').addEventListener('submit',async e=>{const form=e.target.closest('[data-clarify-quote]');if(!form)return;e.preventDefault();const id=form.dataset.clarifyQuote,response=form.elements.response.value.trim(),err=form.querySelector('[data-clarify-error]');err.textContent='';if(response.length<10||response.length>1500){err.textContent='Enter 10–1500 characters.';return}const q=QUOTES.find(x=>String(x.id)===String(id));tqOpen({title:'Review missing details',subtitle:'Confirm the information you are sending to the cashier.',details:[['Quotation',id],['Product',q?.product||'Custom product'],['Requested information',q?.clarification?.fields?.join(', ')||'See message'],['Your response',response]],disclaimer:'This does not confirm an order, reserve stock or make a payment.',confirm:'Confirm & Send',run:async()=>{await api('/api/shop/quotes/'+encodeURIComponent(id)+'/clarifications/respond',{method:'POST',body:JSON.stringify({response})});toast('Details sent to cashier.');await loadQuotes()}})});
+$('quoteList').addEventListener('click', e => {
+  const b=e.target.closest('[data-qresp]'); if(!b||b.disabled)return;
+  const q=QUOTES.find(x=>String(x.id)===String(b.dataset.qid)); if(!q)return;
+  let payMethod='';
+  if(b.dataset.qresp==='accept') { const sel=b.closest('.quote-row').querySelector('[data-qpay]');payMethod=sel?.value||'';if(!payMethod){sel?.focus();toast('Choose a payment method first.',true);return;} }
+  const labels={accept:'Accept quotation',decline:'Decline quotation',renew:'Request updated quotation'};
+  const details=[['Reference',q.id],['Product',q.product||'Custom item'],['Quantity',q.quantity],['Specifications',typeof q.specs==='object'?JSON.stringify(q.specs):q.specs||'See request'],['Preferred date',q.neededBy||'Flexible'],['Fulfillment',q.fulfillment||'Not specified'],['Quoted total',q.quotedAmount==null?'Pending':peso(q.quotedAmount)],['Valid until',q.validUntil||'Not specified']];
+  if(payMethod)details.push(['Payment choice',payMethod==='online'?'Online via Xendit':'Pay on pickup/delivery']);
+  tqOpen({title:labels[b.dataset.qresp],subtitle:'Review the quotation and confirm your decision.',details,disclaimer:b.dataset.qresp==='accept'?'Acceptance does not mean payment has been received. Online payment is handled separately.':'The cashier will receive your response.',confirm:'Confirm '+(b.dataset.qresp==='renew'?'request':b.dataset.qresp),async run(){const r=await api('/api/shop/quotes/'+encodeURIComponent(q.id)+'/respond',{method:'POST',body:JSON.stringify({action:b.dataset.qresp,payMethod})});if(r?.checkoutUrl){location.href=r.checkoutUrl;return;}if(r?.payError)toast(r.payError,true);else toast('Your response was recorded.');await loadQuotes();}});
 });
 $('quoteList').addEventListener('click', async e => {            // pay an accepted quote online
   const b = e.target.closest('[data-qpaynow]'); if (!b || b.disabled) return; b.disabled = true;
@@ -1273,8 +1273,31 @@ function validateQuote() {
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
   return { ok: !first, focus: bad };
 }
-$('quoteForm').onsubmit = async e => {
-  e.preventDefault(); const err = $('qErr'); err.textContent = '';
+const tqOverlay=document.getElementById('tqOverlay');let tqPending=null;let tqBusy=false;
+function tqOpen({title,subtitle,details,disclaimer,confirm,run}){
+  if(tqBusy)return;
+  tqPending=run;
+  document.getElementById('tqTitle').textContent=title;
+  document.getElementById('tqSubtitle').textContent=subtitle;
+  document.getElementById('tqDetails').replaceChildren(...details.filter(([,v])=>v!==undefined&&v!==null&&v!=='').map(([key,val])=>{const row=document.createElement('div');row.className='tq-line';const a=document.createElement('span');a.textContent=key;const b=document.createElement('strong');b.textContent=String(val);row.append(a,b);return row;}));
+  document.getElementById('tqDisclaimer').textContent=disclaimer;
+  document.getElementById('tqConfirm').textContent=confirm;
+  document.getElementById('tqError').textContent='';tqOverlay.hidden=false;tqOverlay.querySelector('.tq-dialog').focus();
+}
+function tqClose(){if(tqBusy)return;tqOverlay.hidden=true;tqPending=null;}
+document.getElementById('tqBack').onclick=tqClose;
+tqOverlay.addEventListener('click',e=>{if(e.target===tqOverlay)tqClose();});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!tqOverlay.hidden)tqClose();});
+document.getElementById('tqConfirm').onclick=async()=>{if(!tqPending||tqBusy)return;tqBusy=true;const btn=document.getElementById('tqConfirm');btn.disabled=true;document.getElementById('tqBack').disabled=true;try{await tqPending();tqOverlay.hidden=true;tqPending=null;}catch(er){document.getElementById('tqError').textContent=(er.fields&&Object.values(er.fields)[0])||er.message||'Could not complete the request.';}finally{tqBusy=false;btn.disabled=false;document.getElementById('tqBack').disabled=false;}};
+$('quoteForm').onsubmit=e=>{
+ e.preventDefault();const v=validateQuote();if(!v.ok){$('qErr').textContent='Please correct the highlighted fields.';const el=$(v.focus)||document.querySelector('.q-seg');el?.scrollIntoView({block:'center',behavior:'smooth'});el?.focus?.({preventScroll:true});return;}
+ const specs=QuoteFields.read('q');const f=qFulfil();
+ const details=[['Product',$('qProductName').value.trim()||$('qProduct').selectedOptions[0]?.textContent],...Object.entries(specs).map(([k,v])=>[k.replace(/([A-Z])/g,' $1'),typeof v==='object'?JSON.stringify(v):v]),['Fulfillment',f],['Contact name',$('qName').value.trim()],['Phone',$('qPhone').value.trim()]];
+ if(f==='Delivery')details.push(['Delivery area',qAddr==='new'?[$('qRegion').value,$('qProvince').value,$('qCity').value,$('qBrgy').value].filter(Boolean).join(', '):'Saved delivery address']);
+ tqOpen({title:'Review quotation request',subtitle:'Please double-check the specifications and contact details.',details,disclaimer:'This is only a request for pricing and availability. No stock is reserved and no payment is taken.',confirm:'Confirm & Submit',run:async()=>{const check=validateQuote();if(!check.ok)throw Error('Some details changed. Please edit and review again.');await tqSubmitQuote();if($('qErr').textContent)throw Error($('qErr').textContent);}});
+};
+async function tqSubmitQuote() {
+  const err = $('qErr'); err.textContent = '';
   const v = validateQuote();
   if (!v.ok) { err.textContent = 'Please fix the highlighted fields.'; const el = $(v.focus) || document.querySelector('.q-seg'); if (el) { el.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (el.focus) el.focus({ preventScroll: true }); } return; }
   const f = qFulfil(), body = { sku: $('qProduct').value || undefined, productName: $('qProductName').value.trim(), ...QuoteFields.read('q'),
@@ -1286,13 +1309,13 @@ $('quoteForm').onsubmit = async e => {
     $('qSend').disabled = false;
     const fe = er.fields || {}, map = { contactName: 1, phone: 1, productName: 1, region: 1, province: 1, city: 1, barangay: 1, street: 1 };
     let shown = QuoteFields.showServerError('q', fe); Object.keys(fe).forEach(k => { if (map[k]) { qErr(k, fe[k]); shown = true; } else if (k === 'fulfillment') { qErr('fulfillment', fe[k]); shown = true; } else if (k === 'address') { $('qE_address').textContent = fe[k]; shown = true; } });
-    if (!shown) err.textContent = (fe && Object.values(fe)[0]) || er.message; return;
+    if (!shown) err.textContent = (fe && Object.values(fe)[0]) || er.message; throw er;
   }
   $('qSend').disabled = false;
   $('qProductName').value = ''; $('qProductName').classList.remove('is-bad'); $('qProduct').value = ''; QuoteFields.reset('q');
   qErr('productName', ''); quoteProductChanged(); ['qCity', 'qBrgy', 'qStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); qResetArea();
-  toast('Request sent. We will reply soon.'); loadQuotes();
-};
+  toast('Quotation request submitted. We will reply soon.'); await loadQuotes();
+}
 
 /* ----- events ----- */
 document.addEventListener('click', e => {

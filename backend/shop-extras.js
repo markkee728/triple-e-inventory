@@ -51,6 +51,22 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_customer ON quote_requests (customer_id, created_at DESC)');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quote_requests (status, created_at DESC)');
+
+      await pool.query(`CREATE TABLE IF NOT EXISTS quote_clarifications (
+        clarification_id BIGSERIAL PRIMARY KEY,
+        quote_id BIGINT NOT NULL REFERENCES quote_requests(quote_id) ON DELETE CASCADE,
+        fields JSONB NOT NULL,
+        message TEXT NOT NULL,
+        response_due DATE,
+        status TEXT NOT NULL DEFAULT 'awaiting_customer' CHECK(status IN ('awaiting_customer','answered')),
+        response TEXT,
+        submitted_specs JSONB,
+        created_by INT NOT NULL REFERENCES users(user_id),
+        answered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_open_clarification ON quote_clarifications(quote_id) WHERE status = 'awaiting_customer'");
+
       // walk-in customers logged at the POS have no shop account
       await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS approval_reason TEXT');
@@ -64,9 +80,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
                        'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%pending_approval%') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%awaiting_details%') THEN
           ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
-          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed','pending_approval'));
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed','pending_approval','awaiting_details'));
         END IF; END $$`);
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
@@ -187,7 +203,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
   const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
-    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval' })[st] || st;
+    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval', awaiting_details: 'Awaiting customer details' })[st] || st;
   const quoteJson = (q) => {
     const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
     const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
@@ -207,7 +223,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
       payments: (Array.isArray(q.payments) ? q.payments : []).map((p) => ({ amount: p.amount, method: p.method, note: p.note || undefined, at: p.at })),
       progress, next: next || undefined, nextLabel: next ? stepLabel(next, q.fulfillment) : undefined, receivedBy: q.received_by || undefined,
-      source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
+      clarification: q.clarification || undefined, source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
     };
   };
   const nc = () => app.locals.notifications;                                   // in-app notification center (fails soft)
@@ -349,7 +365,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   app.get('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query('SELECT * FROM quote_requests WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50', [req.user.id]);
-    res.json(rows.map(quoteJson));
+    res.json((await latestClarifications(rows)).map(quoteJson));
   }));
 
   /* After Finance replies, the customer (or the cashier for a walk-in) answers the quote:
@@ -395,6 +411,69 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
 
+  // Clarification is a separate auditable exchange: never overwrite original specs.
+  const CLARIFY_FIELDS = ['dimensions','thickness','material','finish','drawing','quantity','other'];
+  const clarificationJson = c => c && ({ id: c.clarification_id, fields: c.fields, message: c.message,
+    responseDue: dateStr(c.response_due), status: c.status, response: c.response || undefined,
+    submittedSpecs: c.submitted_specs || undefined, createdAt: ms(c.created_at), answeredAt: ms(c.answered_at) });
+  async function latestClarifications(rows) {
+    if (!rows.length) return rows;
+    const ids = rows.map(q => q.quote_id);
+    const { rows: cs } = await pool.query(`SELECT DISTINCT ON (quote_id) * FROM quote_clarifications
+      WHERE quote_id = ANY($1::bigint[]) ORDER BY quote_id, created_at DESC`, [ids]);
+    const byId = new Map(cs.map(c => [String(c.quote_id), clarificationJson(c)]));
+    return rows.map(q => ({ ...q, clarification: byId.get(String(q.quote_id)) }));
+  }
+  app.post('/api/pos/quotes/:no/clarifications', auth('cashier'), wrap(async (req,res) => {
+    const b = req.body || {};
+    const fields = Array.isArray(b.fields) ? [...new Set(b.fields)] : [];
+    if (!fields.length || fields.length > CLARIFY_FIELDS.length || fields.some(f => !CLARIFY_FIELDS.includes(f))) throw bad('fields','Select at least one valid specification');
+    const message = str(b.message);
+    if (message.length < 15 || message.length > 1000) throw bad('message','Explain the missing details in 15–1000 characters');
+    const due = b.responseDue ? str(b.responseDue) : null;
+    if (due && (!/^\d{4}-\d{2}-\d{2}$/.test(due) || !Number.isFinite(Date.parse(due)) || due < todayPH() || due > addMonthsISO(todayPH(), 6))) throw bad('responseDue','Choose a valid date within six months');
+    const c = await tx(async client => {
+      const q = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE',[req.params.no])).rows[0];
+      if (!q) throw bad('id','Quotation not found');
+      if (!['new','awaiting_details'].includes(q.status)) throw bad('status','Clarification is only available before quotation pricing');
+      const existing = (await client.query("SELECT clarification_id FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer'",[q.quote_id])).rows[0];
+      if (existing) throw bad('status','A clarification request is already awaiting the customer');
+      if (!q.customer_id) throw bad('customer','Walk-in customers must be contacted directly; this action requires an online customer account');
+      const row=(await client.query(`INSERT INTO quote_clarifications(quote_id,fields,message,response_due,created_by)
+        VALUES($1,$2::jsonb,$3,$4,$5) RETURNING *`,[q.quote_id,JSON.stringify(fields),message,due,req.user.id])).rows[0];
+      await client.query("UPDATE quote_requests SET status='awaiting_details', updated_at=now() WHERE quote_id=$1",[q.quote_id]);
+      await audit(client,req.user,'Record edited',`Clarification requested for ${q.quote_no}`);
+      return {row,customerId:q.customer_id,no:q.quote_no};
+    });
+    res.status(201).json({ok:true,clarification:clarificationJson(c.row)});
+    Promise.resolve(pingUser(c.customerId,{category:'orders',title:'Quotation details needed',body:`Please provide missing specifications for ${c.no}.`,link:'Shop_Customer.html',entityType:'quote',entityId:c.no},'customer')).catch(()=>{});
+  }));
+  app.post('/api/shop/quotes/:no/clarifications/respond', auth('customer'), wrap(async(req,res)=>{
+    const b=req.body||{}, response=str(b.response);
+    if (response.length < 10 || response.length > 1500) throw bad('response','Enter a clear response of 10–1500 characters');
+    const specs=b.specs && typeof b.specs==='object' && !Array.isArray(b.specs) ? b.specs : {};
+    const allowed=['dimensions','thickness','material','finish','quantity','other'];
+    if (Object.keys(specs).some(k=>!allowed.includes(k))) throw bad('specs','Unsupported specification field');
+    for (const [key,val] of Object.entries(specs)) {
+      if (typeof val!=='string' || !val.trim() || val.length>200) throw bad('specs',`Enter a valid ${key} (maximum 200 characters)`);
+    }
+    const result=await tx(async client=>{
+      const q=(await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 AND customer_id=$2 FOR UPDATE',[req.params.no,req.user.id])).rows[0];
+      if(!q) throw bad('id','Quotation not found');
+      if(q.status!=='awaiting_details') throw bad('status','This quotation is not awaiting details');
+      const c=(await client.query("SELECT * FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer' FOR UPDATE",[q.quote_id])).rows[0];
+      if(!c) throw bad('status','There is no outstanding clarification');
+      if(Object.keys(specs).some(k=>!c.fields.includes(k))) throw bad('specs','Only requested specifications may be updated');
+      const row=(await client.query(`UPDATE quote_clarifications SET status='answered',response=$2,submitted_specs=$3::jsonb,answered_at=now()
+        WHERE clarification_id=$1 RETURNING *`,[c.clarification_id,response,JSON.stringify(specs)])).rows[0];
+      await client.query("UPDATE quote_requests SET status='new',updated_at=now() WHERE quote_id=$1",[q.quote_id]);
+      await audit(client,req.user,'Record edited',`Customer clarified ${q.quote_no}`);
+      return {row,no:q.quote_no};
+    });
+    res.json({ok:true,clarification:clarificationJson(result.row)});
+    Promise.resolve(pingFinance({category:'orders',title:'Quotation clarification received',body:`Customer provided details for ${result.no}.`,link:'Finance_Inventory.html#quotes',entityType:'quote',entityId:result.no})).catch(()=>{});
+  }));
+
   app.post('/api/shop/quotes/:no/respond', auth('customer'), wrap((req, res) => respondToQuote(req, res, { where: 'customer_id = $2', params: [req.user.id], who: 'the customer' })));
 
   /* ---- walk-in customers: the cashier logs the request, Finance prices it, the cashier tells the customer and records the answer ---- */
@@ -426,7 +505,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const { rows } = await pool.query(
       `SELECT q.*, c.full_name AS created_by_name FROM quote_requests q LEFT JOIN users c ON c.user_id = q.created_by
         ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 150`);
-    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, source: q.source, loggedBy: q.created_by_name || undefined })));
+    res.json((await latestClarifications(rows)).map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, source: q.source, loggedBy: q.created_by_name || undefined })));
   }));
 
   app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], autoPay: true, who: 'the cashier (walk-in customer)' })));
