@@ -904,6 +904,11 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)` + (dlv ? ` · delivery to ${dlv.ship.city}, ${dlv.ship.province} (fee ${peso(dlv.fee)})` : '')
         + (changed.length ? ` · price override approved by ${approval.approverName}: ${changed.join(', ')}` : ''));
+      // a walk-in quotation handed to the counter: keep the reference on it so one quote can never cover two receipts
+      if (str(b.quoteNo) && app.locals.quoteDesk) {
+        await app.locals.quoteDesk.linkSale(client, str(b.quoteNo).toUpperCase(), s.sale_id);
+        await audit(client, req.user, 'Record edited', `Quote ${str(b.quoteNo).toUpperCase()} completed as receipt ${s.receipt_no}`);
+      }
       return saleJson(s, items);
     });
     res.status(201).json(sale);

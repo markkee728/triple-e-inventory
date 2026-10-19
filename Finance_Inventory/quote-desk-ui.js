@@ -1,0 +1,655 @@
+/* quote-desk-ui.js — the Cashier Quotation Desk screen (POS_Cashier.html > Quotations).
+   Talks to GET /api/pos/quote-desk (search, filters, sorting, pagination and facet counts are done by the server),
+   to GET/POST /api/pos/quote-desk/:no[...] for one quotation, its reference files and the order conversion, and reuses
+   the existing /api/pos/quotes/:no/clarifications | /price | /respond routes for the life-cycle itself.
+   Expects the page globals: $, api, esc, peso, toast, PRODUCTS, prod, showPage, QuoteFields. */
+(function () {
+  'use strict';
+
+  const PAGE_SIZES = [10, 20, 50, 100];
+  const FILTERS = [['all', 'All requests'], ['open', 'Needs my action'], ['approval', 'With Finance'], ['quoted', 'Quote ready'], ['active', 'Accepted'], ['done', 'Closed']];
+  const SOURCES = [['all', 'Online + walk-in'], ['shop', 'Online only'], ['pos', 'Walk-in only']];
+  const CLARIFY = [['dimensions', 'Size / dimensions'], ['thickness', 'Thickness'], ['material', 'Material / grade'], ['finish', 'Surface finish'], ['quantity', 'Quantity / unit'], ['drawing', 'Reference drawing'], ['other', 'Other detail']];
+
+  const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 20, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, view: 'requests' };
+  const desk = (p) => '/api/pos/quote-desk' + p;
+  const el = (id) => document.getElementById(id);
+  const day = (v) => (!v ? '—' : new Date(v).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }));
+  const shortDay = (v) => (!v ? '—' : new Date(v).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }));
+  const money = (v) => (v == null || !Number.isFinite(Number(v)) ? null : peso(Number(v)));
+  const neededText = (r) => (r.neededBy ? shortDay(r.neededBy) : r.flexibleDate ? 'Flexible' : r.neededMonths ? 'Within ' + r.neededMonths + ' mo' : 'Not set');
+  const pillClass = (r) => (r.expired || ['declined', 'closed'].includes(r.status) ? 'bad' : ['new', 'awaiting_details', 'pending_approval'].includes(r.status) ? 'warn' : 'ok');
+  const qtyParts = (text) => { const m = /^([\d,.]+)\s+(.+)$/.exec(String(text || '').trim()); if (!m) return null; const n = Number(m[1].replace(/,/g, '')); return Number.isFinite(n) && n > 0 ? { qty: n, unit: m[2] } : null; };
+  const requestId = () => (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '').slice(0, 32) : 'qd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 14));
+  const fieldErr = (e) => (e && e.fields ? Object.values(e.fields)[0] : e && e.message) || 'Something went wrong. Try again.';
+  async function call(path, opts) {
+    try { return await api(path, opts); }
+    catch (e) {                                          // api() throws a plain Error; keep the server's per-field message
+      const body = e && e.fields ? e : null;
+      throw Object.assign(new Error(body ? Object.values(body.fields)[0] : e.message), { fields: body && body.fields });
+    }
+  }
+
+  /* ================= 1. the two views ================= */
+  function showView(which) {
+    S.view = which === 'walkin' ? 'walkin' : 'requests';
+    el('qdRequestsView').hidden = S.view !== 'requests';
+    el('qdWalkinView').hidden = S.view !== 'walkin';
+    el('qdTabRequests').setAttribute('aria-selected', String(S.view === 'requests'));
+    el('qdTabWalkin').setAttribute('aria-selected', String(S.view === 'walkin'));
+    if (S.view === 'walkin') ensureFields(); else loadDesk();
+  }
+
+  /* ================= 2. the request queue ================= */
+  function listUrl() {
+    const p = ['sort=' + encodeURIComponent(S.sort), 'dir=' + encodeURIComponent(S.dir), 'status=' + encodeURIComponent(S.filter),
+      'source=' + encodeURIComponent(S.source), 'page=' + S.page, 'pageSize=' + S.pageSize];
+    if (S.q.trim()) p.push('q=' + encodeURIComponent(S.q.trim()));
+    return desk('?' + p.join('&'));
+  }
+  async function loadDesk() {
+    if (S.busy) return;
+    S.busy = true; S.error = '';
+    renderList();
+    try {
+      const r = await call(listUrl());
+      S.rows = r.rows || []; S.total = r.total || 0; S.pageCount = r.pageCount || 1; S.page = r.page || 1; S.pageSize = r.pageSize || 20;
+      S.counts = r.counts || {}; S.sort = r.sort; S.dir = r.dir; S.filter = r.filter; S.source = r.source;
+      const ready = S.counts.quoted || 0;
+      el('navQuoteCount').textContent = ready; el('navQuoteCount').hidden = !ready;
+      el('navQuoteCount').title = ready + ' quote(s) ready to tell the customer';
+      el('pqRequestCount').textContent = (S.counts.open || 0) + (S.counts.approval || 0);
+    } catch (e) {
+      S.rows = []; S.error = e instanceof TypeError ? 'No connection to the server. Check your network and try again.' : fieldErr(e);
+    }
+    S.busy = false;
+    renderList(); renderPager();
+  }
+  function tableHeads() {
+    const cols = [['ref', 'Reference', 'reference'], ['customer', 'Customer', 'customer'], ['product', 'Product', 'product'],
+      ['qty', 'Quantity', null], ['needed', 'Needed by', 'needed'], ['amount', 'Quoted amount', 'amount'],
+      ['requested', 'Requested', 'created'], ['status', 'Status', 'status'], ['source', 'Source', null], ['act', '', null]];
+    return '<tr>' + cols.map(([k, label, sort]) => {
+      const on = sort && S.sort === sort;
+      return '<th' + (sort ? ' data-sort="' + sort + '"' : '') + (on ? ' aria-sort="' + (S.dir === 'asc' ? 'ascending' : 'descending') + '"' : '') + ' scope="col">' +
+        label + (sort ? '<span class="qd-arrow">' + (on ? (S.dir === 'asc' ? '▲' : '▼') : '↕') + '</span>' : '') + '</th>';
+    }).join('') + '</tr>';
+  }
+  function rowCells(r) {
+    const amt = money(r.amount);
+    return '<td><span class="qd-ref">' + esc(r.id) + '</span></td>' +
+      '<td><div class="qd-who"><b>' + esc(r.customer || '—') + '</b><small>' + esc(r.phone || '') + (r.company ? ' · ' + esc(r.company) : '') + '</small></div></td>' +
+      '<td><div class="qd-what"><b>' + esc(r.product || 'Custom item') + '</b><small>' + (r.sku ? esc(r.sku) + ' · catalog' : 'custom specification') + '</small></div></td>' +
+      '<td class="qd-num">' + esc(r.quantity || '—') + '</td>' +
+      '<td>' + neededText(r) + '</td>' +
+      '<td class="qd-num">' + (amt || (r.proposedAmount != null ? 'proposed ' + money(r.proposedAmount) : '—')) + '</td>' +
+      '<td>' + day(r.requestDate) + '</td>' +
+      '<td><span class="qd-pill ' + pillClass(r) + '">' + esc(r.statusLabel || r.status) + '</span></td>' +
+      '<td><span class="qd-src ' + (r.source === 'pos' ? 'pos' : '') + '">' + (r.source === 'pos' ? 'Walk-in' : 'Online') + '</span></td>' +
+      '<td class="is-right"><button type="button" class="qd-open" data-open="' + esc(r.id) + '">Open</button></td>';
+  }
+  function cardRow(r) {
+    const amt = money(r.amount);
+    return '<div class="qd-qcard" data-open="' + esc(r.id) + '" tabindex="0" role="button" aria-label="Open quotation ' + esc(r.id) + '">' +
+      '<div class="qd-line"><span class="qd-ref">' + esc(r.id) + '</span><span class="qd-pill ' + pillClass(r) + '">' + esc(r.statusLabel || r.status) + '</span></div>' +
+      '<div class="qd-who"><b>' + esc(r.customer || '—') + '</b><small>' + esc(r.phone || '') + '</small></div>' +
+      '<div class="qd-what"><b>' + esc(r.product || 'Custom item') + '</b><small>' + esc(r.quantity || '') + ' · needed ' + neededText(r) + '</small></div>' +
+      '<div class="qd-line"><span class="qd-mut">' + (r.source === 'pos' ? 'Walk-in' : 'Online') + ' · ' + day(r.requestDate) + '</span>' +
+      '<span class="qd-num">' + (amt || (r.proposedAmount != null ? 'proposed ' + money(r.proposedAmount) : '—')) + '</span></div></div>';
+  }
+  function renderList() {
+    const bar = el('qdChips');
+    if (bar) bar.innerHTML = FILTERS.map(([k, label]) => '<button type="button" class="qd-chip' + (S.filter === k ? ' on' : '') + ' data-filter="' + k + '" aria-pressed="' + (S.filter === k) + '">' +
+      label + '<em>' + (S.counts[k] != null ? S.counts[k] : 0) + '</em></button>').join('');
+    const head = el('qdHead'); if (head) head.innerHTML = tableHeads();
+    const body = el('qdBody'), cards = el('qdCards');
+    if (S.busy) { if (body) body.innerHTML = ''; if (cards) cards.innerHTML = ''; el('qdState').hidden = false; el('qdState').className = 'qd-state';
+      el('qdState').innerHTML = '<div class="qd-skeleton"></div><div class="qd-skeleton" style="margin-top:10px"></div><div class="qd-skeleton" style="margin-top:10px"></div><p style="margin:14px 0 0">Loading quotations…</p>'; el('qdTablewrap').style.display = 'none'; return; }
+    if (S.error) { el('qdState').hidden = false; el('qdState').className = 'qd-state error';
+      el('qdState').innerHTML = '<strong>Could not load the quotation list.</strong><p>' + esc(S.error) + '</p><button type="button" class="btn-secondary qd-retry" data-retry>Try again</button>';
+      el('qdTablewrap').style.display = 'none'; if (cards) cards.innerHTML = ''; return; }
+    el('qdState').hidden = true;
+    if (!S.rows.length) { el('qdTablewrap').style.display = 'none'; if (cards) cards.innerHTML = '';
+      el('qdState').hidden = false; el('qdState').className = 'qd-state'; el('qdState').textContent = 'No quotation matches this search or filter.'; return; }
+    el('qdTablewrap').style.display = '';
+    if (body) body.innerHTML = S.rows.map((r) => '<tr data-open="' + esc(r.id) + '" tabindex="0">' + rowCells(r) + '</tr>').join('');
+    if (cards) cards.innerHTML = S.rows.map(cardRow).join('');
+    el('qdNote').textContent = 'Showing page ' + S.page + ' of ' + S.pageCount + ' · ' + S.total + ' quotation' + (S.total === 1 ? '' : 's') + ' in this filter';
+  }
+  function renderPager() {
+    const box = el('qdPager'); if (!box) return;
+    box.innerHTML = '<span>' + (S.total ? 'Quotations are newest first unless you sort another column.' : '') + '</span>' +
+      '<span class="qd-pager-btns"><button type="button" class="btn-secondary btn-sm" data-page="prev"' + (S.page <= 1 ? ' disabled' : '') + '>Previous</button>' +
+      '<span style="align-self:center">Page ' + S.page + ' / ' + S.pageCount + '</span>' +
+      '<button type="button" class="btn-secondary btn-sm" data-page="next"' + (S.page >= S.pageCount ? ' disabled' : '') + '>Next</button></span>';
+  }
+
+  /* ================= 3. one quotation in a drawer ================= */
+  async function openDetail(no) {
+    el('qdScrim').hidden = false; el('qdDrawer').hidden = false;
+    void el('qdDrawer').offsetWidth;                                       // flush layout so the slide starts off-screen; rAF never fires in a background tab
+    el('qdScrim').classList.add('open'); el('qdDrawer').classList.add('open');
+    el('qdDrawerTitle').textContent = no; el('qdDrawerSub').textContent = 'Loading…';
+    el('qdDrawerBody').innerHTML = '<div class="qd-skeleton"></div><div class="qd-skeleton" style="margin-top:12px"></div><div class="qd-skeleton" style="margin-top:12px"></div>';
+    el('qdDrawerFoot').innerHTML = '';
+    document.body.style.overflow = 'hidden';
+    try { S.detail = await call(desk('/' + encodeURIComponent(no))); S.openPrice = false; renderDetail(); }
+    catch (e) { S.detail = null; el('qdDrawerBody').innerHTML = '<div class="qd-callout bad">Could not open this quotation: ' + esc(fieldErr(e)) + '</div>'; }
+  }
+  function closeDetail() {
+    S.detail = null;
+    el('qdScrim').classList.remove('open'); el('qdDrawer').classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(() => { el('qdScrim').hidden = true; el('qdDrawer').hidden = true; }, 240);
+  }
+  const kv = (pairs) => '<dl class="qd-kv">' + pairs.filter((p) => p[1] !== null && p[1] !== undefined && p[1] !== '').map(([k, v]) => '<dt>' + esc(k) + '</dt><dd>' + v + '</dd>').join('') + '</dl>';
+  const sec = (title, inner) => '<section class="qd-sec"><h4>' + esc(title) + '</h4>' + inner + '</section>';
+
+  const row = (label, value) => [label, value];
+  const noteBox = (text) => '<div class="qd-note-box">' + esc(text) + '</div>';
+
+  function renderDetail() {
+    const d = S.detail; if (!d) return;
+    el('qdDrawerSub').textContent = (d.statusLabel || d.status) + ' · ' + (d.source === 'pos' ? 'Walk-in at the counter' : 'Online request');
+    const sp = d.specs || {};
+    const terms = d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup');
+    const parts = [
+      sec('Customer', kv([
+        row('Name', '<b>' + esc(d.customer || '—') + '</b>'),
+        row('Mobile', esc(d.phone || '—')),
+        row('Email', esc(d.contactEmail || d.email || 'not given')),
+        row('Company', esc(d.company || '—')),
+        row('Requested by', esc(d.createdBy || (d.source === 'pos' ? 'this counter' : 'the customer'))),
+        row('Online account', d.customerId ? 'yes — only the customer can answer here' : 'no, a walk-in request at this counter')])),
+
+      sec('What they need', kv([
+        row('Item', '<b>' + esc(d.product || 'Custom item') + '</b>' + (d.sku ? ' <span class="dim">· catalog ' + esc(d.sku) + '</span>' : ' <span class="dim">· custom specification</span>')),
+        row('Quantity', esc(d.quantity || '—')),
+        row('Material', esc(sp.material || '—')),
+        row('Size', esc(sp.size || '—')),
+        row('Thickness', esc(sp.thickness || '—')),
+        row('Finish', esc(sp.finish || '—')),
+        row('Cutting / bending', esc(sp.service || '—')),
+        row('Needed by', neededText(d)),
+        row('Customer notes', d.details ? noteBox(d.details) : '') ])),
+
+      sec('How they want it', kv([
+        row('Fulfilment', esc(d.fulfillment || '—')),
+        row('Delivery area', esc(d.area || '—')),
+        row('Payment terms', esc(terms)) ])),
+
+      sec('Price', kv([
+        row('Quoted amount', money(d.amount) || '—'),
+        row('Paid so far', money(d.paidAmount) || '₱0.00'),
+        row('Balance', d.balance != null ? money(d.balance) : '—'),
+        row('Estimated availability', esc(d.leadTime || '—')),
+        row('Price valid until', d.validUntil ? day(d.validUntil) + (d.expired ? ' <span class="qd-pill bad">expired</span>' : '') : '—'),
+        row('Approval status', d.approvalReason ? '<span class="qd-pill warn">Finance asked</span> ' + esc(d.approvalReason)
+          : d.status === 'pending_approval' ? 'waiting for Finance' : '—'),
+        row('Note to customer', d.replyNote ? noteBox(d.replyNote) : ''),
+        row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
+
+      sec('Reference drawings & photos', filesHtml(d)),
+      sec('History', timelineHtml(d)),
+      d.orderNo ? sec('Converted', '<div class="qd-callout ok">This quotation became order <b>' + esc(d.orderNo) + '</b>. A quotation is not a reservation: stock leaves inventory only at the sale or order-confirm step.</div>') : '',
+      sec('Pricing', priceFormHtml(d))
+    ];
+    el('qdDrawerBody').innerHTML = parts.filter(Boolean).join('');
+    el('qdDrawerFoot').innerHTML = footHtml(d);
+  }
+  function filesHtml(d) {
+    const files = d.attachments || [];
+    const grid = files.length ? '<div class="qd-files">' + files.map((f) =>
+      '<div class="qd-file"><button type="button" class="qd-del" data-delfile="' + f.id + '" aria-label="Remove ' + esc(f.name) + '">&times;</button>' +
+      (f.mime === 'application/pdf' ? '<div class="qd-pdf">PDF</div>' : '<img src="' + esc(f.url) + '" alt="' + esc(f.name) + '" loading="lazy">') +
+      '<b title="' + esc(f.name) + '">' + esc(f.name) + '</b><small>' + Math.max(1, Math.round((f.sizeBytes || 0) / 1024)) + ' KB · ' + day(f.createdAt) + '</small></div>').join('') + '</div>'
+      : '<p class="qd-mut dim" style="margin:0">No drawing attached yet.</p>';
+    const closed = ['completed', 'closed', 'declined'].includes(d.status);
+    return grid + (closed || (files.length >= 3) ? '' :
+      '<div class="qd-drop"><span>Add a JPG, PNG, WEBP or PDF up to 5 MB. Up to 3 files per quotation; they stay in the database, never on this machine.</span>' +
+      '<label class="btn-secondary btn-sm" for="qdFileInput">Choose file</label><input type="file" id="qdFileInput" accept="image/jpeg,image/png,image/webp,application/pdf"></div>');
+  }
+  function timelineHtml(d) {
+    const items = (d.clarifications || []).map((c) => '<div class="qd-tl-item ' + (c.status === 'answered' ? 'done' : 'wait') + '">' +
+      '<b>Clarification ' + (c.status === 'answered' ? 'answered' : 'waiting for the customer') + '</b><time>' + day(c.createdAt) + '</time>' +
+      '<p>' + esc((c.fields || []).join(', ')) + ' — ' + esc(c.message) + '</p>' +
+      (c.response ? '<p><b>Customer replied:</b> ' + esc(c.response) + '</p>' : '') +
+      (c.submittedSpecs ? '<p><b>New details:</b> ' + esc(Object.entries(c.submittedSpecs).map(([k, v]) => k + ': ' + v).join(' · ')) + '</p>' : '') +
+      '</div>');
+    (d.progress || []).forEach((p) => items.push('<div class="qd-tl-item done"><b>' + esc(p.label || p.status) + '</b><time>' + day(p.at) + '</time>' + (p.note ? '<p>' + esc(p.note) + '</p>' : '') + '</div>'));
+    (d.notes || []).slice(0, 8).forEach((n) => items.push('<div class="qd-tl-item"><b>' + esc(n.action) + '</b><time>' + day(n.at) + ' · ' + esc(n.by || '') + '</time><p>' + esc(n.detail) + '</p></div>'));
+    return items.length ? '<div class="qd-tl">' + items.join('') + '</div>' : '<p class="qd-mut dim" style="margin:0">Nothing has happened on this request yet.</p>';
+  }
+  function priceFormHtml(d) {
+    const can = ['new', 'pending_approval', 'awaiting_details'].includes(d.status);
+    if (!can) return d.status === 'awaiting_details' ? '<div class="qd-callout warn">Waiting for the customer to send the missing details. Pricing opens as soon as they reply.</div>' : '';
+    if (!S.openPrice) return ['new', 'pending_approval'].includes(d.status)
+      ? '<button type="button" class="btn-secondary" data-act="price">' + (d.status === 'pending_approval' ? 'Edit and resubmit the price' : 'Prepare a price') + '</button>'
+      : '<p class="q-hint">Pricing is only possible while the request is pending cashier review or waiting for Finance; ' + esc(d.statusLabel || d.status) + ' requests are handled from the buttons below.</p>';
+    const o = window.PQ_OPTIONS || {}, q = qtyParts(d.quantity) || {};
+    const unit = d.proposedAmount != null && q.qty ? (d.proposedAmount / q.qty).toFixed(2) : '';
+    return '<form class="qd-price" id="qdPriceForm" novalidate>' +
+      '<label>Unit price (PHP)<input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '" required></label>' +
+      '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
+      '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
+      '<label>Estimated availability<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></label>' +
+      '<label>Quotation validity<select name="validDays" required>' + (o.validDays || []).map((x) => '<option value="' + esc(x) + '"' + (x === 7 ? ' selected' : '') + '>' + esc(x) + ' days</option>').join('') + '</select></label>' +
+      '<label class="wide">Payment terms<input value="' + esc(d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')) + '" disabled>' +
+      '<small class="q-hint">Finance or the counter collects the payment later; pricing here never takes money.</small></label>' +
+      '<label class="wide">Remarks for the customer<textarea name="note" maxlength="1500" rows="2" placeholder="What is included, any assumption you made, how to reach you"></textarea></label>' +
+      '<label class="qd-check"><input type="checkbox" name="exception"> Custom manufacturing, or a price that needs Finance approval first</label>' +
+      '<label class="wide" data-reason hidden>Why Finance must approve<textarea name="reason" maxlength="500" rows="2" placeholder="Costing, material sourcing, or the discount you are asking for"></textarea></label>' +
+      '<div class="err-text wide" data-price-err role="alert"></div>' +
+      '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelprice">Cancel</button>' +
+      '<button type="submit" class="btn-primary">' + (d.status === 'pending_approval' ? 'Resubmit for approval' : 'Review & send price') + '</button></div></form>' +
+      '<p class="q-hint">Approval status: ' + esc(d.status === 'pending_approval' ? 'waiting for Finance' : 'a cashier may price routine requests up to the limit management set in CASHIER_QUOTE_LIMIT_PHP; anything above it goes to Finance automatically.') + '</p>';
+  }
+  function footHtml(d) {
+    const b = [];
+    if (['new', 'awaiting_details'].includes(d.status) && d.customerId) b.push('<button type="button" class="btn-secondary" data-act="clarify">Request missing details</button>');
+    if (d.status === 'quoted' && d.source === 'pos' && !d.expired) b.push('<button type="button" class="btn-primary" data-act="accept">Customer accepted</button><button type="button" class="btn-secondary" data-act="decline">Customer declined</button>');
+    if (d.status === 'quoted' && d.expired) b.push('<button type="button" class="btn-secondary" data-act="renew">Ask Finance for a new price</button>');
+    if (d.status === 'quoted' && d.source !== 'pos') b.push('<button type="button" class="btn-secondary" data-act="renew">Ask Finance to re-issue</button>');
+    if (d.status === 'accepted') b.push('<button type="button" class="btn-primary" data-act="convert">' + (d.source === 'pos' ? 'Hand over to the counter' : 'Convert into an order') + '</button>');
+    if (d.converted) b.push('<span class="qd-callout ok" style="flex:1 1 220px">Already converted to ' + esc(d.orderNo || 'an order') + '.</span>');
+    b.push('<button type="button" class="btn-secondary" data-act="close">Close</button>');
+    return b.join('');
+  }
+
+  /* ================= 4. actions ================= */
+  function pqConfirm(opts) {
+    return new Promise((resolve) => {
+      const overlay = el('pqConfirmOverlay'), yes = el('pqConfirmSubmit'), ack = el('pqConfirmAcknowledged'), prior = document.activeElement;
+      el('pqConfirmTitle').textContent = opts.title;
+      el('pqConfirmDesc').textContent = opts.description;
+      el('pqConfirmSummary').replaceChildren();
+      (opts.rows || []).forEach(([label, value]) => {
+        const row = document.createElement('div'); row.className = 'pq-review-row';
+        const l = document.createElement('span'); l.textContent = label;
+        const v = document.createElement('strong'); v.textContent = String(value == null ? '—' : value);
+        row.append(l, v); el('pqConfirmSummary').append(row);
+      });
+      el('pqConfirmAckLabel').textContent = opts.acknowledgment;
+      el('pqConfirmError').textContent = ''; ack.checked = false; yes.disabled = true; yes.textContent = opts.confirmLabel || 'Confirm';
+      overlay.hidden = false; document.body.style.overflow = 'hidden'; el('pqConfirmCancel').focus();
+      const cleanup = (result) => { overlay.hidden = true; document.body.style.overflow = S.detail ? 'hidden' : '';
+        ack.removeEventListener('change', onChange); yes.removeEventListener('click', onYes); el('pqConfirmCancel').removeEventListener('click', onCancel);
+        el('pqConfirmClose').removeEventListener('click', onCancel); overlay.removeEventListener('click', onBackdrop); document.removeEventListener('keydown', onKey);
+        if (prior && prior.focus) prior.focus(); resolve(result); };
+      const onChange = () => { yes.disabled = !ack.checked; };
+      const onYes = () => { if (ack.checked) cleanup(true); };
+      const onCancel = () => cleanup(false);
+      const onBackdrop = (e) => { if (e.target === overlay) onCancel(); };
+      const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); onCancel(); } if (e.key === 'Tab') {
+        const list = Array.from(overlay.querySelectorAll('button,input')).filter((x) => !x.disabled); if (!list.length) return;
+        const first = list[0], last = list[list.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); } } };
+      ack.addEventListener('change', onChange); yes.addEventListener('click', onYes); el('pqConfirmCancel').addEventListener('click', onCancel);
+      el('pqConfirmClose').addEventListener('click', onCancel); overlay.addEventListener('click', onBackdrop); document.addEventListener('keydown', onKey);
+    });
+  }
+
+  async function doClarify() {
+    const d = S.detail; if (!d) return;
+    const overlay = el('qdClarifyOverlay');
+    el('qdClarifySubtitle').textContent = d.id + ' · ' + (d.customer || 'customer') + ' · ' + (d.product || 'custom item');
+    el('qdClarifyForm').reset(); el('qdClarifyError').textContent = '';
+    el('qdClarifyDue').min = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    overlay.hidden = false; overlay.classList.add('open'); el('qdClarifyMessage').focus();
+    el('qdClarifyForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const fields = Array.from(overlay.querySelectorAll('[name=fields]:checked')).map((x) => x.value);
+      const message = el('qdClarifyMessage').value.trim(), responseDue = el('qdClarifyDue').value, err = el('qdClarifyError');
+      err.textContent = '';
+      if (!fields.length || message.length < 15 || message.length > 1000) { err.textContent = 'Tick at least one detail and explain what you need in 15–1000 characters.'; return; }
+      const go = await pqConfirm({ title: 'Send this clarification request?', description: 'The quotation moves to “Awaiting Customer Details”, the customer is notified, and your original notes stay untouched.',
+        rows: [['Quotation', d.id], ['Customer', d.customer], ['Details asked for', fields.join(', ')], ['Message', message], ['Suggested reply by', responseDue || 'no date set']],
+        acknowledgment: 'I checked that these details really are missing before pricing.', confirmLabel: 'Confirm & send' });
+      if (!go) return;
+      const btn = el('qdClarifySubmit'); btn.disabled = true;
+      try { await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/clarifications', { method: 'POST', body: JSON.stringify({ fields, message, responseDue: responseDue || null }) });
+        closeClarify(); toast('Clarification sent. The customer can now reply in their account.'); await openDetail(d.id); loadDesk(); }
+      catch (ex) { err.textContent = fieldErr(ex); }
+      finally { btn.disabled = false; }
+    };
+  }
+  function closeClarify() { const o = el('qdClarifyOverlay'); o.classList.remove('open'); o.hidden = true; }
+
+  async function doRespond(action) {
+    const d = S.detail; if (!d) return;
+    const names = { accept: 'Record that the customer accepted', decline: 'Record that the customer declined', renew: 'Ask Finance for a new price' };
+    const go = await pqConfirm({ title: names[action] + '?',
+      description: action === 'accept' ? 'Only record acceptance after the walk-in customer said yes out loud. This does not take payment and does not reserve stock.'
+        : 'Confirm the response before it is written to the quotation.',
+      rows: [['Quotation', d.id], ['Customer', d.customer], ['Item', d.product], ['Quantity', d.quantity], ['Quoted amount', money(d.amount) || '—'], ['Step', names[action]]],
+      acknowledgment: action === 'accept' ? 'The customer explicitly accepted this quotation.' : 'I verified this response with the customer or with Finance.',
+      confirmLabel: 'Confirm response' });
+    if (!go) return;
+    try { await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) });
+      toast(action === 'accept' ? 'Acceptance recorded. Ring it up at the counter or convert it to an order — payment is not collected yet.' : action === 'decline' ? 'Decline recorded.' : 'Finance asked for a new price.');
+      await openDetail(d.id); loadDesk(); }
+    catch (e) { toast(fieldErr(e), true); }
+  }
+
+  async function doConvert() {
+    const d = S.detail; if (!d) return;
+    const walkIn = d.source === 'pos' || !d.customerId;
+    const go = await pqConfirm({ title: walkIn ? 'Hand this accepted quotation to the counter?' : 'Convert this accepted quotation into an order?',
+      description: walkIn ? 'The item goes into the Point of Sale cart at the quoted unit price. The customer still pays there, and stock leaves inventory only when the sale is completed.'
+        : 'One order will be created for the accepted quantity and price. It is left UNPAID and no stock is taken out yet.',
+      rows: [['Quotation', d.id], ['Customer', d.customer], ['Item', (d.product || 'Custom item') + (d.sku ? ' (' + d.sku + ')' : '')], ['Quantity', d.quantity], ['Total', money(d.amount) || '—']],
+      acknowledgment: 'The accepted price and quantity above are exactly what the customer agreed to.',
+      confirmLabel: walkIn ? 'Hand over' : 'Create the order' });
+    if (!go) return;
+    try {
+      const r = await call(desk('/' + encodeURIComponent(d.id) + '/convert'), { method: 'POST', body: JSON.stringify({ requestId: requestId() }) });
+      if (r.kind === 'pos') {
+        window.QUOTE_HANDOVER = d.id;
+        toast('Added to the sale: ' + r.qty + ' ' + r.unit + ' of ' + r.name + ' at ' + peso(r.unitPrice) + '.');
+        closeDetail(); showPage('terminal'); addToCart(r.sku);
+        const line = cart.find((x) => x.sku === r.sku); if (line) { line.qty = Math.min(r.qty, line.qty > r.qty ? line.qty : r.qty); renderCart(); }
+      } else {
+        toast(r.duplicate ? 'This quotation was already converted — order ' + r.orderNo + '.' : 'Order ' + r.orderNo + ' created. It is unpaid until the normal payment step.');
+        await openDetail(d.id); loadDesk();
+      }
+    } catch (e) { toast(fieldErr(e), true); }
+  }
+
+  async function uploadFile(file) {
+    const d = S.detail; if (!d || !file) return;
+    if (file.size > 5 * 1024 * 1024) return toast('That file is larger than 5 MB.', true);
+    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) return toast('Choose a JPG, PNG, WEBP or PDF.', true);
+    const box = el('qdDrawerBody');
+    try {
+      const buf = await file.arrayBuffer();
+      await fetch(desk('/' + encodeURIComponent(d.id) + '/attachments?name=' + encodeURIComponent(file.name)), {
+        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: buf });
+      await openDetail(d.id); loadDesk(); box.scrollTop = box.scrollHeight;
+    } catch (e) { toast('The file could not be stored: ' + (e.message || 'server refused it'), true); }
+  }
+  async function delFile(id) {
+    const d = S.detail; if (!d) return;
+    const go = await pqConfirm({ title: 'Remove this file?', description: 'The drawing or photo is deleted from the quotation. The customer can still see the request itself.',
+      rows: [['Quotation', d.id], ['File id', id]], acknowledgment: 'This file is no longer needed.', confirmLabel: 'Remove file' });
+    if (!go) return;
+    try { await call(desk('/' + encodeURIComponent(d.id) + '/attachments/' + id), { method: 'DELETE' }); await openDetail(d.id); loadDesk(); }
+    catch (e) { toast(fieldErr(e), true); }
+  }
+
+  async function submitPrice(form) {
+    const d = S.detail; if (!d) return;
+    const err = form.querySelector('[data-price-err]'), f = new FormData(form);
+    const q = qtyParts(d.quantity);
+    const unit = String(f.get('unit') || '').trim();
+    err.textContent = '';
+    if (!/^\d+(?:\.\d{1,2})?$/.test(unit) || Number(unit) <= 0) { err.textContent = 'Enter the unit price in pesos, up to two decimals.'; return; }
+    if (!q) { err.textContent = 'The quoted quantity could not be read. Fix it with Finance before pricing.'; return; }
+    const total = Math.round(Number(unit) * q.qty * 100) / 100;
+    const leadTime = f.get('leadTime'), validDays = Number(f.get('validDays')), note = String(f.get('note') || '').trim();
+    const exception = f.has('exception'), reason = String(f.get('reason') || '').trim();
+    if (!leadTime || !validDays) { err.textContent = 'Choose the preparation time and how long the price is valid.'; return; }
+    if (exception && reason.length < 10) { err.textContent = 'Explain why Finance must approve it (at least 10 characters).'; return; }
+    const go = await pqConfirm({ title: 'Review the quotation price',
+      description: exception ? 'This goes to Finance for approval before the customer is told anything.' : 'The customer is told this price as soon as it is saved.',
+      rows: [['Quotation', d.id], ['Customer', d.customer + ' · ' + (d.phone || '')], ['Item', (d.product || 'Custom item') + ' · ' + d.quantity],
+        ['Unit price', peso(Number(unit))], ['Calculated total', peso(total)], ['Ready in', leadTime], ['Price valid', validDays + ' days'],
+        ['Payment terms', d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')],
+        ['Needs Finance approval', exception ? 'Yes — ' + reason : 'No'], ['Remarks', note || 'none']],
+      acknowledgment: 'I checked the specifications, the quantity and the arithmetic before sending this price.', confirmLabel: exception ? 'Send to Finance' : 'Approve & tell customer' });
+    if (!go) return;
+    const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+    try {
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/price', { method: 'POST', body: JSON.stringify({ amount: total.toFixed(2), leadTime, validDays, note, reason, customManufacturing: exception }) });
+      toast(r.status === 'pending_approval' ? 'Sent to Finance for approval.' : 'Price approved and shown to the customer.');
+      S.openPrice = false; await openDetail(d.id); loadDesk();
+    } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; if (/reason|justif/i.test(err.textContent)) { const box = form.querySelector('[data-reason]'); if (box) { box.hidden = false; box.querySelector('textarea').focus(); } } }
+  }
+
+  /* ================= 5. walk-in quotation form ================= */
+  const PQ_IDS = { productName: 'pqItem', contactName: 'pqName', phone: 'pqPhone', email: 'pqEmail', company: 'pqCompany', region: 'pqRegion', province: 'pqProvince', city: 'pqCity', barangay: 'pqBrgy', street: 'pqStreet' };
+  const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u, PQ_MAIL_RE = /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i;
+  let pqMounted = false;
+  const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
+  const isFlexible = () => el('pqFlexible').checked;
+  const pqNeededEl = () => el('pqNeeded');                                    // built by QuoteFields.mount(), so it can be missing while options fail to load
+  const pqNeededVal = () => { const x = pqNeededEl(); return x ? x.value : ''; };
+  function pqErr(f, msg) { const b = el('pqE_' + f); if (b) b.textContent = msg || ''; if (PQ_IDS[f]) el(PQ_IDS[f]).classList.toggle('is-bad', !!msg); return !msg; }
+  const PQ_CHECK = {
+    contactName: () => { const v = el('pqName').value.trim(); return v.length >= 2 && PQ_NAME_RE.test(v) ? '' : 'Enter the customer’s name (letters only).'; },
+    phone: () => { const v = el('pqPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter a mobile number so we can reach the customer.' : PQ_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
+    email: () => { const v = el('pqEmail').value.trim(); return !v || (v.length <= 120 && PQ_MAIL_RE.test(v)) ? '' : 'Enter a valid email address, or leave it empty.'; },
+    company: () => (el('pqCompany').value.trim().length <= 80 ? '' : 'Keep the company name within 80 characters.'),
+    productName: () => el('pqProduct').value || el('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
+    neededBy: () => (!pqNeededVal() || isFlexible() ? '' : 'Choose the date they need it, or tick that the date is flexible.'),
+    region: () => (pqFulfil() === 'Delivery' && !el('pqRegion').value ? 'Choose the region.' : ''),
+    province: () => (pqFulfil() === 'Delivery' && !el('pqProvince').value ? 'Choose the province.' : ''),
+    city: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean(el('pqCity').value); return !v ? 'Choose the city or municipality.' : PQG.cities.length && !pqCode(PQG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
+    barangay: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean(el('pqBrgy').value); return !v ? 'Choose the barangay.' : PQG.barangays.length && !pqCode(PQG.barangays, v) ? 'Pick the barangay from the list.' : ''; },
+    street: () => { const v = el('pqStreet').value.trim(); return pqFulfil() === 'Delivery' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
+  };
+  const pqField = (f) => pqErr(f, PQ_CHECK[f]());
+
+  const PQG = { regions: [], provinces: [], cities: [], barangays: [], city: '', tok: { prov: 0, city: 0, bgy: 0 } };
+  const pqClean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
+  const pqCode = (list, name) => { const n = pqClean(name).toLowerCase(); const m = list.find((x) => x.name.toLowerCase() === n); return m ? m.code : null; };
+  const pqGeo = async (path) => { try { return await api(path); } catch (e) { if (e instanceof TypeError) throw new Error('No connection to the server'); throw e; } };
+  function pqOptions(sel, rows, placeholder, disabled) { sel.innerHTML = '<option value="">' + esc(placeholder) + '</option>' + rows.map((r) => '<option value="' + esc(r.name) + '">' + esc(r.name) + '</option>').join(''); sel.disabled = !!disabled; }
+  const pqListOpts = (id, rows) => { el(id).innerHTML = rows.map((r) => '<option value="' + esc(r.name) + '"></option>').join(''); };
+  const pqBox = (id, placeholder, disabled) => { const x = el(id); x.value = ''; x.disabled = !!disabled; x.placeholder = placeholder; };
+  function pqReset(from) {
+    const i = ['province', 'city', 'barangay'].indexOf(from);
+    if (i <= 0) { PQG.provinces = []; pqOptions(el('pqProvince'), [], 'Choose a region first', true); }
+    if (i <= 1) { PQG.cities = []; pqListOpts('pqCityList', []); pqBox('pqCity', 'Choose a province first', true); }
+    PQG.barangays = []; PQG.city = ''; pqListOpts('pqBgyList', []); pqBox('pqBrgy', 'Choose a city first', true);
+  }
+  async function pqLoadRegions() {
+    const sel = el('pqRegion');
+    try { if (!PQG.regions.length) PQG.regions = await pqGeo('/api/geo/regions'); const keep = sel.value; pqOptions(sel, PQG.regions, 'Choose a region…'); sel.value = keep; }
+    catch (e) { sel.innerHTML = '<option value="">Could not load regions — focus to try again</option>'; sel.onfocus = () => { sel.onfocus = null; pqLoadRegions(); }; pqErr('region', e.message); }
+  }
+  async function pqOnRegion() {
+    pqReset('province'); ['region', 'province', 'city', 'barangay'].forEach((f) => pqErr(f, ''));
+    const reg = PQG.regions.find((r) => r.name === el('pqRegion').value); if (!reg) return;
+    const t = ++PQG.tok.prov, psel = el('pqProvince');
+    pqOptions(psel, [], 'Loading provinces…', true);
+    try {
+      const rows = await pqGeo('/api/geo/regions/' + encodeURIComponent(reg.code) + '/provinces'); if (t !== PQG.tok.prov) return;
+      if (rows.length) { PQG.provinces = rows; pqOptions(psel, rows, 'Choose a province…'); return; }
+      PQG.provinces = [{ code: 'NCR', name: 'Metro Manila' }];
+      pqOptions(psel, PQG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila';
+      await pqLoadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
+    } catch (e) { if (t === PQG.tok.prov) { pqOptions(psel, [], 'Could not load — choose the region again', true); pqErr('province', e.message); } }
+  }
+  async function pqOnProvince() {
+    pqReset('city'); ['province', 'city', 'barangay'].forEach((f) => pqErr(f, ''));
+    const prov = PQG.provinces.find((p) => p.name === el('pqProvince').value); if (!prov) return;
+    await pqLoadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
+  }
+  async function pqLoadCities(path) {
+    const t = ++PQG.tok.city; pqBox('pqCity', 'Loading cities…', true);
+    try { const rows = await pqGeo(path); if (t !== PQG.tok.city) return; PQG.cities = rows; pqListOpts('pqCityList', rows); pqBox('pqCity', 'Type to search city / municipality…', false); }
+    catch (e) { if (t === PQG.tok.city) { pqBox('pqCity', 'Could not load — choose the province again', true); pqErr('city', e.message); } }
+  }
+  async function pqOnCity() {
+    const name = pqClean(el('pqCity').value);
+    if (name && name.toLowerCase() === PQG.city.toLowerCase()) return;
+    pqReset('barangay'); pqErr('city', ''); pqErr('barangay', ''); if (!name) return;
+    const city = PQG.cities.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    if (!city) { if (PQG.cities.length) pqErr('city', 'Pick the city / municipality from the list.'); return; }
+    el('pqCity').value = city.name; PQG.city = city.name;
+    const t = ++PQG.tok.bgy; pqBox('pqBrgy', 'Loading barangays…', true);
+    try { const rows = await pqGeo('/api/geo/cities/' + encodeURIComponent(city.code) + '/barangays'); if (t !== PQG.tok.bgy) return; PQG.barangays = rows; pqListOpts('pqBgyList', rows); pqBox('pqBrgy', rows.length ? 'Type to search barangay…' : 'Type the barangay', false); }
+    catch (e) { if (t === PQG.tok.bgy) pqBox('pqBrgy', 'Type the barangay', false); }
+  }
+  function pqOnBarangay() {
+    pqErr('barangay', ''); const name = pqClean(el('pqBrgy').value); if (!name) return;
+    const b = PQG.barangays.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (b) el('pqBrgy').value = b.name; else if (PQG.barangays.length) pqErr('barangay', 'Pick the barangay from the list.');
+  }
+  function pqResetArea() { el('pqRegion').value = ''; pqReset('province'); ['region', 'province', 'city', 'barangay', 'street'].forEach((f) => pqErr(f, '')); }
+
+  function renderPosQuoteForm() {
+    const sel = el('pqProduct'); if (!sel) return;
+    const keep = sel.value;
+    sel.innerHTML = '<option value="">Other / custom product…</option>' + PRODUCTS.map((p) => '<option value="' + esc(p.sku) + '">' + esc(p.name) + (p.spec ? ' — ' + esc(p.spec) : '') + ' (' + esc(p.sku) + ')</option>').join('');
+    if (keep && prod(keep)) sel.value = keep;
+    ensureFields(); pqProductChanged();
+  }
+  async function ensureFields() {
+    if (pqMounted || !el('pqFields')) return;
+    let o;
+    try { o = await api('/api/pos/quote-options'); window.PQ_OPTIONS = o; }
+    catch (e) { el('pqFields').innerHTML = '<div class="qd-load-error" role="alert"><strong>The product specifications could not be loaded.</strong><p>' +
+      esc(e instanceof TypeError ? 'No connection to the server.' : e.message || 'The server refused the request.') + '</p><button type="button" class="btn-secondary" id="pqRetryOptions">Try again</button></div>';
+      el('pqRetryOptions').onclick = () => { el('pqFields').innerHTML = '<p class="dim">Loading the form…</p>'; ensureFields(); }; return; }
+    if (pqMounted) return;
+    QuoteFields.mount(el('pqFields'), { prefix: 'pq', options: o, flexible: isFlexible });
+    pqMounted = true;
+    const dateField = el('pqNeeded') && el('pqNeeded').closest('.q-field'), grid = el('pqDateGrid');
+    if (dateField && grid) { const lab = dateField.querySelector('label'); if (lab) lab.textContent = 'Preferred date needed'; grid.insertBefore(dateField, grid.firstChild); }   // one date control only, and it belongs in Customer Preferences
+    pqProductChanged(); buildReview();
+  }
+  function pqProductChanged() {
+    const p = prod(el('pqProduct').value);
+    el('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
+    if (pqMounted) { QuoteFields.autofill('pq', p ? p.specs : null); if (p) QuoteFields.setUnit('pq', p.unit); }
+  }
+  function collectForm() {
+    const f = pqFulfil(), r = pqMounted ? QuoteFields.read('pq') : {};
+    const b = { contactName: el('pqName').value.trim(), phone: el('pqPhone').value.replace(/[\s().-]/g, ''),
+      contactEmail: el('pqEmail').value.trim() || undefined, company: el('pqCompany').value.trim() || undefined,
+      sku: el('pqProduct').value || undefined, productName: el('pqItem').value.trim() || undefined, fulfillment: f,
+      neededBy: pqNeededVal() || undefined, flexibleDate: isFlexible() };
+    Object.assign(b, r);
+    if (f === 'Delivery') Object.assign(b, { region: el('pqRegion').value, province: el('pqProvince').value, city: pqClean(el('pqCity').value), barangay: pqClean(el('pqBrgy').value), street: el('pqStreet').value.trim() || undefined });
+    return b;
+  }
+  function buildReview() {
+    const box = el('qdReview'); if (!box) return;
+    const d = collectForm(), sp = d.specs || {}, p = prod(d.sku);
+    const rows = [['Customer', d.contactName || '—'], ['Mobile', d.phone || '—'], ['Email', d.contactEmail || 'not given'], ['Company', d.company || '—'],
+      ['Product', p ? p.name + ' (' + p.sku + ')' : d.productName || '—'], ['Material', sp.material || '—'], ['Size', sp.size || '—'],
+      ['Thickness', sp.thickness || '—'], ['Finish', sp.finish || '—'], ['Cutting / bending', sp.service || '—'],
+      ['Quantity', (d.quantity || '—') + ' ' + (d.quantityUnit || '')], ['Needed by', d.neededBy ? day(d.neededBy) : d.flexibleDate ? 'Flexible' : '—'],
+      ['Fulfilment', d.fulfillment], ['Delivery area', d.fulfillment === 'Delivery' ? [d.street, d.barangay, d.city, d.province, d.region].filter(Boolean).join(', ') : 'not needed'],
+      ['Extra notes', d.notes || '—']];
+    box.innerHTML = '<div class="qd-review"><h3>Section 4 — Review before saving</h3><p>Check this with the customer standing at the counter. Saving creates a request only: nothing is priced, paid or reserved.</p>' +
+      rows.map(([k, v]) => '<div class="qd-review-row"><span>' + esc(k) + '</span><strong>' + esc(String(v)) + '</strong></div>').join('') +
+      '<div class="qd-review-actions"><button type="button" class="btn-secondary" data-act="edit">Edit details</button><button type="button" class="btn-primary" id="qdConfirmSave">Confirm &amp; save quotation</button></div></div>';
+  }
+  function showFormStep() { const box = el('qdReview'); box.innerHTML = ''; box.hidden = true; el('qdFormSections').hidden = false; el('pqName').focus(); }
+  let saving = false;
+  async function saveWalkIn() {
+    if (saving) return;                                             // a double click must never make two requests
+    const err = el('pqErr'); err.textContent = '';
+    const f = pqFulfil();
+    const fields = ['contactName', 'phone', 'email', 'company', 'productName', 'neededBy'].concat(f === 'Delivery' ? ['region', 'province', 'city', 'barangay', 'street'] : []);
+    let first = null;
+    fields.forEach((k) => { if (!pqField(k) && !first) first = PQ_IDS[k]; });
+    if (pqMounted) { const qf = QuoteFields.validate('pq'); if (!qf.ok && !first) first = qf.focus; }
+    if (first) { err.textContent = 'Please fix the highlighted fields.'; const x = el(first); x.scrollIntoView({ block: 'center', behavior: 'smooth' }); if (x.focus) x.focus({ preventScroll: true }); return; }
+    buildReview();
+    el('qdFormSections').hidden = true;
+    el('qdReview').hidden = false;
+    el('qdReview').scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }
+  async function commitWalkIn() {
+    if (saving) return;
+    saving = true;
+    const btn = el('qdConfirmSave'); if (btn) btn.disabled = true;
+    const err = el('pqErr'), body = collectForm();
+    try {
+      const r = await call('/api/pos/quotes', { method: 'POST', body: JSON.stringify(body) });
+      const no = r && r.id;
+      toast('Saved as ' + (no || 'a new request') + '. Nothing is priced, paid or reserved yet.');
+      ['pqName', 'pqPhone', 'pqEmail', 'pqCompany', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach((id) => { el(id).value = ''; el(id).classList.remove('is-bad'); });
+      pqResetArea(); Object.keys(PQ_IDS).forEach((k) => pqErr(k, '')); el('pqProduct').value = '';
+      if (pqMounted) QuoteFields.reset('pq');
+      pqProductChanged(); el('pqFlexible').checked = false; const nd = pqNeededEl(); if (nd) nd.disabled = false;
+      document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; el('pqArea').hidden = true;
+      showFormStep(); loadDesk();
+      if (no) openDetail(no);                        // straight to the request, where the reference drawing is attached and the price is prepared
+    } catch (e) {
+      if (!QuoteFields.showServerError('pq', e.fields)) err.textContent = fieldErr(e); else err.textContent = 'Please fix the highlighted fields.';
+      showFormStep();
+    } finally { saving = false; if (btn) btn.disabled = false; }
+  }
+
+  /* ================= 6. wiring ================= */
+  function wire() {
+    el('qdTabRequests').addEventListener('click', () => showView('requests'));
+    el('qdTabWalkin').addEventListener('click', () => showView('walkin'));
+    let timer;
+    el('qdSearch').addEventListener('input', (e) => { S.q = e.target.value; clearTimeout(timer); S.page = 1; timer = setTimeout(loadDesk, 350); });
+    el('qdSource').innerHTML = SOURCES.map(([k, l]) => '<option value="' + k + '">' + l + '</option>').join('');
+    el('qdSize').innerHTML = PAGE_SIZES.map((n) => '<option value="' + n + '"' + (n === 20 ? ' selected' : '') + '>' + n + ' rows</option>').join('');
+    el('qdSource').addEventListener('change', (e) => { S.source = e.target.value; S.page = 1; loadDesk(); });
+    el('qdSize').addEventListener('change', (e) => { S.pageSize = Number(e.target.value); S.page = 1; loadDesk(); });
+    el('qdRefresh').addEventListener('click', loadDesk);
+    el('qdDesk').addEventListener('click', (e) => {
+      const chip = e.target.closest('[data-filter]'); if (chip) { S.filter = chip.dataset.filter; S.page = 1; loadDesk(); return; }
+      const th = e.target.closest('th[data-sort]'); if (th) { const k = th.dataset.sort; if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc'; else { S.sort = k; S.dir = 'desc'; } S.page = 1; loadDesk(); return; }
+      const pg = e.target.closest('[data-page]'); if (pg) { S.page = Math.min(S.pageCount, Math.max(1, S.page + (pg.dataset.page === 'next' ? 1 : -1))); loadDesk(); return; }
+      if (e.target.closest('[data-retry]')) { loadDesk(); return; }
+      const row = e.target.closest('[data-open]'); if (row) openDetail(row.dataset.open);
+    });
+    el('qdDesk').addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target.dataset && e.target.dataset.open) { e.preventDefault(); openDetail(e.target.dataset.open); } });
+
+    el('qdScrim').addEventListener('click', closeDetail);
+    el('qdDrawerClose').addEventListener('click', closeDetail);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.detail) { if (!el('qdClarifyOverlay').hidden) closeClarify(); else closeDetail(); } });
+    el('qdDrawerBody').addEventListener('input', (e) => {
+      if (e.target.name === 'unit') { const d = S.detail, q = qtyParts(d.quantity), out = e.target.form.querySelector('[data-total]');
+        if (out) out.textContent = q && /^\d+(\.\d{1,2})?$/.test(e.target.value.trim()) ? peso(Number(e.target.value) * q.qty) : '—'; }
+    });
+    el('qdDrawerBody').addEventListener('change', (e) => {
+      if (e.target.name === 'exception') { const box = e.target.form.querySelector('[data-reason]'); box.hidden = !e.target.checked; if (e.target.checked) box.querySelector('textarea').focus(); }
+      if (e.target.id === 'qdFileInput') uploadFile(e.target.files[0]);
+    });
+    el('qdDrawerBody').addEventListener('submit', (e) => { if (e.target.id === 'qdPriceForm') { e.preventDefault(); submitPrice(e.target); } });
+    el('qdDrawerFoot').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-act]'); if (!b) return;
+      const act = b.dataset.act;
+      if (act === 'close') closeDetail();
+      else if (act === 'clarify') doClarify();
+      else if (act === 'convert') doConvert();
+      else if (['accept', 'decline', 'renew'].includes(act)) doRespond(act);
+    });
+    el('qdDrawerBody').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-act],[data-delfile]'); if (!b) return;
+      if (b.dataset.delfile) { delFile(b.dataset.delfile); return; }
+      if (b.dataset.act === 'price') { S.openPrice = true; renderDetail(); }
+      if (b.dataset.act === 'cancelprice') { S.openPrice = false; renderDetail(); }
+    });
+
+    el('pqClarifyCancel').addEventListener('click', closeClarify);
+    el('qdClarifyOverlay').addEventListener('click', (e) => { if (e.target === el('qdClarifyOverlay')) closeClarify(); });
+
+    el('pqProduct').addEventListener('change', pqProductChanged);
+    document.querySelectorAll('input[name="pqFulfil"]').forEach((r) => r.addEventListener('change', () => {
+      el('pqArea').hidden = pqFulfil() !== 'Delivery';
+      ['region', 'province', 'city', 'barangay', 'street'].forEach((f) => pqErr(f, ''));
+      if (pqFulfil() === 'Delivery' && !PQG.regions.length) pqLoadRegions();
+    }));
+    el('pqRegion').addEventListener('change', pqOnRegion);
+    el('pqProvince').addEventListener('change', pqOnProvince);
+    el('pqCity').addEventListener('change', pqOnCity);
+    el('pqBrgy').addEventListener('change', pqOnBarangay);
+    el('pqFlexible').addEventListener('change', () => { const x = pqNeededEl(); if (!x) return; x.disabled = isFlexible(); if (isFlexible()) { x.value = ''; pqErr('neededBy', ''); } });
+    Object.keys(PQ_IDS).forEach((f) => { const x = el(PQ_IDS[f]); x.addEventListener('blur', () => pqField(f)); x.addEventListener('input', () => { if (x.classList.contains('is-bad')) pqField(f); el('pqErr').textContent = ''; }); });
+    el('pqPhone').addEventListener('input', () => { const p = el('pqPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
+    el('pqForm').addEventListener('submit', (e) => { e.preventDefault(); saveWalkIn(); });
+    el('qdReview').addEventListener('click', (e) => {
+      if (e.target.closest('[data-act="edit"]')) showFormStep();
+      if (e.target.closest('#qdConfirmSave')) commitWalkIn();
+    });
+  }
+
+  /* page glue: showPage('quotes') and the start-up poll both call these */
+  window.renderPosQuoteForm = renderPosQuoteForm;
+  window.loadPosQuotes = function () { if (el('qdDesk')) loadDesk(); };
+  window.initQuoteDesk = function () { if (window.__qdWired) return; window.__qdWired = true; wire(); renderPosQuoteForm(); loadDesk(); };
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', window.initQuoteDesk);
+  else window.initQuoteDesk();
+})();

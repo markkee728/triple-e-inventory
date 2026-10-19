@@ -1,0 +1,228 @@
+/* quotes.css — the Cashier Quotation Desk (POS_Cashier.html > Quotations).
+   Two full-width views: "Customer Requests" (server-side searched/sorted/paged table + detail drawer)
+   and "Create Walk-in Quotation" (4 labelled sections ending in Review & Confirmation).
+   Loaded by POS_Cashier.html only; it uses the shared app-ui.css design tokens, so light and dark themes come free.
+   Nothing here duplicates store.css or style.css — those are not loaded on this page. */
+
+/* ---------- shared field / form atoms (also used by quote-fields.js) ---------- */
+#page-quotes .err-text{font-size:12.5px;line-height:1.4;color:var(--red)}
+#page-quotes .err-text:empty{display:none}
+#page-quotes .q-hint{display:block;margin-top:6px;font-size:12.5px;line-height:1.45;color:var(--text-faint)}
+#page-quotes .q-optional{font-weight:400;color:var(--text-faint)}
+#page-quotes .q-meta{display:flex;justify-content:space-between;gap:12px}
+#page-quotes .q-count{margin-left:auto;font-size:12px;color:var(--text-faint);margin-top:5px;white-space:nowrap}
+#page-quotes .q-field{margin-bottom:16px;min-width:0}
+#page-quotes .q-field>label,#page-quotes .qd-fld>label{display:block;margin-bottom:6px;font-size:13.5px;font-weight:600;color:var(--text-dim)}
+#page-quotes .q-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px;min-width:0}
+#page-quotes .qd-grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 16px}
+#page-quotes .q-field input,#page-quotes .q-field select,#page-quotes .q-field textarea,
+#page-quotes .qd-fld input,#page-quotes .qd-fld select,#page-quotes .qd-fld textarea{width:100%;box-sizing:border-box}
+#page-quotes .q-field textarea,#page-quotes .qd-fld textarea{resize:vertical;min-height:88px}
+#page-quotes .is-bad{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(227,91,91,.14)}
+#page-quotes input,#page-quotes select,#page-quotes textarea{background:var(--field);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 12px;font-size:14px}
+#page-quotes input:focus,#page-quotes select:focus,#page-quotes textarea:focus{outline:none;border-color:var(--blue-bright);box-shadow:0 0 0 3px rgba(74,144,217,.18)}
+#page-quotes input:disabled,#page-quotes select:disabled{opacity:.55;cursor:not-allowed}
+
+/* ---------- workspace shell ---------- */
+#page-quotes .qd-nav{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 18px;border-bottom:1px solid var(--border);padding-bottom:0}
+#page-quotes .qd-tab{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--border);border-bottom:0;border-radius:10px 10px 0 0;background:transparent;color:var(--text-dim);
+  font:600 14px Inter,sans-serif;padding:11px 18px;cursor:pointer;transition:background .15s,color .15s}
+#page-quotes .qd-tab:hover{color:var(--text);background:var(--hover)}
+#page-quotes .qd-tab[aria-selected="true"]{background:var(--card);color:var(--text);box-shadow:0 -2px 0 var(--blue-bright) inset}
+#page-quotes .qd-tab .qd-tab-n{display:inline-flex;min-width:22px;padding:1px 7px;border-radius:999px;background:var(--inset);color:var(--text-dim);font:700 12px "IBM Plex Mono",monospace}
+#page-quotes .qd-tab[aria-selected="true"] .qd-tab-n{background:rgba(74,144,217,.18);color:var(--blue-bright)}
+#page-quotes .qd-view{display:block}
+#page-quotes .qd-intro{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+#page-quotes .qd-intro h2{font-family:Oswald,sans-serif;font-size:19px;font-weight:600;letter-spacing:.3px}
+#page-quotes .qd-intro p{font-size:13.5px;color:var(--text-faint);max-width:76ch}
+
+/* ---------- toolbar ---------- */
+#page-quotes .qd-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--card);margin-bottom:14px}
+#page-quotes .qd-search{position:relative;flex:1 1 260px;min-width:200px}
+#page-quotes .qd-search input{width:100%;padding-left:34px}
+#page-quotes .qd-search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;fill:none;stroke:var(--text-faint);stroke-width:2;pointer-events:none}
+#page-quotes .qd-chips{display:flex;flex-wrap:wrap;gap:6px}
+#page-quotes .qd-chip{border:1px solid var(--border);background:transparent;color:var(--text-dim);font:600 12.5px Inter,sans-serif;padding:6px 11px;border-radius:999px;cursor:pointer;transition:.15s}
+#page-quotes .qd-chip:hover{border-color:var(--blue-bright);color:var(--text)}
+#page-quotes .qd-chip.on{background:rgba(74,144,217,.16);border-color:var(--blue-bright);color:var(--blue-bright)}
+#page-quotes .qd-chip em{font-style:normal;opacity:.8;margin-left:4px;font-family:"IBM Plex Mono",monospace}
+#page-quotes .qd-pick{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-faint)}
+#page-quotes .qd-pick select{padding:7px 9px;font-size:13px;min-width:120px}
+#page-quotes .qd-note{margin:0 0 10px;font-size:12.5px;color:var(--text-faint)}
+
+/* ---------- the queue table ---------- */
+#page-quotes .qd-tablewrap{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
+#page-quotes .qd-table{width:100%;border-collapse:collapse;font-size:13.5px}
+#page-quotes .qd-table th{position:sticky;top:0;z-index:2;background:var(--inset);text-align:left;padding:10px 12px;font:600 11.5px Inter,sans-serif;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);white-space:nowrap;border-bottom:1px solid var(--border)}
+#page-quotes .qd-table th[data-sort]{cursor:pointer;user-select:none}
+#page-quotes .qd-table th[data-sort]:hover{color:var(--text)}
+#page-quotes .qd-table th .qd-arrow{opacity:.45;font-size:10px;margin-left:3px}
+#page-quotes .qd-table th[aria-sort] .qd-arrow{opacity:1;color:var(--blue-bright)}
+#page-quotes .qd-table td{padding:11px 12px;border-bottom:1px solid var(--row-line);vertical-align:middle}
+#page-quotes .qd-table tbody tr{cursor:pointer;transition:background .12s}
+#page-quotes .qd-table tbody tr:hover{background:var(--hover)}
+#page-quotes .qd-table tbody tr:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}
+#page-quotes .qd-table tbody tr:last-child td{border-bottom:0}
+#page-quotes .qd-table .is-right{text-align:right}
+#page-quotes .qd-ref{font-family:"IBM Plex Mono",monospace;font-weight:600;font-size:13px;white-space:nowrap}
+#page-quotes .qd-who b{display:block;font-weight:600;max-width:24ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-quotes .qd-who small{display:block;font-size:12px;color:var(--text-faint)}
+#page-quotes .qd-what b{font-weight:500;display:block;max-width:32ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-quotes .qd-what small{display:block;font-size:12px;color:var(--text-faint)}
+#page-quotes .qd-num{font-family:"IBM Plex Mono",monospace;text-align:right;white-space:nowrap}
+#page-quotes .qd-src{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;padding:2px 7px;border-radius:5px;background:var(--inset);color:var(--text-dim)}
+#page-quotes .qd-src.pos{background:rgba(217,164,65,.16);color:var(--amber)}
+#page-quotes .qd-pill{display:inline-block;padding:3px 9px;border-radius:999px;font:600 11.5px Inter,sans-serif;white-space:nowrap;border:1px solid var(--border);color:var(--text-dim)}
+#page-quotes .qd-pill.ok{background:rgba(67,196,122,.14);border-color:rgba(67,196,122,.4);color:var(--green)}
+#page-quotes .qd-pill.warn{background:rgba(217,164,65,.14);border-color:rgba(217,164,65,.4);color:var(--amber)}
+#page-quotes .qd-pill.bad{background:rgba(227,91,91,.14);border-color:rgba(227,91,91,.4);color:var(--red)}
+#page-quotes .qd-open{border:1px solid var(--border);background:transparent;color:var(--blue-bright);font:600 12px Inter,sans-serif;border-radius:7px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+#page-quotes .qd-open:hover{background:rgba(74,144,217,.12);border-color:var(--blue-bright)}
+#page-quotes .qd-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:13px;color:var(--text-faint)}
+#page-quotes .qd-pager-btns{display:flex;gap:8px}
+#page-quotes .qd-state{padding:34px 18px;text-align:center;color:var(--text-faint);font-size:13.5px}
+#page-quotes .qd-state.error{color:var(--red)}
+#page-quotes .qd-retry{margin-top:10px}
+#page-quotes .qd-skeleton{height:52px;border-radius:8px;background:linear-gradient(90deg,var(--inset) 25%,var(--card) 37%,var(--inset) 63%);background-size:400% 100%;animation:qdShimmer 1.3s ease-in-out infinite}
+@keyframes qdShimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+/* card list on narrow screens (so the table never scrolls sideways on a phone) */
+#page-quotes .qd-cards{display:grid;gap:10px}
+#page-quotes .qd-qcard{border:1px solid var(--border);border-radius:11px;background:var(--card);padding:12px 14px;display:grid;gap:7px;cursor:pointer}
+#page-quotes .qd-qcard:hover{border-color:var(--blue-bright)}
+#page-quotes .qd-qcard .qd-line{display:flex;align-items:center;justify-content:space-between;gap:10px}
+#page-quotes .qd-qcard .qd-mut{font-size:12.5px;color:var(--text-faint)}
+@media(min-width:900px){#page-quotes .qd-cards{display:none}}
+@media(max-width:899px){#page-quotes .qd-tablewrap{display:none}#page-quotes .q-grid,#page-quotes .qd-grid3{grid-template-columns:1fr}}
+
+/* ---------- detail drawer ---------- */
+#page-quotes .qd-scrim{position:fixed;inset:0;z-index:8000;background:rgba(7,17,26,.6);opacity:0;pointer-events:none;transition:opacity .2s}
+#page-quotes .qd-scrim.open{opacity:1;pointer-events:auto}
+#page-quotes .qd-drawer{position:fixed;top:0;right:0;bottom:0;z-index:8100;width:min(100%,640px);display:flex;flex-direction:column;
+  background:var(--panel);border-left:1px solid var(--border);box-shadow:var(--shadow);transform:translateX(102%);transition:transform .24s ease}
+#page-quotes .qd-drawer.open{transform:none}
+#page-quotes .qd-drawer-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border);background:var(--card)}
+#page-quotes .qd-drawer-head h3{font-family:Oswald,sans-serif;font-size:18px;letter-spacing:.3px}
+#page-quotes .qd-drawer-head .qd-ref{color:var(--text-dim);font-size:13px}
+#page-quotes .qd-drawer-body{flex:1;overflow-y:auto;overscroll-behavior:contain;padding:16px 18px 22px}
+#page-quotes .qd-drawer-foot{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;border-top:1px solid var(--border);background:var(--card)}
+#page-quotes .qd-drawer-foot .btn-primary,#page-quotes .qd-drawer-foot .btn-secondary{flex:1 1 auto}
+#page-quotes .qd-x{border:1px solid var(--border);background:transparent;color:var(--text-dim);border-radius:8px;width:34px;height:34px;font-size:19px;line-height:1;cursor:pointer;flex:none}
+#page-quotes .qd-x:hover{color:var(--text);border-color:var(--blue-bright)}
+#page-quotes .qd-sec{margin-bottom:18px}
+#page-quotes .qd-sec>h4{display:flex;align-items:center;gap:8px;font:600 11.5px Inter,sans-serif;letter-spacing:.6px;text-transform:uppercase;color:var(--text-faint);margin-bottom:9px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+#page-quotes .qd-kv{display:grid;grid-template-columns:minmax(120px,32%) 1fr;gap:6px 12px;font-size:13.5px}
+#page-quotes .qd-kv dt{color:var(--text-faint)}
+#page-quotes .qd-kv dd{margin:0;color:var(--text);overflow-wrap:anywhere}
+#page-quotes .qd-note-box{padding:9px 11px;border-radius:8px;background:var(--inset);font-size:13px;color:var(--text-dim);white-space:pre-line;overflow-wrap:anywhere}
+#page-quotes .qd-callout{padding:10px 12px;border-radius:9px;border:1px solid var(--border);font-size:13.5px;color:var(--text-dim)}
+#page-quotes .qd-callout.ok{border-color:rgba(67,196,122,.4);background:rgba(67,196,122,.08)}
+#page-quotes .qd-callout.warn{border-color:rgba(217,164,65,.4);background:rgba(217,164,65,.08)}
+#page-quotes .qd-callout.bad{border-color:rgba(227,91,91,.4);background:rgba(227,91,91,.08)}
+
+/* files */
+#page-quotes .qd-files{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+#page-quotes .qd-file{position:relative;border:1px solid var(--border);border-radius:10px;background:var(--card);padding:8px;display:grid;gap:6px}
+#page-quotes .qd-file img{width:100%;height:92px;object-fit:cover;border-radius:7px;display:block;background:var(--inset)}
+#page-quotes .qd-file .qd-pdf{height:92px;display:flex;align-items:center;justify-content:center;border-radius:7px;background:var(--inset);color:var(--text-dim);font:600 12px "IBM Plex Mono",monospace}
+#page-quotes .qd-file b{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-quotes .qd-file small{font-size:11px;color:var(--text-faint)}
+#page-quotes .qd-file .qd-del{position:absolute;top:5px;right:5px;width:24px;height:24px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text-dim);cursor:pointer;font-size:15px;line-height:1}
+#page-quotes .qd-file .qd-del:hover{color:var(--red);border-color:var(--red)}
+#page-quotes .qd-drop{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px;padding:11px 13px;border:1px dashed var(--border);border-radius:10px;font-size:12.5px;color:var(--text-faint)}
+#page-quotes .qd-drop input[type=file]{display:none}
+
+/* history */
+#page-quotes .qd-tl{display:grid;gap:10px}
+#page-quotes .qd-tl-item{border-left:2px solid var(--border);padding:0 0 0 12px}
+#page-quotes .qd-tl-item b{display:block;font-size:13px}
+#page-quotes .qd-tl-item time{font-size:11.5px;color:var(--text-faint);font-family:"IBM Plex Mono",monospace}
+#page-quotes .qd-tl-item p{margin:4px 0 0;font-size:13px;color:var(--text-dim);white-space:pre-line;overflow-wrap:anywhere}
+#page-quotes .qd-tl-item.done{border-left-color:var(--green)}
+#page-quotes .qd-tl-item.wait{border-left-color:var(--amber)}
+
+/* pricing form inside the drawer */
+#page-quotes .qd-price{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:14px;border:1px solid var(--border);border-radius:11px;background:var(--card);margin-top:4px}
+#page-quotes .qd-price .wide{grid-column:1/-1}
+#page-quotes .qd-price label{display:block;margin-bottom:5px;font-size:12.5px;font-weight:600;color:var(--text-dim)}
+#page-quotes .qd-price input,#page-quotes .qd-price select,#page-quotes .qd-price textarea{width:100%;box-sizing:border-box;font-size:13.5px}
+#page-quotes .qd-price textarea{min-height:60px}
+#page-quotes .qd-calc{grid-column:1/-1;display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;background:var(--inset);font-size:13px;color:var(--text-dim)}
+#page-quotes .qd-calc strong{font-family:"IBM Plex Mono",monospace;font-size:17px;color:var(--text)}
+#page-quotes .qd-check{grid-column:1/-1;display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;cursor:pointer;font-size:13px;color:var(--text)}
+#page-quotes .qd-check input{width:16px;height:16px;margin:2px 0 0;flex:none}
+#page-quotes .qd-price .btn-primary{grid-column:1/-1}
+@media(max-width:560px){#page-quotes .qd-price{grid-template-columns:1fr}}
+
+/* ---------- walk-in form ---------- */
+#page-quotes .qd-form{max-width:1040px}
+#page-quotes .qd-fsec{padding:20px 0;border-top:1px solid var(--border)}
+#page-quotes .qd-fsec.first{padding-top:2px;border-top:0}
+#page-quotes .qd-fsec-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+#page-quotes .qd-fsec-head h3{font-family:Oswald,sans-serif;font-size:16px;font-weight:600;letter-spacing:.3px}
+#page-quotes .qd-fsec-head p{margin:0;font-size:12.5px;color:var(--text-faint)}
+#page-quotes .qd-num-badge{display:inline-flex;align-items:center;justify-content:center;width:25px;height:25px;border-radius:50%;flex:none;background:rgba(74,144,217,.16);color:var(--blue-bright);font:700 13px Inter,sans-serif}
+#page-quotes .qd-fld{margin-bottom:16px;min-width:0}
+#page-quotes .qd-seg{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#page-quotes .qd-opt{position:relative;display:block;margin:0;cursor:pointer}
+#page-quotes .qd-opt input{position:absolute;opacity:0;width:1px;height:1px}
+#page-quotes .qd-opt-body{display:flex;flex-direction:column;gap:3px;padding:13px 16px;border:1px solid var(--border);border-radius:10px;background:var(--field);transition:border-color .15s,background .15s}
+#page-quotes .qd-opt-body b{font-size:15px}
+#page-quotes .qd-opt-body small{font-size:12.5px;font-weight:400;color:var(--text-faint)}
+#page-quotes .qd-opt:hover .qd-opt-body{border-color:var(--blue-bright)}
+#page-quotes .qd-opt input:checked+.qd-opt-body{border-color:var(--blue-bright);background:rgba(74,144,217,.1);box-shadow:0 0 0 3px rgba(74,144,217,.15)}
+#page-quotes .qd-opt input:focus-visible+.qd-opt-body{outline:2px solid var(--blue-bright);outline-offset:2px}
+#page-quotes .qd-flex{display:flex;align-items:flex-start;gap:9px;margin-top:12px;font-size:13px;color:var(--text-dim);cursor:pointer}
+#page-quotes .qd-flex input{width:16px;height:16px;margin-top:3px;flex:none}
+#page-quotes .qd-area{margin-top:16px}
+#page-quotes .qd-form-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--border)}
+#page-quotes .qd-form-foot p{margin:0;font-size:12.5px;color:var(--text-faint);flex:1 1 260px}
+#page-quotes .qd-load-error{padding:14px 16px;border:1px solid var(--red);border-radius:10px;background:rgba(227,91,91,.08);font-size:13.5px}
+#page-quotes .qd-load-error p{margin:6px 0 10px;color:var(--text-dim)}
+@media(max-width:600px){#page-quotes .qd-seg{grid-template-columns:1fr}}
+
+/* section 4 — review before saving */
+#page-quotes .qd-review{border:1px solid var(--border);border-radius:12px;background:var(--card);padding:16px 18px}
+#page-quotes .qd-review h3{font-family:Oswald,sans-serif;font-size:16px;margin-bottom:4px}
+#page-quotes .qd-review>p{margin:0 0 12px;font-size:13px;color:var(--text-faint)}
+#page-quotes .qd-review-row{display:flex;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid var(--row-line);overflow-wrap:anywhere}
+#page-quotes .qd-review-row:last-child{border-bottom:0}
+#page-quotes .qd-review-row span{color:var(--text-faint);flex:none}
+#page-quotes .qd-review-row strong{text-align:right;font-weight:600}
+#page-quotes .qd-review-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+#page-quotes .qd-review-actions .btn-primary,#page-quotes .qd-review-actions .btn-secondary{flex:1 1 180px}
+#page-quotes .qd-review-empty{padding:22px;text-align:center;color:var(--text-faint);font-size:13.5px;border:1px dashed var(--border);border-radius:12px}
+
+/* ---------- modal (clarification, conversion) + themed confirm dialog ---------- */
+#page-quotes .pq-confirm-overlay:not([hidden]),#page-quotes .qd-modal-overlay:not([hidden]){position:fixed;inset:0;z-index:9999;background:rgba(7,17,26,.62);display:flex;align-items:center;justify-content:center;padding:16px}
+#page-quotes .pq-confirm-panel,#page-quotes .qd-modal{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:14px;width:min(100%,560px);max-height:min(92vh,780px);overflow:auto;padding:22px 24px;box-shadow:var(--shadow)}
+#page-quotes .pq-confirm-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
+#page-quotes .pq-confirm-heading h2,#page-quotes .qd-modal h3{font-family:Oswald,sans-serif;font-size:17px;font-weight:600;letter-spacing:.3px;margin:0}
+#page-quotes .pq-confirm-description,#page-quotes .qd-modal>p{color:var(--text-dim);font-size:13.5px;line-height:1.55;margin:8px 0 0}
+#page-quotes .pq-confirm-summary{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:4px 12px;margin:16px 0}
+#page-quotes .pq-confirm-summary .pq-review-row{display:flex;justify-content:space-between;gap:18px;padding:9px 0;border-bottom:1px solid var(--row-line);overflow-wrap:anywhere}
+#page-quotes .pq-confirm-summary .pq-review-row:last-child{border-bottom:0}
+#page-quotes .pq-review-row span{color:var(--text-faint);flex:none}
+#page-quotes .pq-review-row strong{text-align:right;font-weight:600}
+#page-quotes .pq-confirm-check{display:flex;align-items:flex-start;gap:9px;line-height:1.5;font-size:13.5px;margin:12px 0}
+#page-quotes .pq-confirm-check input{width:16px;height:16px;margin-top:4px;flex:none}
+#page-quotes .pq-confirm-actions,#page-quotes .qd-modal-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px}
+#page-quotes .pq-confirm-actions button,#page-quotes .qd-modal-actions button{min-width:130px}
+#page-quotes .qd-modal-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0}
+#page-quotes .qd-modal-grid label{display:flex;gap:8px;align-items:center;padding:10px 11px;border:1px solid var(--border);border-radius:9px;font-size:13px;cursor:pointer;background:var(--card)}
+#page-quotes .qd-modal-grid label:hover{border-color:var(--blue-bright)}
+#page-quotes .qd-modal-grid input{width:16px;height:16px;flex:none}
+#page-quotes .qd-modal .q-field{margin-bottom:14px}
+#page-quotes .qd-modal textarea{width:100%;box-sizing:border-box;min-height:92px;resize:vertical}
+#page-quotes .qd-modal input[type=date]{width:100%;box-sizing:border-box}
+@media(max-width:560px){#page-quotes .qd-modal-grid{grid-template-columns:1fr}#page-quotes .pq-confirm-panel,#page-quotes .qd-modal{padding:16px}#page-quotes .pq-confirm-actions button,#page-quotes .qd-modal-actions button{flex:1 1 140px}}
+
+/* the drawer becomes a bottom sheet on a phone */
+@media(max-width:700px){
+  #page-quotes .qd-drawer{width:100%;top:auto;height:92vh;border-left:0;border-top:1px solid var(--border);border-radius:16px 16px 0 0;transform:translateY(102%)}
+  #page-quotes .qd-drawer.open{transform:none}
+}
+@media (prefers-reduced-motion:reduce){
+  #page-quotes .qd-skeleton{animation:none}
+  #page-quotes .qd-drawer,#page-quotes .qd-scrim{transition:none}
+}

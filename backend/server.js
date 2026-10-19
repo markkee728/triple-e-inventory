@@ -1473,6 +1473,7 @@ require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, s
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 require('./cash-shifts')({ app, pool, auth, wrap, tx, audit, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */

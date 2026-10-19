@@ -36,7 +36,7 @@
 
   function mount(host, cfg) {
     var p = cfg.prefix, o = cfg.options || {}, lim = limits(o);
-    state[p] = { options: o, picked: false, hint: null, offKey: null, timer: null };
+    state[p] = { options: o, picked: false, hint: null, offKey: null, timer: null, flexible: cfg.flexible || null };
     var h = '<div class="qx-title">Sizes and details</div>' +
       '<div class="qx-narrow" id="' + p + 'Narrow" hidden></div>' +
       '<div class="q-grid">' +
@@ -169,8 +169,8 @@
       return '';
     }
     if (field === 'neededBy') {
-      var d = $(p + 'Needed').value, lim = limits(state[p].options);
-      if (!d) return 'Choose the date you need it.';
+      var d = $(p + 'Needed').value, lim = limits(state[p].options), flex = state[p].flexible;
+      if (!d) return (flex && flex()) ? '' : 'Choose the date you need it.';
       if (d < lim.min) return 'Choose a date after today (' + dayText(lim.min) + ' or later).';
       if (d > lim.max) return 'Choose a date within the next 6 months (up to ' + dayText(lim.max) + ').';
       return '';
@@ -250,7 +250,7 @@
   st.textContent = '.qx-row{display:flex;gap:8px}.qx-row input{flex:1 1 auto;min-width:0}.qx-row select{flex:0 0 38%;min-width:0}' +
     '.qx-title{margin:6px 0 10px;font-size:13.5px;font-weight:700;color:var(--text-dim)}.qx-custom{margin-top:8px}' +
     '.qx-narrow{margin:-4px 0 12px;font-size:12.5px;color:var(--text-faint)}.qx-narrow b{color:var(--text-dim);font-weight:600}' +
-    '.qx-link{background:transparent;border:1px solid var(--border,#d5dce5);border-radius:7px;padding:5px 9px;margin:4px 0 0 6px;font:inherit;font-weight:650;color:var(--primary,#2673ad);cursor:pointer;min-height:30px}.qx-link:hover,.qx-link:focus-visible{background:var(--surface-hover,rgba(60,120,180,.08));outline-offset:2px}.qx-narrow{padding:10px 12px;border:1px solid var(--border,#d5dce5);border-radius:9px;background:var(--surface,#f6f8fa);line-height:1.6}.qx-empty{display:block;margin-top:6px}.q-field select{width:100%;max-width:100%;min-height:40px}.q-grid{min-width:0}.q-field{min-width:0}@media(max-width:600px){.qx-narrow{padding:9px}.qx-link{display:inline-block;margin-left:0}}';
+    '.qx-link{background:transparent;border:1px solid var(--border);border-radius:7px;padding:5px 9px;margin:4px 0 0 6px;font:inherit;font-weight:650;color:var(--blue-bright);cursor:pointer;min-height:30px}.qx-link:hover,.qx-link:focus-visible{background:var(--hover);border-color:var(--blue-bright);outline-offset:2px}.qx-narrow{padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--inset);line-height:1.6}.qx-empty{display:block;margin-top:6px}.q-field select{width:100%;max-width:100%;min-height:40px}.q-grid{min-width:0}.q-field{min-width:0}@media(max-width:600px){.qx-narrow{padding:9px}.qx-link{display:inline-block;margin-left:0}}';
   document.head.appendChild(st);
 
   window.QuoteFields = { mount: mount, read: read, validate: validate, reset: reset, showServerError: showServerError, setUnit: setUnit, autofill: autofill, setHint: setHint, setQuantity: setQuantity, setNotes: setNotes };

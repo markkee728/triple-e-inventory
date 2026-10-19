@@ -214,6 +214,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       id: q.quote_no, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
+      flexibleDate: q.flexible_date === true || undefined, contactEmail: q.contact_email || undefined, company: q.company_name || undefined,
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
       proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
@@ -251,6 +252,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const phone = str(b.phone).replace(/[\s().-]/g, '');
     if (!phone) throw bad('phone', 'Enter your mobile number so we can reach you');
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
+    // optional on the cashier's walk-in form: an email to send the written quote to, and the company the request is for
+    const contactEmail = str(b.contactEmail).toLowerCase();
+    if (contactEmail && (contactEmail.length > 120 || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(contactEmail))) throw bad('contactEmail', 'Enter a valid email address, or leave it empty');
+    const company = str(b.company).replace(/\s+/g, ' ');
+    if (company.length > 80) throw bad('company', 'Keep the company name within 80 characters');
 
     // the product (or a described custom item)
     let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '', fromProduct = {};
@@ -271,12 +277,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
 
-    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted
+    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted.
+    // At the counter the cashier may tick "the date is flexible" when the walk-in customer has no deadline; an online account always picks a date.
+    const flexibleDate = !userId && b.flexibleDate === true;
     const neededBy = str(b.neededBy), today = todayPH(), latest = addMonthsISO(today, QUOTE_OPTIONS.neededMaxMonths);
-    if (!neededBy) throw bad('neededBy', 'Choose the date you need it');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
-    if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
-    if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
+    if (!neededBy) { if (!flexibleDate) throw bad('neededBy', 'Choose the date you need it'); }
+    else {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
+      if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
+      if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
+    }
 
     // sizes and details: every one is a dropdown; size and thickness can also be typed in
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
@@ -298,7 +308,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const notes = str(b.notes);
     if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
     if (notes) specs.notes = notes;
-    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k]).concat(notes ? ['Notes: ' + notes] : []).join('\n');
+    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k])
+      .concat(flexibleDate && !neededBy ? ['Needed by: Flexible / whenever ready'] : [])
+      .concat(notes ? ['Notes: ' + notes] : []).join('\n');
 
     // delivery or pickup is required; delivery needs an address (a saved one, or the city and barangay typed in)
     const fulfillment = str(b.fulfillment);
@@ -326,11 +338,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName };
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, contactEmail, company, flexibleDate };
   }
 
-  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area';
-  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area];
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, contact_email, company_name, flexible_date';
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy || null, v.fulfillment, v.area, v.contactEmail || null, v.company || null, v.flexibleDate === true];
   const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
   const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
@@ -341,7 +353,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
       return r.rows[0];
@@ -484,7 +496,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
       return r.rows[0];
