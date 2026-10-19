@@ -314,7 +314,18 @@
       <div class="co-modal" id="coAction" hidden role="dialog" aria-modal="true" aria-labelledby="coActionTitle"></div>
     </section>
     <section class="page" id="page-quotes">
-      <div class="welcome"><h1>Quotations</h1></div>
+      <div class="welcome"><h1>Quotations</h1><p>Review customer requests, prepare prices, and create walk-in quotations.</p></div>
+      <div class="pq-workspace-nav" role="tablist" aria-label="Quotation workspace">
+        <button type="button" class="pq-workspace-tab active" id="pqViewRequests" role="tab" aria-selected="true" aria-controls="pqRequestsPane">Customer Requests <span id="pqRequestCount" class="pq-workspace-count">0</span></button>
+        <button type="button" class="pq-workspace-tab" id="pqViewWalkin" role="tab" aria-selected="false" aria-controls="pqWalkinPane">+ Create Walk-in Quotation</button>
+      </div>
+      <div class="pq-workspace" id="pqWorkspace">
+      <div class="pq-requests-pane" id="pqRequestsPane" role="tabpanel" aria-labelledby="pqViewRequests">
+        <div class="pq-workspace-intro"><h2>Customer quotation requests</h2><p>Open a request to review specifications, ask for clarification, prepare pricing, or record a customer response.</p></div>
+      </div>
+      <div class="pq-walkin-pane" id="pqWalkinPane" role="tabpanel" aria-labelledby="pqViewWalkin" hidden>
+        <div class="pq-workspace-intro"><h2>Create a walk-in quotation</h2><p>Record the customer's requirements. Review the details before saving; this does not reserve stock or collect payment.</p></div>
+      </div>
       <div class="pq-layout">
         <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
@@ -343,7 +354,7 @@
             <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street"></div></div>
           </div>
           <div class="err-text q-formerr" id="pqErr" role="alert"></div>
-          <button type="submit" class="btn-primary" id="pqSend">Save Quotation</button>
+          <button type="submit" class="btn-primary" id="pqSend">Review &amp; Save Quotation</button>
         </form>
         <aside class="panel pq-side">
           <div class="pq-side-head">
@@ -353,6 +364,7 @@
           </div>
           <div class="pq-scroll" id="pqList"><p class="dim">Loading…</p></div>
         </aside>
+      </div>
       </div>
     </section>
 
@@ -1098,7 +1110,7 @@ function renderPosQuoteForm() {
 }
 async function ensurePqFields() {                 // the dropdown choices come from the server so they always match what it accepts
   if (pqMounted) return;
-  let o; try { o = await api('/api/pos/quote-options'); window.PQ_OPTIONS=o; } catch (e) { $('pqFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return; }
+  let o; try { o = await api('/api/pos/quote-options'); window.PQ_OPTIONS=o; } catch (e) { $('pqFields').innerHTML = '<div class="pq-load-error" role="alert"><strong>Product specifications are unavailable.</strong><p>' + esc(e.message || 'Unable to load quotation options.') + '</p><button type="button" class="btn-secondary" id="pqRetryOptions">Retry loading specifications</button></div>'; $('pqRetryOptions').onclick = ensurePqFields; return; }
   if (pqMounted) return;
   QuoteFields.mount($('pqFields'), { prefix: 'pq', options: o }); pqMounted = true; pqProductChanged();
 }
@@ -1169,6 +1181,19 @@ let clarifyId=null;const closeClarify=()=>{clarifyOverlay.classList.remove('open
 document.getElementById('pqClarifyCancel').onclick=closeClarify;
 clarifyOverlay.addEventListener('click',e=>{if(e.target===clarifyOverlay)closeClarify()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&clarifyOverlay.classList.contains('open'))closeClarify()});
+// Quotations workspace: real full-width tabs, not a cosmetic overlay.
+(function initQuotationWorkspace(){
+ const req=document.getElementById('pqRequestsPane'),walk=document.getElementById('pqWalkinPane');
+ const side=document.querySelector('#page-quotes .pq-side'),form=document.getElementById('pqForm');
+ if(!req||!walk||!side||!form)return;
+ req.appendChild(side);walk.appendChild(form);
+ const tabs=[document.getElementById('pqViewRequests'),document.getElementById('pqViewWalkin')];
+ function show(which){const isReq=which==='requests';req.hidden=!isReq;walk.hidden=isReq;tabs.forEach((t,i)=>{const active=isReq?i===0:i===1;t.classList.toggle('active',active);t.setAttribute('aria-selected',String(active));});if(!isReq)ensurePqFields();}
+ tabs[0].addEventListener('click',()=>show('requests'));tabs[1].addEventListener('click',()=>show('walkin'));
+ show('requests');
+ const count=document.getElementById('pqTotal'),badge=document.getElementById('pqRequestCount');
+ if(count&&badge)new MutationObserver(()=>{badge.textContent=count.textContent||'0'}).observe(count,{childList:true,characterData:true,subtree:true});
+})();
 $('pqList').addEventListener('click',e=>{const b=e.target.closest('[data-pqclarify]');if(!b)return;clarifyId=b.dataset.pqclarify;const q=POSQ.find(x=>String(x.id)===String(clarifyId));document.getElementById('pqClarifySubtitle').textContent=`${q?.customer||'Customer'} · ${q?.product||'Custom product'} · ${clarifyId}`;document.getElementById('pqClarifyForm').reset();document.getElementById('pqClarifyError').textContent='';clarifyOverlay.classList.add('open');document.getElementById('pqClarifyMessage').focus()});
 document.getElementById('pqClarifyForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget,fields=[...form.querySelectorAll('[name=fields]:checked')].map(x=>x.value),message=document.getElementById('pqClarifyMessage').value.trim(),responseDue=document.getElementById('pqClarifyDue').value,err=document.getElementById('pqClarifyError');err.textContent='';if(!fields.length||message.length<15||message.length>1000){err.textContent='Select at least one field and write a clear message (15–1000 characters).';return}const ok=await pqConfirm({title:'Send clarification request?',description:message,rows:[['Quotation',clarifyId],['Requested fields',fields.join(', ')],['Suggested response date',responseDue||'Not set']],acknowledgment:'I verified that these details are needed before pricing.',confirmLabel:'Confirm & Send'});if(!ok)return;const btn=document.getElementById('pqClarifySubmit');btn.disabled=true;try{await api('/api/pos/quotes/'+encodeURIComponent(clarifyId)+'/clarifications',{method:'POST',body:JSON.stringify({fields,message,responseDue:responseDue||null})});closeClarify();toast('Clarification sent to the customer.');await loadPosQuotes()}catch(ex){err.textContent=(ex.fields&&Object.values(ex.fields)[0])||ex.message||'Unable to send request'}finally{btn.disabled=false}});
 $('pqTabs').addEventListener('click', e => { const b = e.target.closest('[data-pqtab]'); if (!b) return; pqTab = b.dataset.pqtab; renderPqList(); });
@@ -1240,6 +1265,8 @@ $('pqForm').onsubmit = async e => {
   const body = { contactName: $('pqName').value.trim(), phone: $('pqPhone').value.replace(/[\s().-]/g, ''), sku: $('pqProduct').value || undefined, productName: $('pqItem').value.trim(),
     ...QuoteFields.read('pq'), fulfillment: f };
   if (f === 'Delivery') Object.assign(body, { region: $('pqRegion').value, province: $('pqProvince').value, city: pqClean($('pqCity').value), barangay: pqClean($('pqBrgy').value), street: $('pqStreet').value.trim() });
+  const approved = await pqConfirm({title:'Review walk-in quotation',description:'Confirm the customer and product specifications before saving. This is a quotation request, not a reservation or payment.',rows:[['Customer',body.contactName],['Mobile number',body.phone],['Product',body.productName || $('pqProduct').selectedOptions[0]?.textContent || 'Catalog product'],['Material',body.material || '—'],['Size / dimensions',body.size || '—'],['Thickness',body.thickness || '—'],['Finish',body.finish || '—'],['Quantity',String(body.quantity || '—') + ' ' + (body.unit || '')],['Preferred date',body.neededBy || body.needed_by || 'Flexible'],['Fulfillment',body.fulfillment]],acknowledgment:'I checked the customer details and product specifications.',confirmLabel:'Confirm & Save'});
+  if (!approved) return;
   $('pqSend').disabled = true;
   let r;
   try { r = await api('/api/pos/quotes', { method: 'POST', body: JSON.stringify(body) }); }
