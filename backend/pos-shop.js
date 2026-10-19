@@ -415,6 +415,20 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }
 
   // The customer's page calls this after paying: ask Xendit directly, so the order is saved even if the callback never arrives.
+  app.post('/api/orders/:no/check-payment', auth('cashier', 'finance'), wrap(async (req, res) => {
+    const result = await pool.query('SELECT * FROM orders WHERE order_no = $1', [req.params.no]);
+    if (!result.rowCount) throw bad('id', 'Order not found');
+    const o = result.rows[0];
+    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid') {
+      try {
+        const invoice = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
+        await applyShopInvoice(o, invoice, o.xendit_invoice_id);
+      } catch (err) { console.warn('[xendit] cashier payment verification:', err.message); }
+    }
+    const current = await pool.query('SELECT status, payment_status FROM orders WHERE order_id = $1', [o.order_id]);
+    res.json({ status: current.rows[0].status, paymentStatus: current.rows[0].payment_status });
+  }));
+
   app.post('/api/shop/orders/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       'SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2', [req.params.no, req.user.id]);
@@ -1447,7 +1461,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   /* ---------- finance: confirm orders, decide cancellations ---------- */
-  app.get('/api/orders', auth('finance'), wrap(async (req, res) => {
+  app.get('/api/orders', auth('finance', 'cashier'), wrap(async (req, res) => {
     const { rows: orders } = await pool.query(
       `SELECT o.*, u.full_name AS customer, u.phone AS customer_phone, u.email AS customer_email FROM orders o JOIN users u ON u.user_id = o.customer_id ORDER BY o.created_at DESC LIMIT 200`);
     const ids = orders.map(o => o.order_id);
@@ -1473,12 +1487,13 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   // Confirm = payment received (online: gateway confirmed / COD: cash collected). Posts the stock-out.
-  app.post('/api/orders/:no/confirm', auth('finance'), wrap(async (req, res) => {
+  app.post('/api/orders/:no/confirm', auth('finance', 'cashier'), wrap(async (req, res) => {
     await tx(async (client) => {
       const r = await client.query(`SELECT * FROM orders WHERE order_no = $1 FOR UPDATE`, [req.params.no]);
       if (!r.rowCount) throw bad('id', 'Order not found');
       const o = r.rows[0];
       if (o.status !== 'Pending Confirmation') throw bad('id', `Order is already ${o.status}`);
+      if (req.user.role === 'cashier' && o.payment_status !== 'paid' && !/^Cash on /.test(o.payment_method)) throw bad('payment', 'Online payment must be verified before confirming the order');
       await confirmOrder(client, o, req.user);
     });
     res.json({ ok: true });
@@ -1652,7 +1667,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   // Move an online order one step forward: Paid -> Packed -> Out for Delivery / Ready for Pickup -> Delivered / Picked Up.
-  app.post('/api/orders/:no/status', auth('finance'), wrap(async (req, res) => {
+  app.post('/api/orders/:no/status', auth('finance', 'cashier'), wrap(async (req, res) => {
     const b = req.body || {};
     const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);
     if (!target) throw bad('status', 'Choose the new status');
@@ -1678,15 +1693,36 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       await delivery.ready;
       const prev = o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(target)
         ? (await client.query('SELECT * FROM order_deliveries WHERE order_id = $1', [o.order_id])).rows[0] : null;
-      const dispatch = o.fulfillment === 'Delivery' && target === 'Out for Delivery' ? delivery.dispatchFields(b.delivery, o) : null;
+      const dispatch = o.fulfillment === 'Delivery' && target === 'Out for Delivery' ? delivery.dispatchFields(req.user.role === 'cashier' ? { courier: 'Store Dispatch' } : b.delivery, o) : null;
       if (dispatch) dispatch.trackingNo = await delivery.trackingFor(client, prev);   // generated here, never typed by Finance
-      const arrived = o.fulfillment === 'Delivery' && target === 'Delivered' ? await delivery.deliveredFields(client, b.delivery, o, prev) : null;
+      const arrived = o.fulfillment === 'Delivery' && target === 'Delivered' ? await delivery.deliveredFields(client, b.delivery, o, prev, req.user.role === 'cashier' ? { proof: false } : undefined) : null;
 
+      let shiftId = null, cashReceived = null;
+      if (FINAL_STATUS.includes(target) && req.user.role === 'cashier') {
+        if (!/^\p{L}[\p{L}\s.'’\-]{1,79}$/u.test(receivedBy)) throw bad('receivedBy', 'Enter a valid recipient name');
+        if (target === 'Picked Up') {
+          if (!['National ID', 'Driver License', 'Passport', 'School ID', 'Company ID', 'Other Government ID'].includes(str(b.pickupIdType))) throw bad('pickupIdType', 'Choose the ID presented');
+          if (!/^[A-Za-z0-9]{4}$/.test(str(b.pickupIdLast4))) throw bad('pickupIdLast4', 'Enter the last four ID characters');
+        }
+        if (b.representative && (str(b.relationship).length < 3 || str(b.relationship).length > 60)) throw bad('relationship', 'Enter the representative relationship (3–60 characters)');
+        if (/^Cash on /.test(o.payment_method) && o.payment_status !== 'paid') {
+          cashReceived = Number(b.cashReceived);
+          if (!Number.isFinite(cashReceived) || !/^\d+(?:\.\d{1,2})?$/.test(String(b.cashReceived)) || cashReceived < Number(o.total) || cashReceived > Number(o.total) + 100000) throw bad('cashReceived', 'Enter a valid amount covering the order total');
+          const shift = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
+          if (!shift.rowCount) throw bad('cashReceived', 'Open your Cash Shift before collecting payment');
+          shiftId = shift.rows[0].shift_id;
+        } else if (o.payment_status !== 'paid') throw bad('payment', 'The order has not been paid');
+      }
+      if (target === 'Paid' && req.user.role === 'cashier' && o.payment_status !== 'paid' && !/^Cash on /.test(o.payment_method)) throw bad('payment', 'Online payment must be verified before confirming the order');
       if (target === 'Paid') await confirmOrder(client, o, req.user, note);   // also deducts stock and writes its own history line
       else {
         if (!o.stock_deducted) throw bad('status', 'Stock has not been deducted for this order. Contact the system administrator');
         await client.query('UPDATE orders SET status = $2, status_updated_at = now(), received_by = COALESCE($3, received_by) WHERE order_id = $1',
           [o.order_id, target, FINAL_STATUS.includes(target) ? receivedBy : null]);
+        if (shiftId !== null) {
+          await client.query("UPDATE orders SET payment_status = 'paid', cash_shift_id = $2 WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id, shiftId]);
+          await audit(client, req.user, 'Payment received', `Cash payment for online order ${o.order_no} in shift ${shiftId}: ${o.total}`);
+        }
         if (dispatch) await delivery.saveDispatch(client, o.order_id, dispatch, req.user.id);
         if (arrived) await delivery.saveDelivered(client, o.order_id, arrived, req.user.id);
         const histNote = dispatch ? [delivery.summary(dispatch), note].filter(Boolean).join(' — ')
