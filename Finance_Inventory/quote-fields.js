@@ -14,7 +14,7 @@
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var OTHER = '__other__';
   var FIELDS = [['material', 'Material'], ['size', 'Size'], ['thickness', 'Thickness'], ['finish', 'Finish'], ['service', 'Cutting / bending']];
-  var CUSTOM_HINT = { size: 'e.g. 600 x 900 mm', thickness: 'e.g. 1.8 mm' };
+  var CUSTOM_HINT = { size: 'e.g. 600 x 900 mm or 3/4 inch', thickness: 'e.g. 1.8 mm' };
   var CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   var state = {};                                           // prefix -> { options, picked, hint, offKey, timer }
 
@@ -163,17 +163,17 @@
       if (d > lim.max) return 'Choose a date within the next 6 months (up to ' + dayText(lim.max) + ').';
       return '';
     }
-    if (field === 'notes') return '';
+    if (field === 'notes') return $(p + 'Notes').value.length > 1000 ? 'Keep notes within 1,000 characters.' : '';
     var label = FIELDS.filter(function (f) { return f[0] === field; })[0][1].toLowerCase(), v2 = $(p + 'S_' + field).value;
     if (!v2) return 'Choose the ' + label + '.';
-    if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(); return t.length >= 2 && /\d/.test(t) && CUSTOM_RE.test(t) ? '' : 'Type the ' + label + ' with its number, ' + CUSTOM_HINT[field] + '.'; }
+    if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(); return t.length >= 2 && t.length <= 40 && /\d/.test(t) && CUSTOM_RE.test(t) && !/[<>]/.test(t) ? '' : 'Type the ' + label + ' with its number, ' + CUSTOM_HINT[field] + '.'; }
     return '';
   }
   function check(p, field) { return setErr(p, field, rule(p, field)); }
 
   // checks everything; returns { ok, focus } where focus is the id of the first field that needs attention (top to bottom)
   function validate(p) {
-    var first = null, order = FIELDS.map(function (f) { return [f[0], p + 'S_' + f[0]]; }).concat([['quantity', p + 'Qty'], ['neededBy', p + 'Needed']]);
+    var first = null, order = FIELDS.map(function (f) { return [f[0], p + 'S_' + f[0]]; }).concat([['quantity', p + 'Qty'], ['neededBy', p + 'Needed'], ['notes', p + 'Notes']]);
     order.forEach(function (x) { if (!check(p, x[0]) && !first) first = x[1]; });
     return { ok: !first, focus: first };
   }

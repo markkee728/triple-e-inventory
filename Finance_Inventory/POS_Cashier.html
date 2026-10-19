@@ -129,7 +129,7 @@
       <button class="nav-item" data-page="sales"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>Today's Sales<span class="count" id="navSalesCount">0</span></button>
       <button class="nav-item" data-page="shift"><svg class="nav-ico" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="15" rx="2"/><path d="M3 10h18M7 6V4h10v2M16 15h3"/></svg>Cash Shift<span class="count" id="navShiftBadge" hidden></span></button>
       <button class="nav-item" data-page="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Online Orders<span class="count" id="navOrdersBadge" hidden></span></button>
-      <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Quote Requests<span class="count" id="navQuoteCount" hidden>0</span></button>
+      <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Quotations<span class="count" id="navQuoteCount" hidden>0</span></button>
       </div>
     </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Point of Sale</strong>Triple E Metal Products</div></div>
@@ -314,7 +314,7 @@
       <div class="co-modal" id="coAction" hidden role="dialog" aria-modal="true" aria-labelledby="coActionTitle"></div>
     </section>
     <section class="page" id="page-quotes">
-      <div class="welcome"><h1>Quote Requests</h1></div>
+      <div class="welcome"><h1>Quotations</h1></div>
       <div class="pq-layout">
         <form class="panel quote-form" id="pqForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span>Customer</div>
@@ -324,7 +324,7 @@
           </div>
           <div class="qf-sec"><span class="qf-num">2</span>What do they need?</div>
           <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select></div>
-          <div class="q-field" id="pqNameWrap"><label for="pqItem">Describe the item</label><input id="pqItem" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="pqE_productName"></div></div>
+          <div class="q-field" id="pqNameWrap"><label for="pqItem">Product name / description</label><input id="pqItem" maxlength="120" placeholder="e.g. Brass elbow, 3/4 inch, threaded"><div class="err-text" id="pqE_productName"></div></div>
           <div id="pqFields"><p class="dim">Loading the form…</p></div>
           <div class="qf-sec"><span class="qf-num">3</span>Pickup or delivery?</div>
           <div class="q-seg" role="radiogroup" aria-label="Pickup or delivery">
@@ -343,11 +343,11 @@
             <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street"></div></div>
           </div>
           <div class="err-text q-formerr" id="pqErr" role="alert"></div>
-          <button type="submit" class="btn-primary" id="pqSend">Save Quotation Request</button>
+          <button type="submit" class="btn-primary" id="pqSend">Save Quotation</button>
         </form>
         <aside class="panel pq-side">
           <div class="pq-side-head">
-            <div class="pq-side-title">Quotation requests <span class="pq-count" id="pqTotal">0</span></div>
+            <div class="pq-side-title">Quotations <span class="pq-count" id="pqTotal">0</span></div>
             <input type="search" class="pq-search" id="pqSearch" placeholder="Search name, phone, ID or item…" aria-label="Search quotation requests">
             <div class="pq-tabs" id="pqTabs" role="tablist"></div>
           </div>
@@ -382,7 +382,7 @@
   <select id="returnReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item given</option><option value="not_as_described">Not as described</option><option value="changed_mind">Customer changed their mind</option><option value="other">Other</option></select>
   <label for="returnDetails" id="returnDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="returnDetails" rows="2" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="returnErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation Request</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
   <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" onclick="closeModal('holdBg')">Cancel</button></div></div></div>
@@ -996,7 +996,7 @@ $('voidSend').onclick = async () => {
   sales.find(s => s.id === voidId).status = 'Void Pending'; closeModal('voidBg'); renderSales(); toast('Void request sent to admin.');
 };
 
-/* ===== Walk-in quote requests (POS) ===== */
+/* ===== Customer quotations (POS) ===== */
 let POSQ = [];
 const PQ_PHONE_RE = /^(\+63|0)9\d{9}$/, PQ_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const pqFulfil = () => (document.querySelector('input[name="pqFulfil"]:checked') || {}).value || 'Pickup';
@@ -1107,7 +1107,7 @@ function renderPqList() {
   $('pqTabs').innerHTML = Object.entries(PQ_GROUPS).map(([k, [label, fn]]) => `<button type="button" class="pq-tab${k === pqTab ? ' on' : ''}" data-pqtab="${k}" role="tab" aria-selected="${k === pqTab}">${label}<em>${POSQ.filter(fn).length}</em></button>`).join('');
   const qs = pqQuery.trim().toLowerCase(), fn = PQ_GROUPS[pqTab][1];
   const rows = POSQ.filter(fn).filter(q => !qs || [q.id, q.customer, q.phone, q.product].some(v => String(v || '').toLowerCase().includes(qs)));
-  $('pqList').innerHTML = rows.length ? rows.map(pqCard).join('') : '<div class="pq-empty">' + (total ? 'No requests match this filter.' : 'No quotation requests yet.') + '</div>';
+  $('pqList').innerHTML = rows.length ? rows.map(pqCard).join('') : '<div class="pq-empty">' + (total ? 'No requests match this filter.' : 'No quotations yet.') + '</div>';
 }
 function pqCard(q) {
   const st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
@@ -1128,7 +1128,7 @@ function pqCard(q) {
     </form>`;
   const actions = needs ? form : q.source !== 'pos' ? '<div class="pq-call">Online customer must accept through their own account.</div>' : q.status === 'quoted' ? `<div class="pq-call">${q.expired ? 'This price has expired. Ask Finance for a new quote.' : 'Call or text the customer with this price, then record their answer:'}</div>
       <div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-pqresp="accept" data-qid="${esc(q.id)}">Customer accepted</button><button type="button" class="btn-secondary btn-sm" data-pqresp="decline" data-qid="${esc(q.id)}">Customer declined</button>`}<button type="button" class="btn-secondary btn-sm" data-pqresp="renew" data-qid="${esc(q.id)}">Ask Finance for a new quote</button></div>`
-    : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Finance will start preparing it.</div>'
+    : q.status === 'accepted' ? '<div class="pq-call">Customer accepted. Payment: ' + esc(q.payMethod || 'Pay on pickup') + (q.quotedAmount != null ? ' (' + peso(q.quotedAmount) + ')' : '') + '. Process the accepted quotation through the authorized order and payment workflow.</div>'
     : q.status === 'preparing' ? '<div class="pq-call">Being prepared' + (q.leadTime ? ' (about ' + esc(q.leadTime) + ')' : '') + '.</div>'
     : q.status === 'ready' ? '<div class="pq-call">' + (q.fulfillment === 'Delivery' ? 'Out for delivery.' : 'Ready for pickup. Tell the customer it is ready.') + (q.balance > 0 ? ' Balance to collect: ' + peso(q.balance) + '.' : '') + '</div>'
     : q.status === 'completed' ? '<div class="pq-call">' + esc(q.statusLabel) + (q.receivedBy ? ' by ' + esc(q.receivedBy) : '') + '. Done.</div>' : '';
@@ -1152,7 +1152,7 @@ $('pqList').addEventListener('submit', async e => {
   const f = new FormData(form); err.textContent = '';
   const body = {amount:f.get('amount'),leadTime:f.get('leadTime'),validDays:Number(f.get('validDays')),
     note:f.get('note'),reason:f.get('reason'),customManufacturing:f.has('customManufacturing')};
-  if (!body.amount || !body.leadTime || !body.validDays) {err.textContent='Complete the price, preparation time and validity.';return;}
+  if (!Number.isFinite(Number(body.amount)) || Number(body.amount) <= 0 || Number(body.amount) > 999999999 || !/^\d+(?:\.\d{1,2})?$/.test(String(body.amount)) || !body.leadTime || !Number.isInteger(body.validDays) || body.validDays <= 0) {err.textContent='Enter a valid peso amount (maximum 2 decimals), preparation time and validity.';return;} if (body.customManufacturing && (!body.reason || body.reason.trim().length < 10)) {err.textContent='Explain the custom manufacturing or approval reason (at least 10 characters).';return;}
   b.disabled=true;
   try { const r=await api('/api/pos/quotes/'+encodeURIComponent(form.dataset.qprice)+'/price',
     {method:'POST',body:JSON.stringify(body)});
@@ -1162,9 +1162,9 @@ $('pqList').addEventListener('submit', async e => {
 $('pqList').addEventListener('click', async e => {            // record the walk-in customer's answer
   const b = e.target.closest('[data-pqresp]'); if (!b || b.disabled) return;
   const action = b.dataset.pqresp, id = b.dataset.qid;
-  if (!window.confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Finance will be told to follow up.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
+  if (!window.confirm({ accept: 'Record that the customer ACCEPTED quote ' + id + '? Payment is set automatically to pay on pickup / delivery. Confirm customer acceptance before recording it.', decline: 'Record that the customer declined quote ' + id + '?', renew: 'Ask Finance for a new quote on ' + id + '?' }[action])) return;
   b.disabled = true;
-  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Payment will be collected on pickup. Finance has been told.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
+  try { await api('/api/pos/quotes/' + encodeURIComponent(id) + '/respond', { method: 'POST', body: JSON.stringify({ action }) }); toast(action === 'accept' ? 'Accepted. Payment will be collected on pickup. Follow up through the order workflow.' : action === 'decline' ? 'Marked as declined.' : 'Sent back to Finance.'); }
   catch (er) { toast((er.fields && Object.values(er.fields)[0]) || er.message, true); }
   loadPosQuotes();
 });
@@ -1191,7 +1191,7 @@ $('pqForm').onsubmit = async e => {
   ['pqName', 'pqPhone', 'pqItem', 'pqCity', 'pqBrgy', 'pqStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); pqResetArea();
   Object.keys(PQ_IDS).forEach(k => pqErr(k, '')); $('pqProduct').value = ''; QuoteFields.reset('pq'); pqProductChanged();
   document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; $('pqArea').hidden = true;
-  toast('Sent to Finance as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
+  toast('Quotation saved as ' + (r && r.id ? r.id : 'a new request') + '.'); loadPosQuotes();
 };
 $('q').oninput = renderProducts;
 $('q').onkeydown = e => {                                   // scanner / keyboard: Enter adds an exact SKU match or the only result
