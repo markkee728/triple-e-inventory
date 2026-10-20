@@ -771,15 +771,17 @@ function renderHelpLines() {
   });
 }
 /* ----- online payment window: shows the QR inside checkout, confirms by itself, then shows the receipt ----- */
-let payPoll = null, payOrderId = null, payInvoice = null;
+let payPoll = null, payOrderId = null, payInvoice = null, payBase = 0;
 const stopPayPoll = () => { clearInterval(payPoll); payPoll = null; };
 async function checkPay() {
   if (!payOrderId) return;
   try {
     const r = await api('/api/shop/orders/' + encodeURIComponent(payOrderId) + '/verify-payment', { method: 'POST', body: '{}' });
-    // an invoice for an initial payment is finished when that money lands — the order is then partly paid, not paid
-    const settled = r.paymentStatus === 'paid' || Number(r.outstanding || 0) <= 0 ||
-      (payInvoice != null && Number(r.paidAmount || 0) + 0.005 >= payInvoice.amount);
+    // Settled only on positive proof from the ledger. A missing figure is "not paid yet", never "nothing owed".
+    // An invoice for an initial payment is finished when that much NEW money lands — the order is then partly paid, not paid.
+    const settled = r.paymentStatus === 'paid' ||
+      (r.outstanding != null && Number(r.outstanding) <= 0.005) ||
+      (payInvoice != null && r.paidAmount != null && Number(r.paidAmount) + 0.005 >= payBase + payInvoice.amount);
     if (settled) { stopPayPoll(); await showPaid(r); }
     else if (r.paymentStatus === 'expired') { stopPayPoll(); $('payState').textContent = 'This payment link expired. Close this and tap “Continue Online Payment” in My Orders for a new one.'; }
   } catch (e) {}
@@ -793,10 +795,13 @@ async function showPaid(led) {
   closePay(); renderOrders(); syncCounts();
   openReceipt(id, true);                       // payment confirmed: show the receipt straight away
 }
-function closePay() { stopPayPoll(); payOrderId = null; payInvoice = null; closeModal('payBg'); }
+function closePay() { stopPayPoll(); payOrderId = null; payInvoice = null; payBase = 0; closeModal('payBg'); }
 function openPayModal(order, url, payment) {
   payOrderId = order.id; stopPayPoll();
   payInvoice = payment && payment.amount != null ? { amount: Number(payment.amount), terms: payment.terms || null } : null;
+  // what was already paid before this invoice, so only money that arrives after it counts (kept for the return from the payment page)
+  payBase = payment && payment.base != null ? Number(payment.base) : Number(order.paidAmount || 0);
+  if (url && payInvoice) { try { sessionStorage.setItem('payInv:' + order.id, JSON.stringify({ base: payBase, amount: payInvoice.amount })); } catch (e) {} }
   $('payTitle').textContent = 'Complete your payment';
   $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + ' due now' + (payInvoice.terms && payInvoice.terms.balance > 0 ? ' · balance ' + peso(payInvoice.terms.balance) + ' later' : '') : peso(order.total));
   $('payWait').hidden = false; $('payDone').hidden = true; $('payQR').replaceChildren();
@@ -1573,7 +1578,7 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
       const before = Number(o.paidAmount || 0);
       try {
         const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' });
-        if (r.paymentStatus === 'paid' || Number(r.outstanding || 0) <= 0 || Number(r.paidAmount || 0) + 0.005 > before) {
+        if (r.paymentStatus === 'paid' || (r.outstanding != null && Number(r.outstanding) <= 0.005) || (r.paidAmount != null && Number(r.paidAmount) + 0.005 > before)) {
           paid = true; paidNow.push(o.id);
           Object.assign(o, { paymentState: r.paymentState, paidAmount: r.paidAmount, outstanding: r.outstanding, dueNow: r.dueNow });
         }
@@ -1600,7 +1605,11 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
     history.replaceState(null, '', location.pathname);
     const last = orders.find(o => o.method === 'Xendit');
     // the invoice raised before the redirect asked for the amount due now, so that is what this visit is checking for
-    if (last) { openPayModal(last, null, { amount: Number(last.dueNow != null ? last.dueNow : last.total), terms: null }); } else { show('orders'); }
+    if (last) {
+      let inv = null; try { inv = JSON.parse(sessionStorage.getItem('payInv:' + last.id) || 'null'); } catch (e) {}
+      // with no saved invoice, only a fully settled order counts as paid here (see checkPay); partial payments are picked up by the order list
+      openPayModal(last, null, inv ? { amount: Number(inv.amount), base: Number(inv.base), terms: null } : { terms: null });
+    } else { show('orders'); }
   } else if (/[?&]payment=failed/.test(location.search)) { history.replaceState(null, '', location.pathname); show('orders'); toast('Payment was not completed. You can retry from My Orders.', true); }
   else refreshOrders();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOrders(); });

@@ -357,22 +357,25 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // Customer starts hosted checkout for an order they own. The total always comes from PostgreSQL.
   app.post('/api/shop/orders/:no/xendit-checkout', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      'SELECT order_id, order_no, total, paid_amount, terms_key, terms_amount, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
+      'SELECT order_id, order_no, total, paid_amount, payment_state, terms_key, terms_percent, terms_amount, terms_condition, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
       [req.params.no, req.user.id]);
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
     if (o.payment_method !== 'Xendit') throw bad('payment', 'This order was not placed with Xendit');
     if (['Cancelled', 'Returned'].includes(o.status)) throw bad('payment', 'This order is closed');
     if (Number(o.total) - Number(o.paid_amount || 0) < 0.01) throw bad('payment', 'This order has no remaining balance');
-    if (o.xendit_invoice_id) {
-      try {
-        const existing = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
-        if (existing.status === 'PENDING' && existing.invoice_url) return res.json({ checkoutUrl: existing.invoice_url });
-      } catch (_) { /* create a replacement invoice below if the previous one is unavailable */ }
-    }
     const money = app.locals.paymentTerms && app.locals.paymentTerms.orderMoney(o);
     const dueNow = money ? Number(money.dueNow) : Number(o.total);
     if (!Number.isFinite(dueNow) || dueNow <= 0) throw bad('payment', 'There is no initial payment due on this order');
+    const terms = moneyJson(o).terms || null;
+    if (o.xendit_invoice_id) {
+      try {
+        const existing = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
+        // re-use the open invoice only when it is still for the amount owed now (the terms or the balance may have changed)
+        if (existing.status === 'PENDING' && existing.invoice_url && Math.round(Number(existing.amount) * 100) === Math.round(dueNow * 100))
+          return res.json({ checkoutUrl: existing.invoice_url, amount: dueNow, terms });
+      } catch (_) { /* create a replacement invoice below if the previous one is unavailable */ }
+    }
     const externalId = `triplee-${o.order_no}-${o.order_id}-${Date.now()}`;
     const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
     if (!base) throw bad('config', 'Set APP_BASE_URL to the public HTTPS address of this application');
@@ -390,7 +393,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     });
     await pool.query('UPDATE orders SET xendit_invoice_id = $1, xendit_external_id = $2, payment_status = $3 WHERE order_id = $4',
       [invoice.id, externalId, 'pending', o.order_id]);
-    res.json({ checkoutUrl: invoice.invoice_url });
+    res.json({ checkoutUrl: invoice.invoice_url, amount: dueNow, terms });
   }));
 
   async function applyShopInvoice(o, event, invoiceId) {
@@ -449,8 +452,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await applyShopInvoice(o, invoice, o.xendit_invoice_id);
       } catch (err) { console.warn('[xendit] cashier payment verification:', err.message); }
     }
-    const current = await pool.query('SELECT status, payment_status FROM orders WHERE order_id = $1', [o.order_id]);
-    res.json({ status: current.rows[0].status, paymentStatus: current.rows[0].payment_status });
+    const current = await pool.query('SELECT * FROM orders WHERE order_id = $1', [o.order_id]);
+    res.json({ status: current.rows[0].status, paymentStatus: current.rows[0].payment_status, ...moneyJson(current.rows[0]) });
   }));
 
   app.post('/api/shop/orders/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
@@ -464,8 +467,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await applyShopInvoice(o, inv, o.xendit_invoice_id);
       } catch (e) { console.warn('[xendit] order payment check failed:', e.message); }
     }
-    const cur = await pool.query('SELECT status, payment_status FROM orders WHERE order_id = $1', [o.order_id]);
-    res.json({ status: cur.rows[0].status, paymentStatus: cur.rows[0].payment_status });
+    const cur = await pool.query('SELECT * FROM orders WHERE order_id = $1', [o.order_id]);
+    res.json({ status: cur.rows[0].status, paymentStatus: cur.rows[0].payment_status, ...moneyJson(cur.rows[0]) });
   }));
 
   // Xendit calls this endpoint directly. Never trust the browser redirect as payment proof.
@@ -1248,7 +1251,17 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // until this moment a customer can cancel and it is approved immediately
   const instantUntil = (o) => new Date(o.created_at).getTime() + CANCEL_AUTO_HOURS * 3600000;
 
+  // What the customer has paid and still owes. It comes from the payment ledger (paid_amount is kept by the database
+  // trigger), never from the browser. The shop page needs it to tell "waiting for payment" from "paid".
+  const moneyJson = (o) => {
+    const pt = app.locals.paymentTerms;
+    if (!pt) return {};
+    const m = pt.orderMoney(o), t = pt.orderTerms(o);
+    return { paymentState: m.state, paidAmount: m.paid, outstanding: m.balance, dueNow: m.dueNow,
+      terms: t ? { key: t.key, percent: t.percent, initial: t.initial, dueNow: t.dueNow, balance: t.balance, condition: t.condition } : null };
+  };
   const orderJson = (o, items, cancelPending, refund, dlv) => ({
+    ...moneyJson(o),
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
     shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
       barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
