@@ -357,7 +357,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // Customer starts hosted checkout for an order they own. The total always comes from PostgreSQL.
   app.post('/api/shop/orders/:no/xendit-checkout', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      'SELECT order_id, order_no, total, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
+      'SELECT order_id, order_no, total, paid_amount, terms_key, terms_amount, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
       [req.params.no, req.user.id]);
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
@@ -369,6 +369,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         if (existing.status === 'PENDING' && existing.invoice_url) return res.json({ checkoutUrl: existing.invoice_url });
       } catch (_) { /* create a replacement invoice below if the previous one is unavailable */ }
     }
+    const money = app.locals.paymentTerms && app.locals.paymentTerms.orderMoney(o);
+    const dueNow = money ? Number(money.dueNow) : Number(o.total);
+    if (!Number.isFinite(dueNow) || dueNow <= 0) throw bad('payment', 'There is no initial payment due on this order');
     const externalId = o.xendit_external_id || `triplee-${o.order_no}-${o.order_id}`;
     const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
     if (!base) throw bad('config', 'Set APP_BASE_URL to the public HTTPS address of this application');
@@ -376,9 +379,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       method: 'POST',
       body: {
         external_id: externalId,
-        amount: Number(o.total),
+        amount: dueNow,
         currency: 'PHP',
-        description: `Triple-E Metal Products order ${o.order_no}`,
+        description: `Triple-E Metal Products order ${o.order_no} — initial payment`,
         success_redirect_url: `${base}/Shop_Customer.html?payment=return`,
         failure_redirect_url: `${base}/Shop_Customer.html?payment=failed`,
         invoice_duration: 86400
@@ -390,14 +393,34 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   async function applyShopInvoice(o, event, invoiceId) {
-    if ((event.status === 'PAID' || event.status === 'SETTLED') && Number(event.paid_amount ?? event.amount) === Number(o.total) && o.payment_status !== 'paid' && o.status === 'Pending Confirmation') {
+    if ((event.status === 'PAID' || event.status === 'SETTLED') && o.status === 'Pending Confirmation') {
       let confirmed = false;
       await tx(async (client) => {
-        const locked = await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id]);
-        const current = locked.rows[0];
-        if (!current || current.payment_status === 'paid' || current.status !== 'Pending Confirmation') return;
-        await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, `Xendit invoice ${invoiceId} paid`);
-        await client.query("UPDATE orders SET payment_status = 'paid' WHERE order_id = $1", [current.order_id]);
+        const current = (await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id])).rows[0];
+        if (!current || current.status !== 'Pending Confirmation' || current.xendit_invoice_id !== invoiceId) return;
+        const payment = app.locals.paymentTerms;
+        if (!payment) throw new Error('Payment ledger is unavailable');
+        const money = payment.orderMoney(current);
+        const amount = Number(event.paid_amount ?? event.amount);
+        // Never mark paid from a browser redirect. Match the verified provider invoice to the expected initial due.
+        if (!Number.isFinite(amount) || Math.round(amount * 100) !== Math.round(Number(money.dueNow) * 100)) {
+          // An already-processed invoice is a legitimate replay, not a new payment.
+          const seen = await client.query('SELECT payment_id FROM payments WHERE provider_ref = $1', [invoiceId]);
+          if (seen.rowCount) return;
+          throw new Error('Xendit paid amount does not match the expected initial payment');
+        }
+        const result = await payment.applyPayment(client, {
+          kind: 'order', no: current.order_no, amount, method: 'Xendit',
+          providerRef: invoiceId, actor: { id: null, name: 'Xendit Webhook' }
+        });
+        if (result.replayed) return;
+        // The payment_state and paid_amount are maintained by the ledger trigger.
+        const fullyPaid = Math.round(Number(result.parent.balance) * 100) === 0;
+        await client.query('UPDATE orders SET payment_status = $2 WHERE order_id = $1',
+          [current.order_id, fullyPaid ? 'paid' : 'pending']);
+        // A deposit is not a fully paid order: do not release stock or advance fulfilment.
+        if (fullyPaid) await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' },
+          `Xendit invoice ${invoiceId} received ${amount}; balance ${result.parent.balance}`);
         confirmed = true;
       });
       if (confirmed) notify(o.order_no, 'Paid');
@@ -1370,7 +1393,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
         [req.user.id, fulfillment, ship ? ship.fullAddress + (ship.landmark ? ` (Landmark: ${ship.landmark})` : '') : null, phone, method, subtotal, fee, round2(subtotal + fee),
          ship && ship.recipient, ship && ship.addressLine, ship && ship.landmark || null, ship && ship.barangay, ship && ship.city, ship && ship.province, ship && ship.region, ship && ship.zip]);
-      const o = ins.rows[0];
+      let o = ins.rows[0];
+      // Terms must be selected and validated on the server, using the final database-priced total.
+      // Do this inside the order transaction so invalid terms cannot leave orphan orders.
+      if (app.locals.paymentTerms) {
+        const terms = await app.locals.paymentTerms.setOrderTerms(client, o,
+          { termKey: method === 'Xendit' ? (str(b.termKey) || 'full') : 'full' }, req.user);
+        o = Object.assign({}, o, terms);
+      }
       for (const i of items) await client.query(
         `INSERT INTO order_items (order_id, product_id, sku, name, unit, qty, price) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [o.order_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price]);

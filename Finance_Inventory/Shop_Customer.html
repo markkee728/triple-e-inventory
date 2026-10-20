@@ -21,6 +21,16 @@ a.nav-item{text-decoration:none}
 .help-line a{color:var(--blue-bright);font-weight:600;text-decoration:none}
 .pd-perks .more{display:block;margin-top:2px;color:var(--text-dim);font-size:12.5px}
 </style>
+<style id="payment-terms-checkout-style">
+#checkout .term-policy-tag{display:inline-block;margin-left:8px;padding:3px 9px;border:1px solid var(--border,#d8e0e8);border-radius:999px;font-size:11px;font-weight:600;color:var(--text-muted,#64748b);vertical-align:middle;letter-spacing:0;text-transform:none}
+#checkout .term-intro{margin:0 0 12px;font-size:13px;line-height:1.5;color:var(--text-muted,#64748b)}
+#checkout .term-option-list .opt{border-radius:12px;transition:border-color .15s,background .15s;align-items:flex-start}
+#checkout .term-option-list .opt strong{display:block;font-size:14px;margin-bottom:4px}
+#checkout .term-option-list .opt small{display:block;line-height:1.5}
+#checkout .term-option-list .opt:has(input:disabled){cursor:default}
+#checkout #termNote{margin-top:10px;line-height:1.5}
+#checkout #payPlan:not([hidden]){border-top:1px solid var(--border,#e2e8f0);padding-top:12px;margin-top:12px}
+</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -166,8 +176,9 @@ a.nav-item{text-decoration:none}
           </div>
           <div class="sec-title">Payment</div>
           <div class="opt-stack" id="payOpts"></div>
-          <div class="sec-title" id="termTitle" hidden>Payment option</div>
-          <div class="opt-stack" id="termOpts"></div>
+          <div class="sec-title" id="termTitle">Payment terms <span class="term-policy-tag">Finance-approved</span></div>
+          <p class="term-intro">Review how much is due and any remaining balance before placing your order.</p>
+          <div class="opt-stack term-option-list" id="termOpts" aria-live="polite"></div>
           <div class="fee-note" id="termNote" hidden></div>
           <div class="err-text" id="coErr" role="alert"></div>
         </div>
@@ -654,12 +665,19 @@ async function loadPaymentTerms(force) {
 const chosenTerm = () => { const t = (TERMS_OPTS || []).find(x => x.key === termKey); return t && t.key !== 'full' ? t : null; };
 function renderPaymentTerms() {
   const total = orderTotal(), online = ONLINE.includes(pay);
-  const opts = online && total > 0 ? (TERMS_OPTS || []) : [];
-  $('termTitle').hidden = !(opts.length > 1);
-  $('termOpts').innerHTML = opts.length > 1 ? opts.map(t => `<label class="opt ${t.key === termKey ? 'on' : ''}" data-term="${esc(t.key)}"><input type="radio" name="t" ${t.key === termKey ? 'checked' : ''}><span>${esc(t.label)}<small>${+t.percent >= 100 ? 'Pay the whole ' + peso(total) + ' before we release your order' : peso(t.dueNow) + ' now (' + t.percent + '%), balance ' + peso(t.balance) + ' \u00B7 ' + esc(t.balanceCondition || 'before your order is released')}</small></span></label>`).join('') : '';
+  const opts = total > 0 ? (TERMS_OPTS || []) : [];
+  // Never conceal the section: a single available term is still useful information.
+  $('termTitle').hidden = false;
+  const full = opts.find(t => t.key === 'full');
+  const offered = online ? opts : opts.filter(t => t.key === 'full');
+  const list = offered.length ? offered : [{ key: 'full', label: 'Full Payment', percent: 100, dueNow: total, balance: 0 }];
+  if (!list.some(t => t.key === termKey) && online) termKey = 'full';
+  const activeKey = online ? termKey : 'full';
+  $('termOpts').innerHTML = list.map(t => `<label class="opt ${t.key === activeKey ? 'on' : ''}" data-term="${esc(t.key)}"><input type="radio" name="t" ${t.key === activeKey ? 'checked' : ''} ${!online ? 'disabled' : ''}><span><strong>${esc(t.label)}</strong><small>${+t.percent >= 100 ? '100% · ' + peso(total) + ' total' : peso(t.dueNow) + ' due now (' + t.percent + '%) · ' + peso(t.balance) + ' remaining'}${t.balance > 0 ? ' · ' + esc(t.balanceCondition || 'Balance due before release') : ''}</small></span></label>`).join('');
   let note = '';
-  if (total > 0 && !online) note = 'Paying in cash when you ' + (fulfil === 'Delivery' ? 'receive the order' : 'collect it') + ' means the whole ' + peso(total) + ' is handed over at once, so part-payment does not apply.';
-  else if (total > 0 && online && TERMS_OPTS === null) note = 'Payment options could not be read right now, so this order is payable in full.';
+  if (!online) note = 'Cash on ' + (fulfil === 'Delivery' ? 'delivery' : 'pickup') + ': the full amount is collected when the order is handed over. To select an approved partial payment, choose an online payment method.';
+  else if (TERMS_OPTS === null) note = 'Could not load approved payment terms. Full payment is shown for reference; please retry before placing your order.';
+  else if (opts.length <= 1) note = 'Only Full Payment is currently available. Finance/Admin can enable Half Payment or Down Payment in Payment Terms settings.';
   const nb = $('termNote'); nb.hidden = !note; nb.textContent = note;
   renderPayPlan();
 }
@@ -1463,7 +1481,7 @@ document.addEventListener('click', e => {
   if (d.cat !== undefined && el.classList.contains('pill-btn')) { cat = d.cat; renderChips(); renderCatalog(); }
   if (d.f) { fulfil = d.f; renderCheckout(); e.preventDefault(); }
   if (d.pay) { pay = d.pay; renderCheckout(); e.preventDefault(); }
-  if (d.term) { termKey = d.term; renderPaymentTerms(); e.preventDefault(); }
+  if (d.term) { if (!ONLINE.includes(pay) || !(TERMS_OPTS || []).some(t => t.key === d.term)) return; termKey = d.term; renderPaymentTerms(); e.preventDefault(); }
   if (d.refund) {
     const o = orders.find(x => x.id === d.refund); if (!o) return; refundId = d.refund;
     $('refundFor').textContent = 'Order ' + o.id + ' · ' + peso(o.total);
