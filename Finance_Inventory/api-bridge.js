@@ -2335,6 +2335,7 @@
     setText('repSalesInPeriod', num(saleCount));
     setText('repSalesRevenue', money(saleRevenue));
     setText('repSalesProfit', money(saleProfit));
+    { const pe = $('repSalesProfit'); if (pe) pe.classList.toggle('is-loss', saleProfit < 0); }   // loss = red
     setText('repLowStockAlerts', num(low));
 
     drawDonut(inv);
@@ -2385,7 +2386,7 @@
         : '<tr><td colspan="10" class="report-note">' + (range.invalid ? 'Fix the date range above.' : 'No sales in this period. Voided, cancelled, unconfirmed and refunded sales are not counted.') + '</td></tr>';
     }
     if (slFoot) slFoot.innerHTML = sales.length ? '<tr class="report-foot-row"><td colspan="5">' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 ' + sales.length + ' line' + (sales.length === 1 ? '' : 's') +
-      ' \u00B7 product sales and payments on work still only quoted (a quotation that became an order is counted on that order, not again as its payments; delivery fees and profit are not tracked on custom quotes)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
+      ' \u00B7 product sales and payments on work still only quoted (a quotation that became an order is counted on that order, not again as its payments; delivery fees and profit are not tracked on custom quotes)</td><td>' + esc(money(saleRevenue)) + '</td><td class="' + (saleProfit < 0 ? 'qty-out' : '') + '">' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
 
     // cash shifts + collections for the same period (loaded on demand while Reports is open)
     renderCashPanel(range);

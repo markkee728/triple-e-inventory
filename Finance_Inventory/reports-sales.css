@@ -205,6 +205,8 @@
 #repStatCards .stat-value.stat-value-text { font-size: clamp(16px, 1.3cqw, 19px) !important; line-height: 1.25; white-space: normal; letter-spacing: 0; }
 #repStatCards .stat-sub { margin-top: 5px; font-size: 12px; }
 #repStatCards #repSalesProfit { color: var(--green); }
+#repStatCards #repSalesProfit.is-loss { color: var(--red); }   /* negative profit */
+.rs-table td.rs-loss, .rs-loss { color: var(--red); font-weight: 600; }
 #repStatCards .stat-card.stat-link .stat-go { right: 12px; top: 10px; bottom: auto; }
 @media (max-width: 560px) { #repStatCards .stat-card.stat-link { padding: 14px 14px 16px; gap: 12px; } #repStatCards .stat-label { letter-spacing: .9px; } }
 

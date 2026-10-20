@@ -1506,6 +1506,8 @@ require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 require('./cash-shifts')({ app, pool, auth, wrap, tx, audit, TZ });
+// Finance Reports API: sales overview, top products, low stock, inventory (reports.js + reports-core.js)
+require('./reports')({ app, pool, auth, wrap, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');

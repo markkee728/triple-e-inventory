@@ -57,6 +57,13 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
     res.json(await lowStockData(req));
   }));
 
+  app.get('/api/reports/inventory', auth('finance'), wrap(async (req, res) => {
+    const p = range(req, res); if (!p) return;
+    await ready;
+    res.set('Cache-Control', 'no-store');
+    res.json(await core.inventoryReport(q, core.PG, { ...p, dept: req.query.dept, type: req.query.type, group: req.query.group, q: req.query.q, page: req.query.page, pageSize: req.query.pageSize }));
+  }));
+
   /* ---------- CSV export ---------- */
   // Text cells that start with = + - @ could run as a formula in Excel, so they get a leading apostrophe.
   const cell = (v) => {
@@ -119,6 +126,27 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
         r.daysOfCover == null ? '' : r.daysOfCover, r.usedLast30Days, r.supplier || '', r.lastReceipt ? new Date(r.lastReceipt).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) : '', r.restockCost, r.notified ? 'Yes' : 'No'))
     ];
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="low-stock_${today}.csv"` });
+    res.send('\uFEFF' + out.join('\r\n') + '\r\n');
+  }));
+  app.get('/api/reports/inventory.csv', auth('finance'), wrap(async (req, res) => {
+    const p = range(req, res); if (!p) return;
+    await ready;
+    const base = { ...p, dept: req.query.dept, type: req.query.type, group: req.query.group, q: req.query.q, pageSize: 200 };
+    let d = await core.inventoryReport(q, core.PG, { ...base, page: 1 });
+    const rows = d.movements.rows.slice();
+    for (let pg = 2; pg <= d.movements.pages && pg <= 50; pg++) rows.push(...(await core.inventoryReport(q, core.PG, { ...base, page: pg })).movements.rows);
+    const out = [
+      line('Triple E - Inventory Report'), line('Period (Philippine time)', d.range.from, 'to', d.range.to), '',
+      line('Summary (values at cost)'), line('Stock in value', d.totals.inValue), line('Stock out value', d.totals.outValue), line('Movements', d.totals.movements), '',
+      line('Group', 'Direction', 'Movements', 'Value'),
+      ...d.groups.map((g) => line(g.group, g.type, g.movements, g.value)), '',
+      line('Department', 'In value', 'Out value', 'Movements'),
+      ...d.departments.map((x) => line(x.department, x.inValue, x.outValue, x.movements)), '',
+      line('Ref', 'Date', 'Direction', 'Group', 'Reason', 'SKU', 'Product', 'Quantity', 'Unit', 'Department', 'Value', 'Note', 'Handled by'),
+      ...rows.map((r) => line(r.ref, r.day, r.type, r.group, r.reason, r.sku, r.name, r.qty, r.unit, r.department, r.value, r.note, r.by))
+    ];
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store',
+      'Content-Disposition': `attachment; filename="inventory_${d.range.from}_to_${d.range.to}.csv"` });
     res.send('\uFEFF' + out.join('\r\n') + '\r\n');
   }));
 };
