@@ -154,6 +154,25 @@
 #page-quotes .qd-price .btn-primary{grid-column:1/-1}
 @media(max-width:560px){#page-quotes .qd-price{grid-template-columns:1fr}}
 
+/* payment terms: the options the backend policy allows for this item + total */
+#page-quotes .qd-terms{grid-column:1/-1;margin:2px 0 0;padding:11px 12px 9px;border:1px solid var(--border);border-radius:10px;background:var(--inset)}
+#page-quotes .qd-terms>legend{padding:0 6px;font-size:12.5px;font-weight:700;color:var(--text-dim)}
+#page-quotes .qd-terms>small.q-hint{display:block;margin-top:2px}
+#page-quotes .qd-term-list{display:grid;gap:8px;margin-bottom:6px}
+#page-quotes .qd-term-list .q-hint{margin:0}
+#page-quotes .qd-terms label.qd-term,#page-quotes .qd-terms-form label.qd-term{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;align-items:baseline;margin:0;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--card);cursor:pointer}
+#page-quotes .qd-term:hover{border-color:var(--blue-bright)}
+#page-quotes .qd-term input{width:16px;height:16px;margin:0;flex:none;accent-color:var(--blue-bright)}
+#page-quotes .qd-term-name{font-size:13.5px;font-weight:700;color:var(--text)}
+#page-quotes .qd-term-calc{grid-column:2;font-size:12.5px;color:var(--text-faint)}
+#page-quotes .qd-term-calc b{color:var(--text);font-family:"IBM Plex Mono",monospace}
+#page-quotes .qd-term-by{grid-column:2;font-size:11.5px;color:var(--text-faint)}
+#page-quotes .qd-term.partial{border-left:3px solid var(--amber)}
+#page-quotes .qd-term input:checked~.qd-term-name{color:var(--blue-bright)}
+#page-quotes .qd-bad{color:var(--red)}
+#page-quotes .qd-sec .qd-callout,#page-quotes .qd-sec>button{margin-top:10px}
+@media(max-width:560px){#page-quotes .qd-terms label.qd-term{grid-template-columns:auto 1fr}}
+
 /* ---------- walk-in form ---------- */
 #page-quotes .qd-form{max-width:1040px}
 #page-quotes .qd-fsec{padding:20px 0;border-top:1px solid var(--border)}

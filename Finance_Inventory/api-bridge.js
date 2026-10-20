@@ -1931,15 +1931,22 @@
         revenue: i.qty * i.price, profit: i.qty * (i.price - i.cost), customer: t.customer || '', method: t.method || '', handledBy: handler
       }));
     });
-    // custom quote orders: every payment received counts on the day it was received (profit is not tracked for custom work)
-    quotesCache.forEach((q) => (q.payments || []).forEach((p) => {
-      const day = saleDay(p.at);
-      if (day < range.from || day > range.to) return;
-      out.push({
-        ref: q.id, source: 'Quote', date: day, product: (q.product || 'Custom order') + ' \u2013 quote payment', qty: 1, unit: 'payment', price: +p.amount || 0,
-        revenue: +p.amount || 0, profit: null, customer: q.customer || '', method: p.method || '', handledBy: q.receivedBy || q.handledBy || 'Finance'
+    /* Custom work is quoted rather than sold off the shelf, so until it becomes an order the only thing the shop can
+       point at is the money received against it — one line per payment, all of them under the same quote reference.
+       Once that quotation has become an order and this report prints that order, the order line is the sale and the
+       payments stop: printing both would sell the same job twice (§10). */
+    const printed = new Set(out.map((r) => r.ref));
+    quotesCache.forEach((q) => {
+      if (q.convertedOrder && printed.has(q.convertedOrder)) return;
+      (q.payments || []).forEach((p) => {
+        const day = saleDay(p.at);
+        if (day < range.from || day > range.to) return;
+        out.push({
+          ref: q.id, source: 'Quote', date: day, product: (q.product || 'Custom order') + ' \u2013 quote payment', qty: 1, unit: 'payment', price: +p.amount || 0,
+          revenue: +p.amount || 0, profit: null, customer: q.customer || '', method: p.method || '', handledBy: q.receivedBy || q.handledBy || 'Finance'
+        });
       });
-    }));
+    });
     return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.ref < b.ref ? 1 : -1));
   }
   const srcLabel = (src) => (src === 'POS' ? 'POS walk-in' : src === 'Quote' ? 'Custom quote' : 'Online shop');
@@ -2031,6 +2038,146 @@
       '<h4 style="margin:18px 0 6px;font-size:14px">Cash drawer shifts</h4><div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening cash</th><th>Cash sales</th><th>Added / removed</th><th>Cash refunds</th><th>Expected</th><th>Counted</th><th>Difference</th></tr></thead><tbody>' +
       (shiftRows || '<tr><td colspan="10" class="report-note">No cash shifts in this period.</td></tr>') + '</tbody><tfoot>' +
       (d.shifts.length ? '<tr class="report-foot-row"><td colspan="7">' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + ' \u00B7 ' + t.needsReview + ' need review \u00B7 short ' + esc(money(Math.abs(t.shortage))) + ' \u00B7 over ' + esc(money(t.overage)) + '</td><td>' + esc(money(t.expectedCash)) + '</td><td>' + esc(money(t.countedCash)) + '</td><td>' + (Math.abs(net) < 0.005 ? 'Balanced' : (net < 0 ? 'Short ' : 'Over ') + esc(money(Math.abs(net)))) + '</td></tr>' : '') + '</tfoot></table></div>';
+  }
+
+  /* ---- §10 what was sold, what arrived and what is still owed, from /api/finance/payment-report ----
+     The three figures the payment spec keeps apart, and the server adds each one up: booked is what the orders raised
+     in the period are worth (one line per order, however many payments settle it), collected is the money events the
+     payment ledger confirmed, receivables is what is still owed right now. This panel prints them; it works out no
+     percentage and sums no amount of its own. The route answers 92 days at a time, so a longer period is asked in
+     pieces and the pieces are joined back — by day, which never overlaps.                                        */
+  const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+  const PILL = { unpaid: ['unpaid', 'Not paid'], partially_paid: ['low', 'Partly paid'], paid: ['in', 'Paid'],
+    refunded: ['out', 'Refunded'], partially_refunded: ['watch', 'Partly refunded'] };
+  const blankLedger = () => ({ from: '', to: '', ledgerReady: true, truncated: false,
+    booked: { count: 0, value: 0, collected: 0, inPeriod: 0, stillOwed: 0, rows: [] },
+    collections: { arrived: 0, refunded: 0, net: 0, drawer: 0, outside: 0, byDay: [], byMethod: [], byPurpose: [], byKind: [] },
+    receivables: { openOrders: 0, ordersOwed: 0, openQuotes: 0, quotesOwed: 0, allOwed: 0 } });
+  function mergeByKey(list, rows, key, fields) {
+    const map = new Map(list.map((x) => [x[key], x]));
+    (rows || []).forEach((r) => {
+      if (!map.has(r[key])) { list.push(r); map.set(r[key], r); return; }
+      const m = map.get(r[key]);
+      fields.forEach((f) => { m[f] = f === 'count' ? (m[f] || 0) + (r[f] || 0) : r2((m[f] || 0) + (r[f] || 0)); });
+    });
+    return list;
+  }
+  function joinLedger(into, d) {
+    const b = into.booked, c = into.collections;
+    // the route lists 500 orders at a time; a piece that came back full means the period is bigger than the report
+    if (d.booked.count >= 500) into.truncated = true;
+    b.count += d.booked.count;
+    ['value', 'collected', 'inPeriod', 'stillOwed'].forEach((k) => { b[k] = r2(b[k] + d.booked[k]); });
+    b.rows = b.rows.concat(d.booked.rows || []);
+    ['arrived', 'refunded', 'net', 'drawer', 'outside'].forEach((k) => { c[k] = r2(c[k] + d.collections[k]); });
+    c.byDay = c.byDay.concat(d.collections.byDay || []);
+    mergeByKey(c.byMethod, d.collections.byMethod, 'method', ['count', 'arrived', 'refunded', 'drawer', 'forOrders', 'forQuotes']);
+    mergeByKey(c.byPurpose, d.collections.byPurpose, 'purpose', ['count', 'amount']);
+    mergeByKey(c.byKind, d.collections.byKind, 'kind', ['arrived', 'refunded']);
+    // the open balances are a snapshot of right now, not a per-day figure, so the newest piece is the one to keep
+    if (d.receivables) into.receivables = d.receivables;
+    if (!into.from || d.from < into.from) into.from = d.from;
+    if (!into.to || d.to > into.to) into.to = d.to;
+  }
+  const ledgerRep = { key: '', at: 0, data: null, error: '', pending: null, pendingKey: '' };
+  async function fetchLedger(from, to) {
+    const out = blankLedger();
+    let start = from;
+    while (start <= to) {
+      let end = addDays(start, 89); if (end > to) end = to;
+      const d = await api('/finance/payment-report?from=' + start + '&to=' + end);
+      if (!d || !d.booked) { out.ledgerReady = false; break; }          // the ledger is not installed: never print zeros for it
+      joinLedger(out, d);
+      start = addDays(end, 1);
+    }
+    return out;
+  }
+  const ledgerKey = (range) => range.from + '|' + range.to;
+  const ledgerFor = (range) => (ledgerRep.data && ledgerRep.key === ledgerKey(range) ? ledgerRep.data : null);
+  function ensureLedger(range) {
+    if (range.invalid) return Promise.resolve();
+    const key = ledgerKey(range);
+    if (ledgerRep.key === key && ledgerRep.data && Date.now() - ledgerRep.at < 30000) return Promise.resolve();
+    if (ledgerRep.pending && ledgerRep.pendingKey === key) return ledgerRep.pending;
+    ledgerRep.pendingKey = key; ledgerRep.error = '';
+    ledgerRep.pending = fetchLedger(range.from, range.to)
+      .then((d) => { ledgerRep.key = key; ledgerRep.at = Date.now(); ledgerRep.data = d; })
+      .catch((e) => { if (e.message === 'Not signed in') return; ledgerRep.key = key; ledgerRep.at = Date.now(); ledgerRep.data = null; ledgerRep.error = e.message || 'Could not load'; })
+      .finally(() => { ledgerRep.pending = null; const cur = repRange(); if (ledgerKey(cur) === key) renderLedgerPanel(cur); });
+    renderLedgerPanel(range);
+    return ledgerRep.pending;
+  }
+  function ensureLedgerPanel() {
+    if ($('reportLedgerPanel')) return true;
+    const sales = $('reportSalesBody'), anchor = $('reportCashPanel') || (sales && sales.closest('.panel'));
+    if (!anchor) return false;
+    const div = document.createElement('div');
+    div.className = 'panel report-detail-panel'; div.id = 'reportLedgerPanel';
+    div.innerHTML = '<div class="panel-title">Sales, Collections &amp; Receivables</div>' +
+      '<div class="panel-sub report-period-sub" id="reportLedgerSub">Loading\u2026</div><div id="reportLedgerBody"></div>';
+    anchor.insertAdjacentElement('afterend', div);
+    return true;
+  }
+  const termsLabel = (x) => (x.termsKey === 'full' || x.termsKey == null ? 'Full payment'
+    : x.termsKey + (x.termsPercent == null ? '' : ' \u00B7 ' + x.termsPercent + '%'));
+  function renderLedgerPanel(range) {
+    if (!ensureLedgerPanel()) return;
+    const sub = $('reportLedgerSub'), box = $('reportLedgerBody');
+    if (range.invalid) { sub.textContent = 'Start date must be on or before the end date'; box.innerHTML = ''; return; }
+    const d = ledgerFor(range);
+    if (!d) {
+      sub.textContent = ledgerRep.error ? 'Could not load the payment ledger: ' + ledgerRep.error : range.label + ' \u00B7 loading\u2026';
+      box.innerHTML = ''; return;
+    }
+    if (d.ledgerReady === false) {
+      sub.textContent = 'The payment ledger is not in this database yet';
+      box.innerHTML = '<div class="report-note">Run <span class="mono">backend/db/020_payment_terms.sql</span> once, then reload. ' +
+        'Until it is there, money received against an order or a quotation is not recorded anywhere, so this report would be guessing.</div>';
+      return;
+    }
+    const b = d.booked, c = d.collections, rv = d.receivables;
+    const fig = (label, value, note) => '<tr><td>' + esc(label) + '</td><td class="mono">' + esc(money(value)) + '</td><td class="dim">' + esc(note) + '</td></tr>';
+    const methods = c.byMethod.map((x) => '<tr><td>' + esc(payLabel(x.method)) + '</td><td>' + num(x.count) + '</td>' +
+      '<td>' + esc(money(x.arrived)) + '</td><td class="dim">' + esc(money(x.drawer)) + '</td>' +
+      '<td class="dim">' + (x.refunded ? esc(money(x.refunded)) : '\u2014') + '</td>' +
+      '<td class="dim">' + esc(money(x.forOrders)) + '</td><td class="dim">' + esc(money(x.forQuotes)) + '</td></tr>').join('');
+    const days = c.byDay.slice(-14).reverse().map((x) => '<tr><td class="dim">' + esc(niceDate(x.day)) + '</td>' +
+      '<td>' + esc(money(x.arrived)) + '</td><td class="' + (x.refunded ? 'qty-out' : 'dim') + '">' + (x.refunded ? '\u2212' + esc(money(x.refunded)) : '\u2014') + '</td></tr>').join('');
+    const open = b.rows.slice().sort((a, x) => x.outstanding - a.outstanding).slice(0, 12).map((x) => {
+      const pill = PILL[x.paymentState] || ['unpaid', x.paymentState || 'Not paid'];
+      return '<tr><td class="mono">' + esc(x.no) + '</td><td class="dim">' + esc(niceDate(x.day)) + '</td><td class="dim">' + esc(x.customer) + '</td>' +
+        '<td class="dim">' + esc(termsLabel(x)) + '</td><td>' + esc(money(x.total)) + '</td><td class="dim">' + esc(money(x.paidAmount)) + '</td>' +
+        '<td class="' + (x.outstanding > 0.005 ? 'qty-out' : 'qty-in') + '">' + esc(money(x.outstanding)) + '</td>' +
+        '<td><span class="status-pill ' + pill[0] + '">' + esc(pill[1]) + '</span></td></tr>';
+    }).join('');
+    sub.textContent = range.label + ' \u00B7 booked ' + money(b.value) + ' on ' + b.count + ' order' + (b.count === 1 ? '' : 's') +
+      ' \u00B7 received ' + money(c.arrived) + ' \u00B7 still owed on them ' + money(b.stillOwed) +
+      ' \u00B7 owed across the shop ' + money(rv.allOwed);
+    box.innerHTML =
+      '<h4 style="margin:14px 0 6px;font-size:14px">What the period is worth</h4><div class="table-wrapper"><table><thead><tr><th>Figure</th><th>Amount</th><th>What it counts</th></tr></thead><tbody>' +
+      fig('Booked \u2014 orders raised in the period', b.value, b.count + ' order line' + (b.count === 1 ? '' : 's') + ', each once at its own total; a payment never adds to this') +
+      fig('Received on those orders during the period', b.inPeriod, 'the ledger rows dated in the period against them') +
+      fig('Still owed on those orders', b.stillOwed, 'order value less everything the ledger has confirmed on them') +
+      fig('Money received in the period, every channel', c.arrived, 'closes on other orders and on quotations that have not become an order yet') +
+      fig('Refunded back in the period', c.refunded, 'a payment Finance reversed, taken off what was received') +
+      fig('Net received in the period', c.net, 'received less refunded') +
+      fig('\u2026of which cash that went into a drawer', c.drawer, 'the only part the till count may use; the rest came in online') +
+      fig('Owed across the shop right now', rv.allOwed, rv.openOrders + ' order' + (rv.openOrders === 1 ? '' : 's') + ' and ' + rv.openQuotes +
+        ' accepted quotation' + (rv.openQuotes === 1 ? '' : 's') + ' not yet turned into one') +
+      '</tbody></table></div>' +
+      '<h4 style="margin:18px 0 6px;font-size:14px">Money received, by method</h4><div class="table-wrapper"><table><thead><tr><th>Method</th><th>Payments</th><th>Received</th><th>Cash in a drawer</th><th>Refunded back</th><th>On orders</th><th>On quotations</th></tr></thead><tbody>' +
+      (methods || '<tr><td colspan="7" class="report-note">No payment was confirmed on the ledger in this period.</td></tr>') +
+      '</tbody><tfoot>' + (methods ? '<tr class="report-foot-row"><td colspan="2">Received ' + esc(money(c.arrived)) + ' \u00B7 refunded back ' + esc(money(c.refunded)) + '</td>' +
+        '<td>' + esc(money(c.arrived)) + '</td><td>' + esc(money(c.drawer)) + '</td><td>' + esc(money(c.refunded)) + '</td>' +
+        '<td colspan="2"></td></tr>' : '') + '</tfoot></table></div>' +
+      '<h4 style="margin:18px 0 6px;font-size:14px">Money received, by day (latest 14)</h4><div class="table-wrapper"><table><thead><tr><th>Day</th><th>Received</th><th>Refunded back</th></tr></thead><tbody>' +
+      (days || '<tr><td colspan="3" class="report-note">Nothing came in on the ledger in this period.</td></tr>') + '</tbody></table></div>' +
+      '<h4 style="margin:18px 0 6px;font-size:14px">Balances still open on the orders booked here</h4><div class="table-wrapper"><table><thead><tr><th>Order</th><th>Raised</th><th>Customer</th><th>Terms</th><th>Order value</th><th>Received</th><th>Still owed</th><th>Payment</th></tr></thead><tbody>' +
+      (open || '<tr><td colspan="8" class="report-note">No order was raised in this period.</td></tr>') + '</tbody><tfoot>' +
+      (b.count ? '<tr class="report-foot-row"><td colspan="4">' + b.count + ' order' + (b.count === 1 ? '' : 's') + '</td><td>' + esc(money(b.value)) +
+        '</td><td>' + esc(money(b.collected)) + '</td><td>' + esc(money(b.stillOwed)) + '</td><td colspan="2"></td></tr>' : '') +
+      '</tfoot></table></div>' +
+      (d.truncated ? '<div class="report-note">This period holds more orders than the report lists, so both the list and the amounts above cover the first 500 the server returned.</div>' : '');
   }
 
   function repMovements(range) {
@@ -2208,11 +2355,13 @@
         : '<tr><td colspan="10" class="report-note">' + (range.invalid ? 'Fix the date range above.' : 'No sales in this period. Voided, cancelled, unconfirmed and refunded sales are not counted.') + '</td></tr>';
     }
     if (slFoot) slFoot.innerHTML = sales.length ? '<tr class="report-foot-row"><td colspan="5">' + saleCount + ' transaction' + (saleCount === 1 ? '' : 's') + ' \u00B7 ' + sales.length + ' line' + (sales.length === 1 ? '' : 's') +
-      ' \u00B7 product sales and quote payments received (delivery fees not included; profit is not tracked on custom quotes)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
+      ' \u00B7 product sales and payments on work still only quoted (a quotation that became an order is counted on that order, not again as its payments; delivery fees and profit are not tracked on custom quotes)</td><td>' + esc(money(saleRevenue)) + '</td><td>' + esc(money(saleProfit)) + '</td><td colspan="3"></td></tr>' : '';
 
     // cash shifts + collections for the same period (loaded on demand while Reports is open)
     renderCashPanel(range);
     if (reportsOpen()) ensureCash(range);
+    renderLedgerPanel(range);
+    if (reportsOpen()) ensureLedger(range);
   }
 
   /* ---- CSV export ---- */
@@ -2224,8 +2373,9 @@
   async function exportReportCsv() {
     const range = repRange();
     if (range.invalid) { toast('Fix the date range before exporting', 'error'); return; }
-    await ensureCash(range);
+    await Promise.all([ensureCash(range), ensureLedger(range)]);
     const cash = cashFor(range);
+    const ledger = ledgerFor(range);
     const moves = repMovements(range);
     const row = (arr) => arr.map((c) => (c && c.t !== undefined ? csvCell(c.t, true) : csvCell(c, false))).join(',');
     const T = (v) => ({ t: v });
@@ -2248,10 +2398,31 @@
       row(['Ref', 'Date', 'Product', 'Type', 'Reason', 'Quantity', 'Unit', 'Department', 'Handled by']));
     moves.forEach((m) => lines.push(row([T(m.ref), m.date, T(m.product), m.type === 'in' ? 'In' : 'Out', T(m.reason || ''),
       (m.type === 'in' ? '' : '-') + m.qty, T(m.unit), T(m.department), T(m.handledBy)])));
-    lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online + custom quote payments, excludes voided / cancelled / unconfirmed / refunded)')]),
+    lines.push('', row([T('SALES TRANSACTIONS IN PERIOD (POS + online + custom quote payments, excludes voided / cancelled / unconfirmed / refunded; a quotation that became an order shown above is counted on that order, not again as its payments)')]),
       row(['Sales ref', 'Source', 'Date', 'Product', 'Quantity', 'Unit', 'Unit price', 'Revenue', 'Profit', 'Customer', 'Payment', 'Handled by']));
     repSales(range).forEach((r) => lines.push(row([T(r.ref), T(srcLabel(r.source)), r.date, T(r.product), r.qty, T(r.unit || ''),
       r.price.toFixed(2), r.revenue.toFixed(2), r.profit == null ? '' : r.profit.toFixed(2), T(r.customer), T(payLabel(r.method)), T(r.handledBy)])));
+    if (ledger && ledger.ledgerReady !== false) {
+      const b = ledger.booked, c = ledger.collections, rv = ledger.receivables;
+      lines.push('', row([T('SALES, COLLECTIONS AND RECEIVABLES (from the payment ledger; an order is counted once at its own value however many payments settle it)')]),
+        row(['Figure', 'Amount', 'What it counts']),
+        row([T('Booked \u2014 orders raised in the period'), b.value.toFixed(2), T(b.count + ' order lines, each at its own total')]),
+        row([T('Received on those orders during the period'), b.inPeriod.toFixed(2), T('ledger payments dated in the period against them')]),
+        row([T('Still owed on those orders'), b.stillOwed.toFixed(2), T('order value less everything the ledger confirmed')]),
+        row([T('Money received in the period, every channel'), c.arrived.toFixed(2), T('including balances on quotations not yet turned into orders')]),
+        row([T('Refunded back in the period'), c.refunded.toFixed(2), T('a payment Finance reversed')]),
+        row([T('Net received in the period'), c.net.toFixed(2), T('received less refunded')]),
+        row([T('\u2026of which cash that went into a drawer'), c.drawer.toFixed(2), T('the only part the till count may use')]),
+        row([T('Owed across the shop right now'), rv.allOwed.toFixed(2), T(rv.openOrders + ' orders and ' + rv.openQuotes + ' accepted quotations not yet converted')]),
+        '', row([T('MONEY RECEIVED, BY METHOD')]),
+        row(['Method', 'Payments', 'Received', 'Cash in a drawer', 'Refunded back', 'On orders', 'On quotations']));
+      c.byMethod.forEach((x) => lines.push(row([T(payLabel(x.method)), x.count, x.arrived.toFixed(2), x.drawer.toFixed(2), x.refunded.toFixed(2), x.forOrders.toFixed(2), x.forQuotes.toFixed(2)])));
+      lines.push('', row([T('EVERY ORDER BOOKED IN THE PERIOD')]),
+        row(['Order', 'Raised', 'Customer', 'Terms', 'Order value', 'Received so far', 'Still owed', 'Payment state']));
+      b.rows.forEach((x) => lines.push(row([T(x.no), x.day, T(x.customer), T(termsLabel(x)), x.total.toFixed(2), x.paidAmount.toFixed(2), x.outstanding.toFixed(2), T(x.paymentState)])));
+    } else if (ledger) {
+      lines.push('', row([T('SALES, COLLECTIONS AND RECEIVABLES: not available \u2014 the payment ledger is not in this database (run backend/db/020_payment_terms.sql)')]));
+    }
     if (cash) {
       lines.push('', row([T('COLLECTIONS BY PAYMENT METHOD')]), row(['Channel', 'Method', 'Paid transactions', 'Collected (net)', 'Returned / refunded', 'Voided or cancelled', 'Awaiting payment']));
       cash.pos.forEach((x) => lines.push(row([T('POS walk-in'), T(payLabel(x.method)), x.count, (x.total - (x.returned || 0)).toFixed(2), (x.returned || 0).toFixed(2), x.voided || 0, ''])));

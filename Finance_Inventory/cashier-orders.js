@@ -38,8 +38,15 @@ const ACTION = {
 const statusLabel = (o) => (o.status === 'Paid' ? 'Confirmed' : o.status);
 const statusClass = (s) => (s === 'Pending Confirmation' ? 's-pending' : FINAL.includes(s) ? 's-done' : s === 'Cancelled' ? 's-off' : 's-active');
 const isCash = (o) => /^Cash on /.test(o.method || '');
+/* The money comes from the ledger (orders.paid_amount / payment_state), never from a checkout redirect or a typed
+   receipt number. §5: "Paid" only when the ledger says the balance is zero. */
+const STATE_LABEL = { unpaid: 'Unpaid', partially_paid: 'Partially paid', paid: 'Paid', refunded: 'Refunded', partially_refunded: 'Partially refunded' };
+const dueOf = (o) => Number(o.outstanding != null ? o.outstanding : Math.max(0, Number(o.total || 0) - Number(o.paidAmount || 0)));
+const paidOf = (o) => Number(o.paidAmount || 0);
 function payLabel(o) {
-  if (o.paymentStatus === 'paid') return 'Paid';
+  if (o.paymentState === 'paid') return 'Paid';
+  if (o.paymentState === 'partially_paid') return 'Partially paid \u00B7 ' + peso(dueOf(o)) + ' due';
+  if (o.paymentState === 'partially_refunded' || o.paymentState === 'refunded') return STATE_LABEL[o.paymentState];
   if (isCash(o)) return o.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at counter';
   if (o.paymentStatus === 'expired') return 'Payment expired';
   return 'Awaiting payment';
@@ -84,13 +91,26 @@ function flagsFor(o) {
   const out = [];
   if (o.cancelRequested) out.push('<div class="co-flag bad">The customer asked to cancel this order. Finance must approve or reject it before it can move.</div>');
   else if (o.awaitingPayment) out.push('<div class="co-flag">Waiting for the customer\u2019s online payment (' + esc(o.method) + '). It cannot be confirmed until it is paid.</div>');
-  else if (o.cashOnHandover) out.push(`<div class="co-flag">Collect <b>${peso(o.total)}</b> in cash when the order is ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.</div>`);
+  else if (o.cashOnHandover) out.push(`<div class="co-flag">Collect <b>${peso(dueOf(o))}</b> in cash when the order is ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.${paidOf(o) ? ' ' + peso(paidOf(o)) + ' is already recorded against it.' : ''}</div>`);
+  if (o.creditException) out.push(`<div class="co-flag">Finance granted a credit exception: ${peso(dueOf(o))} may stay outstanding. ${esc(o.creditException.note)}</div>`);
   return out.join('');
+}
+function moneyFoot(o) {
+  if (!isOpen(o)) return `<div class="co-total">${peso(o.total)}<span class="co-due">${esc(o.method)}</span></div>`;
+  const due = dueOf(o);
+  return `<div class="co-total">${peso(o.total)}<span class="co-due">${due > 0 ? peso(due) + ' still due' : 'fully paid'}${paidOf(o) && due > 0 ? ' \u00B7 ' + peso(paidOf(o)) + ' in' : ''}</span></div>`;
 }
 function actionButton(o) {
   if (!o.next || o.cancelRequested) return '';
   if (o.next === 'Paid' && o.awaitingPayment && o.method === 'Xendit') return `<button type="button" class="btn-primary" data-check="${esc(o.id)}">Check payment</button>`;
   return `<button type="button" class="btn-primary" data-act="${esc(o.id)}">${esc(ACTION[o.next] || 'Next step')}</button>`;
+}
+/* §4: money is collected against the order from the ledger, separately from moving the order along.
+   A released order with an approved balance still takes its balance payments here. */
+function payButton(o) {
+  if (['Cancelled', 'Returned'].includes(o.status) || o.cancelRequested) return '';
+  if (o.awaitingPayment || dueOf(o) <= 0 || o.paymentState === 'refunded') return '';
+  return `<button type="button" class="btn-secondary" data-pay="${esc(o.id)}">Collect payment</button>`;
 }
 function render() {
   renderTabs();
@@ -100,13 +120,13 @@ function render() {
     return `<article class="co-card${o.status === 'Pending Confirmation' || o.cashOnHandover ? ' attn' : ''}">
       <div class="co-card-head">
         <div><div class="co-no">${esc(o.id)}</div><div class="co-who">${esc(o.customer)} \u00B7 ${esc(o.phone || o.customerPhone || '')} \u00B7 ${esc(ago(o.createdAt))}</div></div>
-        <div class="co-pills"><span class="co-pill ${statusClass(o.status)}">${esc(statusLabel(o))}</span><span class="co-pill">${esc(o.fulfillment)}</span><span class="co-pill ${o.paymentStatus === 'paid' ? 's-done' : ''}">${esc(payLabel(o))}</span></div>
+        <div class="co-pills"><span class="co-pill ${statusClass(o.status)}">${esc(statusLabel(o))}</span><span class="co-pill">${esc(o.fulfillment)}</span><span class="co-pill ${o.paymentState === 'paid' ? 's-done' : o.paymentState === 'partially_paid' ? 's-active' : ''}">${esc(payLabel(o))}</span></div>
       </div>
       <div class="co-items">${items || 'No items'}</div>
       ${flagsFor(o)}
       <div class="co-foot">
-        <div class="co-total">${peso(o.total)}<span class="co-due">${esc(o.method)}</span></div>
-        <div class="co-btns"><button type="button" class="btn-secondary" data-detail="${esc(o.id)}">Details</button>${actionButton(o)}</div>
+        ${moneyFoot(o)}
+        <div class="co-btns"><button type="button" class="btn-secondary" data-detail="${esc(o.id)}">Details</button>${payButton(o)}${actionButton(o)}</div>
       </div></article>`;
   }).join('') : `<div class="co-empty">${orders.length ? 'No orders match this view.' : 'No online orders yet.'}</div>`;
 }
@@ -126,7 +146,7 @@ const byId = (id) => orders.find((x) => String(x.id) === String(id));
 /* ---------- modal plumbing ---------- */
 function openModal(el) { opener = document.activeElement; el.hidden = false; document.body.style.overflow = 'hidden'; const f = el.querySelector('input:not([type=checkbox]),select,textarea,button.btn-primary,button'); if (f) setTimeout(() => f.focus(), 30); }
 function closeModal(el) { el.hidden = true; el.innerHTML = ''; if ($('coDetail').hidden && $('coAction').hidden) document.body.style.overflow = ''; if (opener && document.contains(opener)) opener.focus(); }
-function closeAction() { chosen = null; target = ''; closeModal($('coAction')); }
+function closeAction() { chosen = null; target = ''; payFor = null; payDraft = null; closeModal($('coAction')); }
 document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('coAction').hidden) closeAction(); else if (!$('coDetail').hidden) closeModal($('coDetail')); });
 ['coDetail', 'coAction'].forEach((id) => $(id).addEventListener('mousedown', (e) => { if (e.target === $(id)) (id === 'coAction' ? closeAction() : closeModal($(id))); }));
 
@@ -139,7 +159,9 @@ function detailHtml(o) {
     : '<p>Store pickup \u2014 the customer brings the order number and a valid ID.</p>';
   const dl = o.delivery || {};
   const dInfo = [dl.trackingNo && 'Tracking no. ' + esc(dl.trackingNo), dl.dispatchedAt && 'Out for delivery ' + esc(when(dl.dispatchedAt)), dl.deliveredAt && 'Delivered ' + esc(when(dl.deliveredAt)), o.receivedBy && 'Received by ' + esc(o.receivedBy), dl.customerReceivedAt && 'Customer confirmed receipt ' + esc(when(dl.customerReceivedAt))].filter(Boolean).join('<br>');
-  const pay = [esc(o.method), o.paymentStatus === 'paid' ? 'Paid' + (o.paidAt ? ' \u00B7 ' + esc(when(o.paidAt)) : '') : 'Not paid yet', o.paymentRef && 'Ref. ' + esc(o.paymentRef), o.cashTendered != null && 'Cash received ' + peso(o.cashTendered) + ' \u00B7 change ' + peso(o.cashChange || 0)].filter(Boolean).join('<br>');
+  const pay = [esc(o.method), STATE_LABEL[o.paymentState] || 'Unpaid', 'Total ' + peso(o.total) + ' \u00B7 in ' + peso(paidOf(o)) + ' \u00B7 outstanding ' + peso(dueOf(o)),
+    o.terms ? (o.terms.key === 'full' ? 'Full Payment' : (o.terms.percent != null ? o.terms.percent + '% initial (' + peso(o.terms.amount) + ')' : peso(o.terms.amount) + ' initial') + ' \u2014 ' + esc(o.terms.condition || '')) : '',
+    o.paymentRef && 'Online ref. ' + esc(o.paymentRef), o.cashTendered != null && 'Cash received ' + peso(o.cashTendered) + ' \u00B7 change ' + peso(o.cashChange || 0)].filter(Boolean).join('<br>');
   const hist = (o.history || []).map((h) => `<li><b>${esc(h.to === 'Paid' ? 'Confirmed' : h.to)}</b>${h.note ? ' \u2014 ' + esc(h.note) : ''}<small>${esc(when(h.at))} \u00B7 ${esc(h.by)}</small></li>`).join('');
   return `<div class="co-sheet wide">
     <div class="co-card-head"><div><h2 id="coDetailTitle">${esc(o.id)}</h2><div class="co-sub">${esc(o.customer)} \u00B7 placed ${esc(when(o.createdAt))}</div></div>
@@ -153,11 +175,28 @@ function detailHtml(o) {
     </div>
     <table class="co-table"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${lines}</tbody>
       <tfoot>${o.deliveryFee ? `<tr><td colspan="3" class="r">Subtotal</td><td class="r">${peso(o.subtotal)}</td></tr><tr><td colspan="3" class="r">Delivery fee</td><td class="r">${peso(o.deliveryFee)}</td></tr>` : ''}<tr><td colspan="3" class="r">Total</td><td class="r">${peso(o.total)}</td></tr></tfoot></table>
+    <h3 class="faint" style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:12px">Payments received</h3>
+    <div id="coLedger" class="co-sub" aria-live="polite">Loading\u2026</div>
     <h3 class="faint" style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:12px">History</h3>
     <ul class="co-line">${hist || '<li>No history yet.</li>'}</ul>
-    <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${actionButton(o)}</div></div>`;
+    <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${payButton(o)}${actionButton(o)}</div></div>`;
 }
-function openDetail(o) { $('coDetail').innerHTML = detailHtml(o); openModal($('coDetail')); }
+function openDetail(o) {
+  $('coDetail').innerHTML = detailHtml(o); openModal($('coDetail'));
+  /* §4: the counter reads total / received / outstanding from one place — the ledger, not this page's arithmetic. */
+  request('/pos/payment-ledger/order/' + encodeURIComponent(o.id))
+    .then((l) => { const box = $('coLedger'); if (box) box.innerHTML = ledgerHtml(l); })
+    .catch(() => { const box = $('coLedger'); if (box) box.innerHTML = '<p class="faint">The payment ledger could not be read.</p>'; });
+}
+function ledgerHtml(l) {
+  const rows = (l.payments || []).map((p) => `<tr><td>${esc(when(p.at))}</td><td>${esc(p.receivedBy || 'System')}</td><td>${esc(p.method)}</td>
+    <td>${esc(p.purpose)}${p.providerRef ? ' \u00B7 ' + esc(p.providerRef) : ''}${p.note ? '<br><small class="faint">' + esc(p.note) + '</small>' : ''}</td>
+    <td class="r">${p.direction === 'out' ? '\u2212' : ''}${peso(p.amount)}</td></tr>`).join('');
+  return `<table class="co-table"><thead><tr><th>When</th><th>By</th><th>Method</th><th>What</th><th class="r">Amount</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="5" class="faint">Nothing has been paid on this order yet.</td></tr>'}</tbody>
+    <tfoot><tr><td colspan="4" class="r">Total ${peso(l.total)} \u00B7 ${STATE_LABEL[l.paymentState] || 'Unpaid'}</td><td class="r">${peso(l.paidAmount)}</td></tr>
+      <tr><td colspan="4" class="r">Outstanding balance</td><td class="r">${peso(l.outstanding)}</td></tr></tfoot></table>`;
+}
 
 function printSlip(o) {
   const rows = (o.items || []).map((i) => `<tr><td>${esc(i.name)}</td><td style="text-align:right">${esc(i.qty)} ${esc(i.unit || '')}</td><td style="text-align:right">${peso(i.qty * i.price)}</td></tr>`).join('');
@@ -166,12 +205,175 @@ function printSlip(o) {
     <div><b>${esc(o.id)}</b> \u00B7 ${esc(when(o.createdAt))}</div><div>Customer: ${esc(o.customer)} ${esc(o.phone || '')}</div>
     ${o.fulfillment === 'Delivery' ? `<div>Deliver to: ${esc(o.recipient || o.customer)}, ${esc(o.address || '')}</div>` : ''}
     <table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-    <div><b>Total ${peso(o.total)}</b> \u00B7 ${esc(o.method)} \u00B7 ${o.paymentStatus === 'paid' ? 'PAID' : 'TO COLLECT'}</div>
+    <div><b>Total ${peso(o.total)}</b> \u00B7 ${esc(o.method)} \u00B7 ${o.paymentState === 'paid' ? 'PAID' : 'TO COLLECT ' + peso(dueOf(o))}</div>
     ${o.cashTendered != null ? `<div>Cash received ${peso(o.cashTendered)} \u00B7 change ${peso(o.cashChange || 0)}</div>` : ''}
     <div class="sig">Received by (signature over printed name)</div></body></html>`;
+  printFrame(html, o.id);
+}
+
+/* One shared printer path: the slip and the payment receipt are both built as a document string and sent to a
+   hidden iframe, so the browser print dialog is the only thing the page opens. */
+function printFrame(html, label) {
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
   const d = f.contentWindow.document; d.open(); d.write(html); d.close();
-  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { say('Could not open the print dialog.', true); } setTimeout(() => f.remove(), 1500); }, 250);
+  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { say('Could not open the print dialog for ' + label + '.', true); } setTimeout(() => f.remove(), 1500); }, 250);
+}
+
+/* ---------- collecting a payment (§4), reviewed before anything is written (§7) ----------
+   The amounts on this sheet come from the ledger (total / already paid / outstanding), never from what the page
+   assumes. One requestId is generated per payment attempt and re-used on every send, so a double click or a retry
+   after a timeout adds one ledger row, not two.                                       */
+const ONLINE_PAY = ['GCash', 'Maya', 'Bank transfer', 'Card', 'Credit / debit card', 'Xendit'];
+let payFor = null, payDraft = null, payReceipt = null, payReq = '';
+
+const moneyBox = (o) => `<div class="co-box co-grid" style="margin:0">
+    <div><h3>Order total</h3><div class="big">${peso(o.total)}</div></div>
+    <div><h3>Already paid</h3><div class="big">${peso(paidOf(o))}</div></div>
+    <div><h3>Outstanding</h3><div class="big">${peso(dueOf(o))}</div></div></div>`;
+const termsLine = (o) => (o.terms && o.terms.key !== 'full'
+  ? `${esc(o.terms.key === 'custom' ? 'Custom partial payment' : o.terms.key === 'half' ? 'Half Payment' : 'Down Payment')} \u2014 ${peso(o.terms.amount)} (${o.terms.percent}%) now, ${esc(o.terms.condition || 'balance due before release')}`
+  : 'Full Payment \u2014 the whole amount before the goods are released');
+
+async function openPay(o) {
+  payFor = o; payDraft = null; payReceipt = null; shiftOpen = null;
+  payReq = 'pos-' + String(o.id).replace(/[^A-Za-z0-9]/g, '') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  const due = Number(o.dueNow != null ? o.dueNow : dueOf(o));
+  const bills = [...new Set([due, Math.ceil(due / 100) * 100, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000])].filter((x) => x >= due).slice(0, 4);
+  const quick = bills.map((b) => `<button type="button" class="btn-secondary" data-cash="${b.toFixed(2)}">${peso(b)}</button>`).join('');
+  const other = dueOf(o) !== due ? `<button type="button" class="btn-secondary" data-amt="${dueOf(o).toFixed(2)}">Full balance ${peso(dueOf(o))}</button>` : '';
+  const fields = fld('amount', 'Amount being paid', `<input id="co_amount" inputmode="decimal" autocomplete="off" value="${due.toFixed(2)}" maxlength="12">`,
+      `Outstanding ${peso(dueOf(o))}. Quick amounts: <button type="button" class="btn-secondary" data-amt="${due.toFixed(2)}">${peso(due)}</button> ${other}`)
+    + fld('method', 'Received as', `<select id="co_method">${['Cash'].concat(ONLINE_PAY).map((m) => `<option${m === (isCash(o) ? 'Cash' : o.method)}>${esc(m)}</option>`).join('')}</select>`)
+    + `<div id="coRefBox" hidden>${fld('reference', 'Provider reference no.', '<input id="co_reference" maxlength="40" autocomplete="off" placeholder="e.g. GCASH-7788 or the bank statement no.">')}</div>`
+    + `<div id="coCashBox" hidden>${fld('tendered', 'Cash handed over', '<input id="co_tendered" inputmode="decimal" autocomplete="off" placeholder="0.00">')}
+        <div class="co-quick">${quick}</div><div class="co-change" id="coChange" aria-live="polite"></div><div id="coShiftWarn"></div></div>`
+    + fld('note', 'Note (optional)', '<textarea id="co_note" rows="2" maxlength="200"></textarea>');
+  $('coAction').innerHTML = `<form class="co-sheet" id="coPayForm" novalidate>
+    <h2 id="coActionTitle">Collect a payment</h2><div class="co-sub">${esc(o.id)} \u00B7 ${esc(o.customer)} \u00B7 ${esc(o.method)}</div>
+    ${moneyBox(o)}<p class="faint">${termsLine(o)}</p>${fields}
+    <p class="co-err" id="coActErr" role="alert"></p>
+    <div class="co-actions"><button type="button" class="btn-secondary" id="coCancel">Cancel</button><button type="submit" class="btn-primary" id="coSubmit">Review payment</button></div></form>`;
+  openModal($('coAction'));
+  syncPayMethod();
+  try { shiftOpen = !!(await request('/pos/cash-shifts/current')); } catch { shiftOpen = null; }
+  syncShiftWarn();
+}
+function syncPayMethod() {
+  const m = $('co_method') ? $('co_method').value : 'Cash';
+  $('coRefBox').hidden = m === 'Cash';
+  $('coCashBox').hidden = m !== 'Cash';
+  syncShiftWarn();
+}
+function syncShiftWarn() {
+  const warn = $('coShiftWarn'); if (!warn) return;
+  const cash = $('co_method') && $('co_method').value === 'Cash';
+  warn.innerHTML = cash && shiftOpen === false
+    ? '<div class="co-flag bad" style="margin-top:10px">You have no open Cash Shift, so this cash cannot reach a drawer. <button type="button" class="btn-secondary" id="coGoShift" style="margin-top:6px">Open Cash Shift</button></div>' : '';
+}
+function updatePayChange() {
+  const box = $('coChange'); if (!box || !payFor) return;
+  const amt = parseMoney($('co_amount').value), v = parseMoney($('co_tendered').value);
+  if (v === null || amt === null) { box.innerHTML = ''; return; }
+  box.innerHTML = v + 1e-9 >= amt ? `Change to give: <b>${peso(Math.round((v - amt) * 100) / 100)}</b>` : `<span style="color:var(--red)">Short by <b>${peso(Math.round((amt - v) * 100) / 100)}</b></span>`;
+}
+function collectPay() {                        // entry step: validate and hold the draft for the review screen
+  const o = payFor, body = {}; let ok = true; clearErrs();
+  const bad = (n, m) => { setErr(n, m); ok = false; };
+  const val = (id) => ($('co_' + id) ? $('co_' + id).value.trim() : '');
+  const amt = parseMoney(val('amount'));
+  if (amt === null) bad('amount', 'Enter the amount, e.g. 1500 or 1500.50');
+  else if (amt <= 0) bad('amount', 'The amount must be more than zero');
+  else if (amt > dueOf(o) + 0.001) bad('amount', `Only ${peso(dueOf(o))} is outstanding on this order`);
+  else body.amount = amt.toFixed(2);
+  const method = val('method'); if (!method) bad('method', 'Choose how the money was received');
+  body.method = method; body.requestId = payReq;
+  if (method !== 'Cash') { const r = val('reference'); if (!REF_RE.test(r)) bad('reference', 'Enter the reference from the app, receipt or statement (4\u201340 characters)'); body.reference = r; }
+  else { const t = parseMoney(val('tendered'));
+    if (t === null) bad('tendered', 'Enter the cash handed over');
+    else if (amt !== null && t + 1e-9 < amt) bad('tendered', 'That is less than the amount being paid (' + peso(amt) + ')');
+    else if (t > amt + 100000) bad('tendered', 'That is far above the amount. Check the cash');
+    else body.tendered = t.toFixed(2);
+    if (shiftOpen === false) { setErr('tendered', 'Open your Cash Shift first'); ok = false; }
+  }
+  const note = val('note'); if (note.length > 200) bad('note', 'The note must be 200 characters or fewer'); body.note = note;
+  return ok ? body : null;
+}
+function reviewPay(d) {                        // §7: the figures are read back before the ledger is touched
+  const o = payFor, after = Math.round((dueOf(o) - Number(d.amount)) * 100) / 100;
+  const cash = d.method === 'Cash';
+  $('coAction').innerHTML = `<form class="co-sheet" id="coPayForm" novalidate>
+    <h2 id="coActionTitle">Confirm this payment</h2><div class="co-sub">Check it against the money in front of you before recording it</div>
+    <table class="co-table"><tbody>
+      <tr><td>Customer</td><td class="r">${esc(o.customer)}</td></tr>
+      <tr><td>Order reference</td><td class="r">${esc(o.id)}</td></tr>
+      <tr><td>Order total</td><td class="r">${peso(o.total)}</td></tr>
+      <tr><td>Payment terms</td><td class="r">${termsLine(o)}</td></tr>
+      <tr><td>Previously paid</td><td class="r">${peso(paidOf(o))}</td></tr>
+      <tr><td><b>Amount being collected</b></td><td class="r"><b>${peso(d.amount)}</b> as ${esc(d.method)}</td></tr>
+      ${cash ? `<tr><td>Cash handed over \u00B7 change</td><td class="r">${peso(d.tendered)} \u00B7 <b>${peso(Math.round((Number(d.tendered) - Number(d.amount)) * 100) / 100)}</b></td></tr>`
+             : `<tr><td>Provider reference</td><td class="r">${esc(d.reference)}</td></tr>`}
+      <tr><td><b>Balance after this payment</b></td><td class="r"><b>${peso(after)}</b>${after <= 0.001 ? ' \u2014 the order can be released' : ''}</td></tr>
+    </tbody></table>
+    <p class="faint">Recording this adds one payment to the order ledger${cash ? ' and goes into your open Cash Shift' : ' and is reconciled against the provider, not the drawer'}. It does not change the delivery status.</p>
+    <p class="co-err" id="coActErr" role="alert"></p>
+    <div class="co-actions"><button type="button" class="btn-secondary" id="coPayBack">Back</button><button type="submit" class="btn-primary" id="coSubmit">Confirm payment</button></div></form>`;
+  $('coSubmit').focus();
+}
+function receiptSheet(r, o) {
+  payReceipt = Object.assign({}, r, { order: o });
+  $('coAction').innerHTML = `<div class="co-sheet">
+    <h2 id="coActionTitle">Payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 ${esc(o.customer)} \u00B7 receipt ${esc(r.receiptNo)}</div>
+    <div class="co-box"><div class="faint">${esc(r.method)} \u00B7 ${r.purpose === 'initial' ? 'initial payment' : 'balance payment'}</div>
+      <div class="big">${peso(r.amount)}</div>
+      ${r.change != null ? `<div class="co-change">Give change: <b>${peso(r.change)}</b> (received ${peso(r.tendered)})</div>` : ''}
+      <div class="faint">Total ${peso(r.total)} \u00B7 now in ${peso(r.paidAmount)} \u00B7 outstanding ${peso(r.balance)}</div></div>
+    ${r.replayed ? '<div class="co-flag">This is the same payment sent a moment ago, so it was recorded once.</div>' : ''}
+    <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(r.paymentId)}">Print receipt</button>
+      <button type="button" class="btn-secondary" id="coPayAgain">Another payment</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
+}
+async function submitPay() {
+  if (busy || !payFor) return;
+  const o = payFor;
+  if (!payDraft) { payDraft = collectPay(); if (!payDraft) { const f = document.querySelector('#coAction .co-fld.bad input,#coAction .co-fld.bad select'); if (f) f.focus(); return; } reviewPay(payDraft); return; }
+  const btn = $('coSubmit'); busy = true; btn.disabled = true; btn.textContent = 'Saving\u2026';
+  const back = $('coPayBack'); if (back) back.disabled = true;
+  try {
+    const r = await request('/pos/orders/' + encodeURIComponent(o.id) + '/payment', { method: 'POST', body: JSON.stringify(payDraft) });
+    await load(true);
+    const fresh = byId(o.id) || o;
+    receiptSheet(Object.assign({ total: fresh.total, paidAmount: paidOf(fresh), balance: dueOf(fresh) }, r), fresh);
+    payDraft = null;
+    message('', false); say('Payment of ' + peso(r.amount) + ' recorded on ' + o.id + '.');
+  } catch (err) {
+    const names = Object.keys(err.fields || {});
+    if (names.length) names.forEach((n) => setErr(n, err.fields[n]));
+    $('coActErr').textContent = err.message;
+    if (btn.isConnected) { btn.disabled = false; btn.textContent = 'Confirm payment'; if ($('coPayBack')) $('coPayBack').disabled = false; }
+    await load(true);                                          // the balance may have moved somewhere else: show the truth
+    const fresh = byId(o.id);
+    if (fresh && (dueOf(fresh) !== dueOf(o) || fresh.paymentState !== o.paymentState)) { payDraft = null; openPay(fresh); message(o.id + ': the balance changed to ' + peso(dueOf(fresh)) + ' while you were working.', true); }
+  } finally { busy = false; }
+}
+
+/* ---------- print a payment receipt ---------- */
+function printPaymentReceipt(r) {
+  if (!r) { say('That receipt is no longer on the screen. Print it from the order details.', true); return; }
+  const o = r.order || {};
+  const html = `<!doctype html><html><head><title>${esc(r.receiptNo || 'receipt')}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
+    <h1>Triple E Metal Products \u2014 official receipt</h1>
+    <div><b>${esc(r.receiptNo || '')}</b> \u00B7 ${esc(when(Date.now()))}</div>
+    <div>Order: ${esc(o.id || '')} \u00B7 Customer: ${esc(o.customer || '')}</div>
+    <table><tbody>
+      <tr><td>Order total</td><td style="text-align:right">${peso(r.total != null ? r.total : o.total)}</td></tr>
+      <tr><td>Payment received (${esc(r.method || '')})</td><td style="text-align:right">${peso(r.amount)}</td></tr>
+      ${r.tendered != null ? `<tr><td>Cash handed over</td><td style="text-align:right">${peso(r.tendered)}</td></tr><tr><td>Change given</td><td style="text-align:right">${peso(r.change || 0)}</td></tr>` : ''}
+      ${r.providerRef ? `<tr><td>Provider reference</td><td style="text-align:right">${esc(r.providerRef)}</td></tr>` : ''}
+      <tr><td>Total now paid</td><td style="text-align:right">${peso(r.paidAmount)}</td></tr>
+      <tr><td><b>Balance still outstanding</b></td><td style="text-align:right"><b>${peso(r.balance)}</b></td></tr>
+    </tbody></table>
+    <div>This receipt is for one payment on the order. It is not proof that the order is fully paid \u2014 check the balance above.</div>
+    <div class="sig">Cashier signature</div></body></html>`;
+  printFrame(html, r.receiptNo || 'the receipt');
 }
 
 /* ---------- action dialog ---------- */
@@ -188,9 +390,10 @@ function actionBody(o, t) {
   const handover = FINAL.includes(t);
   let h = '';
   if (t === 'Paid') {
-    if (o.paymentStatus === 'paid') h += `<p>Online payment received (${esc(o.method)}). Confirming reserves the stock for this order.</p>`;
-    else if (isCash(o)) h += `<p>Accepting this order reserves the stock now. <b>${peso(o.total)}</b> is collected in cash when the customer ${o.fulfillment === 'Delivery' ? 'receives' : 'picks up'} it.</p>`;
-    else h += `<p>Check that the money really arrived in the bank / e-wallet, then enter the reference number from the statement.</p>` + fld('paymentRef', 'Payment reference no.', '<input id="co_paymentRef" maxlength="40" autocomplete="off" placeholder="e.g. GCASH 1234567890">');
+    if (o.paymentState === 'paid') h += `<p>Payment is complete in the ledger (${peso(paidOf(o))} on ${peso(o.total)}). Confirming reserves the stock for this order.</p>`;
+    else if (isCash(o)) h += `<p>Accepting this order reserves the stock now. <b>${peso(dueOf(o))}</b> is collected in cash when the customer ${o.fulfillment === 'Delivery' ? 'receives' : 'picks up'} it.</p>`;
+    else h += `<p>Check that the money really arrived in the bank / e-wallet, then enter the reference number from the statement. The server records what actually arrived, so this does not mark anything paid by itself.</p>` + fld('paymentRef', 'Payment reference no.', '<input id="co_paymentRef" maxlength="40" autocomplete="off" placeholder="e.g. GCASH 1234567890">');
+    if (o.terms && o.terms.key !== 'full' && o.paymentState !== 'paid') h += `<div class="co-flag">This order is on a partial payment option: ${peso(o.terms.amount)} (${o.terms.percent}%) now, ${peso(dueOf(o))} later \u2014 ${esc(o.terms.condition)}.</div>`;
   } else if (t === 'Packed') {
     h += `<p>Count the items against the order.</p><ul style="margin:6px 0 0 18px">${(o.items || []).map((i) => `<li>${esc(i.qty)} ${esc(i.unit || '')} \u00D7 ${esc(i.name)}</li>`).join('')}</ul>`
       + '<label class="co-check"><input type="checkbox" id="co_checked"> I checked the items and quantities</label><div class="co-fld" data-fld="checked" style="margin:0"><span class="co-err" data-err="checked" role="alert"></span></div>';
@@ -204,8 +407,8 @@ function actionBody(o, t) {
       + `<div id="coRepBox" hidden>${fld('relationship', 'Relationship / authorisation', '<input id="co_relationship" maxlength="60" autocomplete="off" placeholder="e.g. Driver of the company, spouse, with authorisation letter">')}</div>`;
     if (t === 'Picked Up') h += `<div class="co-grid" style="margin:0">${fld('pickupIdType', 'ID presented', `<select id="co_pickupIdType"><option value="">Choose ID type</option>${ID_TYPES.map((x) => `<option>${esc(x)}</option>`).join('')}</select>`)}${fld('pickupIdLast4', 'Last 4 characters of the ID', '<input id="co_pickupIdLast4" maxlength="4" autocomplete="off" placeholder="Last 4 only">')}</div><p class="faint">Check the original ID in person. Never photograph or write down the full ID number.</p>`;
     if (o.cashOnHandover) {
-      const due = Number(o.total), bills = [...new Set([due, Math.ceil(due / 100) * 100, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000])].filter((x) => x >= due).slice(0, 4);
-      h += `<div class="co-box"><div class="faint">Amount to collect</div><div class="big">${peso(due)}</div>
+      const due = dueOf(o), bills = [...new Set([due, Math.ceil(due / 100) * 100, Math.ceil(due / 500) * 500, Math.ceil(due / 1000) * 1000])].filter((x) => x >= due).slice(0, 4);
+      h += `<div class="co-box"><div class="faint">Outstanding balance to collect${paidOf(o) ? ' (of ' + peso(o.total) + ', ' + peso(paidOf(o)) + ' already in)' : ''}</div><div class="big">${peso(due)}</div>
         ${fld('cashReceived', 'Cash received', '<input id="co_cashReceived" inputmode="decimal" autocomplete="off" placeholder="0.00">')}
         <div class="co-quick">${bills.map((b, i) => `<button type="button" class="btn-secondary" data-cash="${b}">${i === 0 ? 'Exact ' : ''}${peso(b)}</button>`).join('')}</div>
         <div class="co-change" id="coChange" aria-live="polite"></div><div id="coShiftWarn"></div></div>`;
@@ -231,7 +434,7 @@ async function openAction(o) {
 }
 function updateChange() {
   const box = $('coChange'); if (!box || !chosen) return;
-  const v = parseMoney($('co_cashReceived').value), due = Number(chosen.total);
+  const v = parseMoney($('co_cashReceived').value), due = dueOf(chosen);
   if (v === null) { box.innerHTML = ''; return; }
   box.innerHTML = v + 1e-9 >= due ? `Change to give: <b>${peso(Math.round((v - due) * 100) / 100)}</b>` : `<span style="color:var(--red)">Short by <b>${peso(Math.round((due - v) * 100) / 100)}</b></span>`;
 }
@@ -242,7 +445,7 @@ function collect() {                    // reads + validates the form; returns t
   const val = (id) => ($('co_' + id) ? $('co_' + id).value.trim() : '');
   const note = val('note'); if (note.length > 200) bad('note', 'The note must be 200 characters or fewer'); body.note = note;
   if (t === 'Paid') {
-    if (o.paymentStatus !== 'paid' && !isCash(o)) { const r = val('paymentRef'); if (!REF_RE.test(r)) bad('paymentRef', 'Enter the reference number (4\u201340 letters and numbers)'); body.paymentRef = r; }
+    if (o.paymentState !== 'paid' && !isCash(o)) { const r = val('paymentRef'); if (!REF_RE.test(r)) bad('paymentRef', 'Enter the reference number (4\u201340 letters and numbers)'); body.paymentRef = r; }
   } else {
     body.status = t;
     if (t === 'Packed' && !$('co_checked').checked) bad('checked', 'Tick the box once you have counted the items');
@@ -258,10 +461,10 @@ function collect() {                    // reads + validates the form; returns t
         body.pickupIdType = type; body.pickupIdLast4 = last4;
       }
       if (o.cashOnHandover) {
-        const cash = parseMoney(val('cashReceived'));
+        const cash = parseMoney(val('cashReceived')), due = dueOf(o);
         if (cash === null) bad('cashReceived', 'Enter the cash received, e.g. 1500 or 1500.50');
-        else if (cash + 1e-9 < Number(o.total)) bad('cashReceived', 'Less than the amount due (' + peso(o.total) + ')');
-        else if (cash > Number(o.total) + 100000) bad('cashReceived', 'That is far above the total. Check the amount');
+        else if (cash + 1e-9 < due) bad('cashReceived', 'Less than the outstanding balance (' + peso(due) + ')');
+        else if (cash > due + 100000) bad('cashReceived', 'That is far above the balance. Check the amount');
         else body.cashReceived = cash;
         if (shiftOpen === false) { $('coActErr').textContent = 'Open your Cash Shift first.'; ok = false; }
       }
@@ -276,10 +479,13 @@ async function submit(e) {
   try {
     const res = await request('/orders/' + encodeURIComponent(o.id) + (t === 'Paid' ? '/confirm' : '/status'), { method: 'POST', body: JSON.stringify(body) });
     await load(true);
-    if (res && res.change != null && body.cashReceived != null) {           // cash handover: show the change the cashier must give back
-      $('coAction').innerHTML = `<div class="co-sheet"><h2 id="coActionTitle">${esc(t === 'Delivered' ? 'Delivered' : 'Released')} \u2014 payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 added to your Cash Shift</div>
-        <div class="co-box"><div class="faint">Cash received ${peso(body.cashReceived)} \u00B7 total ${peso(o.total)}</div><div class="co-change" style="font-size:16px">Give change: <b style="font-size:26px">${peso(res.change)}</b></div></div>
-        <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
+    if (res && res.receiptNo) {                                   // cash handover: the ledger row this move just created
+      $('coAction').innerHTML = `<div class="co-sheet"><h2 id="coActionTitle">${esc(t === 'Delivered' ? 'Delivered' : 'Released')} \u2014 payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 receipt ${esc(res.receiptNo)} \u00B7 in your Cash Shift</div>
+        <div class="co-box"><div class="faint">Cash received ${peso(res.tendered)} \u00B7 applied to the order ${peso(res.amount)}</div>
+          <div class="co-change" style="font-size:16px">Give change: <b style="font-size:26px">${peso(res.change)}</b></div>
+          <div class="faint">Order total ${peso(o.total)} \u00B7 now in ${peso(res.paidAmount)} \u00B7 outstanding ${peso(res.balance)}</div></div>
+        <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(res.paymentId)}">Print receipt</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
+      payReceipt = Object.assign({ order: o }, res);
       render(); return;
     }
     closeAction(); message('', false); say(o.id + ': ' + (t === 'Paid' ? 'order confirmed' : t === 'Picked Up' ? 'released to the customer' : t === 'Delivered' ? 'marked delivered' : 'marked ' + t.toLowerCase()) + '.');
@@ -307,23 +513,30 @@ async function checkPayment(id, btn) {
 $('coTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = b.dataset.tab; render(); } });
 document.addEventListener('click', (e) => {
   const t = e.target; if (!t.closest) return;
-  const detail = t.closest('[data-detail]'), act = t.closest('[data-act]'), chk = t.closest('[data-check]'), slip = t.closest('[data-slip]'), cash = t.closest('[data-cash]');
+  const detail = t.closest('[data-detail]'), act = t.closest('[data-act]'), chk = t.closest('[data-check]'), slip = t.closest('[data-slip]'), cash = t.closest('[data-cash]'), pay = t.closest('[data-pay]'), amt = t.closest('[data-amt]');
   if (detail && $('coList').contains(detail)) { const o = byId(detail.dataset.detail); if (o) openDetail(o); }
   else if (act && (act.closest('#coList') || act.closest('#coDetail'))) { const o = byId(act.dataset.act); if (o) { closeModal($('coDetail')); openAction(o); } }
+  else if (pay && (pay.closest('#coList') || pay.closest('#coDetail'))) { const o = byId(pay.dataset.pay); if (o) { closeModal($('coDetail')); openPay(o); } }
   else if (chk && (chk.closest('#coList') || chk.closest('#coDetail'))) checkPayment(chk.dataset.check, chk);
   else if (slip) { const o = byId(slip.dataset.slip); if (o) printSlip(o); }
-  else if (cash && $('coAction').contains(cash)) { $('co_cashReceived').value = cash.dataset.cash; updateChange(); }
+  else if (t.closest('[data-payreceipt]')) printPaymentReceipt(payReceipt);
+  else if (cash && $('coAction').contains(cash)) { const f = $('co_cashReceived') || $('co_tendered'); if (f) { f.value = cash.dataset.cash; ($('co_cashReceived') ? updateChange : updatePayChange)(); } }
+  else if (amt && $('coAction').contains(amt)) { $('co_amount').value = amt.dataset.amt; setErr('amount', ''); updatePayChange(); }
   else if (t.closest('[data-close-detail]')) closeModal($('coDetail'));
+  else if (t.id === 'coPayBack') { const d = payDraft; openPay(payFor); if (d) { ['amount', 'method', 'reference', 'tendered', 'note'].forEach((k) => { if ($('co_' + k) && d[k] != null) $('co_' + k).value = d[k]; }); syncPayMethod(); } }
+  else if (t.id === 'coPayAgain') { const fresh = byId(payFor && payFor.id) || payFor; if (fresh) openPay(fresh); }
   else if (t.id === 'coCancel') closeAction();
   else if (t.id === 'coDone') closeAction();
   else if (t.id === 'coGoShift') { closeAction(); if (typeof showPage === 'function') showPage('shift'); }
 });
-$('coAction').addEventListener('submit', (e) => { if (e.target.id === 'coForm') submit(e); });
+$('coAction').addEventListener('submit', (e) => { if (e.target.id === 'coForm') submit(e); else if (e.target.id === 'coPayForm') { e.preventDefault(); submitPay(); } });
 $('coAction').addEventListener('input', (e) => {
   if (e.target.id === 'co_cashReceived') updateChange();
+  if (e.target.id === 'co_amount' || e.target.id === 'co_tendered') updatePayChange();
   const f = e.target.closest && e.target.closest('.co-fld'); if (f && f.dataset.fld) setErr(f.dataset.fld, '');
 });
 $('coAction').addEventListener('change', (e) => {
+  if (e.target.id === 'co_method') { syncPayMethod(); return; }
   if (e.target.id !== 'co_rep' || !chosen) return;                         // "someone else is collecting": the name must be typed fresh
   $('coRepBox').hidden = !e.target.checked;
   const n = $('co_receivedBy'); n.value = e.target.checked ? '' : (chosen.fulfillment === 'Delivery' ? (chosen.recipient || chosen.customer) : chosen.customer);

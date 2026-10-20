@@ -1470,6 +1470,8 @@ require('./phone-otp')({ app, pool, wrap, tx, audit, str, phoneVerificationOn: P
 // one-time codes for FORGOT password (email or text, the person chooses) and CHANGE password (password-otp.js)
 require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, str, EMAIL_RE });
 /* ---------- POS + online shop (finished goods only) ---------- */
+// payment-terms owns the ledger, so it mounts first: pos-shop / shop-extras / quote-desk reach it through app.locals.paymentTerms
+require('./payment-terms')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });

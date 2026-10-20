@@ -31,6 +31,8 @@ const EVENTS = {
       : 'We have your order. If you have not paid yet, open My Orders and choose “Continue Online Payment”. We start preparing your order once payment is confirmed.' },
   Paid:             { subject: (o) => `Order ${o.order_no} confirmed`, head: 'Your order is confirmed',
     msg: () => 'Your order is confirmed and your items are reserved. We will start packing it next.' },
+  'Partially Paid': { subject: (o) => `We received your payment for order ${o.order_no}`, head: 'Your payment was received',
+    msg: (o, d) => `Thank you — we recorded ${peso(d.paid)} on order ${o.order_no}. ${peso(d.balance)} is still outstanding: ${d.condition || 'the balance is due before the goods are released'}.` },
   Packed:           { subject: (o) => `Order ${o.order_no} is packed`, head: 'Your order is packed',
     msg: (o) => o.fulfillment === 'Delivery' ? 'Your items are packed and waiting for the delivery run.' : 'Your items are packed. We will let you know as soon as they are ready for pickup.' },
   'Out for Delivery': { subject: (o) => `Order ${o.order_no} is out for delivery`, head: 'Your order is on its way',

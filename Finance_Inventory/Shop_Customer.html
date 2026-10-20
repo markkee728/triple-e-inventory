@@ -165,6 +165,9 @@ a.nav-item{text-decoration:none}
           </div>
           <div class="sec-title">Payment</div>
           <div class="opt-stack" id="payOpts"></div>
+          <div class="sec-title" id="termTitle" hidden>Payment option</div>
+          <div class="opt-stack" id="termOpts"></div>
+          <div class="fee-note" id="termNote" hidden></div>
           <div class="err-text" id="coErr" role="alert"></div>
         </div>
         <aside class="card sum-card sticky-side"><h3>Order summary</h3><div id="sumLines"></div><div class="sum-ship" id="sumShip" hidden></div>
@@ -172,6 +175,11 @@ a.nav-item{text-decoration:none}
           <div class="row"><span class="dim">Delivery</span><span class="mono" id="s2"></span></div>
           <div class="fee-note" id="s2note" hidden></div>
           <div class="row total"><span>Total</span><span class="mono" id="s3"></span></div>
+          <div id="payPlan" hidden>
+            <div class="row"><span class="dim" id="ppNowLabel">Pay now</span><span class="mono" id="ppNow"></span></div>
+            <div class="row" id="ppBalRow"><span class="dim">Balance later</span><span class="mono" id="ppBal"></span></div>
+            <div class="fee-note" id="ppCond" hidden></div>
+          </div>
           <div id="shipBlockBox" class="fulfil-note" hidden style="margin-top:14px"><b>We can't deliver there yet.</b> You can ask us for a delivery quote, or collect your order in store.
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button type="button" class="btn-primary btn-sm" id="sbQuote">Request a delivery quote</button><button type="button" class="btn-secondary btn-sm" id="sbPickup">Switch to Pickup</button></div></div>
           <button class="btn-primary btn-lg" id="place" style="margin-top:14px">Place order</button>
@@ -374,7 +382,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=6"></script>
-<script src="quote-fields.js?v=2"></script>
+<script src="quote-fields.js?v=4"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -417,6 +425,8 @@ const orderRequestId = () => pendingOrderRequestId ||= (window.crypto && crypto.
 async function submitOrder(o) {            // server re-prices from the database; stock is deducted when Finance confirms the order
   return api('/api/shop/orders', { method: 'POST', body: JSON.stringify({
     requestId: orderRequestId(), items: o.items.map(i => ({ sku: i.sku, qty: i.qty })), fulfillment: o.fulfillment, phone: o.phone, method: o.method,
+    // only the option key is sent — the server decides whether it is offered for this order and works out the amounts
+    termKey: o.termKey,
     shipTo: o.shipTo, saveAddress: o.saveAddress, addressLabel: o.addressLabel, makeDefault: o.makeDefault }) });
 }
 let INFO = {}, REFUND_DAYS = 7;
@@ -610,6 +620,52 @@ function renderCheckout() {
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
   $('s1').textContent = peso(subtotal()); renderFeeRow(); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
   syncBlock();
+  renderPaymentTerms(); loadPaymentTerms();
+}
+
+/* ----- payment options (§3) -----
+   Which options exist, and how much each one asks for now, is decided by the server from the policy Finance
+   configured for this total. The page only ever sends back the option key it was offered — never an amount. */
+let TERMS_OPTS = null, termKey = 'full', termSeq = 0, termLoadedFor = null;
+const orderTotal = () => Math.round((subtotal() + fee()) * 100) / 100;
+async function loadPaymentTerms(force) {
+  const total = orderTotal();
+  if (!(total > 0) || (fulfil === 'Delivery' && shipBlock)) { TERMS_OPTS = null; termLoadedFor = null; renderPaymentTerms(); return; }
+  if (!force && TERMS_OPTS && termLoadedFor === total) { renderPaymentTerms(); return; }
+  const seq = ++termSeq;
+  let list = null;
+  try {
+    const r = await api('/api/shop/payment-terms?total=' + encodeURIComponent(total));
+    list = Array.isArray(r && r.options) ? r.options : [];
+  } catch (e) { list = null; }
+  if (seq !== termSeq) return;                                   // a newer total is already on its way
+  TERMS_OPTS = list; termLoadedFor = list ? total : null;
+  if (!list || !list.some(t => t.key === termKey)) termKey = 'full';
+  renderPaymentTerms();
+}
+const chosenTerm = () => { const t = (TERMS_OPTS || []).find(x => x.key === termKey); return t && t.key !== 'full' ? t : null; };
+function renderPaymentTerms() {
+  const total = orderTotal(), online = ONLINE.includes(pay);
+  const opts = online && total > 0 ? (TERMS_OPTS || []) : [];
+  $('termTitle').hidden = !(opts.length > 1);
+  $('termOpts').innerHTML = opts.length > 1 ? opts.map(t => `<label class="opt ${t.key === termKey ? 'on' : ''}" data-term="${esc(t.key)}"><input type="radio" name="t" ${t.key === termKey ? 'checked' : ''}><span>${esc(t.label)}<small>${+t.percent >= 100 ? 'Pay the whole ' + peso(total) + ' before we release your order' : peso(t.dueNow) + ' now (' + t.percent + '%), balance ' + peso(t.balance) + ' \u00B7 ' + esc(t.balanceCondition || 'before your order is released')}</small></span></label>`).join('') : '';
+  let note = '';
+  if (total > 0 && !online) note = 'Paying in cash when you ' + (fulfil === 'Delivery' ? 'receive the order' : 'collect it') + ' means the whole ' + peso(total) + ' is handed over at once, so part-payment does not apply.';
+  else if (total > 0 && online && TERMS_OPTS === null) note = 'Payment options could not be read right now, so this order is payable in full.';
+  const nb = $('termNote'); nb.hidden = !note; nb.textContent = note;
+  renderPayPlan();
+}
+function renderPayPlan() {
+  const total = orderTotal(), t = chosenTerm(), box = $('payPlan');
+  if (!(total > 0) || view !== 'checkout') { box.hidden = true; $('place').textContent = 'Place order'; return; }
+  const online = ONLINE.includes(pay), due = t ? t.dueNow : total, bal = t ? t.balance : 0;
+  box.hidden = false;
+  $('ppNowLabel').textContent = online ? (t ? t.percent + '% initial payment' : 'Pay now') : (fulfil === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
+  $('ppNow').textContent = peso(due);
+  $('ppBalRow').hidden = !(bal > 0); $('ppBal').textContent = peso(bal);
+  const cond = $('ppCond'); cond.hidden = !(bal > 0);
+  if (bal > 0) cond.textContent = 'The ' + peso(bal) + ' balance is ' + ((t && t.balanceCondition) || 'due before your order is released') + '.';
+  $('place').textContent = online && bal > 0 ? 'Place order \u00B7 pay ' + peso(due) + ' now' : 'Place order';
 }
 /* Delivery line of the order summary: the amount, plus a note saying which rate applies and whether it changed when the address changed. */
 let feeShown = null, feeShownRate = '';      // last fee the customer saw for an address (to tell them when it changes)
@@ -661,6 +717,7 @@ function renderTotals() {
   renderFeeRow();
   $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
   syncBlock();
+  loadPaymentTerms();   // the total moved with the delivery fee, so the options and the amount due now move with it
 }
 // Delivery not possible to the chosen address: block Place order and offer a quote / pickup instead. Also resets when the customer switches to Pickup.
 function syncBlock() {
@@ -688,28 +745,34 @@ function renderHelpLines() {
   });
 }
 /* ----- online payment window: shows the QR inside checkout, confirms by itself, then shows the receipt ----- */
-let payPoll = null, payOrderId = null;
+let payPoll = null, payOrderId = null, payInvoice = null;
 const stopPayPoll = () => { clearInterval(payPoll); payPoll = null; };
 async function checkPay() {
   if (!payOrderId) return;
   try {
     const r = await api('/api/shop/orders/' + encodeURIComponent(payOrderId) + '/verify-payment', { method: 'POST', body: '{}' });
-    if (r.paymentStatus === 'paid') { stopPayPoll(); await showPaid(); }
+    // an invoice for an initial payment is finished when that money lands — the order is then partly paid, not paid
+    const settled = r.paymentStatus === 'paid' || Number(r.outstanding || 0) <= 0 ||
+      (payInvoice != null && Number(r.paidAmount || 0) + 0.005 >= payInvoice.amount);
+    if (settled) { stopPayPoll(); await showPaid(r); }
     else if (r.paymentStatus === 'expired') { stopPayPoll(); $('payState').textContent = 'This payment link expired. Close this and tap “Continue Online Payment” in My Orders for a new one.'; }
   } catch (e) {}
 }
-async function showPaid() {
+async function showPaid(led) {
   const id = payOrderId;
   try { orders = await loadOrders(); } catch (e) {}
   const o = orders.find(x => x.id === id); if (!o) return;
+  if (led) { o.paymentState = led.paymentState || o.paymentState; o.paidAmount = led.paidAmount; o.outstanding = led.outstanding; o.dueNow = led.dueNow; }
   receiptShown.add(id);
   closePay(); renderOrders(); syncCounts();
   openReceipt(id, true);                       // payment confirmed: show the receipt straight away
 }
-function closePay() { stopPayPoll(); payOrderId = null; closeModal('payBg'); }
-function openPayModal(order, url) {
+function closePay() { stopPayPoll(); payOrderId = null; payInvoice = null; closeModal('payBg'); }
+function openPayModal(order, url, payment) {
   payOrderId = order.id; stopPayPoll();
-  $('payTitle').textContent = 'Complete your payment'; $('payFor').textContent = 'Order ' + order.id + ' · ' + peso(order.total);
+  payInvoice = payment && payment.amount != null ? { amount: Number(payment.amount), terms: payment.terms || null } : null;
+  $('payTitle').textContent = 'Complete your payment';
+  $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + ' due now' + (payInvoice.terms && payInvoice.terms.balance > 0 ? ' · balance ' + peso(payInvoice.terms.balance) + ' later' : '') : peso(order.total));
   $('payWait').hidden = false; $('payDone').hidden = true; $('payQR').replaceChildren();
   if (url) {
     $('payLink').href = url; $('payLink').hidden = false; $('payHint').hidden = false; $('payState').textContent = 'Waiting for your payment…';
@@ -771,7 +834,10 @@ const RCPT_CSS = `
 @media(max-width:420px){.rcpt-meta{grid-template-columns:1fr}.rcpt-head,.rcpt-meta,.rcpt-items{padding-left:16px;padding-right:16px}.rcpt-tot{margin-left:16px;margin-right:16px}}
 `;
 (function () { const st = document.createElement('style'); st.textContent = RCPT_CSS; document.head.appendChild(st); })();
-const isPaidOrder = o => o.paymentStatus === 'paid' || !['Pending Confirmation', 'Cancelled'].includes(o.status);
+// §5: the payment state comes from the ledger. Only orders placed before the ledger existed fall back to the old guess.
+const isPaidOrder = o => o.paymentState ? o.paymentState === 'paid'
+  : (o.paymentStatus === 'paid' || !['Pending Confirmation', 'Cancelled'].includes(o.status));
+const PAY_PILL = { unpaid: 'UNPAID', partially_paid: 'PARTLY PAID', paid: 'PAID', refunded: 'REFUNDED', partially_refunded: 'PARTLY REFUNDED' };
 function receiptHtml(o) {
   const i = INFO || {}, paid = isPaidOrder(o);
   const when = new Date(o.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
@@ -782,7 +848,7 @@ function receiptHtml(o) {
     <div class="rcpt-head">
       <div class="rcpt-brand">Triple E Metal Products</div>
       ${contact ? `<div class="rcpt-contact">${contact}</div>` : ''}
-      <div class="rcpt-titlerow"><span class="rcpt-title">Order receipt</span><span class="rcpt-pill${paid ? '' : ' wait'}">${paid ? 'PAID' : 'UNPAID'}</span></div>
+      <div class="rcpt-titlerow"><span class="rcpt-title">Order receipt</span><span class="rcpt-pill${paid ? '' : ' wait'}">${PAY_PILL[o.paymentState] || (paid ? 'PAID' : 'UNPAID')}</span></div>
     </div>
     <div class="rcpt-meta">
       <div><small>Order no.</small><span class="mono">${esc(o.id)}</span></div>
@@ -796,14 +862,20 @@ function receiptHtml(o) {
     <div class="rcpt-tot">
       <div><span>Subtotal</span><span>${peso(o.subtotal)}</span></div>
       ${o.deliveryFee ? `<div><span>Delivery fee</span><span>${peso(o.deliveryFee)}</span></div>` : ''}
+      ${o.paymentState && !paid && Number(o.paidAmount) > 0 ? `<div><span>Received so far</span><span>${peso(o.paidAmount)}</span></div>` : ''}
       <div class="grand"><span>${paid ? 'Total paid' : 'Total due'}</span><span>${peso(o.total)}</span></div>
+      ${o.paymentState && Number(o.outstanding) > 0 ? `<div><span>Balance still to pay</span><span>${peso(o.outstanding)}</span></div>` : ''}
     </div>
     <div class="rcpt-foot"><b>Thank you for shopping with us!</b>Keep this receipt for your records.</div>
   </div>`;
 }
 function openReceipt(id, justPaid) {
   const o = orders.find(x => x.id === id); if (!o) return;
-  const banner = justPaid ? `<div class="rcpt-ok"><div class="rc">${IC_CHECK}</div><div><b>Payment successful</b><span>We received your payment of ${peso(o.total)}. Your order is confirmed.</span></div></div>` : '';
+  // the banner repeats the ledger, never the fact that a payment page was completed: a down payment is not a paid order
+  const part = o.paymentState && !isPaidOrder(o);
+  const banner = justPaid ? `<div class="rcpt-ok"><div class="rc">${IC_CHECK}</div><div><b>Payment ${part ? 'received' : 'successful'}</b><span>${part
+      ? peso(o.paidAmount || 0) + ' of ' + peso(o.total) + ' is with us. ' + peso(o.outstanding || 0) + ' is still outstanding' + (o.terms && o.terms.condition ? ' — ' + esc(o.terms.condition) : '') + ', so this order is not fully paid yet.'
+      : 'We received your payment of ' + peso(o.total) + '. Your order is confirmed.'}</span></div></div>` : '';
   $('rcptBody').innerHTML = banner + receiptHtml(o);
   $('rcptPrint').onclick = () => printReceipt(o.id);
   $('rcptOrders').onclick = () => { closeModal('receiptBg'); show('orders'); };
@@ -862,6 +934,15 @@ function cancelBlock(o) {
   const until = new Date(o.cancelInstantUntil).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   return `<div class="refund-row"><button class="btn-danger btn-sm" data-cancel="${esc(o.id)}">${o.cancelInstant ? 'Cancel order' : 'Request cancellation'}</button><span class="dim">${o.cancelInstant ? 'Cancels right away until ' + until + '.' : 'Our team will review your request.'}</span></div>`;
 }
+/* §5: the payment state is shown next to the fulfilment status, from the ledger — never inferred from the order status,
+   the chosen method or a payment page the customer came back from. */
+function payRowHtml(o) {
+  if (!o.paymentState) return '';
+  const st = { unpaid: 'Not paid yet', partially_paid: 'Partially paid', paid: 'Paid in full', refunded: 'Refunded', partially_refunded: 'Partially refunded' }[o.paymentState] || o.paymentState;
+  const bal = Number(o.outstanding || 0);
+  return `<div class="row"><span class="dim">Payment</span><span class="mono">${esc(st)}${bal > 0 ? ' \u00B7 ' + peso(bal) + ' to pay' : ''}</span></div>`
+    + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
+}
 function renderOrders() {
   $('navOrderCount').textContent = orders.length;
   $('orderList').innerHTML = orders.length ? orders.map(o => { const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
@@ -871,11 +952,12 @@ function renderOrders() {
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}${done ? reviewBtn(it) : ''}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
+    ${payRowHtml(o)}
     ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View receipt</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
-    ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Continue Online Payment</button>` : ''}
+    ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.dueNow) > 0 && Number(o.dueNow) < Number(o.total) ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
     ${refundBlock(o)}</div>`; }).join('')
@@ -898,12 +980,14 @@ async function placeOrder() {
   fail('');
   const online = ONLINE.includes(pay);
   const draft = { fulfillment: fulfil, phone, method: pay, shipTo: ship.shipTo, saveAddress: ship.saveAddress, addressLabel: ship.addressLabel, makeDefault: ship.makeDefault,
+    termKey: online ? termKey : 'full',
     items: cart.map(l => { const p = prod(l.sku); return { sku: p.sku, qty: l.qty }; }) };
   $('place').disabled = true;
   let order;
   try { order = await submitOrder(draft); }
   catch (e) {
     $('place').disabled = false;
+    if (e.fields && e.fields.termKey) { await loadPaymentTerms(true); return fail(e.message || 'That payment option is no longer available.'); }
     if (ShopAddress.showServerErrors(e)) return fail('Please fix the highlighted address fields.');
     if (e.fields && e.fields.items) await refreshStock().then(() => { if (view === 'checkout') { if (!cart.length) show('cart'); else renderCheckout(); } });   // stock changed: show the real numbers
     return toast(e.message || 'Could not place the order.', true);
@@ -922,7 +1006,7 @@ async function placeOrder() {
       const payment = await api('/api/shop/orders/' + encodeURIComponent(order.id) + '/xendit-checkout', { method: 'POST', body: '{}' });
       if (!payment.checkoutUrl) throw new Error('Online payment provider did not return a checkout URL.');
       $('place').disabled = false; orders.unshift(order); syncCounts();
-      openPayModal(order, payment.checkoutUrl);
+      openPayModal(order, payment.checkoutUrl, payment);
       return;
     } catch (e) {
       $('place').disabled = false;
@@ -1078,6 +1162,24 @@ async function setAlert(sku, on) {
 /* ----- request a quote ----- */
 let QUOTES = [], QADDRS = [], qAddr = null;      // qAddr: id of the chosen saved address, 'new' = typed in, null = nothing chosen yet
 const QSTATUS = { new: ['warn', 'Waiting for our reply'], quoted: ['ok', 'Quote ready'], accepted: ['ok', 'Accepted'], declined: ['', 'Declined'], closed: ['', 'Closed'], expired: ['bad', 'Quote expired'] };
+const TERM_NAMES = { full: 'Full Payment', half: 'Half Payment', down: 'Down Payment', custom: 'Custom partial payment' };
+// The terms and every amount come from the server; only a partial term Finance signed is shown as agreed.
+function termsRows(q) {
+  const t = q.terms;
+  if (!t || t.state !== 'approved') return '';
+  const rows = [['Payment terms', esc(TERM_NAMES[t.key] || t.key) + (t.percent != null ? ' — ' + t.percent + '%' : '')]];
+  if (t.amount != null) rows.push(['Pay now', '<span class="mono">' + peso(t.amount) + '</span>']);
+  if (t.balance != null && Number(t.balance) > 0) rows.push(['Remaining balance', '<span class="mono">' + peso(t.balance) + '</span>']);
+  if (t.condition) rows.push(['Balance due', esc(t.condition)]);
+  return rows.map(([k, v]) => '<div class="row"><span>' + k + '</span><span>' + v + '</span></div>').join('');
+}
+function termsSummary(q) {
+  const t = q.terms;
+  if (!t || t.state !== 'approved') return 'Full Payment — the whole amount before the goods are released';
+  return (TERM_NAMES[t.key] || t.key) + (t.percent != null ? ' (' + t.percent + '%)' : '') +
+    (t.amount != null ? ': pay ' + peso(t.amount) + ' now' : '') +
+    (t.balance != null && Number(t.balance) > 0 ? ', balance ' + peso(t.balance) + (t.condition ? ' — ' + t.condition : '') : '');
+}
 let QOPTS = null, qMounted = false;
 const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
@@ -1224,6 +1326,7 @@ async function loadQuotes() {
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="row"><span>Ready in</span><span>${esc(q.leadTime)}</span></div>` : ''}
       ${q.validUntil && q.status === 'quoted' ? `<div class="row"><span>${q.expired ? 'Expired on' : 'Price valid until'}</span><span>${qDay(q.validUntil)}</span></div>` : ''}
+      ${termsRows(q)}
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
       ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
@@ -1236,9 +1339,9 @@ $('quoteList').addEventListener('click', e => {
   let payMethod='';
   if(b.dataset.qresp==='accept') { const sel=b.closest('.quote-row').querySelector('[data-qpay]');payMethod=sel?.value||'';if(!payMethod){sel?.focus();toast('Choose a payment method first.',true);return;} }
   const labels={accept:'Accept quotation',decline:'Decline quotation',renew:'Request updated quotation'};
-  const details=[['Reference',q.id],['Product',q.product||'Custom item'],['Quantity',q.quantity],['Specifications',typeof q.specs==='object'?JSON.stringify(q.specs):q.specs||'See request'],['Preferred date',q.neededBy||'Flexible'],['Fulfillment',q.fulfillment||'Not specified'],['Quoted total',q.quotedAmount==null?'Pending':peso(q.quotedAmount)],['Valid until',q.validUntil||'Not specified']];
+  const details=[['Reference',q.id],['Product',q.product||'Custom item'],['Quantity',q.quantity],['Specifications',typeof q.specs==='object'?JSON.stringify(q.specs):q.specs||'See request'],['Preferred date',q.neededBy||'Flexible'],['Fulfillment',q.fulfillment||'Not specified'],['Quoted total',q.quotedAmount==null?'Pending':peso(q.quotedAmount)],['Valid until',q.validUntil||'Not specified'],['Payment terms',termsSummary(q)]];
   if(payMethod)details.push(['Payment choice',payMethod==='online'?'Online via Xendit':'Pay on pickup/delivery']);
-  tqOpen({title:labels[b.dataset.qresp],subtitle:'Review the quotation and confirm your decision.',details,disclaimer:b.dataset.qresp==='accept'?'Acceptance does not mean payment has been received. Online payment is handled separately.':'The cashier will receive your response.',confirm:'Confirm '+(b.dataset.qresp==='renew'?'request':b.dataset.qresp),async run(){const r=await api('/api/shop/quotes/'+encodeURIComponent(q.id)+'/respond',{method:'POST',body:JSON.stringify({action:b.dataset.qresp,payMethod})});if(r?.checkoutUrl){location.href=r.checkoutUrl;return;}if(r?.payError)toast(r.payError,true);else toast('Your response was recorded.');await loadQuotes();}});
+  tqOpen({title:labels[b.dataset.qresp],subtitle:'Review the quotation and confirm your decision.',details,disclaimer:b.dataset.qresp==='accept'?'Accepting agrees to these payment terms as well. It does not mean payment has been received — online payment is handled separately.':'The cashier will receive your response.',confirm:'Confirm '+(b.dataset.qresp==='renew'?'request':b.dataset.qresp),async run(){const r=await api('/api/shop/quotes/'+encodeURIComponent(q.id)+'/respond',{method:'POST',body:JSON.stringify({action:b.dataset.qresp,payMethod})});if(r?.checkoutUrl){location.href=r.checkoutUrl;return;}if(r?.payError)toast(r.payError,true);else toast('Your response was recorded.');await loadQuotes();}});
 });
 $('quoteList').addEventListener('click', async e => {            // pay an accepted quote online
   const b = e.target.closest('[data-qpaynow]'); if (!b || b.disabled) return; b.disabled = true;
@@ -1337,7 +1440,7 @@ document.addEventListener('click', e => {
   if (d.details) openProductDetails(d.details);
   if (d.xendit) {
     api('/api/shop/orders/' + encodeURIComponent(d.xendit) + '/xendit-checkout', { method: 'POST', body: '{}' })
-      .then(payment => { const o = orders.find(x => x.id === d.xendit); if (payment.checkoutUrl && o) openPayModal(o, payment.checkoutUrl); else toast('No checkout URL was returned.', true); })
+      .then(payment => { const o = orders.find(x => x.id === d.xendit); if (payment.checkoutUrl && o) openPayModal(o, payment.checkoutUrl, payment); else toast('No checkout URL was returned.', true); })
       .catch(err => toast(err.message || 'Could not open online checkout.', true));
   }
   if (d.add || d.inc) addToCart(d.add || d.inc);
@@ -1352,6 +1455,7 @@ document.addEventListener('click', e => {
   if (d.cat !== undefined && el.classList.contains('pill-btn')) { cat = d.cat; renderChips(); renderCatalog(); }
   if (d.f) { fulfil = d.f; renderCheckout(); e.preventDefault(); }
   if (d.pay) { pay = d.pay; renderCheckout(); e.preventDefault(); }
+  if (d.term) { termKey = d.term; renderPaymentTerms(); e.preventDefault(); }
   if (d.refund) {
     const o = orders.find(x => x.id === d.refund); if (!o) return; refundId = d.refund;
     $('refundFor').textContent = 'Order ' + o.id + ' · ' + peso(o.total);
@@ -1439,13 +1543,21 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
     const pending = orders.filter(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation');
     let paid = false; const paidNow = [];
     for (const o of pending) {
-      try { const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' }); if (r.paymentStatus === 'paid') { paid = true; paidNow.push(o.id); } } catch (e) {}
+      // anything the ledger has newly confirmed counts, so an initial payment is reported even though the order is only partly paid
+      const before = Number(o.paidAmount || 0);
+      try {
+        const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' });
+        if (r.paymentStatus === 'paid' || Number(r.outstanding || 0) <= 0 || Number(r.paidAmount || 0) + 0.005 > before) {
+          paid = true; paidNow.push(o.id);
+          Object.assign(o, { paymentState: r.paymentState, paidAmount: r.paidAmount, outstanding: r.outstanding, dueNow: r.dueNow });
+        }
+      } catch (e) {}
     }
     if (paid && !$('payBg').classList.contains('show')) {
       try { orders = await loadOrders(); } catch (e) {}
       const id = paidNow.find(x => !receiptShown.has(x));
       if (id) { receiptShown.add(id); renderOrders(); syncCounts(); openReceipt(id, true); }
-      else toast('Payment received. Thank you! Your order is confirmed.');
+      else toast('Payment received. Thank you!');
     }
     return paid;
   };
@@ -1461,7 +1573,8 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   } else if (/[?&]payment=return/.test(location.search)) {
     history.replaceState(null, '', location.pathname);
     const last = orders.find(o => o.method === 'Xendit');
-    if (last) { openPayModal(last, null); } else { show('orders'); }
+    // the invoice raised before the redirect asked for the amount due now, so that is what this visit is checking for
+    if (last) { openPayModal(last, null, { amount: Number(last.dueNow != null ? last.dueNow : last.total), terms: null }); } else { show('orders'); }
   } else if (/[?&]payment=failed/.test(location.search)) { history.replaceState(null, '', location.pathname); show('orders'); toast('Payment was not completed. You can retry from My Orders.', true); }
   else refreshOrders();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshOrders(); });

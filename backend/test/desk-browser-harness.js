@@ -1,9 +1,12 @@
 /* desk-browser-harness.js — DEV ONLY. Not part of the deployed app and never started by server.js.
 
-   It boots the REAL backend modules (backend/quote-desk.js and the quotation half of backend/shop-extras.js) inside a real
-   Express app, but answers their SQL from an in-memory double instead of PostgreSQL. That makes it possible to open
-   Finance_Inventory/POS_Cashier.html in a browser and click through the quotation desk — list, detail drawer, clarification
-   request, pricing, walk-in form, conversion — with no database and without ever connecting to the production server.
+   It boots the REAL backend modules (backend/payment-terms.js, backend/quote-desk.js and the quotation half of
+   backend/shop-extras.js) inside a real Express app, but answers their SQL from an in-memory double instead of
+   PostgreSQL. That makes it possible to open Finance_Inventory/POS_Cashier.html in a browser and click through the
+   quotation desk — list, detail drawer, clarification request, pricing, payment terms, walk-in form, conversion —
+   with no database and without ever connecting to the production server.
+   The payment half of that double is test/payment-double.js: it re-runs the db/020 trigger maths, so the balances
+   the screens show come from the ledger rows exactly as they do in PostgreSQL.
 
    Run:  node backend/test/desk-browser-harness.js 8787
    Then: http://127.0.0.1:8787/POS_Cashier.html        (the fake session is already a cashier)
@@ -15,6 +18,8 @@ const NM = path.join(__dirname, '..', 'node_modules');
 const express = require(path.join(NM, 'express'));
 const mountQuoteDesk = require(path.join(__dirname, '..', 'quote-desk.js'));
 const mountShopExtras = require(path.join(__dirname, '..', 'shop-extras.js'));
+const mountPaymentTerms = require(path.join(__dirname, '..', 'payment-terms.js'));
+const paymentDouble = require('./payment-double');
 
 const PORT = Number(process.argv[2] || 8787);
 const ROOT = path.join(__dirname, '..', '..', 'Finance_Inventory');
@@ -26,8 +31,11 @@ const PRODUCTS = [
   { sku: 'ANG-0203', name: 'Angle Bar', category: 'Angles & Channels', unit: 'length', spec: '2 × 2 in · 3 mm · 6 m', price: 710, available: 88 },
   { sku: 'FBT-0012', name: 'Hex Bolt & Nut Set', category: 'Fasteners', unit: 'box', spec: 'M12 × 50 · 50 pcs', price: 580, available: 8 }
 ];
-const DB = { quotes: new Map(), attachments: [], clar: [], audit: [], orders: [], orderLines: [], sales: [], seq: { quote: 1000, attach: 0, clar: 0, order: 500, sale: 9000 } };
+const DB = { quotes: new Map(), attachments: [], clar: [], audit: [], orders: [], orderLines: [], sales: [], payments: [], terms: null, users: null, seq: { quote: 1000, attach: 0, clar: 0, order: 500, sale: 9000 } };
 const USERS = { 3: { user_id: 3, full_name: 'Test Cashier' }, 4: { user_id: 4, full_name: 'Test Finance' }, 7: { user_id: 7, full_name: 'Ana Cruz' } };
+DB.users = USERS;
+// the payment ledger double: answers the statements payment-terms.js sends and re-runs the db/020 trigger maths
+const paymentSql = paymentDouble(DB);
 
 function seed(o) {
   DB.seq.quote += 1;
@@ -36,7 +44,9 @@ function seed(o) {
     contact_name: 'Someone', phone: '09170000000', contact_email: null, company_name: null, flexible_date: false,
     product_sku: null, product_name: null, quantity: '10 pcs', details: '', specs: {}, needed_by: null, needed_months: null,
     fulfillment: 'Pickup', area: null, pay_method: null, status: 'new', quoted_amount: null, proposed_amount: null,
-    approval_reason: null, reply_note: null, lead_time: null, valid_until: null, paid_amount: 0, payments: [], progress: [],
+    approval_reason: null, reply_note: null, lead_time: null, valid_until: null, paid_amount: 0, payment_state: 'unpaid', payments: [], progress: [],
+    terms_key: null, terms_percent: null, terms_amount: null, terms_balance: null, terms_condition: null, terms_availability: null,
+    terms_state: 'none', terms_decided_by: null, terms_decided_at: null, terms_customer_seen_at: null,
     responded_at: null, response_note: null, received_by: null, clarification: null, source: 'pos',
     converted_order_id: null, converted_at: null, handover_sale_id: null, handover_at: null,
     created_at: new Date(), updated_at: new Date()
@@ -71,7 +81,7 @@ seed({ contact_name: 'Herry Bat', customer_id: 12, phone: '09241234567', product
   lead_time: '1-2 weeks', valid_until: '2026-10-18', responded_at: new Date(), fulfillment: 'Delivery',
   area: 'Brgy. Poblacion, Gapan, Nueva Ecija', source: 'shop' });
 seed({ contact_name: 'Ivy Dimaak', customer_id: 13, phone: '09251234567', product_sku: 'FBT-0012', product_name: 'Hex Bolt & Nut Set M12',
-  quantity: '10 box', needed_by: '2026-09-30', status: 'completed', quoted_amount: 5800, paid_amount: 5800, pay_method: 'Pay on pickup',
+  quantity: '10 box', needed_by: '2026-09-30', status: 'completed', quoted_amount: 5800, paid_amount: 5800, payment_state: 'paid', pay_method: 'Pay on pickup',
   lead_time: 'In stock', valid_until: '2026-09-20', responded_at: new Date('2026-09-12'), received_by: 'Ivy Dimaak', source: 'pos' });
 seed({ contact_name: 'Jun Salak', phone: '09261234567', product_sku: 'ANG-0203', product_name: 'Angle Bar 2×2', quantity: '6 length',
   needed_by: '2026-09-15', status: 'declined', quoted_amount: 4300, valid_until: '2026-09-10', source: 'pos' });
@@ -122,7 +132,14 @@ function applySet(row, sql, params) {
   });
   rest.split(',').forEach((part) => {
     const m = /([a-z_]+)\s*=\s*\$(\d+)/i.exec(part.trim());
-    if (m) { row[m[1].toLowerCase()] = params[Number(m[2]) - 1]; return; }
+    if (m) {
+      // the quotation display copy of the payments is written as $2::jsonb — Postgres would store a real array
+      const raw = params[Number(m[2]) - 1];
+      let v = raw;
+      if (/::jsonb/i.test(part) && typeof raw === 'string') { try { v = JSON.parse(raw); } catch (e) { /* keep the string */ } }
+      row[m[1].toLowerCase()] = v;
+      return;
+    }
     // Finance approve-price copies one column into another (quoted_amount=proposed_amount); Postgres reads the old row value.
     const cc = /([a-z_]+)\s*=\s*([a-z_]+)\s*(?=,|$)/i.exec(part.trim());
     if (cc) { row[cc[1].toLowerCase()] = row[cc[2].toLowerCase()]; return; }
@@ -134,12 +151,19 @@ function applySet(row, sql, params) {
 async function query(sql, params = []) {
   const s = clean(sql), p = params || [];
   const logs = [];
+  // the payment ledger double answers first for its own statements (payment_terms, payments, the derived totals)
+  const money = paymentSql(s, p);
+  if (money) return money;
   if (/^(ALTER TABLE|CREATE (TABLE|INDEX|UNIQUE INDEX|SEQUENCE))/.test(s)) return rowsOf([]);
   if (/^SELECT pg_advisory_xact_lock/.test(s)) return rowsOf([]);
   if (/^INSERT INTO audit_log/.test(s)) { DB.audit.push({ action: p[3] || p[1], detail: p[4] || p[2], occurred_at: new Date() }); return rowsOf([]); }
   if (/^INSERT INTO orders\s*\(/.test(s)) {
+    // db/schema.sql:66 gives a new order DEFAULT 'Pending Confirmation' and neither the checkout route nor the quote
+    // conversion names a status, so the double has to supply that same default — several shipped routes gate on it.
     const rec = { order_id: ++DB.seq.order, order_no: 'ORD-' + DB.seq.order,
-      customer_id: p[0], total: Number(p[7]) || Number(p[6]) || 0, status: 'Pending', payment_status: 'unpaid' };
+      customer_id: p[0], total: Number(p[7]) || Number(p[6]) || 0, status: 'Pending Confirmation', payment_status: 'unpaid',
+      paid_amount: 0, payment_state: 'unpaid', terms_key: null, terms_percent: null, terms_amount: null, terms_condition: null, terms_approved_by: null,
+      created_at: new Date(), updated_at: new Date() };
     DB.orders.push(rec); return rowsOf([rec]);
   }
   if (/^INSERT INTO (order_items|order_status_history)/.test(s)) { DB.orderLines.push({ sql: s.slice(0, 40), order_id: Number(p[0]) }); return rowsOf([]); }
@@ -180,6 +204,12 @@ async function query(sql, params = []) {
     const okSource = !/source\s*=\s*'([a-z]+)'/i.test(tail) || (q && q.source === /source\s*=\s*'([a-z]+)'/i.exec(tail)[1]);
     return rowsOf(q && okOwner && okSource ? [q] : []);
   }
+  // the ledger service locks a quotation by its key column, whichever the caller passed (payment-terms.js:339)
+  if (/^SELECT \* FROM quote_requests WHERE quote_id = \$1 FOR UPDATE/i.test(s)) return rowsOf([quoteById(Number(p[0]))].filter(Boolean));
+  // the Xendit webhook finds the quotation a paid invoice belongs to by the two identifiers stored on it
+  if (/^SELECT \* FROM quote_requests WHERE xendit_external_id/i.test(s)) {
+    return rowsOf([...DB.quotes.values()].filter((q) => String(q.xendit_external_id) === String(p[0]) && String(q.xendit_invoice_id) === String(p[1])).slice(0, 1));
+  }
   if (/^SELECT .*FROM products/.test(s)) { const pr = PRODUCTS.find((x) => x.sku === String(p[0]).toUpperCase()); return rowsOf(pr ? [{ product_id: 1, sku: pr.sku, name: pr.name, unit: pr.unit, selling_price: pr.price, on_hand: pr.available, is_archived: false }] : []); }
   if (/^SELECT a\.mime, a\.data, a\.file_name FROM quote_attachments/.test(s)) {
     const q = DB.quotes.get(String(p[1]).toUpperCase());
@@ -190,15 +220,19 @@ async function query(sql, params = []) {
   if (/^SELECT action, detail/.test(s)) return rowsOf(DB.audit.slice(-25).map((a) => ({ action: a.action, detail: a.detail, user_name: 'Harness', role_label: 'Cashier', occurred_at: a.occurred_at })));
   if (/^SELECT count\(\*\)::int AS n FROM quote_attachments/.test(s)) return rowsOf([{ n: DB.attachments.filter((a) => Number(a.quote_id) === Number(p[0])).length }]);
   if (/^SELECT order_no, total, status FROM orders/.test(s)) { const o = DB.orders.find((x) => Number(x.order_id) === Number(p[0])); return rowsOf(o ? [o] : []); }
-  if (/^SELECT .*FROM quote_requests/.test(s)) {
+  // some of the shipped quote SELECTs are written across several lines, so .* would stop at the first newline
+  if (/^SELECT [\s\S]*\bFROM quote_requests/.test(s)) {
     let rows = [...DB.quotes.values()];
     const one = /WHERE q\.quote_no = \$1/.test(s);
     if (one) rows = [DB.quotes.get(String(p[0]).toUpperCase())].filter(Boolean);
     if (!one) {
-      const inSt = /q\.status IN \(([^)]*)\)/.exec(s); if (inSt) { const a = inSt[1].split(',').map((x) => x.trim().replace(/'/g, '')); rows = rows.filter((q) => a.includes(q.status)); }
-      const eqSt = /q\.status = '([a-z_]+)'/.exec(s); if (eqSt) rows = rows.filter((q) => q.status === eqSt[1]);
-      const src = /q\.source = '(shop|pos)'/.exec(s); if (src) rows = rows.filter((q) => (q.source || 'shop') === src[1]);
-      const mine = /q\.created_by = \$\d+/.exec(s); if (mine) rows = rows.filter((q) => Number(q.created_by) === Number(p[Number(mine[0].replace(/\D/g, '')) - 1]));
+      // only the WHERE half of the statement filters: /api/finance/quotes sorts by (q.status IN (...)) DESC, which is
+      // not a restriction, so reading it as one would hide every quoted request from Finance.
+      const where = s.split(/\border\b/i)[0];
+      const inSt = /q\.status IN \(([^)]*)\)/.exec(where); if (inSt) { const a = inSt[1].split(',').map((x) => x.trim().replace(/'/g, '')); rows = rows.filter((q) => a.includes(q.status)); }
+      const eqSt = /q\.status = '([a-z_]+)'/.exec(where); if (eqSt) rows = rows.filter((q) => q.status === eqSt[1]);
+      const src = /q\.source = '(shop|pos)'/.exec(where); if (src) rows = rows.filter((q) => (q.source || 'shop') === src[1]);
+      const mine = /q\.created_by = \$\d+/.exec(where); if (mine) rows = rows.filter((q) => Number(q.created_by) === Number(p[Number(mine[0].replace(/\D/g, '')) - 1]));
       // the customer's own list is not aliased: WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50
       const own = /WHERE customer_id = \$(\d+)/.exec(s); if (own) rows = rows.filter((q) => Number(q.customer_id) === Number(p[Number(own[1]) - 1]));
       const like = p.find((x) => typeof x === 'string' && x.includes('%'));
@@ -217,9 +251,12 @@ async function query(sql, params = []) {
     if (/^SELECT count/i.test(s)) return rowsOf([{ n: rows.length }]);
     return rowsOf(rows.map((q) => Object.assign({}, q,
       { created_by_name: (USERS[q.created_by] || {}).full_name, handled_by_name: null, customer_email: q.customer_id ? 'customer' + q.customer_id + '@example.com' : null,
+        // the shipped SELECTs join users for the name of whoever signed the quotation's terms
+        terms_decided_by_name: (USERS[q.terms_decided_by] || {}).full_name || null,
         attachment_count: DB.attachments.filter((a) => Number(a.quote_id) === Number(q.quote_id)).length,
         // the desk's SELECT joins orders so it can show the converted order number
         order_no: (DB.orders.find((o) => Number(o.order_id) === Number(q.converted_order_id)) || {}).order_no || null,
+        converted_order_no: (DB.orders.find((o) => Number(o.order_id) === Number(q.converted_order_id)) || {}).order_no || null,
         clarification_status: (openClar(q.quote_id)[0] || {}).status || null })));
   }
   logs.push('unhandled: ' + s.slice(0, 120));
@@ -291,13 +328,67 @@ app.post('/__harness/session', (req, res) => {
   res.json(SESSION || { signedOut: true });
 });
 
+/* dev-only: open or close the test cashier's drawer, so the counter's "cash needs an open shift" rule can be
+   exercised without a real pos_cash_shifts table. */
+app.post('/__harness/shift', (req, res) => {
+  DB.cashShiftId = req.body && req.body.open ? Number(req.body.id || 11) : null;
+  res.json({ cashShiftId: DB.cashShiftId });
+});
+
+/* dev-only: apply the SHIPPED §8 release rules (payment-terms.js: orderMoney + releaseDecision) to a stored order,
+   so the gate decisions can be tested without mounting the stock, rider, mail and shift machinery around them.
+   The body may say what to assume about this one row — its payment method, what the ledger has collected, which term
+   it is on, even what its fulfilment status claims — because no PostgreSQL here means no way to stage every order
+   shape. Nothing is written. server.js never uses this file. */
+app.post('/__harness/release-check/:no', auth('cashier'), wrap(async (req, res) => {
+  const found = DB.orders.find((x) => String(x.order_no).toUpperCase() === String(req.params.no).toUpperCase());
+  if (!found) return res.status(404).json({ error: 'The harness has no such order' });
+  const b = req.body || {};
+  const row = Object.assign({}, found, {
+    status: str(b.status) || found.status,
+    payment_method: str(b.method) || found.payment_method || 'GCash',
+    paid_amount: b.paid == null ? found.paid_amount : Number(b.paid),
+    terms_key: b.termsKey === undefined ? found.terms_key : b.termsKey,
+    terms_percent: b.termsPercent === undefined ? found.terms_percent : b.termsPercent,
+    terms_amount: b.termsAmount === undefined ? found.terms_amount : b.termsAmount,
+    terms_condition: b.termsCondition === undefined ? found.terms_condition : b.termsCondition
+  });
+  const pt = app.locals.paymentTerms;
+  const opts = { role: str(b.role) || SESSION.role, verified: !!b.verified };
+  res.json({ orderNo: row.order_no, method: row.payment_method, money: pt.orderMoney(row),
+    confirm: pt.releaseDecision(row, Object.assign({ action: 'confirm' }, opts)),
+    release: pt.releaseDecision(row, Object.assign({ action: 'release' }, opts)) });
+}));
+
+/* dev-only: stamp the two Xendit identifiers an online quotation payment carries onto a harness row, so the webhook
+   half of shop-extras.js can be exercised without the live gateway. server.js never uses this file. */
+app.post('/__harness/quote-xendit/:no', auth('finance'), wrap(async (req, res) => {
+  const q = DB.quotes.get(String(req.params.no).toUpperCase());
+  if (!q) return res.status(404).json({ error: 'The harness has no such quotation' });
+  q.xendit_external_id = str(req.body && req.body.externalId);
+  q.xendit_invoice_id = str(req.body && req.body.invoiceId);
+  res.json({ quoteNo: q.quote_no, externalId: q.xendit_external_id, invoiceId: q.xendit_invoice_id });
+}));
+
+/* dev-only: deliver a Xendit callback for a quotation through the SHIPPED handler (shop-extras.js app.locals.quoteXendit),
+   so a retried callback recording the money once can be tested (§6, §11). */
+app.post('/__harness/quote-callback', auth('finance'), wrap(async (req, res) => {
+  const b = req.body || {};
+  const handler = app.locals.quoteXendit;
+  if (!handler) return res.status(500).json({ error: 'shop-extras did not mount the Xendit quote handler' });
+  res.json({ handled: await handler.handle(b.event || {}, str(b.externalId), str(b.invoiceId)) });
+}));
+
 /* dev-only: read the in-memory tables so the conversion tests can prove that no second order, sale or stock
    movement appeared. */
 app.get('/__harness/state', (req, res) => res.json({
   orders: DB.orders, orderLines: DB.orderLines.length, sales: DB.sales, attachments: DB.attachments.length, clar: DB.clar,
+  payments: DB.payments, terms: DB.terms, quotes: [...DB.quotes.values()],
   stock: PRODUCTS.map((p) => ({ sku: p.sku, available: p.available }))
 }));
 
+// payment-terms owns the ledger that shop-extras writes through, so it mounts first here too (same order as server.js)
+mountPaymentTerms({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 mountShopExtras({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 mountQuoteDesk({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 // anything the harness does not implement answers as JSON, so the UI shows its real error state instead of an HTML 404 page

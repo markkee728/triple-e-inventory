@@ -11,7 +11,7 @@
   const SOURCES = [['all', 'Online + walk-in'], ['shop', 'Online only'], ['pos', 'Walk-in only']];
   const CLARIFY = [['dimensions', 'Size / dimensions'], ['thickness', 'Thickness'], ['material', 'Material / grade'], ['finish', 'Surface finish'], ['quantity', 'Quantity / unit'], ['drawing', 'Reference drawing'], ['other', 'Other detail']];
 
-  const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 20, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, view: 'requests' };
+  const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 20, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, openTerms: false, view: 'requests' };
   const desk = (p) => '/api/pos/quote-desk' + p;
   const el = (id) => document.getElementById(id);
   const day = (v) => (!v ? '—' : new Date(v).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }));
@@ -133,7 +133,7 @@
     el('qdDrawerBody').innerHTML = '<div class="qd-skeleton"></div><div class="qd-skeleton" style="margin-top:12px"></div><div class="qd-skeleton" style="margin-top:12px"></div>';
     el('qdDrawerFoot').innerHTML = '';
     document.body.style.overflow = 'hidden';
-    try { S.detail = await call(desk('/' + encodeURIComponent(no))); S.openPrice = false; renderDetail(); }
+    try { S.detail = await call(desk('/' + encodeURIComponent(no))); S.openPrice = false; S.openTerms = false; renderDetail(); }
     catch (e) { S.detail = null; el('qdDrawerBody').innerHTML = '<div class="qd-callout bad">Could not open this quotation: ' + esc(fieldErr(e)) + '</div>'; }
   }
   function closeDetail() {
@@ -152,7 +152,7 @@
     const d = S.detail; if (!d) return;
     el('qdDrawerSub').textContent = (d.statusLabel || d.status) + ' · ' + (d.source === 'pos' ? 'Walk-in at the counter' : 'Online request');
     const sp = d.specs || {};
-    const terms = d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup');
+    const payWhere = d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup');
     const parts = [
       sec('Customer', kv([
         row('Name', '<b>' + esc(d.customer || '—') + '</b>'),
@@ -176,7 +176,7 @@
       sec('How they want it', kv([
         row('Fulfilment', esc(d.fulfillment || '—')),
         row('Delivery area', esc(d.area || '—')),
-        row('Payment terms', esc(terms)) ])),
+        row('Where they pay', esc(payWhere)) ])),
 
       sec('Price', kv([
         row('Quoted amount', money(d.amount) || '—'),
@@ -189,6 +189,7 @@
         row('Note to customer', d.replyNote ? noteBox(d.replyNote) : ''),
         row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
 
+      sec('Payment terms on this quotation', termsSectionHtml(d)),
       sec('Reference drawings & photos', filesHtml(d)),
       sec('History', timelineHtml(d)),
       d.orderNo ? sec('Converted', '<div class="qd-callout ok">This quotation became order <b>' + esc(d.orderNo) + '</b>. A quotation is not a reservation: stock leaves inventory only at the sale or order-confirm step.</div>') : '',
@@ -196,6 +197,14 @@
     ];
     el('qdDrawerBody').innerHTML = parts.filter(Boolean).join('');
     el('qdDrawerFoot').innerHTML = footHtml(d);
+    // fill the term lists from the policy once the markup exists — the amounts must come from the server
+    const q = qtyParts(d.quantity);
+    if (S.openPrice) {
+      const form = el('qdPriceForm'), unit = form && form.querySelector('[name=unit]');
+      const total = unit && unit.value && q ? Number(unit.value) * q.qty : (d.proposedAmount != null ? d.proposedAmount : d.amount);
+      loadTermOptions(form, total, (d.terms || {}).key);
+    }
+    if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
   }
   function filesHtml(d) {
     const files = d.attachments || [];
@@ -234,8 +243,9 @@
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
       '<label>Estimated availability<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></label>' +
       '<label>Quotation validity<select name="validDays" required>' + (o.validDays || []).map((x) => '<option value="' + esc(x) + '"' + (x === 7 ? ' selected' : '') + '>' + esc(x) + ' days</option>').join('') + '</select></label>' +
-      '<label class="wide">Payment terms<input value="' + esc(d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')) + '" disabled>' +
-      '<small class="q-hint">Finance or the counter collects the payment later; pricing here never takes money.</small></label>' +
+      '<fieldset class="qd-terms"><legend>Payment terms</legend>' +
+      '<div class="qd-term-list" data-terms-opts><p class="q-hint">Reading the payment policy…</p></div>' +
+      '<small class="q-hint">Only the terms Finance switched on for this kind of item appear. Choosing one never takes money now; it says what the customer pays now and what stays outstanding.</small></fieldset>' +
       '<label class="wide">Remarks for the customer<textarea name="note" maxlength="1500" rows="2" placeholder="What is included, any assumption you made, how to reach you"></textarea></label>' +
       '<label class="qd-check"><input type="checkbox" name="exception"> Custom manufacturing, or a price that needs Finance approval first</label>' +
       '<label class="wide" data-reason hidden>Why Finance must approve<textarea name="reason" maxlength="500" rows="2" placeholder="Costing, material sourcing, or the discount you are asking for"></textarea></label>' +
@@ -244,6 +254,91 @@
       '<button type="submit" class="btn-primary">' + (d.status === 'pending_approval' ? 'Resubmit for approval' : 'Review & send price') + '</button></div></form>' +
       '<p class="q-hint">Approval status: ' + esc(d.status === 'pending_approval' ? 'waiting for Finance' : 'a cashier may price routine requests up to the limit management set in CASHIER_QUOTE_LIMIT_PHP; anything above it goes to Finance automatically.') + '</p>';
   }
+  /* ---- payment terms. The policy table, the allowed scope per item type and every peso figure come from the
+     backend; this screen only renders what GET /api/pos/payment-terms returns for the total being quoted. ---- */
+  const TERM_NAME = { full: 'Full Payment', half: 'Half Payment', down: 'Down Payment', custom: 'Custom partial payment' };
+  const TERMS_STATE = { none: ['No terms attached yet', 'warn'], proposed: ['Proposed — waiting for Finance', 'warn'],
+    approved: ['Approved', 'ok'], rejected: ['Refused — full payment', 'bad'] };
+  let termSeq = 0, termTimer = null;
+
+  function termOptionHtml(o, current) {
+    const on = o.key === (current || 'full');
+    return '<label class="qd-term' + (Number(o.percent) < 100 ? ' partial' : '') + '">' +
+      '<input type="radio" name="term" value="' + esc(o.key) + '"' + (on ? ' checked' : '') + '>' +
+      '<span class="qd-term-name">' + esc(o.label || TERM_NAME[o.key] || o.key) + '</span>' +
+      '<span class="qd-term-calc">Pay now <b>' + (money(o.dueNow) || '—') + '</b> · balance <b>' + (money(o.balance) || '₱0.00') + '</b>' +
+      (o.balanceCondition ? ' <em>— ' + esc(o.balanceCondition) + '</em>' : '') + '</span>' +
+      (o.enabledBy ? '<span class="qd-term-by">switched on by ' + esc(o.enabledBy) + '</span>' : '') + '</label>';
+  }
+
+  async function loadTermOptions(root, total, current) {
+    const box = root && root.querySelector('[data-terms-opts]'); if (!box) return;
+    const seq = ++termSeq, d = S.detail;
+    if (!(Number(total) > 0)) { box.innerHTML = '<p class="q-hint">Enter the quoted total first — which terms are allowed depends on the amount.</p>'; return; }
+    box.innerHTML = '<p class="q-hint">Reading the payment policy…</p>';
+    try {
+      const r = await call('/api/pos/payment-terms?total=' + encodeURIComponent(Number(total).toFixed(2)) +
+        '&madeToOrder=' + (d && d.madeToOrder ? 'true' : 'false'));
+      if (seq !== termSeq || !box.isConnected) return;
+      const opts = (r && r.options) || [];
+      S.termOpts = opts;
+      box.innerHTML = opts.length ? opts.map((o) => termOptionHtml(o, current)).join('')
+        : '<p class="q-hint">The policy allows no partial term for this item right now, so it is Full Payment. Finance can switch more on.</p>';
+    } catch (e) { if (seq === termSeq && box.isConnected) box.innerHTML = '<p class="q-hint qd-bad">The payment policy could not be read: ' + esc(fieldErr(e)) + '</p>'; }
+  }
+
+  function termsSectionHtml(d) {
+    const t = d.terms, state = (t && t.state) || 'none', lab = TERMS_STATE[state] || TERMS_STATE.none;
+    const settled = Number(d.paidAmount) > 0;
+    const canSet = !d.converted && !settled && ['new', 'awaiting_details', 'pending_approval', 'quoted'].includes(d.status);
+    if (S.openTerms) {
+      return '<form class="qd-price qd-terms-form" id="qdTermsForm" novalidate>' +
+        '<div class="qd-term-list" data-terms-opts><p class="q-hint">Reading the payment policy…</p></div>' +
+        '<label class="wide">When the balance is due (the customer reads this)<input name="condition" maxlength="120" placeholder="balance due before pickup" value="' + esc((t && t.condition) || '') + '"></label>' +
+        '<label class="wide">Note for Finance<textarea name="note" rows="2" maxlength="300" placeholder="Why these terms for this job"></textarea></label>' +
+        '<div class="err-text wide" data-terms-err role="alert"></div>' +
+        '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelterms">Cancel</button>' +
+        '<button type="submit" class="btn-primary">Save these terms</button></div></form>' +
+        '<p class="q-hint">Full Payment is treated as agreed. Any partial term goes to Finance as a proposal and is only shown to the customer once they sign it.</p>';
+    }
+    return kv([
+      row('Payment term', t ? '<b>' + esc(TERM_NAME[t.key] || t.key) + '</b>' + (t.percent != null ? ' — ' + t.percent + '%' : '') : '<b>Full Payment</b> — everything before release'),
+      row('Initial payment', t && t.amount != null ? money(t.amount) : money(d.amount) || '—'),
+      row('Remaining balance', t && t.balance != null ? money(t.balance) : '₱0.00'),
+      row('Balance due', t && t.condition ? esc(t.condition) : 'nothing further to pay'),
+      row('Estimated availability', esc((t && t.availability) || d.leadTime || '—')),
+      row('Approval', '<span class="qd-pill ' + lab[1] + '">' + lab[0] + '</span>' +
+        (t && t.decidedAt ? ' <span class="dim">' + esc(t.decidedBy || 'Finance') + ' · ' + day(t.decidedAt) + '</span>' : '')),
+      row('Customer reviewed', t && t.seenAt ? day(t.seenAt) : 'not yet'),
+      row('Confirmed payments', (money(d.paidAmount) || '₱0.00') + ' <span class="dim">· ' + esc(d.paymentState || 'unpaid') +
+        (Number(d.balance) > 0 ? ', outstanding ' + money(d.balance) : '') + '</span>')
+    ]) + (settled ? '<div class="qd-callout">Money is already recorded against this quotation, so its terms are fixed. Collect the rest at the counter or with the payment link.</div>'
+      : canSet ? '<button type="button" class="btn-secondary" data-act="terms">' + (t && state !== 'none' ? 'Change the payment terms' : 'Choose the payment terms') + '</button>' : '');
+  }
+
+  async function saveTerms(form) {
+    const d = S.detail; if (!d) return;
+    const err = form.querySelector('[data-terms-err]'), f = new FormData(form);
+    const key = f.get('term'), condition = String(f.get('condition') || '').trim(), note = String(f.get('note') || '').trim();
+    err.textContent = '';
+    if (!key) { err.textContent = 'Choose a payment term from the list.'; return; }
+    const o = (S.termOpts || []).find((x) => x.key === key) || {};
+    const go = await pqConfirm({ title: 'Attach these payment terms to the quotation?',
+      description: key === 'full' ? 'Full Payment: the customer settles everything before the goods are released.'
+        : 'This is sent to Finance as a proposal. The customer is not shown partial terms until Finance signs them.',
+      rows: [['Quotation', d.id], ['Customer', d.customer], ['Total quoted', money(d.amount) || '—'],
+        ['Term', o.label || TERM_NAME[key] || key], ['Pay now', money(o.dueNow) || '—'], ['Balance', money(o.balance) || '₱0.00'],
+        ['Balance due', condition || o.balanceCondition || 'before release']],
+      acknowledgment: 'These amounts are what the customer and I agreed.', confirmLabel: 'Save terms' });
+    if (!go) return;
+    const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
+    try {
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/terms', { method: 'POST', body: JSON.stringify({ termKey: key, condition: condition || undefined, note: note || undefined }) });
+      toast(r.terms && r.terms.state === 'proposed' ? 'Sent to Finance to approve the terms.' : 'Payment terms saved for this quotation.');
+      S.openTerms = false; await openDetail(d.id); loadDesk();
+    } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; }
+  }
+
   function footHtml(d) {
     const b = [];
     if (['new', 'awaiting_details'].includes(d.status) && d.customerId) b.push('<button type="button" class="btn-secondary" data-act="clarify">Request missing details</button>');
@@ -334,10 +429,13 @@
   async function doConvert() {
     const d = S.detail; if (!d) return;
     const walkIn = d.source === 'pos' || !d.customerId;
+    const paid = Number(d.paidAmount) || 0, owing = Number(d.balance) || 0;
     const go = await pqConfirm({ title: walkIn ? 'Hand this accepted quotation to the counter?' : 'Convert this accepted quotation into an order?',
       description: walkIn ? 'The item goes into the Point of Sale cart at the quoted unit price. The customer still pays there, and stock leaves inventory only when the sale is completed.'
-        : 'One order will be created for the accepted quantity and price. It is left UNPAID and no stock is taken out yet.',
-      rows: [['Quotation', d.id], ['Customer', d.customer], ['Item', (d.product || 'Custom item') + (d.sku ? ' (' + d.sku + ')' : '')], ['Quantity', d.quantity], ['Total', money(d.amount) || '—']],
+        : 'One order will be created for the accepted quantity and price. Payments already recorded on the quotation move onto it, so the customer never pays twice.',
+      rows: [['Quotation', d.id], ['Customer', d.customer], ['Item', (d.product || 'Custom item') + (d.sku ? ' (' + d.sku + ')' : '')], ['Quantity', d.quantity], ['Total', money(d.amount) || '—'],
+        ['Payment term', d.terms ? (TERM_NAME[d.terms.key] || d.terms.key) + (d.terms.percent != null ? ' — ' + d.terms.percent + '%' : '') : 'Full Payment'],
+        ['Already paid', money(paid) || '₱0.00'], ['Still outstanding', money(owing) || '₱0.00']],
       acknowledgment: 'The accepted price and quantity above are exactly what the customer agreed to.',
       confirmLabel: walkIn ? 'Hand over' : 'Create the order' });
     if (!go) return;
@@ -389,18 +487,31 @@
     const exception = f.has('exception'), reason = String(f.get('reason') || '').trim();
     if (!leadTime || !validDays) { err.textContent = 'Choose the preparation time and how long the price is valid.'; return; }
     if (exception && reason.length < 10) { err.textContent = 'Explain why Finance must approve it (at least 10 characters).'; return; }
+    const termKey = f.get('term') || 'full';
+    const termOpt = (S.termOpts || []).find((x) => x.key === termKey) || {};
+    const dueNow = termOpt.dueNow != null ? money(termOpt.dueNow) : peso(total);
+    const balance = termOpt.balance != null ? money(termOpt.balance) : '₱0.00';
     const go = await pqConfirm({ title: 'Review the quotation price',
       description: exception ? 'This goes to Finance for approval before the customer is told anything.' : 'The customer is told this price as soon as it is saved.',
       rows: [['Quotation', d.id], ['Customer', d.customer + ' · ' + (d.phone || '')], ['Item', (d.product || 'Custom item') + ' · ' + d.quantity],
         ['Unit price', peso(Number(unit))], ['Calculated total', peso(total)], ['Ready in', leadTime], ['Price valid', validDays + ' days'],
-        ['Payment terms', d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')],
+        ['Payment term', (termOpt.label || TERM_NAME[termKey] || termKey) + ' — pay ' + dueNow + ' now, balance ' + balance],
+        ['Where they pay', d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')],
         ['Needs Finance approval', exception ? 'Yes — ' + reason : 'No'], ['Remarks', note || 'none']],
       acknowledgment: 'I checked the specifications, the quantity and the arithmetic before sending this price.', confirmLabel: exception ? 'Send to Finance' : 'Approve & tell customer' });
     if (!go) return;
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/price', { method: 'POST', body: JSON.stringify({ amount: total.toFixed(2), leadTime, validDays, note, reason, customManufacturing: exception }) });
-      toast(r.status === 'pending_approval' ? 'Sent to Finance for approval.' : 'Price approved and shown to the customer.');
+      // The terms are attached to the price the customer is shown, so they go on straight after it exists.
+      let termsState = null;
+      if (termKey !== ((d.terms || {}).key || 'full')) {
+        try { const t = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/terms', { method: 'POST', body: JSON.stringify({ termKey }) }); termsState = t.terms && t.terms.state; }
+        catch (te) { err.textContent = 'The price was saved, but the payment terms were not: ' + fieldErr(te); S.openPrice = false; await openDetail(d.id); loadDesk(); return; }
+      }
+      toast(r.status === 'pending_approval' ? 'Sent to Finance for approval.'
+        : termsState === 'proposed' ? 'Price sent. The partial payment terms now go to Finance for a signature.'
+        : 'Price approved and shown to the customer.');
       S.openPrice = false; await openDetail(d.id); loadDesk();
     } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; if (/reason|justif/i.test(err.textContent)) { const box = form.querySelector('[data-reason]'); if (box) { box.hidden = false; box.querySelector('textarea').focus(); } } }
   }
@@ -600,13 +711,19 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.detail) { if (!el('qdClarifyOverlay').hidden) closeClarify(); else closeDetail(); } });
     el('qdDrawerBody').addEventListener('input', (e) => {
       if (e.target.name === 'unit') { const d = S.detail, q = qtyParts(d.quantity), out = e.target.form.querySelector('[data-total]');
-        if (out) out.textContent = q && /^\d+(\.\d{1,2})?$/.test(e.target.value.trim()) ? peso(Number(e.target.value) * q.qty) : '—'; }
+        const okNum = /^\d+(\.\d{1,2})?$/.test(e.target.value.trim());
+        if (out) out.textContent = q && okNum ? peso(Number(e.target.value) * q.qty) : '—';
+        clearTimeout(termTimer);
+        termTimer = setTimeout(() => loadTermOptions(e.target.form, q && okNum ? Number(e.target.value) * q.qty : 0, (d.terms || {}).key), 350); }
     });
     el('qdDrawerBody').addEventListener('change', (e) => {
       if (e.target.name === 'exception') { const box = e.target.form.querySelector('[data-reason]'); box.hidden = !e.target.checked; if (e.target.checked) box.querySelector('textarea').focus(); }
       if (e.target.id === 'qdFileInput') uploadFile(e.target.files[0]);
     });
-    el('qdDrawerBody').addEventListener('submit', (e) => { if (e.target.id === 'qdPriceForm') { e.preventDefault(); submitPrice(e.target); } });
+    el('qdDrawerBody').addEventListener('submit', (e) => {
+      if (e.target.id === 'qdPriceForm') { e.preventDefault(); submitPrice(e.target); }
+      if (e.target.id === 'qdTermsForm') { e.preventDefault(); saveTerms(e.target); }
+    });
     el('qdDrawerFoot').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]'); if (!b) return;
       const act = b.dataset.act;
@@ -620,6 +737,8 @@
       if (b.dataset.delfile) { delFile(b.dataset.delfile); return; }
       if (b.dataset.act === 'price') { S.openPrice = true; renderDetail(); }
       if (b.dataset.act === 'cancelprice') { S.openPrice = false; renderDetail(); }
+      if (b.dataset.act === 'terms') { S.openTerms = true; renderDetail(); }
+      if (b.dataset.act === 'cancelterms') { S.openTerms = false; renderDetail(); }
     });
 
     el('pqClarifyCancel').addEventListener('click', closeClarify);

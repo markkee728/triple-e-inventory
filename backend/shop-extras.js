@@ -206,6 +206,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval', awaiting_details: 'Awaiting customer details' })[st] || st;
   const quoteJson = (q) => {
     const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
+    const terms = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
     const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
     const progress = [];
     if (at >= 0 && q.responded_at) progress.push({ status: 'accepted', label: 'Accepted', at: ms(q.responded_at) });
@@ -222,12 +223,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
       respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
       paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
+      // derived by the payment ledger trigger, never by these screens
+      paymentState: q.payment_state || (paid > 0 && total != null && paid >= total ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid'),
+      terms: terms || undefined, dueNow: terms && terms.state === 'approved' && total != null && paid <= 0 ? terms.amount : undefined,
       payments: (Array.isArray(q.payments) ? q.payments : []).map((p) => ({ amount: p.amount, method: p.method, note: p.note || undefined, at: p.at })),
       progress, next: next || undefined, nextLabel: next ? stepLabel(next, q.fulfillment) : undefined, receivedBy: q.received_by || undefined,
       clarification: q.clarification || undefined, source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
     };
   };
   const nc = () => app.locals.notifications;                                   // in-app notification center (fails soft)
+  /* The payment terms block printed on a quotation (§2). Nothing is collected while a quote is still pending —
+     these lines only tell the customer what will be due, when, and what the balance covers. */
+  const termsLines = (q) => {
+    const t = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
+    if (!t || t.state === 'proposed' || t.total == null) return [];
+    if (t.key === 'full' || +t.percent >= 100) return [`Payment terms: Full Payment - ${peso(t.total)} before ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}`];
+    return [`Payment terms: ${t.percent}% now (${peso(t.amount)}), balance ${peso(t.balance)} - ${t.condition || 'due before release'}`]
+      .concat(t.availability ? [`Estimated availability: ${t.availability}`] : []);
+  };
   const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
   const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
 
@@ -402,6 +415,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
         [cur.quote_id, next, note || null, payMethod]);
+      // Accepting covers the payment terms printed on the quote, so they are stamped as seen with the acceptance.
+      if (action === 'accept' && app.locals.paymentTerms) await app.locals.paymentTerms.markTermsSeen(client, cur.quote_id);
       await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
       return r.rows[0];
     });
@@ -418,7 +433,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
       await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
         `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
-        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
+        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...termsLines(q), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
         action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `The customer is paying online through Xendit. You will be notified when the payment arrives; then move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
@@ -574,10 +589,15 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
+      `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name, d.full_name AS terms_decided_by_name,
+              conv.order_no AS converted_order_no
          FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
+         LEFT JOIN users d ON d.user_id = q.terms_decided_by
+         LEFT JOIN orders conv ON conv.order_id = q.converted_order_id
         ORDER BY (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
-    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
+    // convertedOrder tells the Sales report that this quotation's money belongs to an order it already lists (§10)
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email,
+      handledBy: q.handled_by_name || undefined, convertedOrder: q.converted_order_no || undefined })));
   }));
 
   // Finance: send the quote (amount is required), close a request, or reopen it
@@ -625,8 +645,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
         `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
         `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}`, `Price valid until: ${dateStr(q.valid_until)}`,
+        ...termsLines(q),
         ...(q.reply_note ? ['', q.reply_note] : []), '',
-        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
+        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. Accepting covers these payment terms too. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
       else await send(u && u.email, `Update on your quote request ${q.quote_no}`, [`Hi ${q.contact_name},`, 'We have an update on your quote request.', '', q.reply_note, ...signoff()], 'quote-reply');
     })().catch((e) => console.error('[mail] quote reply failed:', e.message));
   }));
@@ -680,6 +701,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     })().catch((e) => console.error('[mail] quote step failed:', e.message));
   }));
 
+  // Finance records cash / transfer received against an accepted quote. The money itself is written to the
+  // payment ledger (payment-terms.js), which owns quote_requests.paid_amount and payment_state through a trigger;
+  // the payments JSONB array below stays only as the display copy the quotation screens already read.
   app.post('/api/finance/quotes/:no/payment', auth('finance'), wrap(async (req, res) => {
     const b = req.body || {};
     const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, ''), method = str(b.method), note = str(b.note);
@@ -689,21 +713,25 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     amount = round2(amount);
     if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
     if (note.length > 100) throw bad('note', 'The note must be 100 characters or fewer');
-    const q = await tx(async (client) => {
+    const pt = app.locals.paymentTerms;
+    if (!pt) throw bad('ledger', 'The payment ledger is not available');
+    const out = await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
       if (!['accepted', 'preparing', 'ready'].includes(cur.status)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
-      const balance = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
-      if (amount > balance + 0.004) throw bad('amount', `The balance is only ${peso(balance)}`);
-      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([{ amount, method, note: note || undefined, at: Date.now() }]);
-      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, handled_by = $4, updated_at = now() WHERE quote_id = $1 RETURNING *',
-        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays), req.user.id]);
-      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no}: payment of ${peso(amount)} received (${method})`);
-      return r.rows[0];
+      const paid = await pt.applyPayment(client, { kind: 'quote', no: cur.quote_no, amount, method, note, actor: req.user, requestId: str(b.requestId) || undefined });
+      if (paid.replayed) return { cur, paid };
+      const entry = { id: paid.paymentId, amount, method, note: note || undefined, at: Date.now() };
+      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([entry]);
+      await client.query('UPDATE quote_requests SET payments = $2::jsonb, handled_by = $3, updated_at = now() WHERE quote_id = $1',
+        [cur.quote_id, JSON.stringify(pays), req.user.id]);
+      return { cur, paid };
     });
-    res.json({ ok: true, paidAmount: +q.paid_amount, balance: Math.max(0, round2(+q.quoted_amount - +q.paid_amount)) });
-    const bal = Math.max(0, round2(+q.quoted_amount - +q.paid_amount));
-    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid.');
+    const parent = out.paid.parent, q = out.cur;
+    res.json({ ok: true, replayed: !!out.paid.replayed, paidAmount: parent.paid, balance: parent.balance, paymentState: parent.state,
+      payments: (Array.isArray(q.payments) ? q.payments : []).concat(out.paid.replayed ? [] : [{ amount, method, note: note || undefined, at: Date.now() }]) });
+    if (out.paid.replayed) return;
+    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (parent.balance > 0 ? `Balance: ${peso(parent.balance)}.` : 'Fully paid.');
     Promise.resolve(pingUser(q.customer_id, { category: 'payment', title: 'Payment received', body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
     (async () => {
       if (!q.customer_id) return;
@@ -727,7 +755,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!r.ok) { const e = new Error(data.message || 'Xendit request failed'); e.status = r.status; throw e; }
     return data;
   }
-  const owedOn = (q) => round2(+q.quoted_amount - (+q.paid_amount || 0));
+  /* What an online checkout should bill for this quote.
+     With approved partial terms the first invoice is only the initial payment (a 50% or 30% down payment is not the
+     whole order), and only once nothing has been paid yet. After that it is whatever balance is left. */
+  const owedOn = (q) => {
+    const bal = round2(+q.quoted_amount - (+q.paid_amount || 0));
+    const pt = app.locals.paymentTerms;
+    if (!pt || (+q.paid_amount || 0) > 0) return bal;
+    const terms = pt.approvedDueOf(q);
+    return terms && +terms.amount > 0 ? Math.min(bal, round2(+terms.amount)) : bal;
+  };
   // returns the Xendit checkout link for what the customer still owes (re-uses a still-open invoice)
   async function quoteCheckoutUrl(q) {
     const owed = owedOn(q); if (!(owed > 0)) return null;
@@ -744,27 +781,35 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     await pool.query('UPDATE quote_requests SET xendit_invoice_id = $2, xendit_external_id = $3 WHERE quote_id = $1', [q.quote_id, inv.id, externalId]);
     return inv.invoice_url;
   }
-  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is kept on the payment)
+  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is the ledger's provider reference,
+  // so a retried callback re-reads the same row instead of adding money twice)
   async function applyQuoteInvoice(q, event, invoiceId) {
     if (!['PAID', 'SETTLED'].includes(String(event.status))) return null;
+    const pt = app.locals.paymentTerms;
+    if (!pt) { console.error('[xendit] the payment ledger module is not mounted — quote payment not recorded'); return null; }
+    const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
+    if (!(amount > 0)) return null;
     let done = null;
     await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_id = $1 FOR UPDATE', [q.quote_id])).rows[0];
       if (!cur) return;
+      const paid = await pt.applyPayment(client, {
+        kind: 'quote', id: cur.quote_id, amount, method: 'Xendit', providerRef: invoiceId, note: 'Paid online',
+        actorName: 'Xendit Webhook',
+        // money already captured online is recorded as it is, even if the quote was amended below it — Finance refunds the difference
+        allowOver: true
+      });
+      if (paid.replayed) { done = null; return; }
       const pays = Array.isArray(cur.payments) ? cur.payments : [];
-      if (pays.some((p) => p.ref === invoiceId)) return;
-      const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
-      if (!(amount > 0)) return;
-      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, updated_at = now() WHERE quote_id = $1 RETURNING *',
-        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays.concat([{ amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
-      await audit(client, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, 'Record edited', `Quote ${cur.quote_no}: online payment of ${peso(amount)} received (Xendit invoice ${invoiceId})`);
-      done = { q: r.rows[0], amount };
+      await client.query('UPDATE quote_requests SET payments = $2::jsonb, updated_at = now() WHERE quote_id = $1',
+        [cur.quote_id, JSON.stringify(pays.concat([{ id: paid.paymentId, amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
+      done = { cur, parent: paid.parent, amount };
     });
     if (done) {
-      const q2 = done.q, bal = Math.max(0, owedOn(q2));
-      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(done.amount)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : ' Fully paid.'),
+      const { cur: q2, parent, amount: amt } = done, bal = parent.balance;
+      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(amt)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : parent.paid > parent.total ? ` Overpaid by ${peso(round2(parent.paid - parent.total))} — please refund.` : ' Fully paid.'),
         link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q2.quote_no })).catch(() => {});
-      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(done.amount)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
+      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(amt)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
         link: 'Shop_Customer.html', entityType: 'quote', entityId: q2.quote_no }, 'customer')).catch(() => {});
     }
     return done;

@@ -115,6 +115,8 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       amount: money(total), proposedAmount: money(q.proposed_amount), leadTime: q.lead_time || null,
       validUntil: dateStr(q.valid_until) || null, expired, status: q.status, statusLabel: labelFor(q.status, q.fulfillment, expired),
       paidAmount: money(q.paid_amount), balance: total == null ? null : Math.max(0, round2(total - (+q.paid_amount || 0))),
+      // both come from the payment ledger trigger in PostgreSQL, never worked out here
+      paymentState: q.payment_state || (+q.paid_amount > 0 && total != null && +q.paid_amount >= total ? 'paid' : +q.paid_amount > 0 ? 'partially_paid' : 'unpaid'),
       clarificationStatus: q.clarification_status || null, attachmentCount: Number(q.attachment_count) || 0,
       orderNo: q.order_no || null, converted: !!q.converted_order_id, handoverAt: ms(q.handover_at) || null, createdBy: q.created_by_name || null
     };
@@ -126,6 +128,9 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
     responseNote: q.response_note || null, respondedAt: ms(q.responded_at) || null, email: q.customer_email || null,
     customerId: q.customer_id || null, handledBy: q.handled_by_name || null, updatedAt: ms(q.updated_at),
     payments: Array.isArray(q.payments) ? q.payments : [], progress: Array.isArray(q.progress) ? q.progress : [],
+    terms: (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) || undefined : undefined,
+    // which payment scope applies is the ledger module's rule, so the desk asks it instead of judging from the sku
+    madeToOrder: (app.locals.paymentTerms || {}).isMadeToOrder ? app.locals.paymentTerms.isMadeToOrder(q) : undefined,
     receivedBy: q.received_by || undefined, payMethod: q.pay_method || undefined,
     clarifications: clarifications.map((c) => ({
       id: c.clarification_id, fields: c.fields, message: c.message, responseDue: dateStr(c.response_due), status: c.status,
@@ -197,11 +202,13 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
   app.get('/api/pos/quote-desk/:no', auth('cashier'), wrap(async (req, res) => {
     const no = str(req.params.no).slice(0, 40);
     const q = (await pool.query(
-      `SELECT q.*, c.full_name AS created_by_name, h.full_name AS handled_by_name, cu.email AS customer_email, o.order_no, o.status AS order_status, o.payment_status
+      `SELECT q.*, c.full_name AS created_by_name, h.full_name AS handled_by_name, cu.email AS customer_email, o.order_no, o.status AS order_status, o.payment_status,
+              d.full_name AS terms_decided_by_name
          FROM quote_requests q
          LEFT JOIN users c ON c.user_id = q.created_by
          LEFT JOIN users h ON h.user_id = q.handled_by
          LEFT JOIN users cu ON cu.user_id = q.customer_id
+         LEFT JOIN users d ON d.user_id = q.terms_decided_by
          LEFT JOIN orders o ON o.order_id = q.converted_order_id
         WHERE q.quote_no = $1`, [no])).rows[0];
     if (!q) throw bad('id', 'Quotation not found');
@@ -334,11 +341,25 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       await client.query(
         `INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note) VALUES ($1,$2,$3,$4,$5)`,
         [o.order_id, o.status, o.status, req.user.id, `Created from accepted quotation ${q.quote_no} (${peso(q.quoted_amount)})`]);
+      // the approved payment terms belong to the order now, and any money already paid on the quotation moves with it,
+      // so the customer is never asked to pay the balance twice (payment-terms.js owns that ledger transfer)
+      const pt = app.locals.paymentTerms;
+      let movedMoney = null;
+      if (pt) {
+        await pt.inheritTerms(client, { quote: q, orderId: o.order_id, actor: req.user });
+        movedMoney = await pt.moveQuotePaymentsToOrder(client, { quoteId: q.quote_id, quoteNo: q.quote_no, orderId: o.order_id, orderNo: o.order_no, actor: req.user });
+        if (movedMoney && movedMoney.moved) {
+          const after = (await client.query('SELECT paid_amount, payment_state FROM orders WHERE order_id = $1', [o.order_id])).rows[0];
+          movedMoney.paidAmount = +((after || {}).paid_amount || 0);
+          movedMoney.paymentState = (after || {}).payment_state;
+        }
+      }
       await client.query(
         `UPDATE quote_requests SET converted_order_id = $2, converted_at = now(), convert_request_id = $3, converted_note = $4, updated_at = now() WHERE quote_id = $1`,
         [q.quote_id, o.order_id, requestId, `Converted by ${req.user.name || 'cashier'}`]);
       await audit(client, req.user, 'Record added', `Quote ${q.quote_no} converted to order ${o.order_no} (${qv.qty} ${qv.unit} of ${p.sku}, ${peso(q.quoted_amount)})`);
-      return { kind: 'order', orderNo: o.order_no, total: +o.total, status: o.status, method, customerId: q.customer_id, quoteNo: q.quote_no, duplicate: false };
+      return { kind: 'order', orderNo: o.order_no, total: +o.total, status: o.status, method, customerId: q.customer_id, quoteNo: q.quote_no, duplicate: false,
+        paymentsMoved: movedMoney && movedMoney.moved ? movedMoney.moved : 0, paidAmount: movedMoney && movedMoney.paidAmount != null ? movedMoney.paidAmount : 0 };
     });
     res.json(out);
     if (out.kind === 'order' && !out.duplicate) {

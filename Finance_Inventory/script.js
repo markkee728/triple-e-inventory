@@ -90,6 +90,11 @@ const pageInformation = {
         subtitle: "Bulk orders and custom sizes"
     },
 
+    "payment-terms": {
+        title: "Payment Terms",
+        subtitle: "Part-payment policy, approvals and outstanding balances"
+    },
+
     reviews: {
         title: "Product Reviews",
         subtitle: "Verified customer reviews"
@@ -124,7 +129,7 @@ function navigateToPage(pageId) {
         item.classList.toggle("active", item.dataset.page === pageId);
     });
     const parent = document.querySelector('.sales-parent');
-    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes'].includes(pageId));
+    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes','payment-terms'].includes(pageId));
     document.querySelectorAll('.sales-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.page === pageId));
 
     pages.forEach(page => {
