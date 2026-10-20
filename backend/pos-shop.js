@@ -362,7 +362,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
     if (o.payment_method !== 'Xendit') throw bad('payment', 'This order was not placed with Xendit');
-    if (o.payment_status === 'paid' || o.status !== 'Pending Confirmation') throw bad('payment', 'This order is no longer awaiting payment');
+    if (['Cancelled', 'Returned'].includes(o.status)) throw bad('payment', 'This order is closed');
+    if (Number(o.total) - Number(o.paid_amount || 0) < 0.01) throw bad('payment', 'This order has no remaining balance');
     if (o.xendit_invoice_id) {
       try {
         const existing = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
@@ -372,7 +373,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const money = app.locals.paymentTerms && app.locals.paymentTerms.orderMoney(o);
     const dueNow = money ? Number(money.dueNow) : Number(o.total);
     if (!Number.isFinite(dueNow) || dueNow <= 0) throw bad('payment', 'There is no initial payment due on this order');
-    const externalId = o.xendit_external_id || `triplee-${o.order_no}-${o.order_id}`;
+    const externalId = `triplee-${o.order_no}-${o.order_id}-${Date.now()}`;
     const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
     if (!base) throw bad('config', 'Set APP_BASE_URL to the public HTTPS address of this application');
     const invoice = await xenditRequest(`${xenditBaseUrl}/v2/invoices`, {
@@ -381,7 +382,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         external_id: externalId,
         amount: dueNow,
         currency: 'PHP',
-        description: `Triple-E Metal Products order ${o.order_no} — initial payment`,
+        description: `Triple-E Metal Products order ${o.order_no} — ${Number(o.paid_amount || 0) > 0 ? 'remaining balance' : 'initial payment'}`,
         success_redirect_url: `${base}/Shop_Customer.html?payment=return`,
         failure_redirect_url: `${base}/Shop_Customer.html?payment=failed`,
         invoice_duration: 86400
@@ -393,16 +394,16 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   async function applyShopInvoice(o, event, invoiceId) {
-    if ((event.status === 'PAID' || event.status === 'SETTLED') && o.status === 'Pending Confirmation') {
+    if ((event.status === 'PAID' || event.status === 'SETTLED') && !['Cancelled', 'Returned'].includes(o.status)) {
       let confirmed = false;
       await tx(async (client) => {
         const current = (await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id])).rows[0];
-        if (!current || current.status !== 'Pending Confirmation' || current.xendit_invoice_id !== invoiceId) return;
+        if (!current || ['Cancelled', 'Returned'].includes(current.status) || current.xendit_invoice_id !== invoiceId) return;
         const payment = app.locals.paymentTerms;
         if (!payment) throw new Error('Payment ledger is unavailable');
         const money = payment.orderMoney(current);
         const amount = Number(event.paid_amount ?? event.amount);
-        // Never mark paid from a browser redirect. Match the verified provider invoice to the expected initial due.
+        // Never mark paid from a browser redirect. Match the verified provider invoice to the currently owed installment.
         if (!Number.isFinite(amount) || Math.round(amount * 100) !== Math.round(Number(money.dueNow) * 100)) {
           // An already-processed invoice is a legitimate replay, not a new payment.
           const seen = await client.query('SELECT payment_id FROM payments WHERE provider_ref = $1', [invoiceId]);
@@ -419,7 +420,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await client.query('UPDATE orders SET payment_status = $2 WHERE order_id = $1',
           [current.order_id, fullyPaid ? 'paid' : 'pending']);
         // A deposit is not a fully paid order: do not release stock or advance fulfilment.
-        if (fullyPaid) await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' },
+        if (fullyPaid && current.status === 'Pending Confirmation') await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' },
           `Xendit invoice ${invoiceId} received ${amount}; balance ${result.parent.balance}`);
         confirmed = true;
       });

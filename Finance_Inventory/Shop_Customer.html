@@ -983,7 +983,7 @@ function renderOrders() {
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
-    ${o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation' ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.dueNow) > 0 && Number(o.dueNow) < Number(o.total) ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
+    ${o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005 && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.paidAmount || 0) > 0 ? 'Pay remaining ' + peso(o.outstanding) : Number(o.dueNow) > 0 ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
     ${refundBlock(o)}</div>`; }).join('')
@@ -1566,7 +1566,7 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   // pick up status changes made by Finance (every 15 s, and whenever the tab is shown again)
   // Ask the server to check any unpaid online order with Xendit, so a payment is saved even if Xendit's callback never reaches us.
   const verifyPending = async () => {
-    const pending = orders.filter(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && o.status === 'Pending Confirmation');
+    const pending = orders.filter(o => o.method === 'Xendit' && o.paymentStatus !== 'paid' && Number(o.outstanding || 0) > 0 && !['Cancelled','Returned'].includes(o.status));
     let paid = false; const paidNow = [];
     for (const o of pending) {
       // anything the ledger has newly confirmed counts, so an initial payment is reported even though the order is only partly paid
