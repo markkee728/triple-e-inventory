@@ -258,6 +258,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     Object.keys(SPEC_ALIAS).forEach((key) => { const hit = SPEC_ALIAS[key].map((a) => lower[a]).find(Boolean); if (hit) out[key] = hit.slice(0, 80); });
     return out;
   }
+  // "Forged Brass Elbow" -> Brass, "Die-Cast Aluminum Heat Sink" -> Aluminum. Only when the name points at exactly one material.
+  function materialFromName(name) {
+    const text = String(name || '');
+    const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some((w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)));
+    return fam && fam.materials.length === 1 ? fam.materials[0] : null;
+  }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
     if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
@@ -306,6 +312,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const specs = {};
     for (const key of Object.keys(SPEC_LABEL)) {
       if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
+      // A catalog product is a ready-made finished good: nothing is chosen or customised. Anything its record does not state is saved as
+      // "Not specified" (the material is read from the product name when it names one), and it is always sold as is. Same rule as the locked form.
+      if (sku) { specs[key] = key === 'service' ? 'None (as is)' : (key === 'material' && materialFromName(productName)) || 'Not specified'; continue; }
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
       const fits = QUOTE_OPTIONS.rules[specs.material];                 // material comes first in SPEC_LABEL; it decides what fits (no rule = anything)

@@ -67,3 +67,14 @@ html[data-theme="light"] #quoteForm input[type=date],html[data-theme="light"] #p
 @media (prefers-reduced-motion:reduce){
   #quoteForm input,#quoteForm select,#quoteForm textarea,#page-quotes #pqForm input,#page-quotes #pqForm select,#page-quotes #pqForm textarea,#quoteForm .qx-link,#page-quotes #pqForm .qx-link{transition:none}
 }
+
+/* ---------- catalog product: details are locked (set by the product record, nothing to choose) ---------- */
+#quoteForm .qx-lockbar,#page-quotes #pqForm .qx-lockbar{display:flex;align-items:flex-start;gap:12px;margin:-2px 0 18px;padding:12px 14px;border:1px solid rgba(67,196,122,.4);border-radius:10px;background:rgba(67,196,122,.08);font-size:13.5px;line-height:1.5;color:var(--text-dim)}
+#quoteForm .qx-lockbar[hidden],#page-quotes #pqForm .qx-lockbar[hidden]{display:none}
+#quoteForm .qx-lockbar svg,#page-quotes #pqForm .qx-lockbar svg{flex:none;width:20px;height:20px;margin-top:1px;fill:none;stroke:var(--green);stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#quoteForm .qx-lockbar b,#page-quotes #pqForm .qx-lockbar b{color:var(--text);font-weight:650}
+#quoteForm .qx-locked select:disabled,#page-quotes #pqForm .qx-locked select:disabled,
+#quoteForm .qx-row select:disabled,#page-quotes #pqForm .qx-row select:disabled{opacity:1;cursor:not-allowed;color:var(--text);-webkit-text-fill-color:var(--text);background-color:var(--inset);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%238fa1b0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='11' width='14' height='9' rx='2'/%3E%3Cpath d='M8 11V8a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center;border-style:dashed}
+#quoteForm .qx-locked .q-hint,#page-quotes #pqForm .qx-locked .q-hint{color:var(--green)}

@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="cashier-orders.css?v=1">
 <link rel="stylesheet" href="notifications.css?v=6">
 <link rel="stylesheet" href="quotes.css?v=3">
-<link rel="stylesheet" href="quote-fields.css?v=1">
+<link rel="stylesheet" href="quote-fields.css?v=2">
 <style>
 .fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
 .cust-err{min-height:0;margin-top:4px;font-size:12.5px;color:var(--red,#e35b5b)}.cust-err:empty{display:none}.cust-grid input.is-bad{border-color:var(--red,#e35b5b)!important}
@@ -307,7 +307,7 @@
 
             <section class="qd-fsec">
               <div class="qd-fsec-head"><span class="qd-num-badge">2</span><div><h3>Product information</h3><p>Pick a catalog product to fill the specifications, or choose “Other / custom product” and describe it.</p></div></div>
-              <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select><small class="q-hint">The sizes, thicknesses, materials and finishes offered are the ones Finance actually allows — the list comes from the server.</small></div>
+              <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select><small class="q-hint">Catalog products (forged brass, die-cast aluminum) come with their material, size, thickness and finish already filled in and locked. Pick “Other / custom product” only for something we do not list.</small></div>
               <div class="q-field" id="pqNameWrap"><label for="pqItem">Product name or description *</label><input id="pqItem" maxlength="120" placeholder="e.g. Brass elbow, 3/4 inch, threaded"><div class="err-text" id="pqE_productName" role="alert"></div></div>
               <div id="pqFields"><p class="dim">Loading the product specifications…</p></div>
               <p class="q-hint">Reference drawings or product photos are attached after saving: open the new request in the list and use “Choose file” (JPG, PNG, WEBP or PDF, up to 3 files, 5 MB each, stored in the database).</p>
@@ -457,7 +457,7 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
-<script src="quote-fields.js?v=4"></script>
+<script src="quote-fields.js?v=5"></script>
 <script src="quote-desk-ui.js?v=1"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>

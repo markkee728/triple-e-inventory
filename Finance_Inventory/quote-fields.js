@@ -37,9 +37,10 @@
 
   function mount(host, cfg) {
     var p = cfg.prefix, o = cfg.options || {}, lim = limits(o);
-    state[p] = { options: o, picked: false, hint: null, offKey: null, timer: null, flexible: cfg.flexible || null };
+    state[p] = { options: o, picked: false, hint: null, offKey: null, timer: null, flexible: cfg.flexible || null, locked: false };
     var h = '<div class="qx-title">Sizes and details</div>' +
       '<div class="qx-narrow" id="' + p + 'Narrow" hidden></div>' +
+      '<div class="qx-lockbar" id="' + p + 'Locked" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span><b>Ready-made catalog product.</b> Its material, size, thickness and finish come from the product record and are locked, so only the quantity and date are needed. Choose \u201COther / custom product\u201D for something we do not list.</span></div>' +
       '<div class="q-grid">' +
       FIELDS.map(function (f) {
         var k = f[0], custom = isCustom(o, k);
@@ -132,6 +133,7 @@
   }
   function refresh(p) {
     var s = state[p]; if (!s) return;
+    if (s.locked) { $(p + 'Narrow').hidden = true; return; }                             // a catalog product decides every detail
     var h = detect(p), changed = (s.hint && s.hint.key) !== (h && h.key); s.hint = h;
     var msel = $(p + 'S_material'), note = $(p + 'Narrow'), pre = '';
     if (changed) s.picked = false;                                                            // a new description starts afresh
@@ -214,39 +216,64 @@
     var sel = $(p + 'Unit'); if (!sel || !unit) return; var u = String(unit).toLowerCase();
     var has = Array.prototype.some.call(sel.options, function (o) { return o.value === u; });
     if (!has) { var o = document.createElement('option'); o.value = u; o.textContent = u; sel.appendChild(o); }
-    sel.value = u;
+    sel.value = u; sel.disabled = true; sel.title = 'Sold per ' + u + ' (set by the product)';
     var q = $(p + 'Qty'); if (q && wholeUnit(p)) q.value = q.value.replace(/\..*$/, '');
   }
-  // Pre-fill Material / Size / Thickness / Finish from the chosen product's own record so nothing the database already knows has to be
-  // retyped. The fields are NOT locked: the person can change any of them, pick another choice, or type their own ("Other"). Call with
-  // the product's specs object, or with nothing (custom item) to clear what a product filled in. Same mapping as productSpecs() in shop-extras.js.
+  // A catalog product is a ready-made finished good (forged brass, die-cast aluminum...). Its Material / Size / Thickness / Finish come from the
+  // product's own record and are LOCKED: nothing to choose or retype. A value the record does not have shows "Not specified"; the material is read
+  // from the product name when it names one (brass, aluminum...). Cutting / bending is always "None (as is)". The server applies the same rule
+  // (readQuote in shop-extras.js), so what is locked here is what is saved. Call with the product's specs object, or with nothing (custom item) to
+  // unlock everything and clear what a product filled in.
   var ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
-  function autofill(p, specs) {
-    var lower = {}; Object.keys(specs || {}).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
-    Object.keys(ALIAS).forEach(function (k) {
-      var sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
-      var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0];
-      var note = $(p + 'A_' + k);
-      if (!note) { note = document.createElement('small'); note.id = p + 'A_' + k; note.className = 'q-hint'; sel.parentNode.insertBefore(note, sel.nextSibling); }
-      var added = sel.getAttribute('data-added');
-      if (v) {
-        if (!Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); }
-        if (added && added !== v) Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); });
-        sel.setAttribute('data-added', v); sel.value = v; sel.setAttribute('data-filled', '1'); if (c) { c.hidden = true; c.value = ''; }
-        note.textContent = 'Filled in from the product details. Change it if you need something different.'; note.hidden = false;
-      } else {
-        if (sel.getAttribute('data-filled')) { sel.value = ''; sel.removeAttribute('data-filled'); }
-        note.textContent = ''; note.hidden = true;
-        if (added && sel.value !== added) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
-      }
-      sel.disabled = false;
-      setErr(p, k, '');
-    });
-    if (state[p]) { state[p].picked = !!$(p + 'S_material').getAttribute('data-filled'); refresh(p); }       // a material from the product record is not overridden by the description
+  var NOT_SET = 'Not specified', AS_IS = 'None (as is)';
+  function lockNote(p, sel, text) {
+    var k = sel.id.slice((p + 'S_').length), note = $(p + 'A_' + k);
+    if (!note) { note = document.createElement('small'); note.id = p + 'A_' + k; note.className = 'q-hint'; sel.parentNode.insertBefore(note, sel.nextSibling); }
+    note.textContent = text || ''; note.hidden = !text;
   }
-  function setHint(p, text) { var h = $(p + 'QtyHint'); if (h) h.textContent = text || ''; }
-  function setQuantity(p, n) { $(p + 'Qty').value = n == null ? '' : String(n); }
-  function setNotes(p, text) { $(p + 'Notes').value = text || ''; $(p + 'NotesCount').textContent = ($(p + 'Notes').value.length) + ' / 1000'; }
+  function setLocked(p, k, v, why) {
+    var sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
+    var has = Array.prototype.some.call(sel.options, function (x) { return x.value === v; }), added = sel.getAttribute('data-added');
+    if (added && added !== v) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
+    if (!has) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); sel.setAttribute('data-added', v); }
+    sel.value = v; sel.setAttribute('data-filled', '1'); sel.disabled = true;
+    if (c) { c.hidden = true; c.value = ''; }
+    sel.parentNode.classList.add('qx-locked');
+    lockNote(p, sel, why); setErr(p, k, '');
+  }
+  function unlock(p, k) {
+    var sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
+    var added = sel.getAttribute('data-added');
+    sel.disabled = false; sel.parentNode.classList.remove('qx-locked');
+    if (sel.getAttribute('data-filled')) { sel.value = ''; sel.removeAttribute('data-filled'); }
+    if (added) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
+    if (c) { c.hidden = true; c.value = ''; }
+    lockNote(p, sel, ''); setErr(p, k, '');
+  }
+  function autofill(p, specs) {
+    var s = state[p]; if (!s) return;
+    var banner = $(p + 'Locked'), unit = $(p + 'Unit');
+    if (specs === null) {                                                                          // custom item: everything is editable again (a catalog product with no specs object still locks)
+      s.locked = false;
+      FIELDS.forEach(function (f) { unlock(p, f[0]); });
+      if (banner) banner.hidden = true;
+      if (unit) unit.disabled = false;
+      s.picked = false; refresh(p); return;
+    }
+    s.locked = true;
+    specs = specs || {};
+    var lower = {}; Object.keys(specs).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
+    var h = detect(p), fromName = h && h.pick;
+    Object.keys(ALIAS).forEach(function (k) {
+      var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0], why = 'From the product record. Locked.';
+      if (!v && k === 'material' && fromName) { v = fromName; why = 'Read from the product name. Locked.'; }
+      if (!v) { v = NOT_SET; why = 'Not listed for this product. Locked.'; }
+      setLocked(p, k, v, why);
+    });
+    setLocked(p, 'service', AS_IS, 'Ready-made item, sold as is. Locked.');
+    if (banner) banner.hidden = false;
+    $(p + 'Narrow').hidden = true;
+  }
 
   var st = document.createElement('style');
   st.textContent = '.qx-row{display:flex;gap:8px}.qx-row input{flex:1 1 auto;min-width:0}.qx-row select{flex:0 0 38%;min-width:0}' +
