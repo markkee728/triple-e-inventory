@@ -68,7 +68,7 @@
       b.className = 'nav-item'; b.setAttribute('data-page', 'stockcount');
      b.innerHTML = '<svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="18" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="m9 13 2 2 4-4"/><path d="M9 18h6"/></svg> Stock Count';
       nav.parentNode.insertBefore(b, nav.nextSibling);
-      b.addEventListener('click', function () { if (typeof navigateToPage === 'function') navigateToPage('stockcount'); onOpen(); });
+      b.addEventListener('click', function () { if (typeof navigateToPage === 'function') navigateToPage('stockcount'); else onOpen(); });
     }
     try { if (typeof pageInformation !== 'undefined') pageInformation.stockcount = { title: 'Stock Count', subtitle: 'Compare the physical count with the system' }; } catch (e) {}
     return true;
@@ -259,7 +259,7 @@
         else if (b.id === 'scSave') await save(false);
         else if (b.id === 'scPost') { if (await save(true)) review(); }
         else if (b.id === 'scCancel') {
-          if (!window.confirm('Cancel ' + cur.no + '? Nothing will be changed in your stock, and the counts you typed will be kept in history only.')) return;
+          if (!(await uiConfirm({ title: 'Cancel ' + cur.no + '?', message: 'Stock is not changed. The counts you typed stay in the history.', confirm: 'Cancel count', cancel: 'Keep counting', danger: true }))) return;
           await api('/stock-counts/' + encodeURIComponent(cur.id) + '/cancel', { method: 'POST' }); toast(cur.no + ' cancelled'); await showList();
         }
       } catch (err) { showErr(err.message); if (!$('scErr')) toast(err.message, true); }
@@ -275,7 +275,13 @@
 
   function init() {
     addStyles(); if (!build()) return; bind();
-    if (location.hash === '#stockcount' && typeof navigateToPage === 'function') { navigateToPage('stockcount'); onOpen(); }   // page reloaded while on Stock Count
+    // load the page whenever it is shown, not only from its own menu button (page memory, links and refresh use navigateToPage too)
+    if (typeof window.navigateToPage === 'function' && !window.navigateToPage.scWrapped) {
+      var nav = window.navigateToPage;
+      window.navigateToPage = function (page) { var r = nav.apply(this, arguments); if (page === 'stockcount') onOpen(); return r; };
+      window.navigateToPage.scWrapped = true;
+    }
+    if (location.hash === '#stockcount' && typeof navigateToPage === 'function') navigateToPage('stockcount');   // page reloaded while on Stock Count
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

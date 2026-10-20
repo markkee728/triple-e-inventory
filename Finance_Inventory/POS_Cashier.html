@@ -9,11 +9,11 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="app-ui.css?v=2">
+<link rel="stylesheet" href="app-ui.css?v=3">
 <link rel="stylesheet" href="cash-shift.css?v=2">
 <link rel="stylesheet" href="cashier-orders.css?v=1">
-<link rel="stylesheet" href="notifications.css?v=6">
-<link rel="stylesheet" href="quotes.css?v=3">
+<link rel="stylesheet" href="notifications.css?v=7">
+<link rel="stylesheet" href="quotes.css?v=4">
 <link rel="stylesheet" href="quote-fields.css?v=2">
 <style>
 .fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
@@ -249,7 +249,7 @@
     <section class="page" id="page-customers"><div class="welcome"><h1>Customer Profiles</h1><p>Registered customers and their contact information.</p></div><div class="panel" style="padding:20px"><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"><input id="cmSearch" type="search" placeholder="Search name or email" aria-label="Search customers"><button class="btn-secondary" id="cmRefresh" type="button">Refresh</button></div><div id="cmMessage" role="status"></div><div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Details</th></tr></thead><tbody id="cmRows"></tbody></table></div><div id="cmDetail" class="panel" hidden style="padding:18px;margin-top:16px"></div></div></section>
     <section class="page" id="page-reviews"><div class="welcome"><h1>Product Reviews</h1><p>Review customer feedback and moderate visibility.</p></div><div class="panel" style="padding:20px"><button type="button" class="btn-secondary" id="cmReviewRefresh">Refresh reviews</button><div id="cmReviewMessage" role="status"></div><div id="cmReviews" style="margin-top:15px"></div></div></section>
     <section class="page" id="page-quotes">
-      <div class="welcome"><h1>Quotation Desk</h1><p>Every customer request in one place: review the specifications, ask for what is missing, prepare the price, and turn an accepted quotation into an order or a counter sale. A quotation never reserves stock and never takes payment.</p></div>
+      <div class="welcome"><h1>Quotation Desk</h1><p>Review requests, price them, and turn accepted quotes into orders.</p></div>
 
       <div class="qd-nav" role="tablist" aria-label="Quotation desk">
         <button type="button" class="qd-tab" id="qdTabRequests" role="tab" aria-selected="true" aria-controls="qdRequestsView">Customer requests <span class="qd-tab-n" id="pqRequestCount">0</span></button>
@@ -259,7 +259,7 @@
       <!-- View A — the queue -->
       <div class="qd-view" id="qdRequestsView" role="tabpanel" aria-labelledby="qdTabRequests">
         <div class="qd-intro">
-          <div><h2>Customer requests</h2><p>Search, filter and sort run on the server, so this list always shows the same rows Finance and the shop customer see. Open a row to work on it.</p></div>
+          <div><h2>Customer requests</h2><p>Open a row to work on it.</p></div>
         </div>
         <div class="qd-bar">
           <div class="qd-search">
@@ -457,8 +457,8 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
-<script src="quote-fields.js?v=5"></script>
-<script src="quote-desk-ui.js?v=2"></script>
+<script src="quote-fields.js?v=6"></script>
+<script src="quote-desk-ui.js?v=4"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -1102,7 +1102,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 })();
 </script>
 <script src="cash-shift-ui.js?v=6"></script>
-<script src="notification-center.js?v=6"></script>
+<script src="notification-center.js?v=8"></script>
 <script src="page-memory.js?v=1"></script>
 <script src="cashier-orders.js?v=4"></script>
 </body>

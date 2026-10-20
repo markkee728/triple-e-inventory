@@ -134,102 +134,103 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
                              -> 'completed' (Picked Up / Delivered; needs the receiver's name and the balance paid)
             Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
+  /* WHAT TRIPLE E MAKES — and so the only things a custom quotation can ask for:
+       Die-cast part     aluminum ADC12 / A380, made to the customer's drawing (typed dimensions), counted in pcs / sets
+       Forged part       brass C37700 / C36000, made to the customer's drawing, counted in pcs / sets
+       Fitting / valve   forged brass, standard pipe sizes 1/4" to 2", no wall thickness, counted in pcs / sets / boxes
+     The item type decides the material family; the material decides finish and wall thickness. Everything is in ONE table,
+     QUOTE_OPTIONS.matrix[itemType][material], which the form downloads, so the page and readQuote() can never disagree.
+     A ready-made catalog product (finished good) skips all of this: it is quoted in pcs, with the details of its product record. */
+  const NA = 'Not applicable', NOT_SURE = 'Not sure (advise me)';
+  const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
+  const ALU = ['Aluminum ADC12', 'Aluminum A380'], BRASS = ['Brass C37700', 'Brass C36000'];
+  const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"'];
+  const FINISH_ALU = ['Raw / Unfinished', 'Shot Blasted', 'Powder Coated', 'Painted', 'Chromate Conversion', 'Polished'];
+  const FINISH_BRASS = ['Raw / Unfinished', 'Polished', 'Satin / Brushed', 'Nickel Plated', 'Chrome Plated'];
+  const WALL_ALU = mm(1, 1.5, 2, 2.5, 3, 4, 5, 6), WALL_BRASS = mm(1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12);
+  const SERVICE = ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining', 'Threading (BSP / NPT)'];
   const QUOTE_OPTIONS = {
     neededMaxMonths: 6,                                                      // "needed by" is a date: from tomorrow up to this many months from today
-    units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
-    decimalUnits: ['kg', 'linear m'],                                        // every other unit is counted in whole numbers
-    material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
-    size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft', 'Not applicable'],
-    thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
-    finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
-    service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
+    units: ['pcs', 'sets', 'boxes'],
+    decimalUnits: [],                                                        // every part is counted in whole pieces
+    minQty: 20,                                                              // smallest custom run (a catalog product keeps its own minimum)
+    material: ALU.concat(BRASS, [NOT_SURE]),
+    size: PIPE_SIZES,                                                        // parts are typed to the drawing; only fittings have standard sizes
+    thickness: [...new Set(WALL_ALU.concat(WALL_BRASS))].sort((a, b) => parseFloat(a) - parseFloat(b)).concat([NA]),
+    finish: [...new Set(FINISH_ALU.concat(FINISH_BRASS))],
+    service: SERVICE,
     customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
+    // a typed wall thickness must sit inside what the process can make ('' = material not chosen / not sure)
+    thicknessLimits: { 'Aluminum ADC12': { min: 1, max: 8 }, 'Aluminum A380': { min: 1, max: 8 }, 'Brass C37700': { min: 1, max: 20 }, 'Brass C36000': { min: 1, max: 20 }, '': { min: 1, max: 20 } },
     leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
     // how many WORKING days (Mon-Fri) each lead time means, so the screens can show a real calendar date. Upper bound of the wording.
     leadWorkdays: { '1 to 3 working days': 3, '1 week': 5, '2 weeks': 10, '3 weeks': 15, '1 month': 22, '2 months': 44, '3 months': 66, '4 to 6 months': 132 },
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
   };
-  /* What fits what. The chosen MATERIAL decides which finish / thickness / cutting are offered (stainless gets stainless finishes, cast iron
-     is not bent...). The words in "Describe the item" only help the form pre-narrow the dropdowns: `families` match a material in the text,
-     `forms` match the kind of item (sheet or pipe / fitting) and so its sizes. 'Not sure (advise me)' has no rule: everything is allowed. */
-  const keepOnly = (master, list) => master.filter((v) => list.includes(v) || v === 'Not applicable' || v === 'Not sure (advise me)');
-  const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
-  const FINISH_METAL = ['Polished', 'Satin / Brushed', 'Matte', 'Raw / Unfinished'];
-  const MATERIAL_FITS = {
-    'Brass':               { finish: [...FINISH_METAL, 'Chrome Plated'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
-    'Bronze':              { finish: FINISH_METAL, thickness: mm(1, 1.2, 1.5, 2, 3, 4.5, 6, 9, 12) },
-    'Copper':              { finish: FINISH_METAL, thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 3, 4.5, 6) },
-    'Stainless Steel 304': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
-    'Stainless Steel 316': { finish: FINISH_METAL, thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
-    'Carbon Steel':        { finish: ['Painted', 'Powder Coated', 'Galvanized', 'Raw / Unfinished'], thickness: mm(0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
-    'Galvanized Steel':    { finish: ['Galvanized', 'Painted', 'Powder Coated', 'Raw / Unfinished'], thickness: mm(0.4, 0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3) },
-    'Aluminum':            { finish: ['Satin / Brushed', 'Matte', 'Powder Coated', 'Painted', 'Raw / Unfinished'], thickness: mm(0.5, 0.6, 0.8, 1, 1.2, 1.5, 2, 2.5, 3, 4.5, 6, 9, 12) },
-    'Cast Iron':           { finish: ['Painted', 'Matte', 'Raw / Unfinished'], thickness: mm(6, 9, 12), service: ['None (as is)', 'Drilling / punching'] }
-  };
+  // per material: the finish / wall thickness it can take (Not sure has no rule: the item type's own list applies)
+  const MATERIAL_FITS = {};
+  ALU.forEach((m) => { MATERIAL_FITS[m] = { finish: FINISH_ALU, thickness: WALL_ALU.concat([NA]) }; });
+  BRASS.forEach((m) => { MATERIAL_FITS[m] = { finish: FINISH_BRASS, thickness: WALL_BRASS.concat([NA]) }; });
   QUOTE_OPTIONS.rules = {};
-  Object.keys(MATERIAL_FITS).forEach((m) => {
-    const r = MATERIAL_FITS[m];
-    QUOTE_OPTIONS.rules[m] = { finish: keepOnly(QUOTE_OPTIONS.finish, r.finish), thickness: keepOnly(QUOTE_OPTIONS.thickness, r.thickness), service: r.service ? keepOnly(QUOTE_OPTIONS.service, r.service) : QUOTE_OPTIONS.service };
-  });
+  Object.keys(MATERIAL_FITS).forEach((m) => { QUOTE_OPTIONS.rules[m] = { finish: MATERIAL_FITS[m].finish, thickness: MATERIAL_FITS[m].thickness, service: SERVICE }; });
+  // words in a product name / description that point at a material: a grade gives the exact material, a family word gives its name
   QUOTE_OPTIONS.families = [
-    { label: 'stainless steel', words: ['stainless', 'sus304', 'sus316', 'ss304', 'ss316', 'ss 304', 'ss 316', 'inox'], materials: ['Stainless Steel 304', 'Stainless Steel 316'], grades: { '316': 'Stainless Steel 316', '304': 'Stainless Steel 304' } },
-    { label: 'galvanized steel', words: ['galvanized', 'galvanised', 'gi sheet', 'gi pipe', 'gi tube', 'gi fitting', 'gi coil'], materials: ['Galvanized Steel'] },
-    { label: 'carbon steel', words: ['carbon steel', 'mild steel', 'black iron', 'black steel'], materials: ['Carbon Steel'] },
-    { label: 'cast iron', words: ['cast iron'], materials: ['Cast Iron'] },
-    { label: 'aluminum', words: ['aluminum', 'aluminium'], materials: ['Aluminum'] },
-    { label: 'brass', words: ['brass'], materials: ['Brass'] },
-    { label: 'bronze', words: ['bronze'], materials: ['Bronze'] },
-    { label: 'copper', words: ['copper'], materials: ['Copper'] }
+    { label: 'die-cast aluminum', name: 'Aluminum', words: ['aluminum', 'aluminium', 'adc12', 'a380', 'die-cast', 'die cast', 'diecast'], materials: ALU, grades: { adc12: 'Aluminum ADC12', a380: 'Aluminum A380' } },
+    { label: 'forged brass', name: 'Brass', words: ['brass', 'c37700', 'c36000', 'forged', 'forging'], materials: BRASS, grades: { c37700: 'Brass C37700', c36000: 'Brass C36000' } }
   ];
-  QUOTE_OPTIONS.forms = [
-    { label: 'sheets and plates', words: ['sheet', 'plate', 'panel', 'coil'], sizes: ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'] },
-    { label: 'pipes and fittings', words: ['pipe', 'tube', 'fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'] }
-  ];
-  /* ITEM TYPE decides what a size, a thickness and a unit can mean, so the three always agree:
-       Sheet / plate     standard sheet sizes (or a typed width x length), a thickness is always needed, quoted by the sheet / piece / kg
-       Pipe / tube       pipe sizes in inches (or a typed size with its unit), wall thickness optional, quoted by length / piece / linear m / kg
-       Fitting / valve   pipe sizes, no thickness, no cutting or bending, sold by the piece / set / box
-       Fabricated part   made to the customer's drawing: typed dimensions, sold by the piece / set
-     The MATERIAL then narrows finish / thickness / cutting further (MATERIAL_FITS above). Both rules are combined in ONE table,
-     QUOTE_OPTIONS.matrix[itemType][material], which the form downloads, so the page and readQuote() can never disagree.
-     A ready-made catalog product (finished good) skips all of this: it is quoted in the unit it is sold in, which is pcs. */
-  const NA = 'Not applicable';
-  const SHEET_SIZES = QUOTE_OPTIONS.forms[0].sizes, PIPE_SIZES = QUOTE_OPTIONS.forms[1].sizes;
-  QUOTE_OPTIONS.itemTypes = ['Sheet / plate', 'Pipe / tube', 'Fitting / valve', 'Fabricated part'];
+  QUOTE_OPTIONS.forms = [];
+  QUOTE_OPTIONS.itemTypes = ['Die-cast part', 'Forged part', 'Fitting / valve'];
   QUOTE_OPTIONS.itemRules = {
-    'Sheet / plate':   { sizes: SHEET_SIZES, typed: 'sheet', thickness: 'required', units: ['sheets', 'pcs', 'kg'], unit: 'sheets', services: null,
-                         label: 'a sheet or plate', note: 'Sheets come in standard sizes (4 x 8 ft...). Pick one or type the cut size. A thickness is always needed.' },
-    'Pipe / tube':     { sizes: PIPE_SIZES, typed: 'pipe', thickness: 'optional', units: ['lengths', 'pcs', 'linear m', 'kg'], unit: 'lengths', services: null,
-                         label: 'a pipe or tube', note: 'Pipes are sized in inches. Wall thickness is optional.' },
-    'Fitting / valve': { sizes: PIPE_SIZES, typed: 'pipe', thickness: 'none', units: ['pcs', 'sets', 'boxes'], unit: 'pcs', services: ['None (as is)', 'Drilling / punching'],
-                         label: 'a fitting or valve', note: 'Fittings and valves are sold by the piece. They have no sheet thickness and are not cut or bent.' },
-    'Fabricated part': { sizes: [NA], typed: 'any', thickness: 'optional', units: ['pcs', 'sets'], unit: 'pcs', services: null,
-                         label: 'a fabricated part', note: 'Made to your drawing and sold by the piece. Type the dimensions.' }
+    'Die-cast part':   { materials: ALU, sizes: [], typed: 'part', thickness: 'optional', finish: FINISH_ALU, wall: WALL_ALU, units: ['pcs', 'sets'], unit: 'pcs',
+                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to your drawing. Type the overall size.' },
+    'Forged part':     { materials: BRASS, sizes: [], typed: 'part', thickness: 'optional', finish: FINISH_BRASS, wall: WALL_BRASS, units: ['pcs', 'sets'], unit: 'pcs',
+                         services: SERVICE, label: 'a forged part', note: 'Brass, forged to your drawing. Type the overall size.' },
+    'Fitting / valve': { materials: BRASS, sizes: PIPE_SIZES, typed: 'pipe', thickness: 'none', finish: FINISH_BRASS, wall: [], units: ['pcs', 'sets', 'boxes'], unit: 'pcs',
+                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'Threading (BSP / NPT)'], label: 'a fitting or valve', note: 'Forged brass, standard pipe sizes up to 2".' }
   };
   // typed sizes ("Other...") must look like the item: the client builds the same RegExp from these strings
   QUOTE_OPTIONS.typedSizes = {
-    sheet: { pattern: /^\d+(\.\d+)?\s*[x\u00D7]\s*\d+(\.\d+)?\s*(mm|cm|m|ft|in|")$/i.source, flags: 'i', hint: 'width x length with its unit, e.g. 600 x 900 mm' },
-    pipe:  { pattern: /^(\d+[-\s])?\d+(\/\d+|\.\d+)?\s*("|in|inch|inches|mm)$/i.source, flags: 'i', hint: 'the pipe size with its unit, e.g. 2 inch or 50 mm' },
-    any:   { pattern: /\d/.source, flags: '', hint: 'the dimensions with numbers, e.g. 300 x 200 mm' }
+    part: { pattern: /^(?:[Øø⌀]\s*\d+(?:\.\d+)?|\d+(?:\.\d+)?(?:\s*[x×]\s*\d+(?:\.\d+)?){1,2})\s*(?:mm|cm|in|inch|inches|")$/i.source, flags: 'i',
+            hint: 'the overall dimensions with the unit, e.g. 100 x 60 x 40 mm or Ø50 mm', maxMm: 1000 },
+    pipe: { pattern: /^(\d+[-\s])?\d+(\/\d+|\.\d+)?\s*("|in|inch|inches|mm)$/i.source, flags: 'i', hint: 'the pipe size with its unit, e.g. 1 inch or 25 mm', maxIn: 2 }
   };
-  const typedSizeOk = (kind, v) => { const t = QUOTE_OPTIONS.typedSizes[kind]; return !!t && new RegExp(t.pattern, t.flags).test(v); };
+  // numbers inside a typed size, in mm ("1-1/4 in" -> 31.75)
+  const sizeNumbersMm = (v) => {
+    const unit = (/(mm|cm|inches|inch|in|")\s*$/i.exec(v) || [])[1] || 'mm', f = /^mm$/i.test(unit) ? 1 : /^cm$/i.test(unit) ? 10 : 25.4;
+    return (v.replace(/(mm|cm|inches|inch|in|")\s*$/i, '').match(/\d+(?:[-\s]\d+\/\d+|\/\d+|\.\d+)?/g) || []).map((t) => {
+      const mx = /^(\d+)[-\s](\d+)\/(\d+)$/.exec(t), fr = /^(\d+)\/(\d+)$/.exec(t);
+      return (mx ? +mx[1] + mx[2] / mx[3] : fr ? fr[1] / fr[2] : +t) * f;
+    });
+  };
+  const typedSizeProblem = (kind, v) => {
+    const t = QUOTE_OPTIONS.typedSizes[kind];
+    if (!t || !new RegExp(t.pattern, t.flags).test(v)) return 'Type ' + (t ? t.hint : 'the size');
+    const n = sizeNumbersMm(v);
+    if (n.some((x) => !(x > 0))) return 'Each dimension must be more than 0';
+    if (t.maxMm && n.some((x) => x > t.maxMm)) return 'Parts larger than ' + t.maxMm + ' mm are quoted by our staff. Please call or visit us';
+    if (t.maxIn && n.some((x) => x > t.maxIn * 25.4 + 0.01)) return 'Fittings are made up to ' + t.maxIn + '" (50 mm). Larger sizes are quoted by our staff';
+    return '';
+  };
   // what the dropdown may offer for one detail, given the item type and the material (either may be empty = not chosen yet)
   function allowedFor(key, material, itemType) {
-    const fit = QUOTE_OPTIONS.rules[material];                       // 'Not sure (advise me)' has no rule: everything is allowed
-    let list = fit && fit[key] ? fit[key] : QUOTE_OPTIONS[key];
-    const t = QUOTE_OPTIONS.itemRules[itemType];
-    if (!t) return list;
-    if (key === 'size') return t.sizes;
-    if (key === 'thickness') return t.thickness === 'none' ? [NA] : t.thickness === 'required' ? list.filter((v) => v !== NA) : list;
-    if (key === 'service' && t.services) return list.filter((v) => t.services.includes(v));
-    return list;
+    const t = QUOTE_OPTIONS.itemRules[itemType], fit = MATERIAL_FITS[material];
+    if (key === 'material') return t ? t.materials.concat([NOT_SURE]) : QUOTE_OPTIONS.material;
+    if (key === 'size') return t ? t.sizes : QUOTE_OPTIONS.size;
+    if (key === 'service') return t ? t.services : SERVICE;
+    if (key === 'finish') return fit ? fit.finish.filter((f) => !t || t.finish.includes(f)) : t ? t.finish : QUOTE_OPTIONS.finish;
+    if (key === 'thickness') {
+      if (t && t.thickness === 'none') return [NA];
+      return fit ? fit.thickness : t ? t.wall.concat([NA]) : QUOTE_OPTIONS.thickness;
+    }
+    return QUOTE_OPTIONS[key] || [];
   }
   QUOTE_OPTIONS.matrix = {};
   QUOTE_OPTIONS.itemTypes.forEach((t) => {
     QUOTE_OPTIONS.matrix[t] = {};
-    [''].concat(QUOTE_OPTIONS.material).forEach((m) => {
-      QUOTE_OPTIONS.matrix[t][m] = { size: allowedFor('size', m, t), thickness: allowedFor('thickness', m, t), finish: allowedFor('finish', m, t), service: allowedFor('service', m, t) };
+    [''].concat(QUOTE_OPTIONS.itemRules[t].materials, [NOT_SURE]).forEach((m) => {
+      const key = m === NOT_SURE ? '' : m;                 // "Not sure" keeps every choice of the item type, no more
+      QUOTE_OPTIONS.matrix[t][m] = { size: allowedFor('size', key, t), thickness: allowedFor('thickness', key, t), finish: allowedFor('finish', key, t), service: allowedFor('service', key, t) };
     });
   });
   const listText = (a) => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' or ' + a[a.length - 1];
@@ -238,7 +239,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
-  const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
+  const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Machining / secondary work' };
   const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
@@ -334,9 +335,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }
   // "Forged Brass Elbow" -> Brass, "Die-Cast Aluminum Heat Sink" -> Aluminum. Only when the name points at exactly one material.
   function materialFromName(name) {
-    const text = String(name || '');
+    const text = String(name || '').toLowerCase();
     const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some((w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)));
-    return fam && fam.materials.length === 1 ? fam.materials[0] : null;
+    if (!fam) return null;
+    const g = Object.keys(fam.grades || {}).find((k) => text.includes(k));
+    return g ? fam.grades[g] : fam.name;
   }
   // same delivery coverage as checkout and the POS (Finance > Delivery rates); a quote is not sent for an area we cannot deliver to
   async function mustDeliverTo(place, field) {
@@ -382,13 +385,14 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
     const unit = str(b.quantityUnit).toLowerCase();
     if (sku) {
-      // a catalog product is a finished good: it is quoted in the unit it is sold in (pcs), never in sheets / kg / lengths. The product decides, not the browser.
-      if (unit !== productUnit) throw bad('quantity', productName + ' is sold by ' + (productUnit || 'pcs') + '. Quote it in ' + (productUnit || 'pcs') + (unit ? ', not in ' + unit : '') + '.');
+      // a catalog product is a finished good: always sold by the piece. The server decides, not the browser.
+      if (unit !== 'pcs') throw bad('quantity', productName + ' is sold by pcs. Quote it in pcs' + (unit ? ', not in ' + unit : '') + '.');
     } else {
-      if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
-      if (!itemRule.units.includes(unit)) throw bad('quantity', itemType + ' is quoted in ' + listText(itemRule.units) + ', not in ' + unit + '. Choose one of those');
+      if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit: ' + listText(QUOTE_OPTIONS.units));
+      if (!itemRule.units.includes(unit)) throw bad('quantity', itemType + ' is quoted in ' + listText(itemRule.units) + ', not in ' + unit + '.');
     }
     if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
+    if (!sku && qty < QUOTE_OPTIONS.minQty) throw bad('quantity', 'The minimum order for a custom item is ' + QUOTE_OPTIONS.minQty + ' ' + unit + '.');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
 
     // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted.
@@ -412,21 +416,28 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (sku) { specs[key] = key === 'service' ? 'None (as is)' : (key === 'material' && materialFromName(productName)) || 'Not specified'; continue; }
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
-      const label = SPEC_LABEL[key].toLowerCase(), allowed = allowedFor(key, specs.material, itemType);      // material comes first in SPEC_LABEL; item type was read above
+      const label = SPEC_LABEL[key].toLowerCase(), mat = specs.material, allowed = allowedFor(key, mat, itemType);   // material comes first in SPEC_LABEL
       if (!allowed.includes(v)) {
-        const master = QUOTE_OPTIONS[key].includes(v), fitsMaterial = allowedFor(key, specs.material, null).includes(v);
-        if (key === 'size') {                                            // the item type decides the size: standard sizes of that item, or a typed one that looks like it
-          if (master) throw bad(key, 'That size does not go with ' + itemRule.label + '. ' + (itemRule.sizes[0] === NA ? 'Type the dimensions, e.g. 300 x 200 mm' : 'Choose ' + listText(itemRule.sizes.slice(0, 4)) + (itemRule.sizes.length > 4 ? '...' : '') + ', or type ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint));
-          if (v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) || !typedSizeOk(itemRule.typed, v)) throw bad(key, 'Type the size as ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint);
-        } else if (key === 'thickness' && itemRule.thickness === 'none') {
-          throw bad(key, itemType + ' has no sheet thickness. Choose Not applicable');
-        } else if (!QUOTE_OPTIONS.customAllowed.includes(key)) {
-          if (master) throw bad(key, 'That ' + label + (fitsMaterial ? ' does not go with ' + itemRule.label : ' does not go with ' + specs.material) + '. Choose one from the list');
-          throw bad(key, 'Choose the ' + label + ' from the list');
-        } else {                                                          // thickness: a listed value that is not offered, or a typed one
-          if (v === NA) throw bad(key, itemType + ' always needs a thickness. Choose one or type it, e.g. 1.8 mm');
-          if (master) { if (fitsMaterial) throw bad(key, 'That thickness does not go with ' + itemRule.label + '. Choose another or type it'); throw bad(key, 'That thickness is not offered for ' + specs.material + '. Choose another or type it'); }
-          if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the thickness with its number, e.g. 1.8 mm');
+        const master = (QUOTE_OPTIONS[key] || []).includes(v);
+        if (key === 'material') {
+          if (!master) throw bad(key, 'Choose the material from the list (' + listText(itemRule.materials) + ')');
+          throw bad(key, v + ' is not used for ' + itemRule.label + '. Choose ' + listText(itemRule.materials));
+        }
+        if (key === 'size') {                                            // standard sizes of that item, or a typed one that looks like it
+          if (master || v === NA) throw bad(key, 'That size does not go with ' + itemRule.label + '. ' + (itemRule.sizes.length ? 'Choose ' + itemRule.sizes[0] + ' to ' + itemRule.sizes[itemRule.sizes.length - 1] + ', or type ' : 'Type ') + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint);
+          const why = v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) ? 'Type ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint : typedSizeProblem(itemRule.typed, v);
+          if (why) throw bad(key, why);
+        } else if (key === 'thickness') {
+          if (itemRule.thickness === 'none') throw bad(key, itemType + ' has no wall thickness. Choose Not applicable');
+          const lim = QUOTE_OPTIONS.thicknessLimits[mat] || QUOTE_OPTIONS.thicknessLimits[''];
+          if (master) throw bad(key, 'That thickness is not offered for ' + (MATERIAL_FITS[mat] ? mat : itemRule.label) + '. Choose one from the list, or type ' + lim.min + ' to ' + lim.max + ' mm');
+          const tm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(v);
+          if (!tm) throw bad(key, 'Type the thickness in mm, e.g. 2.5 mm');
+          if (+tm[1] < lim.min || +tm[1] > lim.max) throw bad(key, (MATERIAL_FITS[mat] ? mat : 'These parts') + ' can be made ' + lim.min + ' to ' + lim.max + ' mm thick. Type a thickness in that range');
+        } else {                                                          // finish / secondary work: list only
+          if (!master) throw bad(key, 'Choose the ' + label + ' from the list');
+          if (key === 'finish' && MATERIAL_FITS[mat] && !MATERIAL_FITS[mat].finish.includes(v)) throw bad(key, v + ' is not offered for ' + mat + '. Choose one from the list');
+          throw bad(key, v + ' is not offered for ' + itemRule.label + '. Choose one from the list');
         }
       }
       specs[key] = v;

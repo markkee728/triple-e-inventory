@@ -9,9 +9,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="app-ui.css?v=2">
+<link rel="stylesheet" href="app-ui.css?v=3">
 <link rel="stylesheet" href="store.css">
-<link rel="stylesheet" href="notifications.css?v=6">
+<link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="quote-fields.css?v=2">
 <style>
 a.nav-item{text-decoration:none}
@@ -122,7 +122,7 @@ a.nav-item{text-decoration:none}
     <!-- ===== CATALOG ===== -->
     <section class="page active-page" id="catalog">
       <div class="hero">
-        <div><h1>Quality metal, delivered.</h1><p>Browse sheets, pipes, bars and fasteners. Live stock, clear prices, and delivery or pickup — your choice.</p></div>
+        <div><h1>Die-cast aluminum &amp; forged brass.</h1><p>Ready stock at clear prices, or request a quote for a part made to your drawing.</p></div>
         <div class="hero-perks">
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery <span data-fee>₱150</span></span>
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
@@ -403,8 +403,8 @@ a.nav-item{text-decoration:none}
 <script src="account-menu.js?v=3"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
-<script src="notification-center.js?v=6"></script>
-<script src="quote-fields.js?v=5"></script>
+<script src="notification-center.js?v=8"></script>
+<script src="quote-fields.js?v=6"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -578,7 +578,7 @@ function stockChip(p) {
 }
 /* ----- unit clarity, minimum order, ratings, stock messages ----- */
 const minQty = p => { if (!p) return 1; const m = Number(p.minOrder) || 1; return p.available > 0 ? Math.min(m, p.available) : m; };   // never more than what is in stock
-const soldPer = p => 'Sold per <b>' + esc(p.unit) + '</b>' + (minQty(p) > 1 ? ' · Minimum order <b>' + minQty(p) + ' ' + esc(p.unit) + '</b>' : '') + (p.available > 0 ? ' · Up to <b>' + p.available + ' ' + esc(p.unit) + '</b> available' : '') + (p.fractional ? ' · decimals allowed' : ' · whole ' + esc(/s$/i.test(p.unit) ? p.unit : p.unit + 's') + ' only');
+const soldPer = p => (minQty(p) > 1 ? 'Min. <b>' + minQty(p) + ' ' + esc(p.unit) + '</b>' : 'Sold per ' + esc(p.unit)) + (p.available > 0 ? ' · <b>' + p.available + '</b> in stock' : '');
 function starsHtml(avg) { return '<span class="stars" style="--p:' + Math.max(0, Math.min(100, (avg || 0) / 5 * 100)) + '%" aria-hidden="true"></span>'; }
 function ratingLine(avg, n, link) {
   if (!n) return '';
@@ -1000,7 +1000,7 @@ function payRowHtml(o) {
   const st = { unpaid: 'Not paid yet', partially_paid: 'Partially paid', paid: 'Paid in full', refunded: 'Refunded', partially_refunded: 'Partially refunded' }[o.paymentState] || o.paymentState;
   const bal = Number(o.outstanding || 0);
   return `<div class="row"><span class="dim">Payment</span><span class="mono">${esc(st)}${bal > 0 ? ' \u00B7 ' + peso(bal) + ' to pay' : ''}</span></div>`
-    + balBarHtml(o) + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
+    + (o.paymentState === 'partially_paid' ? balBarHtml(o) : '') + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
 }
 function renderOrders() {
   $('navOrderCount').textContent = orders.length;
@@ -1472,7 +1472,7 @@ $('quoteForm').onsubmit=e=>{
  e.preventDefault();const v=validateQuote();if(!v.ok){$('qErr').textContent='Please correct the highlighted fields.';const el=$(v.focus)||document.querySelector('.q-seg');el?.scrollIntoView({block:'center',behavior:'smooth'});el?.focus?.({preventScroll:true});return;}
  // the summary reads exactly what will be sent: one row per detail, the quantity with its unit, the date in words
  const r=QuoteFields.read('q'),sp=r.specs||{},f=qFulfil(),catalog=!!$('qProduct').value&&$('qProduct').value!=='other';
- const SPEC=[['material','Material'],['size','Size'],['thickness','Thickness'],['finish','Finish'],['service','Cutting / bending']];
+ const SPEC=[['material','Material'],['size','Size'],['thickness','Thickness'],['finish','Finish'],['service','Machining / secondary work']];
  const dateTxt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'}):'';
  const saved=QADDRS.find(a=>a.id===qAddr);
  const details=[['Product',catalog?$('qProduct').selectedOptions[0]?.textContent:$('qProductName').value.trim()],

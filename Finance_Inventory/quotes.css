@@ -51,7 +51,7 @@
 #page-quotes .qd-note{margin:0 0 10px;font-size:12.5px;color:var(--text-faint)}
 
 /* ---------- the queue table ---------- */
-#page-quotes .qd-tablewrap{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow:hidden}
+#page-quotes .qd-tablewrap{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow-x:auto}   /* scroll, never clip the Status column */
 #page-quotes .qd-table{width:100%;border-collapse:collapse;font-size:13.5px}
 #page-quotes .qd-table th{position:sticky;top:0;z-index:2;background:var(--inset);text-align:left;padding:10px 12px;font:600 11.5px Inter,sans-serif;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);white-space:nowrap;border-bottom:1px solid var(--border)}
 #page-quotes .qd-table th[data-sort]{cursor:pointer;user-select:none}

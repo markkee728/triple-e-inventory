@@ -39,7 +39,7 @@ a {
 
     --text: #e7edf3;
     --text-dim: #8fa1b0;
-    --text-faint: #607483;
+    --text-faint: #8093a3;   /* was #607483: 3.6:1 on cards, too faint for table headers and hints */
 
     --blue: #23679d;
     --blue-bright: #4a90d9;

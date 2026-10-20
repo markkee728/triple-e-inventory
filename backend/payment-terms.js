@@ -569,7 +569,11 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     if (key === 'full') percent = 100;
     const due = percent >= 100 ? total : round2(total * percent / 100);
     if (!(due > 0 && due <= total)) throw bad('percent', 'The initial payment must be part of the quoted amount');
-    const condition = str(b.condition).slice(0, 120) || policy.balance_condition;
+    // when the balance is due: a step of the order flow from a fixed list (Finance may word one quotation differently)
+    const BALANCE_DUE = ['balance due before release', 'balance due before pickup', 'balance due before delivery', 'balance due before production starts'];
+    let condition = key === 'full' ? 'nothing further to pay' : str(b.condition).slice(0, 120) || policy.balance_condition;
+    if (!actorIsFinance && key !== 'full' && !BALANCE_DUE.includes(condition) && condition !== policy.balance_condition)
+      throw bad('condition', 'Choose when the balance is due from the list');
     const availability = str(b.availability).slice(0, 120) || q.lead_time || null;
     return { key, percent, due, balance: round2(total - due), condition, availability,
       label: policy.label, note: str(b.note).slice(0, 300) };

@@ -251,16 +251,17 @@
     b.classList.toggle('critical', out > 0);
     b.querySelector('#ncAbTitle').textContent = active.length + (active.length === 1 ? ' item needs' : ' items need') +
       ' restocking' + (out ? ' (' + out + ' out of stock)' : '');
-    b.querySelector('#ncAbText').textContent = names.join(', ') + (active.length > 3 ? ' +' + (active.length - 3) + ' more' : '') +
-      '. This stays active until new stock is received and the count rises above the reorder level.';
+    b.querySelector('#ncAbText').textContent = names.join(', ') + (active.length > 3 ? ' +' + (active.length - 3) + ' more' : '');
     var hint = b.querySelector('#ncAbHint');
     if (!soundOn()) hint.textContent = 'Alert sound is off.';
     else if (snoozed()) hint.textContent = 'Sound snoozed until ' + clock(snoozeUntil()) + '.';
-    else if (!audioReady()) hint.textContent = 'Click anywhere on the page to turn the alert sound on.';
     else hint.textContent = '';
     hint.hidden = !hint.textContent;
     b.querySelector('#ncAbSnooze').textContent = snoozed() ? 'Resume sound' : 'Snooze 10 min';
     renderSoundBtn();
+    // the full banner is shown once, then folds into the small pill so it does not sit over the page; the bell and the pill keep it visible
+    if (min) { clearTimeout(renderBar.fold); renderBar.fold = null; }
+    else if (!renderBar.fold) renderBar.fold = setTimeout(function () { renderBar.fold = null; if (active.length && !isMin()) setMin(true); }, 12000);
   }
   function renderSoundBtn() {
     var on = soundOn();

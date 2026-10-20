@@ -1679,7 +1679,7 @@ function renderProductTable(items) {
     if (!items || items.length === 0) {
         tableBody.innerHTML = `
             <tr class="no-results-row">
-                <td colspan="11">
+                <td colspan="9">
                     ${archivedView
                         ? "No archived products. Archive a product from its details and it will be kept here."
                         : "No products match your search or category."}
@@ -1694,16 +1694,17 @@ function renderProductTable(items) {
         const metaLine = [item.grade, item.form].filter(Boolean).join(" · ");
         return `
             <tr class="product-row${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details">
-                <td>
+                <td class="pt-name">
                     <div class="supplier-name">${escapeHTML(item.name)}</div>
-                    ${metaLine ? `<div class="supplier-meta">${escapeHTML(metaLine)}</div>` : ""}
+                    <div class="supplier-meta mono">${escapeHTML(item.sku)}${metaLine ? " · " + escapeHTML(metaLine) : ""}</div>
                 </td>
-                <td class="mono">${escapeHTML(item.sku)}</td>
-                <td class="dim">${escapeHTML(item.category)}</td>
-                <td class="dim">${escapeHTML(item.department || "\u2014")}</td>
-                <td class="dim">${formatNumber(item.available)} ${escapeHTML(item.unit)}</td>
-                <td class="dim">₱${item.stdCost.toFixed(2)} ${costLabel}</td>
-                <td class="dim">
+                <td>
+                    <div>${escapeHTML(item.category)}</div>
+                    <div class="supplier-meta">${escapeHTML(item.department || "\u2014")}</div>
+                </td>
+                <td class="pt-num">${formatNumber(item.available)} ${escapeHTML(item.unit)}</td>
+                <td class="pt-num dim">₱${item.stdCost.toFixed(2)}<span class="supplier-meta"> ${costLabel}</span></td>
+                <td class="pt-num">
                     ${item.department === "Finished Goods"
                         ? (item.listPrice > 0 ? "₱" + item.listPrice.toFixed(2) : `<span class="prod-supplier warn" title="Finished Goods need a selling price">No price</span>`)
                         : `<span title="Not sold: only Finished Goods have a selling price">&mdash;</span>`}

@@ -573,13 +573,16 @@
   }
 
   /* ---------- Category dropdown (list comes from the database; last option adds a new one) ---------- */
+  // Finished goods are only the two product lines Triple E makes; the other departments keep their own list (and can add one)
+  const FG_CATEGORIES = ['Aluminum Die-Cast Products', 'Forged Brass Products'];
   function fillCategories(keep) {
     const sel = $('npCategory');
     if (!sel || sel.tagName !== 'SELECT') return;
     const cur = keep === undefined ? sel.value : keep;
+    const fg = ($('npDept') || {}).value === 'Finished Goods';
     sel.innerHTML = '<option value="">Select a category…</option>' +
-      CATEGORIES.map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') +
-      '<option value="' + NEW_CATEGORY + '">+ Add new category…</option>';
+      (fg ? FG_CATEGORIES : CATEGORIES.filter((c) => FG_CATEGORIES.indexOf(c) < 0)).map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') +
+      (fg ? '' : '<option value="' + NEW_CATEGORY + '">+ Add new category…</option>');
     setCategoryValue(cur);
   }
   function setCategoryValue(name) {
@@ -662,6 +665,7 @@
     $('npOnHand').title = product ? 'Change stock using Stock In / Stock Out' : '';
     setUnitValue(product ? product.unit : '');
     syncUnitField(product);
+    fillCategories(product ? product.category : '');          // the department is set by now: Finished Goods only lists its two product lines
   }
 
   const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
@@ -672,7 +676,7 @@
     if (!overlay || !form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
     $('npDept').addEventListener('change', () => {
-      syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
+      fillCategories(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
       const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
     });
     $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });

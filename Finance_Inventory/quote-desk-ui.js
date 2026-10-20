@@ -274,23 +274,37 @@
       const opts = (r && r.options) || [];
       S.termOpts = opts;
       box.innerHTML = opts.length ? opts.map((o) => termOptionHtml(o, current)).join('')
-        : '<p class="q-hint">The policy allows no partial term for this item right now, so it is Full Payment. Finance can switch more on.</p>';
+        : '<p class="q-hint">Only Full Payment is allowed for this item.</p>';
+      syncTermFields(root);
     } catch (e) { if (seq === termSeq && box.isConnected) box.innerHTML = '<p class="q-hint qd-bad">The payment policy could not be read: ' + esc(fieldErr(e)) + '</p>'; }
   }
 
+  // when the balance is paid: a step the release gate enforces, worded for this quotation's pickup / delivery
+  const balanceDue = (d) => [[d.fulfillment === 'Delivery' ? 'balance due before delivery' : 'balance due before pickup', d.fulfillment === 'Delivery' ? 'Before delivery' : 'Before pickup'],
+    ['balance due before production starts', 'Before production starts']];
+  // the balance fields only matter for a part-payment
+  function syncTermFields(root) {
+    if (!root) return; const pick = root.querySelector('input[name=term]:checked'), partial = !!pick && pick.value !== 'full';
+    root.querySelectorAll('[data-cond]').forEach((x) => { x.hidden = !partial; });
+  }
   function termsSectionHtml(d) {
     const t = d.terms, state = (t && t.state) || 'none', lab = TERMS_STATE[state] || TERMS_STATE.none;
     const settled = Number(d.paidAmount) > 0;
     const canSet = !d.converted && !settled && ['new', 'awaiting_details', 'pending_approval', 'quoted'].includes(d.status);
     if (S.openTerms) {
+      const total = d.amount != null ? d.amount : d.proposedAmount;
+      if (!(Number(total) > 0)) return '<div class="qd-callout">Set the price first — the payment options depend on the quoted total.</div>' +
+        '<button type="button" class="btn-secondary" data-act="cancelterms">Close</button>';
+      const cur = (t && t.condition) || '';
       return '<form class="qd-price qd-terms-form" id="qdTermsForm" novalidate>' +
         '<div class="qd-term-list" data-terms-opts><p class="q-hint">Reading the payment policy…</p></div>' +
-        '<label class="wide">When the balance is due (the customer reads this)<input name="condition" maxlength="120" placeholder="balance due before pickup" value="' + esc((t && t.condition) || '') + '"></label>' +
-        '<label class="wide">Note for Finance<textarea name="note" rows="2" maxlength="300" placeholder="Why these terms for this job"></textarea></label>' +
+        '<label class="wide" data-cond hidden>Balance due<select name="condition">' + balanceDue(d).map((c) =>
+          '<option value="' + esc(c[0]) + '"' + (c[0] === cur ? ' selected' : '') + '>' + esc(c[1]) + '</option>').join('') + '</select></label>' +
+        '<label class="wide" data-cond hidden>Note for Finance <span class="q-optional">(optional)</span><textarea name="note" rows="2" maxlength="300" placeholder="Why a part-payment for this job"></textarea></label>' +
         '<div class="err-text wide" data-terms-err role="alert"></div>' +
         '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelterms">Cancel</button>' +
-        '<button type="submit" class="btn-primary">Save these terms</button></div></form>' +
-        '<p class="q-hint">Full Payment is treated as agreed. Any partial term goes to Finance as a proposal and is only shown to the customer once they sign it.</p>';
+        '<button type="submit" class="btn-primary">Save terms</button></div></form>' +
+        '<p class="q-hint">Part-payments need Finance approval before the customer sees them.</p>';
     }
     return kv([
       row('Payment term', t ? '<b>' + esc(TERM_NAME[t.key] || t.key) + '</b>' + (t.percent != null ? ' — ' + t.percent + '%' : '') : '<b>Full Payment</b> — everything before release'),
@@ -310,7 +324,7 @@
   async function saveTerms(form) {
     const d = S.detail; if (!d) return;
     const err = form.querySelector('[data-terms-err]'), f = new FormData(form);
-    const key = f.get('term'), condition = String(f.get('condition') || '').trim(), note = String(f.get('note') || '').trim();
+    const key = f.get('term'), condition = key === 'full' ? '' : String(f.get('condition') || '').trim(), note = key === 'full' ? '' : String(f.get('note') || '').trim();
     err.textContent = '';
     if (!key) { err.textContent = 'Choose a payment term from the list.'; return; }
     const o = (S.termOpts || []).find((x) => x.key === key) || {};
@@ -710,6 +724,7 @@
     });
     el('qdDrawerBody').addEventListener('change', (e) => {
       if (e.target.name === 'leadTime') updateReady(e.target.form);
+      if (e.target.name === 'term') syncTermFields(e.target.form);
       if (e.target.name === 'exception') { const box = e.target.form.querySelector('[data-reason]'); box.hidden = !e.target.checked; if (e.target.checked) box.querySelector('textarea').focus(); }
     });
     el('qdDrawerBody').addEventListener('submit', (e) => {

@@ -38,6 +38,7 @@ class ValidationError extends Error {
   constructor(fields) { super(Object.values(fields)[0]); this.fields = fields; }
 }
 const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
+const FINISHED_GOODS_CATEGORIES = ['Aluminum Die-Cast Products', 'Forged Brass Products'];
 const FINISHED_GOODS_UNIT = 'pcs';      // every Finished Good is sold by the piece (enforced in validateProduct and in the quote form)
 const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
 // Units offered in the product form (kg and pcs first, then units used for metals)
@@ -567,6 +568,9 @@ function validateProduct(b, { creating }) {
   else if (!UNITS.includes(unit)) e.unit = 'Choose a unit from the list';
   // Finished goods are counted and sold by the piece. Raw materials / finishing supplies keep kg, sheet, roll, liter... as before.
   else if (department === 'Finished Goods' && unit !== FINISHED_GOODS_UNIT) e.unit = 'Finished goods are sold by the piece. Choose pcs';
+  // Triple E only sells its two product lines; Raw Materials / Finishing Supplies keep free categories
+  if (department === 'Finished Goods' && category && !FINISHED_GOODS_CATEGORIES.some((c) => c.toLowerCase() === category.toLowerCase()))
+    e.category = 'Finished goods are ' + FINISHED_GOODS_CATEGORIES.join(' or ');
   const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7 });
   // only Finished Goods are sold: they need a selling price; every other department has none (stored as 0)
   const listPrice = department === 'Finished Goods'

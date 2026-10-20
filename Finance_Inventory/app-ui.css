@@ -5,7 +5,7 @@
 html{min-height:100%}body{height:auto}
 :root{
   --black:#07111a;--sidebar:#08131d;--panel:#0b1722;--card:#0d1a26;--inset:#132434;--border:#1c3244;
-  --text:#e7edf3;--text-dim:#8fa1b0;--text-faint:#607483;
+  --text:#e7edf3;--text-dim:#8fa1b0;--text-faint:#8093a3;
   --blue:#23679d;--blue-bright:#4a90d9;--green:#43c47a;--red:#e35b5b;--amber:#d9a441;
   --row-line:rgba(28,50,68,.5);--hover:rgba(255,255,255,.03);--field:rgba(7,17,26,.6);--shadow:0 20px 40px -12px rgba(0,0,0,.6);
   --btn-ink:#08131f;
@@ -13,8 +13,8 @@ html{min-height:100%}body{height:auto}
 html[data-theme="light"]{
   color-scheme:light;
   --black:#f1f5f9;--sidebar:#ffffff;--panel:#ffffff;--card:#ffffff;--inset:#eef3f7;--border:#d3dde7;
-  --text:#14212c;--text-dim:#455767;--text-faint:#66788a;
-  --blue:#1f6aa5;--blue-bright:#1f6fb8;--green:#1f9d57;--red:#d64545;--amber:#b7791f;
+  --text:#14212c;--text-dim:#455767;--text-faint:#5b6d7e;
+  --blue:#1f6aa5;--blue-bright:#1f6fb8;--green:#17803f;--red:#c43d3d;--amber:#8f5d06;
   --row-line:#e4ebf1;--hover:rgba(31,111,184,.07);--field:rgba(255,255,255,.85);--shadow:0 24px 60px rgba(20,45,70,.25);
   --btn-ink:#ffffff;
 }

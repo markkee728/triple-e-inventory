@@ -49,7 +49,7 @@
         '<select id="' + p + 'S_itemType">' + opts(o.itemTypes, 'Choose the kind of item') + '</select>' +
         '<small class="q-hint" id="' + p + 'TypeNote"></small><div class="err-text" id="' + p + 'E_itemType"></div></div>' : '') +
       '<div class="qx-narrow" id="' + p + 'Cleared" role="status" hidden></div>' +
-      '<div class="qx-lockbar" id="' + p + 'Locked" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span><b>Ready-made catalog product.</b> Its material, size, thickness and finish come from the product record and are locked. It is counted in the unit it is sold in (pcs for finished goods), so only the quantity and date are needed. Choose \u201COther / custom product\u201D for something we do not list.</span></div>' +
+      '<div class="qx-lockbar" id="' + p + 'Locked" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span><b>Catalog product</b> \u2014 details come from the product record and are sold by pcs. Just enter the quantity and date.</span></div>' +
       '<div class="q-grid">' +
       FIELDS.map(function (f) {
         var k = f[0], custom = isCustom(o, k);
@@ -67,7 +67,7 @@
         '<input id="' + p + 'Needed" type="date" min="' + lim.min + '" max="' + lim.max + '">' +
         '<small id="' + p + 'NeededHint" class="q-hint">Pick a date from ' + esc(dayText(lim.min)) + ' up to ' + esc(dayText(lim.max)) + '.</small><div class="err-text" id="' + p + 'E_neededBy"></div></div></div>' +
       '<div class="q-field"><label for="' + p + 'Notes">Extra notes <span class="q-optional">(optional)</span></label>' +
-        '<textarea id="' + p + 'Notes" rows="3" maxlength="1000" placeholder="Anything else we should know, e.g. hole spacing, drawing reference, delivery floor"></textarea>' +
+        '<textarea id="' + p + 'Notes" rows="3" maxlength="1000" placeholder="e.g. drawing reference, hole spacing"></textarea>' +
         '<div class="q-meta"><div class="err-text" id="' + p + 'E_notes"></div><span class="q-count" id="' + p + 'NotesCount">0 / 1000</span></div></div>';
     host.innerHTML = h;
     FIELDS.forEach(function (f) {
@@ -105,7 +105,7 @@
     var s = state[p], sel = $(p + 'Unit'); if (!s || !sel || s.locked) return;
     var r = typeRule(p), list = r ? r.units : (s.options.units || []), cur = sel.value;
     sel.innerHTML = list.map(function (u) { return '<option value="' + esc(u) + '">' + esc(u) + '</option>'; }).join('');
-    // until the person picks a unit themselves, the item type's own unit is the default (sheets for a sheet, lengths for a pipe, pcs for a fitting)
+    // until the person picks a unit themselves, the item type's own unit is the default (pcs for every item type)
     sel.value = list.indexOf(cur) >= 0 && (s.unitTouched || !r) ? cur : (r ? r.unit : list[0]);
     sel.title = r ? 'Choose how it is counted: ' + list.join(', ') : '';
     var q = $(p + 'Qty'); if (q && wholeUnit(p)) q.value = q.value.replace(/\..*$/, '');
@@ -127,7 +127,7 @@
   // the typed-size pattern of the chosen item type (from the server): sheets need width x length, pipes need a size with its unit
   function typedRule(p, field) {
     var r = typeRule(p), o = state[p].options; if (field !== 'size' || !r || !o.typedSizes || !o.typedSizes[r.typed]) return null;
-    var t = o.typedSizes[r.typed]; return { re: new RegExp(t.pattern, t.flags), hint: t.hint };
+    var t = o.typedSizes[r.typed]; return { re: new RegExp(t.pattern, t.flags), hint: t.hint, maxMm: t.maxMm, maxIn: t.maxIn };
   }
 
   // ---- the options follow the item --------------------------------------------------------------------------------------
@@ -190,7 +190,7 @@
       var empty = sel.parentNode.querySelector('.qx-empty');
       if (!valid && !empty) { empty = document.createElement('small'); empty.className = 'qx-empty q-hint'; sel.parentNode.appendChild(empty); }
       var typeOnly = !valid && !!sel.querySelector('option[value="' + OTHER + '"]'), tr = f[0] === 'size' ? typedRule(p, 'size') : null;
-      if (empty) { empty.textContent = valid ? '' : typeOnly ? (tr ? 'Made to your drawing, so type it: ' + tr.hint + '.' : 'Type it below.') : 'No predefined options. Contact staff for a custom specification.'; empty.hidden = !!valid; }
+      if (empty) { empty.textContent = valid ? '' : typeOnly ? (tr ? 'Made to your drawing \u2014 type the size below.' : 'Type it below.') : 'No predefined options. Contact staff for a custom specification.'; empty.hidden = !!valid; }
       sel.setAttribute('aria-label', f[1] + (valid ? ' (' + valid + ' available)' : ' (no predefined options)'));
     });
   }
@@ -246,7 +246,14 @@
     var label = FIELDS.filter(function (f) { return f[0] === field; })[0][1].toLowerCase(), v2 = $(p + 'S_' + field).value;
     if (!v2) return 'Choose the ' + label + '.';
     if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(), tr = typedRule(p, field);
-      if (tr) return t.length >= 2 && t.length <= 40 && CUSTOM_RE.test(t) && tr.re.test(t) ? '' : 'Type the size as ' + tr.hint + '.';
+      if (tr) {
+        if (!(t.length >= 2 && t.length <= 40 && CUSTOM_RE.test(t) && tr.re.test(t))) return 'Type the size as ' + tr.hint + '.';
+        var n = sizeMm(t);                                                           // same limits as the server
+        if (n.some(function (x) { return !(x > 0); })) return 'Each dimension must be more than 0.';
+        if (tr.maxMm && n.some(function (x) { return x > tr.maxMm; })) return 'Parts larger than ' + tr.maxMm + ' mm are quoted by our staff.';
+        if (tr.maxIn && n.some(function (x) { return x > tr.maxIn * 25.4 + 0.01; })) return 'Fittings are made up to ' + tr.maxIn + '" (50 mm).';
+        return '';
+      }
       if (field === 'thickness') {
         var tm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(t); if (!tm) return 'Type the thickness in mm, e.g. 2.5 mm.';
         var mat = $(p + 'S_material').value, lims = state[p].options.thicknessLimits || {}, lim = lims[mat] || lims[''];
@@ -257,6 +264,14 @@
     return '';
   }
   function check(p, field) { return setErr(p, field, rule(p, field)); }
+  // the numbers inside a typed size, in mm ("1-1/4 in" -> 31.75); mirrors sizeNumbersMm in shop-extras.js
+  function sizeMm(v) {
+    var u = (/(mm|cm|inches|inch|in|")\s*$/i.exec(v) || [])[1] || 'mm', f = /^mm$/i.test(u) ? 1 : /^cm$/i.test(u) ? 10 : 25.4;
+    return (v.replace(/(mm|cm|inches|inch|in|")\s*$/i, '').match(/\d+(?:[-\s]\d+\/\d+|\/\d+|\.\d+)?/g) || []).map(function (t) {
+      var mx = /^(\d+)[-\s](\d+)\/(\d+)$/.exec(t), fr = /^(\d+)\/(\d+)$/.exec(t);
+      return (mx ? +mx[1] + mx[2] / mx[3] : fr ? fr[1] / fr[2] : +t) * f;
+    });
+  }
 
   // checks everything; returns { ok, focus } where focus is the id of the first field that needs attention (top to bottom)
   function validate(p) {

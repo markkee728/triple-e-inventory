@@ -38,25 +38,34 @@
   /* ---------------- the page ---------------- */
   var PANELS = [
     ['ptrPolicy', 'Payment terms on offer',
-     'These are the choices a cashier or a customer can pick, and what each one asks for. The percentages are policy you set here: a term stays out of the shop and off the counter until you switch it on and say which orders it covers. Nothing on this page changes the money already recorded on an order.',
-     '<th>Term</th><th style="width:200px">What it asks for</th><th style="width:170px">Order types it covers</th><th style="width:190px">Balance is due</th><th style="width:230px">Offer it?</th><th style="width:130px"></th>'],
-    ['ptrProposed', 'Partial terms waiting for you',
-     'A cashier may propose a part-payment on a quotation, but the customer never sees it as agreed until Finance approves it here. Refusing one puts that quotation back to paying everything before it is released.',
-     '<th>Quotation</th><th>Customer</th><th class="mono">Quoted</th><th>Proposed</th><th>Balance is due</th><th style="width:280px">Your decision</th>'],
+     'Switch a term on to offer it. Payments already recorded are not affected.',
+     '<th style="min-width:160px">Term</th><th style="width:190px">Pay now</th><th style="width:160px">Allowed for</th><th style="width:200px">Balance due</th><th style="width:220px">Status</th><th style="width:90px"></th>'],
+    ['ptrProposed', 'Waiting for your approval',
+     'Part-payments a cashier proposed. The customer only sees them after you approve.',
+     '<th>Quotation</th><th>Customer</th><th class="mono">Quoted</th><th>Proposed</th><th>Balance due</th><th style="width:280px">Decision</th>'],
     ['ptrDebt', 'Balances outstanding',
-     'Everything not fully collected yet. The figures are the ones the payment ledger keeps against each order and quotation; a row only appears here while money is genuinely still owed.',
+     'Orders and quotations with money still owed.',
      '<th>Reference</th><th>Customer</th><th>Payment option</th><th class="mono">Value</th><th class="mono">Collected</th><th class="mono">Outstanding</th><th>Payment state</th><th>Exception</th>'],
-    ['ptrMoney', 'Payments and refunds recorded',
-     'One row per money event, newest first, with the person who recorded it. Cash that went into a drawer is counted apart from anything paid online, so the two never mix in the till.',
+    ['ptrMoney', 'Payments and refunds',
+     'Newest first. Drawer cash and online payments are kept apart.',
      '<th>When</th><th>Against</th><th class="mono">Amount</th><th>How</th><th>Reference / drawer</th><th>Recorded by</th><th>Note</th>']
   ];
 
+  (function styles() {
+    var st = document.createElement('style');
+    st.textContent = '#payment-terms input:not([type=checkbox]):not([type=hidden]),#payment-terms select{background:var(--panel);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;min-height:34px;max-width:100%}'
+      + '#payment-terms input:focus,#payment-terms select:focus{outline:none;border-color:var(--blue-bright);box-shadow:0 0 0 3px rgba(74,144,217,.18)}'
+      + '#payment-terms input[type=checkbox]{accent-color:var(--blue-bright);width:16px;height:16px;vertical-align:-3px;margin-right:6px}'
+      + '#payment-terms td{vertical-align:top;padding-top:14px;padding-bottom:14px}#payment-terms td label{line-height:1.9}'
+      + '#payment-terms .faint{color:var(--text-faint);font-size:12.5px;line-height:1.5}#payment-terms select[data-f=balanceCondition]{width:100%}';
+    document.head.appendChild(st);
+  })();
   function build() {
     var host = $('payment-terms');
     if (!host || host.dataset.built === '1') return;
     host.dataset.built = '1';
     host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales / Payment Terms</div><h1 class="catalog-title">Payment Terms</h1>'
-      + '<div class="panel-sub">Who may pay part of a bill, what the cashier proposes, what is still owed and what has actually been collected.</div></div>'
+      + '<div class="panel-sub">Part-payment rules, approvals and balances.</div></div>'
       + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
       + PANELS.map(function (p) {
         return '<div class="panel" id="' + p[0] + 'Box" style="margin-bottom:18px">'
@@ -69,30 +78,33 @@
   }
 
   /* ---------------- the policy table ---------------- */
+  // when the rest is paid: a moment in the order flow the system enforces (never a free-typed promise)
+  var BALANCE_DUE = [['balance due before release', 'Before pickup / delivery'], ['balance due before production starts', 'Before production starts']];
   var STATE_PILL = { unpaid: ['unpaid', 'Not paid'], partially_paid: ['low', 'Partly paid'], paid: ['in', 'Paid'],
     refunded: ['out', 'Refunded'], partially_refunded: ['watch', 'Partly refunded'] };
 
   function policyRow(t) {
     var lock = t.key === 'full';
     return '<tr data-term="' + esc(t.key) + '">'
-      + '<td><b>' + esc(t.label) + '</b><div class="faint">' + (lock
-        ? 'The default for ready stock and for any order with no agreed part-payment.'
-        : 'Proposed policy \u2014 customers and cashiers only see this once you switch it on.') + '</div></td>'
+      + '<td><b>' + esc(t.label) + '</b><div class="faint">' + (lock ? 'Default for every order' : 'Hidden until switched on') + '</div></td>'
       + '<td>' + (lock ? '<span class="mono">100% of the order</span>'
         : '<label class="faint" style="display:block">Basis</label>'
-          + '<select data-f="basis"><option value="percent"' + (t.basis === 'fixed' ? '' : ' selected') + '>Percentage of the order</option>'
-          + '<option value="fixed"' + (t.basis === 'fixed' ? ' selected' : '') + '>Fixed peso amount</option></select>'
+          + '<select data-f="basis"><option value="percent"' + (t.basis === 'fixed' ? '' : ' selected') + '>Percentage</option>'
+          + '<option value="fixed"' + (t.basis === 'fixed' ? ' selected' : '') + '>Fixed amount</option></select>'
           + '<div style="margin-top:6px"><input data-f="percent" class="mono" inputmode="decimal" placeholder="50" aria-label="percentage" value="' + (t.percent == null ? '' : esc(t.percent)) + '" style="width:80px"> %</div>'
           + '<div style="margin-top:6px"><input data-f="fixedAmount" class="mono" inputmode="decimal" placeholder="5000" aria-label="fixed amount" value="' + (t.fixedAmount == null ? '' : esc(t.fixedAmount)) + '" style="width:110px"> \u20B1</div>') + '</td>'
       + '<td>' + (lock ? '<label><input type="checkbox" data-f="retailAllowed" checked disabled> Ready stock</label>'
         : '<label style="display:block"><input type="checkbox" data-f="retailAllowed"' + (t.retailAllowed ? ' checked' : '') + '> Ready stock</label>'
           + '<label style="display:block"><input type="checkbox" data-f="madeToOrderAllowed"' + (t.madeToOrderAllowed ? ' checked' : '') + '> Made-to-order</label>') + '</td>'
-      + '<td><input data-f="balanceCondition" maxlength="120" aria-label="when the balance is due" value="' + esc(t.balanceCondition) + '" placeholder="e.g. before release"></td>'
+      + '<td>' + (lock ? '<span class="faint">Nothing further</span><input type="hidden" data-f="balanceCondition" value="nothing further to pay">'
+        : '<select data-f="balanceCondition" aria-label="when the balance is due">' + BALANCE_DUE.map(function (c) {
+            return '<option value="' + esc(c[0]) + '"' + (c[0] === t.balanceCondition ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('')
+          + (BALANCE_DUE.some(function (c) { return c[0] === t.balanceCondition; }) || !t.balanceCondition ? '' : '<option selected value="' + esc(t.balanceCondition) + '">' + esc(t.balanceCondition) + '</option>') + '</select>') + '</td>'
       + '<td><label><input type="checkbox" data-f="enabled"' + (lock ? ' checked disabled' : (t.enabled ? ' checked' : '')) + '> Offer this term</label>'
-        + '<div class="faint">' + (lock ? 'Always available \u2014 this is the safe default.'
-          : (t.enabled ? 'On since ' + esc(when(t.enabledAt)) + ' \u00B7 ' + esc(t.enabledBy || 'Finance') : 'Not offered yet')) + '</div>'
-        + '<input data-f="note" maxlength="300" aria-label="reason, for the audit trail" value="' + esc(t.note || '') + '" placeholder="why, for the audit trail" style="margin-top:6px;width:100%"></td>'
-      + '<td><button type="button" class="btn-primary btn-sm" data-save>Save</button>'
+        + '<div class="faint">' + (lock ? 'Always on'
+          : (t.enabled ? 'On since ' + esc(when(t.enabledAt)) + ' \u00B7 ' + esc(t.enabledBy || 'Finance') : 'Off')) + '</div>'
+        + (lock ? '' : '<input data-f="note" maxlength="300" aria-label="reason, for the audit trail" value="' + esc(t.note || '') + '" placeholder="Reason (for the audit log)" style="margin-top:6px;width:100%">') + '</td>'
+      + '<td>' + (lock ? '' : '<button type="button" class="btn-primary btn-sm" data-save>Save</button>')
         + '<div class="faint" data-err role="alert" style="color:var(--red,#c0392b);margin-top:6px"></div></td>'
       + '</tr>';
   }
@@ -115,8 +127,8 @@
     var body = $('ptrProposedBody'), rows = proposedRows();
     if (!body) return;
     $('ptrProposedStatus').textContent = rows.length
-      ? rows.length + ' quotation(s) are held until you decide. A customer cannot be shown part-payment terms you have not signed.'
-      : 'Nothing is waiting for a decision.';
+      ? rows.length + ' waiting'
+      : 'Nothing waiting.';
     if (!rows.length) { body.innerHTML = '<tr><td class="faint" colspan="6">No quotation has proposed a partial payment.</td></tr>'; return; }
     body.innerHTML = rows.map(function (q) {
       var t = q.terms;
