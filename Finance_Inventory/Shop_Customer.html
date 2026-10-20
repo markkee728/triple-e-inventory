@@ -368,6 +368,9 @@ a.nav-item{text-decoration:none}
 .pd-qty button:hover{background:rgba(74,144,217,.14)}
 .pd-qty input{width:56px;text-align:center;border:0;background:transparent;color:var(--text);font-weight:600;font-size:16px;padding:0;-moz-appearance:textfield}
 .pd-qty input::-webkit-outer-spin-button,.pd-qty input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.cart-line .qty input{width:58px;height:30px;text-align:center;border:0;border-left:1px solid var(--border);border-right:1px solid var(--border);background:var(--field);color:var(--text);font-weight:600;font-size:15px;padding:0;-moz-appearance:textfield}
+.cart-line .qty input:focus{outline:2px solid var(--blue-bright);outline-offset:-2px}
+.cart-line .qty input::-webkit-outer-spin-button,.cart-line .qty input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .pd-buy .btn-primary{flex:1;min-height:44px;font-size:15px}
 .pd-perks{display:grid;gap:8px;margin-top:6px;padding:12px 14px;border:1px solid var(--border);border-radius:10px;background:var(--inset);font-size:13.5px;color:var(--text-dim)}
 .pd-perks div{display:flex;gap:8px;align-items:center}.pd-perks .ico{width:16px;height:16px;color:var(--green);vertical-align:0;flex:none}
@@ -613,7 +616,7 @@ function renderCart() {
     <div class="thumb">${catIcon(p.category)}</div>
     <div><div class="t">${esc(p.name)}</div><div class="s">${esc(p.spec || '')}</div><div class="s mono">${peso(p.price)} / ${esc(p.unit)}${minQty(p) > 1 ? ' · min. ' + minQty(p) + ' ' + esc(p.unit) : ''}</div></div>
     <div class="ctl"><span class="lt">${peso(p.price * l.qty)}</span>
-      <div style="display:flex;gap:8px;align-items:center"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><span class="mono">${l.qty}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
+      <div style="display:flex;gap:8px;align-items:center"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><input class="mono" type="number" inputmode="${p.fractional ? 'decimal' : 'numeric'}" min="${minQty(p)}" step="${p.fractional ? 0.5 : 1}" value="${l.qty}" data-qtyin="${esc(l.sku)}" aria-label="Quantity of ${esc(p.name)}"><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
       <button class="icon-btn" data-rm="${esc(l.sku)}" aria-label="Remove ${esc(p.name)}" title="Remove"><svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button></div></div></div>`; }).join('')
     : `<div class="empty-card">${EMPTY_CART_ICO}<h3>Your cart is empty</h3><p>Find something in the catalog and add it here.</p><button class="btn-primary" data-view="catalog">Browse catalog</button></div>`;
   syncCounts();
@@ -1540,6 +1543,19 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape') { closeProductDetails(); setNav(false); closeModal('cancelBg'); closeModal('refundBg'); closeModal('reviewBg'); closeModal('receiptBg'); $('userDropdown').classList.remove('open'); }
 });
 $('toCheckout').onclick = () => show('checkout');
+/* typing a quantity straight into the cart: applied when the box loses focus or Enter is pressed (not on every keystroke),
+   and held to the same minimum order, stock and whole/half-unit rules as the + / − buttons. The server re-checks all of it on checkout. */
+$('cartRows').addEventListener('change', e => {
+  const inp = e.target.closest('[data-qtyin]'); if (!inp) return;
+  const l = cart.find(x => x.sku === inp.dataset.qtyin), p = prod(inp.dataset.qtyin); if (!l || !p) return;
+  let v = Number(String(inp.value).trim());
+  if (inp.value.trim() === '' || !Number.isFinite(v) || v <= 0) { renderCart(); return toast('Enter a quantity of at least ' + minQty(p) + ' ' + p.unit + ', or use the bin to remove it.', true); }
+  v = p.fractional ? Math.round(v * 2) / 2 : Math.round(v);         // whole units, or halves for products sold by fraction
+  if (v < minQty(p)) { v = minQty(p); toast('The minimum order for ' + p.name + ' is ' + minQty(p) + ' ' + p.unit + '.', true); }
+  if (v > p.available) { v = p.available; toast('Only ' + p.available + ' ' + p.unit + ' of ' + p.name + ' available.', true); }
+  l.qty = v; saveCart(); renderCart();
+});
+$('cartRows').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('[data-qtyin]')) { e.preventDefault(); e.target.blur(); } });
 $('place').onclick = placeOrder;
 $('cartFab').onclick = () => show('cart');
 $('logout').onclick = async () => { try { await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }); } catch (e) {} location.href = 'Login_Inventory.html'; };

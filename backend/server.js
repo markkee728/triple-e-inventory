@@ -1317,13 +1317,20 @@ app.get('/api/pos/customer-directory', auth('cashier'), wrap(async (req, res) =>
 }));
 app.get('/api/pos/customers/:id/profile', auth('cashier'), wrap(async (req,res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(400).json({error:'Invalid customer ID'});
-  const {rows}=await pool.query(`SELECT u.full_name AS name,u.email,u.phone,u.status,u.username,
+  // Same details Finance sees, minus the company TIN. Never any password hash, token or consent record.
+  const {rows}=await pool.query(`SELECT u.user_id,u.full_name AS name,u.email,u.phone,u.status,u.username,
     u.first_name,u.middle_name,u.last_name,u.suffix,to_char(u.birthdate,'YYYY-MM-DD') AS birthdate,
-    u.gender,u.company_name,u.company_position,
-    to_char(u.created_at AT TIME ZONE $2,'Mon DD, YYYY') AS joined
+    u.gender,u.company_name,u.company_position,(u.email_verified_at IS NOT NULL) AS email_verified,
+    to_char(u.created_at AT TIME ZONE $2,'Mon DD, YYYY') AS joined,
+    to_char(u.last_login AT TIME ZONE $2,'Mon DD, YYYY HH12:MI AM') AS last_login
     FROM users u JOIN roles r ON r.role_id=u.role_id WHERE u.user_id=$1 AND r.role_key='customer'`,[req.params.id,TZ]);
   if(!rows.length)return res.status(404).json({error:'Customer not found'});
-  res.json(rows[0]);
+  const u=rows[0], guess=u.first_name==null?splitFullName(u.name):null;
+  res.json({ id:u.user_id, name:u.name, username:u.username, email:u.email, phone:u.phone||'', status:u.status,
+    firstName:guess?guess.first:u.first_name, middleName:u.middle_name||'', lastName:guess?guess.last:u.last_name,
+    suffix:guess?guess.suffix:u.suffix, birthdate:u.birthdate||'', gender:u.gender||'',
+    companyName:u.company_name||'', companyPosition:u.company_position||'', emailVerified:!!u.email_verified,
+    joined:u.joined||'', lastLogin:u.last_login||'Never' });
 }));
 /* ---------- users & audit (finance only) ---------- */
 app.get('/api/users', auth('finance'), wrap(async (req, res) => {
