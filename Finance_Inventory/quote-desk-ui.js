@@ -165,6 +165,7 @@
       sec('What they need', kv([
         row('Item', '<b>' + esc(d.product || 'Custom item') + '</b>' + (d.sku ? ' <span class="dim">· catalog ' + esc(d.sku) + '</span>' : ' <span class="dim">· custom specification</span>')),
         row('Quantity', esc(d.quantity || '—')),
+        row('Item type', esc(sp.itemType || (d.sku ? 'Ready-made catalog product (sold by ' + ((d.quantity || '').split(' ').slice(1).join(' ') || 'pcs') + ')' : '—'))),
         row('Material', esc(sp.material || '—')),
         row('Size', esc(sp.size || '—')),
         row('Thickness', esc(sp.thickness || '—')),
@@ -639,7 +640,7 @@
     const box = el('qdReview'); if (!box) return;
     const d = collectForm(), sp = d.specs || {}, p = prod(d.sku);
     const rows = [['Customer', d.contactName || '—'], ['Mobile', d.phone || '—'], ['Email', d.contactEmail || 'not given'], ['Company', d.company || '—'],
-      ['Product', p ? p.name + ' (' + p.sku + ')' : d.productName || '—'], ['Material', sp.material || '—'], ['Size', sp.size || '—'],
+      ['Product', p ? p.name + ' (' + p.sku + ')' : d.productName || '—'], ['Item type', p ? 'Ready-made catalog product' : d.itemType || '—'], ['Material', sp.material || '—'], ['Size', sp.size || '—'],
       ['Thickness', sp.thickness || '—'], ['Finish', sp.finish || '—'], ['Cutting / bending', sp.service || '—'],
       ['Quantity', (d.quantity || '—') + ' ' + (d.quantityUnit || '')], ['Needed by', d.neededBy ? day(d.neededBy) : d.flexibleDate ? 'Flexible' : '—'],
       ['Fulfilment', d.fulfillment], ['Delivery area', d.fulfillment === 'Delivery' ? [d.street, d.barangay, d.city, d.province, d.region].filter(Boolean).join(', ') : 'not needed'],

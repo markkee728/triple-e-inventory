@@ -38,7 +38,7 @@ async function call(role, method, p, body) {
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 const state = () => call('cashier', 'GET', '/__harness/state').then((r) => r.body);
-const walkIn = () => ({ contactName: 'Walk-in Buyer', phone: '0917 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'pcs',
+const walkIn = () => ({ contactName: 'Walk-in Buyer', phone: '0917 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'length',
   fulfillment: 'Pickup', flexibleDate: true,
   specs: { material: 'Not sure (advise me)', size: '2"', thickness: '3.0 mm', finish: 'Not sure (advise me)', service: 'None (as is)' }, });
 
@@ -105,7 +105,7 @@ async function main() {
     ok('the desk shows the preserved price and its order reference',
       desk.status === 200 && desk.body.amount === quoted.quotedAmount && desk.body.orderNo === first.body.orderNo, desk.body);
     const afterOnline = await state();
-    ok('exactly one order exists and it is unpaid', afterOnline.orders.length === 1 && afterOnline.orders[0].payment_status === 'unpaid' && afterOnline.orders[0].status === 'Pending', afterOnline.orders);
+    ok('exactly one order exists and it is unpaid', afterOnline.orders.length === 1 && afterOnline.orders[0].payment_status === 'unpaid' && afterOnline.orders[0].status === 'Pending Confirmation', afterOnline.orders);
     ok('the order total is the approved quotation amount', +afterOnline.orders[0].total === quoted.quotedAmount, afterOnline.orders[0]);
     ok('stock was only checked, never deducted', JSON.stringify(afterOnline.stock) === JSON.stringify(afterWalkIn.stock), afterOnline.stock);
     ok('no POS sale was created by an online conversion', afterOnline.sales.length === 0, afterOnline.sales);

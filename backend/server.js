@@ -38,6 +38,7 @@ class ValidationError extends Error {
   constructor(fields) { super(Object.values(fields)[0]); this.fields = fields; }
 }
 const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
+const FINISHED_GOODS_UNIT = 'pcs';      // every Finished Good is sold by the piece (enforced in validateProduct and in the quote form)
 const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
 // Units offered in the product form (kg and pcs first, then units used for metals)
 const UNITS = ['kg', 'pcs', 'tonne', 'g', 'lb', 'm', 'ft', 'sheet', 'plate', 'bar', 'coil', 'roll', 'bundle', 'set', 'pair', 'box', 'bag', 'drum', 'liter'];
@@ -564,6 +565,8 @@ function validateProduct(b, { creating }) {
   const unit = str(b.unit);
   if (!unit) e.unit = 'Unit is required';
   else if (!UNITS.includes(unit)) e.unit = 'Choose a unit from the list';
+  // Finished goods are counted and sold by the piece. Raw materials / finishing supplies keep kg, sheet, roll, liter... as before.
+  else if (department === 'Finished Goods' && unit !== FINISHED_GOODS_UNIT) e.unit = 'Finished goods are sold by the piece. Choose pcs';
   const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7 });
   // only Finished Goods are sold: they need a selling price; every other department has none (stored as 0)
   const listPrice = department === 'Finished Goods'
@@ -1552,6 +1555,14 @@ async function ensureMovementColumns() {
   } catch (err) { console.warn('[db] could not check the stock movement columns:', err.message); }
 }
 ensureMovementColumns();
+// Older finished goods may still carry kg / sheet / length... Nothing is rewritten here (changing a unit changes what the price means), but say so
+// in the log so Finance can open each one in Products > Finished Goods and switch it to pcs. Until then a quote for it follows the unit it is saved with.
+(async () => {
+  try {
+    const r = await pool.query(`SELECT sku, unit FROM products WHERE department = 'Finished Goods' AND NOT is_archived AND unit <> $1 ORDER BY sku`, [FINISHED_GOODS_UNIT]);
+    if (r.rowCount) console.warn(`[products] ${r.rowCount} finished good(s) are not counted in ${FINISHED_GOODS_UNIT}: ` + r.rows.slice(0, 20).map((x) => `${x.sku} (${x.unit})`).join(', ') + (r.rowCount > 20 ? ', ...' : '') + '. Edit them and choose pcs.');
+  } catch (err) { console.warn('[products] could not check the finished goods units:', err.message); }
+})();
 app.listen(process.env.PORT || 8080, () => {
   console.log('Triple E API on port ' + (process.env.PORT || 8080));
   console.log('[profile] My Profile routes are loaded (GET/PUT /api/auth/profile)');

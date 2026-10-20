@@ -260,6 +260,20 @@ async function call(method, url, { body, headers } = {}) {
   ok('stock is verified before converting (900 sheets wanted, 40 on hand)', scarce.status === 400 && scarce.json.fields.stock !== undefined, scarce.json);
 
   console.log('\n5b. walk-in quotation -> the POS counter');
+  // two accepted quotes written in kg for a product that is sold by pcs (created here so the list totals above stay as they were)
+  P({ quote_id: 20, quote_no: 'QR-1020', customer_id: 7, contact_name: 'Gil Tan', phone: '09271234567', product_sku: 'FG-BRASS-01',
+      product_name: 'Brass elbow 3/4', quantity: '5 kg', details: 'Material: Brass', needed_by: '2026-12-01', fulfillment: 'Pickup',
+      status: 'accepted', quoted_amount: 2250, pay_method: 'Pay on pickup', source: 'shop' });
+  P({ quote_id: 21, quote_no: 'QR-1021', customer_id: null, contact_name: 'Hana Uy', phone: '09281234567', product_sku: 'FG-BRASS-01',
+      product_name: 'Brass elbow 3/4', quantity: '5 kg', details: 'Material: Brass', needed_by: '2026-12-01', fulfillment: 'Pickup',
+      status: 'accepted', quoted_amount: 2250, pay_method: 'Pay on pickup', source: 'pos' });
+  // a quantity in kg can never become "5 pcs": the unit has to be the one the product is sold in (pcs)
+  const kgOnline = await call('POST', '/api/pos/quote-desk/QR-1020/convert', { body: JSON.stringify({ requestId: 'convert-unit-online-1' }) });
+  ok('an online quote in kg is not converted into pcs of a product sold by pcs', kgOnline.status === 400 && kgOnline.json.fields.quantity !== undefined && /sold by pcs/.test(kgOnline.json.fields.quantity), kgOnline.json);
+  ok('... and no order was made for it', DB.quotes.get('QR-1020').converted_order_id === undefined || DB.quotes.get('QR-1020').converted_order_id === null);
+  const kgWalkin = await call('POST', '/api/pos/quote-desk/QR-1021/convert', { body: JSON.stringify({ requestId: 'convert-unit-walkin-1' }) });
+  ok('a walk-in quote in kg is not handed to the counter as pcs either', kgWalkin.status === 400 && kgWalkin.json.fields.quantity !== undefined, kgWalkin.json);
+  ok('... and nothing was handed over', !DB.quotes.get('QR-1021').handover_at);
   const walkin = await call('POST', '/api/pos/quote-desk/QR-1002/convert', { body: JSON.stringify({ requestId: 'convert-walkin-001' }) });
   ok('a walk-in quote hands the counter a ready line (sku, qty, unit price)', walkin.status === 200 && walkin.json.kind === 'pos' && walkin.json.sku === 'FG-BRASS-01' && walkin.json.qty === 10 && walkin.json.unitPrice === 450, walkin.json);
   ok('it reports the on-hand stock so the cashier knows before ringing up', walkin.json.stock === 1200);

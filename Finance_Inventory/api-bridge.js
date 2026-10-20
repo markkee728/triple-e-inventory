@@ -643,6 +643,7 @@
     $('npOnHand').readOnly = !!product;
     $('npOnHand').title = product ? 'Change stock using Stock In / Stock Out' : '';
     setUnitValue(product ? product.unit : '');
+    syncUnitField(product);
   }
 
   const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
@@ -652,7 +653,10 @@
     const overlay = $('newProductModalOverlay'), form = $('newProductForm');
     if (!overlay || !form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
-    $('npDept').addEventListener('change', () => { syncPriceField(); validateField('npListPrice', false); syncSupplierPick(); });
+    $('npDept').addEventListener('change', () => {
+      syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
+      const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
+    });
     $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });
     $('npReorderManual').addEventListener('change', () => {
       const sku = productModalState(), product = sku ? productCatalogData.find((p) => p.sku === sku) : null;
@@ -661,7 +665,7 @@
     });
     api('/reorder-settings').then((r) => { if (r && r.leadDays != null) { REORDER = r; syncReorderUI(null); } }).catch(() => {});
     $('npCategory').addEventListener('change', () => { syncCategoryNew(); if ($('npCategory').value === NEW_CATEGORY) $('npCategoryNew').focus(); });
-    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); }, 0));
+    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); }, 0));
     new MutationObserver(() => { if (overlay.classList.contains('open')) onProductModalOpen(); })
       .observe(overlay, { attributes: true, attributeFilter: ['class'] });
 
@@ -684,6 +688,7 @@
       const unit = clean($('npUnit').value);
       if (!unit) errs.npUnit = 'Unit is required';
       else if (!/^[A-Za-z][A-Za-z./ ]{0,19}$/.test(unit)) errs.npUnit = 'Unit must be letters only, e.g. kg or pcs';
+      else if (department === 'Finished Goods' && unit !== 'pcs') errs.npUnit = 'Finished goods are sold by the piece. Choose pcs';
       const unitCost = vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
       const listPrice = sellsNow() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : 0;
       const reorderManual = $('npReorderManual').checked;
@@ -1729,6 +1734,19 @@
       sel.appendChild(opt);
     }
     sel.value = unit || '';
+  }
+  /* Finished goods are counted and sold by the piece, so for them the unit is pcs and cannot be changed (the server refuses anything else too).
+     Raw materials and finishing supplies keep the whole list (kg, sheet, roll, liter...). */
+  function syncUnitField(product) {
+    const sel = $('npUnit'); if (!sel || sel.tagName !== 'SELECT') return;
+    let note = $('npUnitNote');
+    if (!note) { note = document.createElement('div'); note.id = 'npUnitNote'; note.className = 'field-hint'; sel.parentNode.appendChild(note); }
+    if (($('npDept') || {}).value === 'Finished Goods') {
+      const was = product && product.unit && product.unit !== 'pcs' ? product.unit : '';
+      setUnitValue('pcs'); sel.disabled = true;
+      note.textContent = was ? 'This product was saved per "' + was + '". Finished goods are sold by the piece (pcs), so check that the selling price is per piece before saving.' : 'Finished goods are sold by the piece (pcs).';
+      note.hidden = false;
+    } else { sel.disabled = false; note.textContent = ''; note.hidden = true; }
   }
   function setupUnitSelect() {
     const sel = $('npUnit');

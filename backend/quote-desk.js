@@ -33,6 +33,10 @@ function sniff(buf) {
   return null;
 }
 
+/* The quoted quantity must be in the unit the product is sold in. Without this, "5 kg" on a product sold by pcs would become
+   5 pcs at (price / 5) each: the number crosses over but the unit does not. */
+const sameUnit = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
 /* "200 pcs" / "12.5 linear m" as readQuote() stores them -> { qty, unit } */
 function splitQuantity(text) {
   const m = /^([\d,.]+)\s+(.+)$/.exec(String(text || '').trim());
@@ -306,6 +310,7 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
           `SELECT product_id, sku, name, unit, selling_price, on_hand FROM products
             WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [q.product_sku.toUpperCase()])).rows[0];
         if (!p) throw bad('product', 'That catalog product is no longer sold at the counter');
+        if (!sameUnit(qv.unit, p.unit)) throw bad('quantity', `This quotation is in ${qv.unit}, but ${p.name} is sold by ${p.unit}. Ask Finance to correct the quotation before it goes to the counter`);
         if (+p.on_hand < qv.qty) throw bad('stock', `Only ${+p.on_hand} ${p.unit} of ${p.name} are in stock`);
         const hand = (await client.query(
           `UPDATE quote_requests SET handover_at = now(), updated_at = now() WHERE quote_id = $1 AND handover_at IS NULL RETURNING handover_at`,
@@ -319,6 +324,7 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
         `SELECT product_id, sku, name, unit, selling_price, on_hand, shop_visible FROM products
           WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [q.product_sku.toUpperCase()])).rows[0];
       if (!p) throw bad('product', 'That catalog product is no longer available');
+      if (!sameUnit(qv.unit, p.unit)) throw bad('quantity', `This quotation is in ${qv.unit}, but ${p.name} is sold by ${p.unit}. Ask Finance to correct the quotation before converting it`);
       if (+p.on_hand < qv.qty) throw bad('stock', `Only ${+p.on_hand} ${p.unit} of ${p.name} are in stock. Ask the customer to adjust the quantity`);
 
       // an order needs the payment method and, for delivery, a structured address

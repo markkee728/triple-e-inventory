@@ -45,7 +45,7 @@ const state = () => call('cashier', 'GET', '/__harness/state').then((r) => r.bod
 const termOf = (rows, key) => rows.find((t) => t.key === key);
 
 /* a shop customer's quote for a catalog product: ready stock, so no fabrication service */
-const shopQuote = () => ({ contactName: 'Eva Son', phone: '0921 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'pcs',
+const shopQuote = () => ({ contactName: 'Eva Son', phone: '0921 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'length',
   fulfillment: 'Pickup', neededBy: '2026-12-15',
   specs: { material: 'Carbon Steel', size: '2 x 2 in', thickness: '3.0 mm', finish: 'Raw / Unfinished', service: 'None (as is)' } });
 

@@ -29,7 +29,8 @@ const PRODUCTS = [
   { sku: 'SSB-0010', name: 'Stainless Flat Bar', category: 'Bars & Rods', unit: 'kg', spec: '304 · 25 × 3 mm', price: 185.5, available: 1200 },
   { sku: 'RFR-0026', name: 'Rib-Type Roofing', category: 'Roofing', unit: 'linear m', spec: '0.4 mm · Pre-painted', price: 425, available: 260 },
   { sku: 'ANG-0203', name: 'Angle Bar', category: 'Angles & Channels', unit: 'length', spec: '2 × 2 in · 3 mm · 6 m', price: 710, available: 88 },
-  { sku: 'FBT-0012', name: 'Hex Bolt & Nut Set', category: 'Fasteners', unit: 'box', spec: 'M12 × 50 · 50 pcs', price: 580, available: 8 }
+  { sku: 'FBT-0012', name: 'Hex Bolt & Nut Set', category: 'Fasteners', unit: 'box', spec: 'M12 × 50 · 50 pcs', price: 580, available: 8 },
+  { sku: 'BF-ELB-034', name: 'Brass Forged Elbow 3/4"', category: 'Forged Brass Products', unit: 'pcs', spec: 'Brass · 3/4 in', price: 450, available: 380 }   // a real finished good: sold by the piece
 ];
 const DB = { quotes: new Map(), attachments: [], clar: [], audit: [], orders: [], orderLines: [], sales: [], payments: [], terms: null, users: null, seq: { quote: 1000, attach: 0, clar: 0, order: 500, sale: 9000 } };
 const USERS = { 3: { user_id: 3, full_name: 'Test Cashier' }, 4: { user_id: 4, full_name: 'Test Finance' }, 7: { user_id: 7, full_name: 'Ana Cruz' } };

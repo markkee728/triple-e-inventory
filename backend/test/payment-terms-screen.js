@@ -41,7 +41,7 @@ async function call(role, method, p, body) {
   const r = await fetch(BASE + p, { method, headers: { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
   return { status: r.status, body: await r.json().catch(() => null) };
 }
-const shopQuote = (over) => Object.assign({ contactName: 'Eva Son', phone: '0921 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'pcs',
+const shopQuote = (over) => Object.assign({ contactName: 'Eva Son', phone: '0921 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'length',
   fulfillment: 'Pickup', neededBy: '2026-12-15',
   specs: { material: 'Carbon Steel', size: '2 x 2 in', thickness: '3.0 mm', finish: 'Raw / Unfinished', service: 'None (as is)' } }, over || {});
 

@@ -184,6 +184,54 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     { label: 'sheets and plates', words: ['sheet', 'plate', 'panel', 'coil'], sizes: ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'] },
     { label: 'pipes and fittings', words: ['pipe', 'tube', 'fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'] }
   ];
+  /* ITEM TYPE decides what a size, a thickness and a unit can mean, so the three always agree:
+       Sheet / plate     standard sheet sizes (or a typed width x length), a thickness is always needed, quoted by the sheet / piece / kg
+       Pipe / tube       pipe sizes in inches (or a typed size with its unit), wall thickness optional, quoted by length / piece / linear m / kg
+       Fitting / valve   pipe sizes, no thickness, no cutting or bending, sold by the piece / set / box
+       Fabricated part   made to the customer's drawing: typed dimensions, sold by the piece / set
+     The MATERIAL then narrows finish / thickness / cutting further (MATERIAL_FITS above). Both rules are combined in ONE table,
+     QUOTE_OPTIONS.matrix[itemType][material], which the form downloads, so the page and readQuote() can never disagree.
+     A ready-made catalog product (finished good) skips all of this: it is quoted in the unit it is sold in, which is pcs. */
+  const NA = 'Not applicable';
+  const SHEET_SIZES = QUOTE_OPTIONS.forms[0].sizes, PIPE_SIZES = QUOTE_OPTIONS.forms[1].sizes;
+  QUOTE_OPTIONS.itemTypes = ['Sheet / plate', 'Pipe / tube', 'Fitting / valve', 'Fabricated part'];
+  QUOTE_OPTIONS.itemRules = {
+    'Sheet / plate':   { sizes: SHEET_SIZES, typed: 'sheet', thickness: 'required', units: ['sheets', 'pcs', 'kg'], unit: 'sheets', services: null,
+                         label: 'a sheet or plate', note: 'Sheets come in standard sizes (4 x 8 ft...). Pick one or type the cut size. A thickness is always needed.' },
+    'Pipe / tube':     { sizes: PIPE_SIZES, typed: 'pipe', thickness: 'optional', units: ['lengths', 'pcs', 'linear m', 'kg'], unit: 'lengths', services: null,
+                         label: 'a pipe or tube', note: 'Pipes are sized in inches. Wall thickness is optional.' },
+    'Fitting / valve': { sizes: PIPE_SIZES, typed: 'pipe', thickness: 'none', units: ['pcs', 'sets', 'boxes'], unit: 'pcs', services: ['None (as is)', 'Drilling / punching'],
+                         label: 'a fitting or valve', note: 'Fittings and valves are sold by the piece. They have no sheet thickness and are not cut or bent.' },
+    'Fabricated part': { sizes: [NA], typed: 'any', thickness: 'optional', units: ['pcs', 'sets'], unit: 'pcs', services: null,
+                         label: 'a fabricated part', note: 'Made to your drawing and sold by the piece. Type the dimensions.' }
+  };
+  // typed sizes ("Other...") must look like the item: the client builds the same RegExp from these strings
+  QUOTE_OPTIONS.typedSizes = {
+    sheet: { pattern: /^\d+(\.\d+)?\s*[x\u00D7]\s*\d+(\.\d+)?\s*(mm|cm|m|ft|in|")$/i.source, flags: 'i', hint: 'width x length with its unit, e.g. 600 x 900 mm' },
+    pipe:  { pattern: /^(\d+[-\s])?\d+(\/\d+|\.\d+)?\s*("|in|inch|inches|mm)$/i.source, flags: 'i', hint: 'the pipe size with its unit, e.g. 2 inch or 50 mm' },
+    any:   { pattern: /\d/.source, flags: '', hint: 'the dimensions with numbers, e.g. 300 x 200 mm' }
+  };
+  const typedSizeOk = (kind, v) => { const t = QUOTE_OPTIONS.typedSizes[kind]; return !!t && new RegExp(t.pattern, t.flags).test(v); };
+  // what the dropdown may offer for one detail, given the item type and the material (either may be empty = not chosen yet)
+  function allowedFor(key, material, itemType) {
+    const fit = QUOTE_OPTIONS.rules[material];                       // 'Not sure (advise me)' has no rule: everything is allowed
+    let list = fit && fit[key] ? fit[key] : QUOTE_OPTIONS[key];
+    const t = QUOTE_OPTIONS.itemRules[itemType];
+    if (!t) return list;
+    if (key === 'size') return t.sizes;
+    if (key === 'thickness') return t.thickness === 'none' ? [NA] : t.thickness === 'required' ? list.filter((v) => v !== NA) : list;
+    if (key === 'service' && t.services) return list.filter((v) => t.services.includes(v));
+    return list;
+  }
+  QUOTE_OPTIONS.matrix = {};
+  QUOTE_OPTIONS.itemTypes.forEach((t) => {
+    QUOTE_OPTIONS.matrix[t] = {};
+    [''].concat(QUOTE_OPTIONS.material).forEach((m) => {
+      QUOTE_OPTIONS.matrix[t][m] = { size: allowedFor('size', m, t), thickness: allowedFor('thickness', m, t), finish: allowedFor('finish', m, t), service: allowedFor('service', m, t) };
+    });
+  });
+  const listText = (a) => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' or ' + a[a.length - 1];
+
   // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
@@ -285,6 +333,14 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs);
     } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
 
+    // a custom (non-catalog) item must say what KIND of item it is: that is what decides which sizes, thicknesses and units make sense
+    let itemType = null, itemRule = null;
+    if (!sku) {
+      itemType = str(b.itemType);
+      if (!QUOTE_OPTIONS.itemTypes.includes(itemType)) throw bad('itemType', 'Choose what kind of item you need: ' + listText(QUOTE_OPTIONS.itemTypes.map((t) => t.toLowerCase())));
+      itemRule = QUOTE_OPTIONS.itemRules[itemType];
+    }
+
     // amount required: a number plus a unit from the list (or the product's own unit)
     const raw = String(b.quantity == null ? '' : b.quantity).replace(/,/g, '').trim();
     const qty = Number(raw);
@@ -292,7 +348,13 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!Number.isFinite(qty) || qty <= 0) throw bad('quantity', 'Enter a number greater than 0');
     if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
     const unit = str(b.quantityUnit).toLowerCase();
-    if (!QUOTE_OPTIONS.units.includes(unit) && !(unit && unit === productUnit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    if (sku) {
+      // a catalog product is a finished good: it is quoted in the unit it is sold in (pcs), never in sheets / kg / lengths. The product decides, not the browser.
+      if (unit !== productUnit) throw bad('quantity', productName + ' is sold by ' + (productUnit || 'pcs') + '. Quote it in ' + (productUnit || 'pcs') + (unit ? ', not in ' + unit : '') + '.');
+    } else {
+      if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+      if (!itemRule.units.includes(unit)) throw bad('quantity', itemType + ' is quoted in ' + listText(itemRule.units) + ', not in ' + unit + '. Choose one of those');
+    }
     if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
 
@@ -317,20 +379,30 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (sku) { specs[key] = key === 'service' ? 'None (as is)' : (key === 'material' && materialFromName(productName)) || 'Not specified'; continue; }
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
-      const fits = QUOTE_OPTIONS.rules[specs.material];                 // material comes first in SPEC_LABEL; it decides what fits (no rule = anything)
-      const allowed = fits && fits[key] ? fits[key] : QUOTE_OPTIONS[key];
+      const label = SPEC_LABEL[key].toLowerCase(), allowed = allowedFor(key, specs.material, itemType);      // material comes first in SPEC_LABEL; item type was read above
       if (!allowed.includes(v)) {
-        if (QUOTE_OPTIONS[key].includes(v) && !QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' does not go with ' + specs.material + '. Choose one from the list');
-        if (!QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase() + ' from the list');
-        if (QUOTE_OPTIONS[key].includes(v)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' is not offered for ' + specs.material + '. Choose another or type it');
-        if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
+        const master = QUOTE_OPTIONS[key].includes(v), fitsMaterial = allowedFor(key, specs.material, null).includes(v);
+        if (key === 'size') {                                            // the item type decides the size: standard sizes of that item, or a typed one that looks like it
+          if (master) throw bad(key, 'That size does not go with ' + itemRule.label + '. ' + (itemRule.sizes[0] === NA ? 'Type the dimensions, e.g. 300 x 200 mm' : 'Choose ' + listText(itemRule.sizes.slice(0, 4)) + (itemRule.sizes.length > 4 ? '...' : '') + ', or type ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint));
+          if (v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) || !typedSizeOk(itemRule.typed, v)) throw bad(key, 'Type the size as ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint);
+        } else if (key === 'thickness' && itemRule.thickness === 'none') {
+          throw bad(key, itemType + ' has no sheet thickness. Choose Not applicable');
+        } else if (!QUOTE_OPTIONS.customAllowed.includes(key)) {
+          if (master) throw bad(key, 'That ' + label + (fitsMaterial ? ' does not go with ' + itemRule.label : ' does not go with ' + specs.material) + '. Choose one from the list');
+          throw bad(key, 'Choose the ' + label + ' from the list');
+        } else {                                                          // thickness: a listed value that is not offered, or a typed one
+          if (v === NA) throw bad(key, itemType + ' always needs a thickness. Choose one or type it, e.g. 1.8 mm');
+          if (master) { if (fitsMaterial) throw bad(key, 'That thickness does not go with ' + itemRule.label + '. Choose another or type it'); throw bad(key, 'That thickness is not offered for ' + specs.material + '. Choose another or type it'); }
+          if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the thickness with its number, e.g. 1.8 mm');
+        }
       }
       specs[key] = v;
     }
     const notes = str(b.notes);
     if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
     if (notes) specs.notes = notes;
-    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k])
+    if (itemType) specs.itemType = itemType;
+    const details = (itemType ? ['Item type: ' + itemType] : []).concat(Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k]))
       .concat(flexibleDate && !neededBy ? ['Needed by: Flexible / whenever ready'] : [])
       .concat(notes ? ['Notes: ' + notes] : []).join('\n');
 
@@ -360,7 +432,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, contactEmail, company, flexibleDate };
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, contactEmail, company, flexibleDate, itemType };
   }
 
   const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, contact_email, company_name, flexible_date';
