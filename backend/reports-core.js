@@ -244,7 +244,9 @@ async function lowStock(q, dx, p, o = {}) {
   const dept = DEPTS.includes(p.dept) ? p.dept : 'all';
   const status = ['attention', 'out', 'low', 'watch', 'ok', 'no_level', 'all'].includes(p.status) ? p.status : 'attention';
   const sort = ['shortage', 'status', 'name', 'on_hand', 'cover', 'cost'].includes(p.sort) ? p.sort : 'status';
-  const dir = p.dir === 'asc' ? 1 : -1, search = String(p.q || '').trim().toLowerCase().slice(0, 60);
+  const search = String(p.q || '').trim().toLowerCase().slice(0, 60);
+  // asc = smallest first, desc = largest first, for every column. Names and days-of-cover default to asc, the rest to desc (worst first).
+  const dirName = ['asc', 'desc'].includes(p.dir) ? p.dir : (sort === 'name' || sort === 'cover' ? 'asc' : 'desc'), dir = dirName === 'asc' ? 1 : -1;
   const since = p.since || new Date(Date.now() - 30 * 86400000).toISOString();
   const alerts = o.hasAlerts ? `EXISTS (SELECT 1 FROM low_stock_alerts a WHERE a.product_id = p.product_id)` : '0';
   const sql = `SELECT p.sku, p.name, p.department, c.name AS category, p.unit, p.on_hand, p.reorder_level, p.unit_cost, p.location,
@@ -276,8 +278,8 @@ async function lowStock(q, dx, p, o = {}) {
     && (!search || r.sku.toLowerCase().includes(search) || r.name.toLowerCase().includes(search)));
   const key = { shortage: (r) => r.shortage, status: (r) => -STATUS_ORDER[r.status] * 1e6 + r.shortage, name: (r) => r.name.toLowerCase(), on_hand: (r) => r.onHand,
     cover: (r) => (r.daysOfCover == null ? Infinity : r.daysOfCover), cost: (r) => r.restockCost }[sort];
-  rows.sort((a, b) => { const x = key(a), y = key(b); return (x < y ? -1 : x > y ? 1 : a.sku.localeCompare(b.sku)) * (sort === 'name' || sort === 'cover' ? -dir : dir); });
-  return { filters: { dept, status, sort, dir: dir === 1 ? 'asc' : 'desc', q: search }, rule: 'Low = reorder level is set and on-hand is at or below it. Watch = within 20% above it.', summary, count: rows.length, rows };
+  rows.sort((a, b) => { const x = key(a), y = key(b); return x < y ? -dir : x > y ? dir : String(a.sku).localeCompare(String(b.sku)); });
+  return { filters: { dept, status, sort, dir: dirName, q: search }, rule: 'Low = reorder level is set and on-hand is at or below it. Watch = within 20% above it.', summary, count: rows.length, rows };
 }
 
 /* ================================================================ 4. INVENTORY REPORTS */

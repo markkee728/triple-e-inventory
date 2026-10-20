@@ -45,6 +45,18 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
     res.json(await core.topProducts(q, core.PG, p, opts));
   }));
 
+  /* ---------- low stock (read-only: it never writes to low_stock_alerts, so it can never create a notification) ---------- */
+  async function lowStockData(req) {
+    await ready;
+    const hasAlerts = (await q(`SELECT to_regclass('low_stock_alerts') IS NOT NULL AS ok`))[0].ok === true;
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    return core.lowStock(q, core.PG, { dept: req.query.dept, status: req.query.status, sort: req.query.sort, dir: req.query.dir, q: req.query.q, since }, { ...opts, hasAlerts });
+  }
+  app.get('/api/reports/low-stock', auth('finance'), wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(await lowStockData(req));
+  }));
+
   /* ---------- CSV export ---------- */
   // Text cells that start with = + - @ could run as a formula in Excel, so they get a leading apostrophe.
   const cell = (v) => {
@@ -92,6 +104,21 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
     ];
     res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store',
       'Content-Disposition': `attachment; filename="top-products_${d.range.from}_to_${d.range.to}.csv"` });
+    res.send('\uFEFF' + out.join('\r\n') + '\r\n');
+  }));
+
+  app.get('/api/reports/low-stock.csv', auth('finance'), wrap(async (req, res) => {
+    const d = await lowStockData(req);
+    const label = { out: 'Out of stock', low: 'Low', watch: 'Watch', ok: 'OK', no_level: 'No reorder level' };
+    const today = core.todayPH();
+    const out = [
+      line('Triple E - Low-Stock Report'), line('Date (Philippine time)', today),
+      line('Filters', 'Department: ' + d.filters.dept, 'Status: ' + d.filters.status, d.filters.q ? 'Search: ' + d.filters.q : ''), '',
+      line('SKU', 'Product', 'Department', 'Category', 'Unit', 'On hand', 'Reorder level', 'Shortage', 'Status', 'Days of cover', 'Used last 30 days', 'Primary supplier', 'Last supplier receipt', 'Est. restock cost', 'In Notification Center'),
+      ...d.rows.map((r) => line(r.sku, r.name, r.department, r.category || '', r.unit || '', r.onHand, r.reorderLevel, r.shortage, label[r.status] || r.status,
+        r.daysOfCover == null ? '' : r.daysOfCover, r.usedLast30Days, r.supplier || '', r.lastReceipt ? new Date(r.lastReceipt).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) : '', r.restockCost, r.notified ? 'Yes' : 'No'))
+    ];
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Disposition': `attachment; filename="low-stock_${today}.csv"` });
     res.send('\uFEFF' + out.join('\r\n') + '\r\n');
   }));
 };
