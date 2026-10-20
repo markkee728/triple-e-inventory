@@ -274,6 +274,10 @@
     if (banner) banner.hidden = false;
     $(p + 'Narrow').hidden = true;
   }
+  // small setters the pages call (Shop_Customer.html: price hint under Quantity, "delivery quote" prefill of quantity and notes)
+  function setHint(p, text) { var h = $(p + 'QtyHint'); if (h) h.textContent = text || ''; }
+  function setQuantity(p, n) { $(p + 'Qty').value = n == null ? '' : String(n); }
+  function setNotes(p, text) { $(p + 'Notes').value = text || ''; $(p + 'NotesCount').textContent = ($(p + 'Notes').value.length) + ' / 1000'; }
 
   var st = document.createElement('style');
   st.textContent = '.qx-row{display:flex;gap:8px}.qx-row input{flex:1 1 auto;min-width:0}.qx-row select{flex:0 0 38%;min-width:0}' +
