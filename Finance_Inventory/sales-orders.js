@@ -63,16 +63,27 @@
     return h;
   };
 
+  // Each list draws as soon as ITS request answers, so one slow request can no longer leave every panel on "Loading…".
+  // A request that gets no answer within 20 s shows a message instead of waiting forever.
+  const TIMEOUT_MS = 20000;
+  const limit = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('The server did not answer in time. Check that it is running, then press Refresh.')), TIMEOUT_MS))]);
+  let loading = false;
   async function load() {
-    // Each list loads on its own so one failing request doesn't blank the others.
-    const [o, p, v, rt] = await Promise.allSettled([api('/orders'), api(posUrl()), api('/pos/void-requests'), api('/pos/return-requests')]);
-    VOIDS = {}; if (v.status === 'fulfilled') v.value.forEach(r => { VOIDS[r.receiptNo] = r; });
-    RETURNS = {}; if (rt.status === 'fulfilled') rt.value.forEach(r => { RETURNS[r.receiptNo] = r; });
-    if (o.status === 'fulfilled') ORDERS = o.value; else $('soSub').textContent = o.reason.message;
-    if (p.status === 'fulfilled') POS = p.value; else $('soPosSub').textContent = p.reason.message;
-    if (o.status === 'fulfilled') renderOrders();
-    if (p.status === 'fulfilled') renderPos();
-    if (window.CashReports) window.CashReports.show();   // payment summary + cash shifts
+    if (loading) return;
+    loading = true;
+    try {
+      const pUrl = posUrl();
+      const tasks = [
+        limit(api('/orders')).then((v) => { ORDERS = v; renderOrders(); }, (e) => { $('soSub').textContent = 'Could not load orders: ' + e.message; }),
+        pUrl ? limit(api(pUrl)).then((v) => { POS = v; renderPos(); }, (e) => { $('soPosSub').textContent = 'Could not load POS sales: ' + e.message; })
+             : Promise.resolve($('soPosSub').textContent = 'Choose a valid date range (From must not exceed To).'),
+        limit(api('/pos/void-requests')).then((v) => { VOIDS = {}; v.forEach((r) => { VOIDS[r.receiptNo] = r; }); }, () => {}),
+        limit(api('/pos/return-requests')).then((v) => { RETURNS = {}; v.forEach((r) => { RETURNS[r.receiptNo] = r; }); }, () => {})
+      ];
+      await Promise.allSettled(tasks);
+      if (POS.length || Object.keys(VOIDS).length || Object.keys(RETURNS).length) renderPos();   // void / return flags arrived after the sales
+      if (window.CashReports) window.CashReports.show();   // payment summary + cash shifts
+    } finally { loading = false; }
   }
 
   function renderOrders() {
@@ -225,6 +236,8 @@
   document.querySelectorAll('.nav-item[data-page="sales"], .nav-item[data-page="orders"], .sales-tab[data-page="sales"], .sales-tab[data-page="orders"]').forEach(n => n.addEventListener('click', load));
   const watching = () => ['orders', 'sales'].some(id => $(id) && $(id).classList.contains('active-page'));
   if (watching()) load();
+  // Load whenever either page is opened, however it was opened (menu, tab strip, dashboard link, refresh on #orders, Back button)
+  ['orders', 'sales'].forEach(id => { const sec = $(id); if (sec) new MutationObserver(() => { if (sec.classList.contains('active-page')) load(); }).observe(sec, { attributes: true, attributeFilter: ['class'] }); });
   // Monitoring page: keep it current while it is open, since the cashier is moving orders along
   setInterval(() => { if (!document.hidden && watching()) load(); }, 15000);
 })();

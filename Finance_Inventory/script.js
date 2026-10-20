@@ -2398,86 +2398,87 @@ function getSupplierWarehouses() {
 }
 
 
+/* ---- Supplier pills: All / Raw Materials / Finishing Supplies / Finished Goods / Archived ---- */
+const SUPPLIER_PILLS = [
+    { key: "all", label: "All" },
+    { key: "Raw Materials", label: "Raw Materials" },
+    { key: "Finishing Supplies", label: "Finishing Supplies" },
+    { key: "Finished Goods", label: "Finished Goods" },
+    { key: "archived", label: "Archived" }
+];
+
+let activeSupplierPill = "all";
+
+function supplierDepartments(supplier) {
+    const set = new Set();
+    (supplier.products || []).forEach(p => {
+        const item = (typeof productCatalogData !== "undefined" ? productCatalogData : [])
+            .find(x => x.sku === p.sku);
+        if (item && item.department) set.add(item.department);
+    });
+    return set;
+}
+
+function supplierInPill(supplier, key) {
+    const archived = supplier.status === "archived";
+    if (key === "archived") return archived;
+    if (archived) return false;
+    if (key === "all") return true;
+    return supplierDepartments(supplier).has(key);
+}
+
+function supplierMatchesSearch(supplier, term) {
+    if (!term) return true;
+    const hay = [
+        supplier.name,
+        supplier.fullAddress || supplier.location,
+        supplier.contact,
+        supplier.supplies
+    ].map(v => String(v || "").toLowerCase());
+    return hay.some(v => v.includes(term));
+}
+
+function supplierMatchesLocation(supplier) {
+    return activeWarehouseFilter === "All warehouses" ||
+        supplier.location === activeWarehouseFilter;
+}
+
 function renderWarehousePills() {
+    const container = document.getElementById("warehousePills");
+    if (!container) return;
 
-    const container =
-        document.getElementById(
-            "warehousePills"
-        );
+    const input = document.getElementById("supplierSearch");
+    const term = input ? input.value.trim().toLowerCase() : "";
+    const base = supplierData.filter(s => supplierMatchesLocation(s) && supplierMatchesSearch(s, term));
 
-    if (!container) {
-        return;
-    }
+    container.innerHTML = SUPPLIER_PILLS.map(pill => {
+        const count = base.filter(s => supplierInPill(s, pill.key)).length;
+        return `<button type="button" class="pill-btn${pill.key === activeSupplierPill ? " active" : ""}"
+                    data-pill="${escapeHTML(pill.key)}" aria-pressed="${pill.key === activeSupplierPill}">
+                    ${escapeHTML(pill.label)}<span class="count">${count}</span>
+                </button>`;
+    }).join("");
 
-    container.innerHTML = "";
-
-
-    getSupplierWarehouses()
-        .forEach(warehouse => {
-
-            const count =
-                warehouse === "All warehouses"
-                    ? supplierData.length
-                    : supplierData.filter(
-                        supplier =>
-                            supplier.location === warehouse
-                    ).length;
-
-            const button =
-                document.createElement("button");
-
-            button.type = "button";
-
-            button.className =
-                "pill-btn" +
-                (
-                    warehouse ===
-                        activeWarehouseFilter
-                        ? " active"
-                        : ""
-                );
-
-            button.innerHTML = `
-
-                ${escapeHTML(warehouse)}
-
-                <span class="count">
-                    ${count}
-                </span>
-
-            `;
-
-            button.addEventListener(
-                "click",
-                () => {
-
-                    activeWarehouseFilter =
-                        warehouse;
-
-                    container
-                        .querySelectorAll(
-                            ".pill-btn"
-                        )
-                        .forEach(
-                            pill =>
-                                pill.classList.remove(
-                                    "active"
-                                )
-                        );
-
-                    button.classList.add(
-                        "active"
-                    );
-
-                    applySupplierFilters();
-
-                }
-            );
-
-            container.appendChild(button);
-
+    if (!container.dataset.bound) {
+        container.dataset.bound = "1";
+        container.addEventListener("click", e => {
+            const b = e.target.closest("[data-pill]");
+            if (!b) return;
+            activeSupplierPill = b.dataset.pill;
+            applySupplierFilters();
         });
+    }
+}
 
+/* the dropdown beside the search box: filter by location */
+function renderSupplierLocationSelect() {
+    const sel = document.getElementById("supplierLocationFilter");
+    if (!sel) return;
+    const places = getSupplierWarehouses();
+    if (!places.includes(activeWarehouseFilter)) activeWarehouseFilter = "All warehouses";
+    sel.innerHTML = places.map(w =>
+        `<option value="${escapeHTML(w)}"${w === activeWarehouseFilter ? " selected" : ""}>${w === "All warehouses" ? "All locations" : escapeHTML(w)}</option>`
+    ).join("");
 }
 
 
@@ -2499,7 +2500,7 @@ function renderSupplierTable(items) {
             <tr class="no-results-row">
 
                 <td colspan="6">
-                    No suppliers match your search.
+                    No suppliers match your filters.
                 </td>
 
             </tr>
@@ -2513,7 +2514,8 @@ function renderSupplierTable(items) {
     tableBody.innerHTML =
         items.map(supplier => `
 
-            <tr>
+            <tr class="supplier-row${supplier.status === "archived" ? " is-archived" : ""}"
+                data-supplier-id="${escapeHTML(supplier.id)}" tabindex="0" title="Click to view details">
 
                 <td>
 
@@ -2606,110 +2608,173 @@ function renderSupplierTable(items) {
 
 function applySupplierFilters() {
 
-    const searchInput =
-        document.getElementById(
-            "supplierSearch"
-        );
+    const searchInput = document.getElementById("supplierSearch");
+    const countEl = document.getElementById("supplierCount");
+    const term = searchInput ? searchInput.value.trim().toLowerCase() : "";
 
-    const countEl =
-        document.getElementById(
-            "supplierCount"
-        );
+    renderSupplierLocationSelect();
+    renderWarehousePills();
 
-
-    const searchTerm =
-        searchInput
-            ? searchInput.value
-                .trim()
-                .toLowerCase()
-            : "";
-
-
-    const filtered =
-        supplierData.filter(
-            supplier => {
-
-                const warehouseMatch =
-                    activeWarehouseFilter ===
-                        "All warehouses" ||
-                    supplier.location ===
-                        activeWarehouseFilter;
-
-                const searchMatch =
-                    !searchTerm ||
-                    supplier.name
-                        .toLowerCase()
-                        .includes(searchTerm) ||
-                    (supplier.fullAddress || supplier.location)
-                        .toLowerCase()
-                        .includes(searchTerm) ||
-                    supplier.contact
-                        .toLowerCase()
-                        .includes(searchTerm) ||
-                    supplier.supplies
-                        .toLowerCase()
-                        .includes(searchTerm);
-
-                return (
-                    warehouseMatch &&
-                    searchMatch
-                );
-
-            }
-        );
-
+    const filtered = supplierData.filter(s =>
+        supplierInPill(s, activeSupplierPill) &&
+        supplierMatchesLocation(s) &&
+        supplierMatchesSearch(s, term));
 
     if (countEl) {
-
-        countEl.textContent =
-            `${filtered.length} supplier${
-                filtered.length === 1
-                    ? ""
-                    : "s"
-            }`;
-
+        const label = activeSupplierPill === "archived" ? "archived supplier" : "supplier";
+        countEl.textContent = `${filtered.length} ${label}${filtered.length === 1 ? "" : "s"}`;
     }
 
-    renderSupplierTable(filtered);
+    const title = document.querySelector("#suppliers .panel-title");
+    if (title) title.textContent = activeSupplierPill === "archived" ? "Archived Suppliers" : "Supplier List";
 
+    renderSupplierTable(filtered);
+}
+
+
+/* ---- Supplier details: click a row to see everything, then Edit or Archive (same dialog as Products) ---- */
+let supplierDetailId = null;
+
+function ensureSupplierDetailModal() {
+    let overlay = document.getElementById("supplierDetailOverlay");
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "supplierDetailOverlay";
+    overlay.innerHTML = `
+        <div class="account-modal supplier-modal product-modal pd-modal" role="dialog" aria-modal="true" aria-labelledby="sdTitle">
+            <button type="button" class="modal-close" id="sdClose" aria-label="Close">×</button>
+            <div id="sdBody"></div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e => { if (e.target === overlay) closeSupplierDetails(); });
+    overlay.querySelector("#sdClose").addEventListener("click", closeSupplierDetails);
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && overlay.classList.contains("open")) closeSupplierDetails();
+    });
+    overlay.addEventListener("click", e => {
+        const act = e.target.closest("[data-sd]");
+        if (!act) return;
+        const id = supplierDetailId;
+        if (act.dataset.sd === "close") closeSupplierDetails();
+        else if (act.dataset.sd === "edit") { closeSupplierDetails(); openNewSupplierModal(id); }
+        else if (act.dataset.sd === "archive") setSupplierStatus(id, "archived");
+        else if (act.dataset.sd === "restore") setSupplierStatus(id, "active");
+    });
+    return overlay;
+}
+
+function renderSupplierProducts(supplier) {
+    const list = supplier.products || [];
+    if (!list.length) return supplier.supplies ? escapeHTML(supplier.supplies) : "None linked yet";
+    return list.map(p => {
+        const item = productCatalogData.find(x => x.sku === p.sku);
+        const dept = item && item.department ? ` <span class="dim">· ${escapeHTML(item.department)}</span>` : "";
+        return `<div>${escapeHTML(p.name)} <span class="mono dim">${escapeHTML(p.sku)}</span>${p.primary ? " (primary)" : ""}${dept}</div>`;
+    }).join("");
+}
+
+function openSupplierDetails(id) {
+    const s = supplierData.find(x => x.id === id);
+    if (!s) return;
+    const overlay = ensureSupplierDetailModal();
+    supplierDetailId = id;
+    const archived = s.status === "archived";
+    const row = (label, value) => `<div class="pd-row"><dt>${label}</dt><dd>${value}</dd></div>`;
+    const dash = v => v ? escapeHTML(v) : "\u2014";
+    document.getElementById("sdBody").innerHTML = `
+        <div class="supplier-modal-head">
+            <div class="supplier-modal-icon">${PD_ICONS.box}</div>
+            <div>
+                <div class="modal-eyebrow">Supplier</div>
+                <h2 class="modal-title" id="sdTitle" style="margin-bottom:0;">${escapeHTML(s.name)}</h2>
+                <div class="pd-sub"><span class="status-pill ${archived ? "archived" : s.status}">${getSupplierStatusLabel(s.status)}</span></div>
+            </div>
+        </div>
+        ${archived ? `<div class="pd-note">This supplier is archived. It is hidden from Stock In and the product supplier lists. Restore it to use it again.</div>` : ""}
+        <dl class="pd-grid">
+            ${row("Contact person", dash(s.contactPerson))}
+            ${row("Phone", dash(s.phone))}
+            ${row("Email", dash(s.email))}
+            ${row("Location", dash(s.location))}
+            ${row("Address", dash(s.fullAddress || s.address))}
+            ${row("Supplies", renderSupplierProducts(s))}
+        </dl>
+        <div class="modal-actions pd-actions">
+            <button type="button" class="btn-secondary" data-sd="close">Close</button>
+            ${archived
+                ? `<button type="button" class="btn-primary" data-sd="restore">${PD_ICONS.restore} Restore supplier</button>`
+                : `<button type="button" class="btn-secondary pd-archive" data-sd="archive">${PD_ICONS.archive} Archive</button>
+                   <button type="button" class="btn-primary" data-sd="edit">${PD_ICONS.edit} Edit</button>`}
+        </div>`;
+    overlay.classList.add("open");
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+}
+
+function closeSupplierDetails() {
+    const overlay = document.getElementById("supplierDetailOverlay");
+    if (!overlay) return;
+    overlay.classList.remove("open");
+    supplierDetailId = null;
+    if (!document.querySelector(".modal-overlay.open")) {
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+    }
+}
+
+async function setSupplierStatus(id, next) {
+    const s = supplierData.find(x => x.id === id);
+    const bridge = window.TripleEBridge;
+    if (!s || !bridge) return;
+    if (!confirm((next === "archived" ? "Archive " : "Restore ") + s.name + "?")) return;
+    try {
+        await bridge.api("/suppliers/" + encodeURIComponent(id) + "/status",
+            { method: "PATCH", body: JSON.stringify({ status: next }) });
+        closeSupplierDetails();
+        await bridge.reload();
+        bridge.toast("Supplier " + (next === "archived" ? "archived" : "restored"));
+    } catch (e) {
+        bridge.toast(e.message || "Something went wrong", "error");
+    }
+}
+
+function initSupplierRowClicks() {
+    const body = document.getElementById("supplierTableBody");
+    if (!body || body.dataset.bound) return;
+    body.dataset.bound = "1";
+    body.addEventListener("click", e => {
+        if (e.target.closest("button, a")) return;
+        const tr = e.target.closest("tr.supplier-row");
+        if (tr) openSupplierDetails(tr.dataset.supplierId);
+    });
+    body.addEventListener("keydown", e => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.supplier-row")) {
+            e.preventDefault();
+            openSupplierDetails(e.target.dataset.supplierId);
+        }
+    });
 }
 
 
 function initSuppliers() {
 
-    renderWarehousePills();
-
     applySupplierFilters();
+    initSupplierRowClicks();
 
+    const searchInput = document.getElementById("supplierSearch");
+    if (searchInput) searchInput.addEventListener("input", applySupplierFilters);
 
-    const searchInput =
-        document.getElementById(
-            "supplierSearch"
-        );
-
-    if (searchInput) {
-
-        searchInput.addEventListener(
-            "input",
-            applySupplierFilters
-        );
-
+    const locationSelect = document.getElementById("supplierLocationFilter");
+    if (locationSelect) {
+        locationSelect.addEventListener("change", () => {
+            activeWarehouseFilter = locationSelect.value;
+            applySupplierFilters();
+        });
     }
 
-
-    const onboardButton =
-        document.getElementById(
-            "onboardSupplierBtn"
-        );
-
-    if (onboardButton) {
-
-        onboardButton.addEventListener(
-            "click",
-            () => openNewSupplierModal()
-        );
-
-    }
+    const onboardButton = document.getElementById("onboardSupplierBtn");
+    if (onboardButton) onboardButton.addEventListener("click", () => openNewSupplierModal());
 
 }
 
