@@ -158,11 +158,11 @@
   //      so saving, loading and the online shop work exactly as before. ----
   const SPEC_NAMES = ['Material', 'Finish', 'Color', 'Grade', 'Size', 'Dimensions', 'Thickness', 'Weight', 'Capacity', 'Warranty'];
   const SPEC_PRESETS = {
-    Material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron'],
-    Finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished'],
+    Material: ['Aluminum ADC12', 'Aluminum A380', 'Brass C37700', 'Brass C36000'],
+    Finish: ['Raw / Unfinished', 'Deburred / Tumbled', 'Shot Blasted', 'Polished', 'Satin / Brushed', 'Powder Coated', 'Painted', 'Chromate Conversion', 'Nickel Plated', 'Chrome Plated', 'Clear Lacquered'],
     Color: ['Gold / Brass', 'Silver', 'Black', 'White', 'Bronze', 'Copper', 'Gray', 'Natural Metal'],
     Grade: ['Standard', 'Commercial', 'Industrial', 'Marine', 'Food Grade'],
-    Size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'],
+    Size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"'],
     Warranty: ['No warranty', '6 months', '1 year', '2 years', '5 years', 'Lifetime']
   };
   const SPEC_FREE = { Dimensions: 'e.g. 25 x 100 mm', Thickness: 'e.g. 3 mm', Weight: 'e.g. 1.5 kg', Capacity: 'e.g. 20 liters' };

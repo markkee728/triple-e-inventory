@@ -1,11 +1,11 @@
 /* quote-fields.js — the shared "what do you need?" part of a quote request (online shop and POS counter).
    Order on the form (below "Describe the item"):
-     Item type           Sheet / plate, Pipe / tube, Fitting / valve or Fabricated part (custom items only)
-     Sizes and details   dropdowns: material, size, thickness, finish, cutting / bending (size and thickness also accept a typed value)
-                         The choices follow the ITEM TYPE and the MATERIAL: a sheet only offers sheet sizes and always needs a thickness, a fitting has
-                         no thickness, aluminum is never offered chrome plating... They come from options.matrix[itemType][material], the very table
-                         the server checks with, so what the form offers is what the server accepts.
-     Quantity            number + unit dropdown. The unit list follows the item type (a sheet is counted in sheets, a fitting in pcs).
+     Item type           Die-cast part (aluminum), Forged part (brass) or Fitting / valve (forged brass)  (custom items only)
+     Sizes and details   dropdowns: material, size, thickness, finish, machining / secondary work (size and thickness also accept a typed value)
+                         The choices follow the ITEM TYPE and the MATERIAL: a die-cast part only offers aluminum (ADC12 / A380) and aluminum finishes,
+                         a fitting only offers brass, standard pipe sizes and no thickness, brass is never offered powder coating... They come from
+                         options.matrix[itemType][material], the very table the server checks with, so what the form offers is what the server accepts.
+     Quantity            number + unit dropdown. The unit list follows the item type (parts by the pc or set, fittings also by the box).
                          A ready-made catalog product (a finished good) is locked to the unit it is sold in: pcs.
      Needed by           date picker: tomorrow at the earliest, up to 6 months from today
      Extra notes         optional
@@ -17,8 +17,8 @@
   var $ = function (id) { return document.getElementById(id); };
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var OTHER = '__other__';
-  var FIELDS = [['material', 'Material'], ['size', 'Size'], ['thickness', 'Thickness'], ['finish', 'Finish'], ['service', 'Cutting / bending']];
-  var CUSTOM_HINT = { material: 'e.g. Titanium', size: 'e.g. 600 x 900 mm or 3/4 inch', thickness: 'e.g. 1.8 mm', finish: 'e.g. Mirror polish', service: 'e.g. Laser cutting' };
+  var FIELDS = [['material', 'Material'], ['size', 'Size'], ['thickness', 'Thickness'], ['finish', 'Finish'], ['service', 'Machining / secondary work']];
+  var CUSTOM_HINT = { material: 'e.g. Aluminum ADC12', size: 'e.g. 100 x 60 x 40 mm', thickness: 'e.g. 2.5 mm', finish: 'e.g. Mirror polish', service: 'e.g. CNC machining' };
   var NEEDS_NUMBER = { size: 1, thickness: 1 };         // a typed size / thickness must contain a number; the others are free text
   var CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   var state = {};                                           // prefix -> { options, picked, hint, offKey, timer }
@@ -85,7 +85,7 @@
     var ity = $(p + 'S_itemType');
     if (ity) ity.addEventListener('change', function () {
       var r = ity.value && o.itemRules[ity.value]; var tn = $(p + 'TypeNote'); if (tn) tn.textContent = r ? r.note : '';
-      cascade(p, r ? r.label : ''); check(p, 'itemType');
+      cascade(p, r ? r.label : '', true); check(p, 'itemType');
     });
     $(p + 'Qty').addEventListener('blur', function () { check(p, 'quantity'); });
     $(p + 'Qty').addEventListener('input', function () { var el = $(p + 'Qty'), d = el.value.replace(wholeUnit(p) ? /[^\d,]/g : /[^\d.,]/g, ''); if (d !== el.value) el.value = d; if (el.classList.contains('is-bad')) check(p, 'quantity'); });
@@ -112,8 +112,9 @@
     if (q && q.classList.contains('is-bad')) check(p, 'quantity');
   }
   // item type or material changed: rebuild size / thickness / finish / cutting / unit, and say what had to be cleared
-  function cascade(p, why) {
+  function cascade(p, why, withMaterial) {
     var s = state[p]; s.cleared = [];
+    if (withMaterial) rebuild(p, 'material');                              // a die-cast part is aluminum, a forged part or fitting is brass: a material that does not go with the new item type is dropped
     rebuildAll(p, true); syncUnits(p); updateAvailability(p);
     var box = $(p + 'Cleared');
     if (box) {
@@ -147,12 +148,15 @@
     var mats = fam ? fam.materials : null, pick = null;
     if (fam && fam.grades) Object.keys(fam.grades).forEach(function (g) { if (!pick && text.indexOf(g) >= 0) pick = fam.grades[g]; });   // "SS 316" -> Stainless Steel 316
     if (!pick && mats && mats.length === 1) pick = mats[0];
-    return { key: (fam ? fam.label : '') + '|' + (form ? form.label : ''), famLabel: fam && fam.label, formLabel: form && form.label, materials: mats, sizes: form && form.sizes, pick: pick };
+    return { key: (fam ? fam.label : '') + '|' + (form ? form.label : ''), famLabel: fam && fam.label, famName: fam && fam.name, formLabel: form && form.label, materials: mats, sizes: form && form.sizes, pick: pick };
   }
   // The item type and the material narrow size / thickness / finish / cutting (see the matrix above). Only the MATERIAL list itself is never narrowed:
   // the words in "Describe the item" just put the likely materials FIRST (stainless sheet -> stainless materials on top).
   function listFor(p, k) {
     var s = state[p], all = s.options[k] || [], h = s.hint, pref = h && (k === 'material' ? h.materials : k === 'size' ? h.sizes : null);
+    if (k === 'material' && !s.locked) {                                                                                // the item type decides the material
+      var r0 = typeRule(p); if (r0 && r0.materials) all = all.filter(function (v) { return r0.materials.indexOf(v) >= 0 || /^Not sure/i.test(v); });
+    }
     if (k !== 'material' && !s.locked) {
       var t = typeVal(p), m = $(p + 'S_material') ? $(p + 'S_material').value : '', mx = s.options.matrix;
       if (t && mx && mx[t]) { var cell = mx[t][m && mx[t][m] ? m : '']; if (cell && cell[k]) return cell[k]; }          // item type + material together
@@ -169,7 +173,11 @@
     sel.innerHTML = opts(list, 'Choose ' + label.toLowerCase()) + (canType ? '<option value="' + OTHER + '">Other (type it)</option>' : '');
     sel.value = (cur === OTHER && canType) || list.indexOf(cur) >= 0 ? cur : '';
     if (!sel.value && k === 'thickness' && r && r.thickness === 'none' && list.length === 1 && !sel.disabled) sel.value = list[0];       // the only possible answer
-    if (c) c.hidden = sel.value !== OTHER;
+    if (!sel.value && k === 'size' && !list.length && canType && !sel.disabled) sel.value = OTHER;                        // a part is made to the customer's drawing: there is no standard size, so go straight to typing it
+    if (c) {
+      c.hidden = sel.value !== OTHER;
+      var tr = k === 'size' ? typedRule(p, 'size') : null; c.placeholder = tr ? tr.hint.replace(/^.*?(e\.g\. )/, 'e.g. ') : CUSTOM_HINT[k];
+    }
     if (cur && sel.value !== cur) { setErr(p, k, ''); if (!sel.disabled && state[p].cleared) state[p].cleared.push({ label: label, value: cur === OTHER ? 'what you typed' : cur }); }
   }
   function rebuildAll(p, dependentsOnly) {
@@ -181,7 +189,8 @@
       var valid = Array.prototype.filter.call(sel.options, function (x) { return x.value && x.value !== OTHER; }).length;
       var empty = sel.parentNode.querySelector('.qx-empty');
       if (!valid && !empty) { empty = document.createElement('small'); empty.className = 'qx-empty q-hint'; sel.parentNode.appendChild(empty); }
-      if (empty) { empty.textContent = valid ? '' : 'No predefined options. Contact staff for a custom specification.'; empty.hidden = !!valid; }
+      var typeOnly = !valid && !!sel.querySelector('option[value="' + OTHER + '"]'), tr = f[0] === 'size' ? typedRule(p, 'size') : null;
+      if (empty) { empty.textContent = valid ? '' : typeOnly ? (tr ? 'Made to your drawing, so type it: ' + tr.hint + '.' : 'Type it below.') : 'No predefined options. Contact staff for a custom specification.'; empty.hidden = !!valid; }
       sel.setAttribute('aria-label', f[1] + (valid ? ' (' + valid + ' available)' : ' (no predefined options)'));
     });
   }
@@ -223,6 +232,7 @@
       if (n > 1000000) return 'That is too large. Enter up to 1,000,000.';
       if (wholeUnit(p) && !Number.isInteger(n)) return 'Use a whole number for ' + $(p + 'Unit').value + ', e.g. 200.';
       if (Math.abs(Math.round(n * 100) - n * 100) > 1e-6) return 'Use at most 2 decimals.';
+      var mq = state[p].options.minQty; if (mq && !state[p].locked && n < mq) return 'The minimum order for a custom item is ' + mq + ' ' + $(p + 'Unit').value + '.';
       return '';
     }
     if (field === 'neededBy') {
@@ -237,6 +247,12 @@
     if (!v2) return 'Choose the ' + label + '.';
     if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(), tr = typedRule(p, field);
       if (tr) return t.length >= 2 && t.length <= 40 && CUSTOM_RE.test(t) && tr.re.test(t) ? '' : 'Type the size as ' + tr.hint + '.';
+      if (field === 'thickness') {
+        var tm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(t); if (!tm) return 'Type the thickness in mm, e.g. 2.5 mm.';
+        var mat = $(p + 'S_material').value, lims = state[p].options.thicknessLimits || {}, lim = lims[mat] || lims[''];
+        if (lim && (+tm[1] < lim.min || +tm[1] > lim.max)) return (lims[mat] ? mat : 'These parts') + ' are made ' + lim.min + ' to ' + lim.max + ' mm thick. Type a thickness in that range.';
+        return '';
+      }
       return t.length >= 2 && t.length <= 40 && (!NEEDS_NUMBER[field] || /\d/.test(t)) && CUSTOM_RE.test(t) && !/[<>]/.test(t) ? '' : NEEDS_NUMBER[field] ? 'Type the ' + label + ' with its number, ' + CUSTOM_HINT[field] + '.' : 'Type the ' + label + ' (2 to 40 letters or numbers), ' + CUSTOM_HINT[field] + '.'; }
     return '';
   }
@@ -280,7 +296,7 @@
   }
   // A catalog product is a ready-made finished good (forged brass, die-cast aluminum...). Its Material / Size / Thickness / Finish come from the
   // product's own record and are LOCKED: nothing to choose or retype. A value the record does not have shows "Not specified"; the material is read
-  // from the product name when it names one (brass, aluminum...). Cutting / bending is always "None (as is)". The server applies the same rule
+  // from the product name when it names one (brass, aluminum, ADC12...). Machining / secondary work is always "None (as is)". The server applies the same rule
   // (readQuote in shop-extras.js), so what is locked here is what is saved. Call with the product's specs object, or with nothing (custom item) to
   // unlock everything and clear what a product filled in.
   var ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
@@ -325,7 +341,7 @@
     var cl2 = $(p + 'Cleared'); if (cl2) { cl2.innerHTML = ''; cl2.hidden = true; }
     specs = specs || {};
     var lower = {}; Object.keys(specs).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
-    var h = detect(p), fromName = h && h.pick;
+    var h = detect(p), fromName = h && (h.pick || h.famName);              // a grade in the name (ADC12) gives the exact material; a name that only says "brass" gives "Brass"
     Object.keys(ALIAS).forEach(function (k) {
       var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0], why = 'From the product record. Locked.';
       if (!v && k === 'material' && fromName) { v = fromName; why = 'Read from the product name. Locked.'; }
