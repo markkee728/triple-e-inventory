@@ -1496,6 +1496,8 @@ require('./password-otp')({ app, pool, auth, wrap, tx, audit, ValidationError, s
 /* ---------- POS + online shop (finished goods only) ---------- */
 // payment-terms owns the ledger, so it mounts first: pos-shop / shop-extras / quote-desk reach it through app.locals.paymentTerms
 require('./payment-terms')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+// due date + reminders for partly paid orders (needs the ledger columns payment-terms just created)
+app.locals.balanceReminders = require('./balance-reminders')({ app, pool, auth, wrap });
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });

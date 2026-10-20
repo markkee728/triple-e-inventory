@@ -441,7 +441,15 @@ async function loadProducts() {            // GET /api/shop/products — finishe
   try { return await api('/api/shop/products'); }
   catch (e) { if (e instanceof TypeError) return DEMO; toast(e.message, true); return []; }   // DEMO only when no server is reachable (file preview)
 }
-async function loadOrders() { try { return await api('/api/shop/orders'); } catch (e) { return []; } }
+async function loadOrders() {
+  try {
+    const list = await api('/api/shop/orders');
+    // due dates for partly paid orders (a failure here must never hide the orders themselves)
+    let due = {}; try { due = await api('/api/shop/balance-due'); } catch (e) {}
+    list.forEach(o => { const d = due[o.id]; o.balanceDueAt = d ? d.dueAt : null; o.balanceOverdueDays = d ? d.overdueDays : 0; });
+    return list;
+  } catch (e) { return []; }
+}
 let pendingOrderRequestId = null;   // same id on a retry of the same order, so a double-click cannot create two orders
 const orderRequestId = () => pendingOrderRequestId ||= (window.crypto && crypto.randomUUID ? crypto.randomUUID() : 'shop-' + Date.now() + '-' + Math.random().toString(36).slice(2));
 async function submitOrder(o) {            // server re-prices from the database; stock is deducted when Finance confirms the order
@@ -852,7 +860,7 @@ const RCPT_CSS = `
 .rcpt-tot div{display:flex;justify-content:space-between;padding:3px 0;color:#5b6877}
 .rcpt-tot .grand{margin-top:6px;padding:12px 14px;background:#f1f6fb;border-radius:10px;color:#16202b;font-weight:700;font-size:17px;align-items:center}
 .rcpt-tot .grand span:last-child{font-family:"IBM Plex Mono",monospace;color:#1f5fa8}
-.balbar{margin:10px 0 2px;text-align:left}.balbar-top{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:5px}.balbar-top b{font-weight:700}.balbar-track{height:10px;border-radius:99px;background:rgba(128,140,155,.28);overflow:hidden}.balbar-track i{display:block;height:100%;border-radius:99px;background:#d69e2e;transition:width .4s ease}.balbar.full .balbar-track i{background:#2ea066}.balbar.none .balbar-track i{background:transparent}.balbar-sub{font-size:12px;opacity:.7;margin-top:4px}
+.balbar{margin:10px 0 2px;text-align:left}.balbar-top{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:5px}.balbar-top b{font-weight:700}.balbar-track{height:10px;border-radius:99px;background:rgba(128,140,155,.28);overflow:hidden}.balbar-track i{display:block;height:100%;border-radius:99px;background:#d69e2e;transition:width .4s ease}.balbar.full .balbar-track i{background:#2ea066}.balbar.none .balbar-track i{background:transparent}.balbar-sub{font-size:12px;opacity:.7;margin-top:4px}.balbar-due{font-size:12.5px;font-weight:600;margin-top:4px;color:#9a6a05}.balbar-due.late{color:#d64545}
 .rcpt-foot{text-align:center;padding:12px 22px 16px;font-size:12.5px;color:#7a8794;border-top:1px dashed #cfd7e0;margin-top:10px}
 .rcpt-foot b{display:block;color:#16202b;font-size:14px;margin-bottom:2px}
 .rcpt-items table{min-width:0;table-layout:auto}
@@ -983,7 +991,8 @@ function balBarHtml(o) {
   const cls = left <= 0.005 ? 'full' : paid > 0 ? 'part' : 'none';
   return `<div class="balbar ${cls}"><div class="balbar-top"><b>${cls === 'full' ? 'Fully paid' : pct + '% paid'}</b><span>${left > 0.005 ? peso(left) + ' remaining' : 'No balance'}</span></div>`
     + `<div class="balbar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`
-    + `<div class="balbar-sub">${peso(paid)} of ${peso(total)} received</div></div>`;
+    + `<div class="balbar-sub">${peso(paid)} of ${peso(total)} received</div>`
+    + (left > 0.005 && o.balanceDueAt ? `<div class="balbar-due${o.balanceOverdueDays > 0 ? ' late' : ''}">${o.balanceOverdueDays > 0 ? 'Overdue \u00B7 was due ' : 'Balance due by '}${new Date(o.balanceDueAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}</div>` : '') + `</div>`;
 }
 function payRowHtml(o) {
   if (!o.paymentState) return '';
