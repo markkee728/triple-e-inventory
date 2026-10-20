@@ -240,3 +240,46 @@ html[data-theme="light"] #customers .customer-avatar-large { background: #dbe6f0
 #customers .customer-tab:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
 #customers .customer-tabs + .customer-directory { margin-top: 14px; }
 #customers #walkinDirectory { margin-top: 14px; }
+
+/* ---------- v6: summary strip, richer table, tabs and reviews inside the details window ---------- */
+#customers .cust-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 4px 0 16px; }
+#customers .cust-kpi { padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, var(--panel)); }
+#customers .cust-kpi span { display: block; font: 500 12px "IBM Plex Mono", monospace; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-faint); }
+#customers .cust-kpi strong { display: block; margin-top: 6px; font: 600 26px "Oswald", sans-serif; color: var(--text); }
+#customers .cust-kpi.is-good strong { color: var(--green); }
+#customers .cust-kpi.is-bad strong { color: var(--red); }
+
+#customers .customer-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+#customers .customer-table thead th { position: sticky; top: 0; z-index: 1; background: color-mix(in srgb, var(--text) 5%, var(--panel)); font: 500 12px "IBM Plex Mono", monospace; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-dim); padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; }
+#customers .customer-table tbody td { padding: 13px 14px; border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent); }
+#customers .customer-table tbody tr:last-child td { border-bottom: 0; }
+#customers .customer-table tbody tr.customer-click-row:hover td { background: color-mix(in srgb, var(--blue-bright) 7%, transparent); }
+#customers .cust-name { font-weight: 600; color: var(--text); }
+#customers .cust-go { margin-right: 4px; font-size: 22px; line-height: 1; color: var(--text-faint); transition: transform .15s, color .15s; }
+#customers .customer-click-row:hover .cust-go { color: var(--blue-bright); transform: translateX(3px); }
+
+#customers .cust-tabs { display: flex; gap: 6px; margin: 20px 0 0; padding: 4px; width: max-content; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--text) 3%, var(--panel)); }
+#customers .cust-tab { font: inherit; font-weight: 600; font-size: 14px; padding: 8px 16px; border: 0; border-radius: 7px; background: transparent; color: var(--text-dim); cursor: pointer; }
+#customers .cust-tab.active { background: var(--blue); color: #fff; }
+#customers .cust-tab:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+#customers .cust-tab b { margin-left: 4px; padding: 1px 7px; border-radius: 99px; font-size: 12px; background: rgba(255,255,255,.18); }
+#customers .cust-tab:not(.active) b { background: color-mix(in srgb, var(--text) 10%, transparent); }
+#customers [data-cpane][hidden] { display: none; }
+
+#customers .cust-rev-sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+#customers .cust-rev-sum > div { padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: color-mix(in srgb, var(--text) 3%, var(--panel)); }
+#customers .cust-rev-sum strong { display: block; font: 600 22px "Oswald", sans-serif; }
+#customers .cust-rev-sum span { font-size: 12.5px; color: var(--text-dim); }
+#customers .cust-rev { margin-top: 12px; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--text) 3%, var(--panel)); }
+#customers .cust-rev header { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+#customers .cust-rev header strong { display: block; font-size: 15px; }
+#customers .cust-rev header small { color: var(--text-faint); font-size: 12.5px; }
+#customers .cust-rev p { margin: 10px 0; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; }
+#customers .cust-rev p em { color: var(--text-faint); }
+#customers .cust-rev footer { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text-dim); }
+#customers .cust-stars { flex: none; color: var(--amber); letter-spacing: 1px; white-space: nowrap; }
+#customers .cust-stars i { font-style: normal; opacity: .28; }
+#customers .cust-rev-empty { margin-top: 18px; padding: 36px 16px; text-align: center; border: 1px dashed var(--border); border-radius: 12px; }
+#customers .cust-rev-empty strong { display: block; margin-bottom: 4px; }
+#customers .cust-rev-empty span { color: var(--text-dim); font-size: 14px; }
+@media (max-width: 560px) { #customers .cust-rev-sum { grid-template-columns: 1fr; } #customers .customer-table .cust-go { display: none; } }

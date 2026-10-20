@@ -143,7 +143,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
     finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
     service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
-    customAllowed: ['material', 'size', 'thickness', 'finish', 'service'],     // every detail also accepts a typed value ("Other...")
+    customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
     leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
@@ -258,6 +258,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     Object.keys(SPEC_ALIAS).forEach((key) => { const hit = SPEC_ALIAS[key].map((a) => lower[a]).find(Boolean); if (hit) out[key] = hit.slice(0, 80); });
     return out;
   }
+  // "Forged Brass Elbow" -> Brass, "Die-Cast Aluminum Heat Sink" -> Aluminum. Only when the name points at exactly one material.
+  function materialFromName(name) {
+    const text = String(name || '');
+    const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some((w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)));
+    return fam && fam.materials.length === 1 ? fam.materials[0] : null;
+  }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
     if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
@@ -301,24 +307,23 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
     }
 
-    // sizes and details: a dropdown for each, and every one can also be typed in. Nothing is locked: a catalog product only PRE-FILLS
-    // these (the form sends the value the person ended up with); the server falls back to the product record only when none is sent.
-    // A request is not an order, so no material / finish combination is refused here - Finance and the cashier price what is asked.
+    // sizes and details: every one is a dropdown; size and thickness can also be typed in
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
     const specs = {};
     for (const key of Object.keys(SPEC_LABEL)) {
-      const v = str(inSpecs[key]).replace(/\s+/g, ' ');
-      if (!v) {
-        if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }
-        throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
-      }
-      const listed = QUOTE_OPTIONS[key].includes(v) || v === fromProduct[key];      // a listed choice, or the product's own value left as it was
-      if (!listed) {
-        const needsNumber = key === 'size' || key === 'thickness';
-        if (v.length < 2 || v.length > 40 || (needsNumber && !/\d/.test(v)) || !CUSTOM_RE.test(v)) {
-          throw bad(key, needsNumber ? 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm')
-            : 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' using letters and numbers only (2 to 40 characters)');
-        }
+      if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
+      // A catalog product is a ready-made finished good: nothing is chosen or customised. Anything its record does not state is saved as
+      // "Not specified" (the material is read from the product name when it names one), and it is always sold as is. Same rule as the locked form.
+      if (sku) { specs[key] = key === 'service' ? 'None (as is)' : (key === 'material' && materialFromName(productName)) || 'Not specified'; continue; }
+      const v = str(inSpecs[key]);
+      if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
+      const fits = QUOTE_OPTIONS.rules[specs.material];                 // material comes first in SPEC_LABEL; it decides what fits (no rule = anything)
+      const allowed = fits && fits[key] ? fits[key] : QUOTE_OPTIONS[key];
+      if (!allowed.includes(v)) {
+        if (QUOTE_OPTIONS[key].includes(v) && !QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' does not go with ' + specs.material + '. Choose one from the list');
+        if (!QUOTE_OPTIONS.customAllowed.includes(key)) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase() + ' from the list');
+        if (QUOTE_OPTIONS[key].includes(v)) throw bad(key, 'That ' + SPEC_LABEL[key].toLowerCase() + ' is not offered for ' + specs.material + '. Choose another or type it');
+        if (v.length < 2 || v.length > 40 || !/\d/.test(v) || !CUSTOM_RE.test(v)) throw bad(key, 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
       }
       specs[key] = v;
     }
@@ -984,17 +989,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }));
 
   // Finance: see every review (visible and hidden), hide or restore one.
-  app.get('/api/finance/reviews', auth('finance'), wrap(async (req, res) => {
+  app.get('/api/finance/reviews', auth('cashier'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
+      `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, r.user_id, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
          FROM product_reviews r JOIN products p ON p.product_id = r.product_id JOIN users u ON u.user_id = r.user_id
          LEFT JOIN orders o ON o.order_id = r.order_id LEFT JOIN users h ON h.user_id = r.hidden_by
         ORDER BY r.created_at DESC LIMIT 500`);
     res.json(rows.map((r) => ({ id: Number(r.review_id), rating: r.rating, body: r.body, status: r.status, product: r.product, sku: r.sku,
-      customer: r.full_name, email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
+      customer: r.full_name, userId: Number(r.user_id), email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
       hiddenAt: ms(r.hidden_at), hiddenReason: r.hidden_reason || undefined, hiddenBy: r.hidden_by_name || undefined })));
   }));
-  app.post('/api/finance/reviews/:id/visibility', auth('finance'), wrap(async (req, res) => {
+  app.post('/api/finance/reviews/:id/visibility', auth('cashier'), wrap(async (req, res) => {
     const hide = !!(req.body && req.body.hidden), reason = str(req.body && req.body.reason);
     if (hide && reason.length < 3) throw bad('reason', 'Write a short reason for hiding this review');
     if (reason.length > 300) throw bad('reason', 'The reason is too long (max 300 characters)');

@@ -54,6 +54,10 @@
       '.sxr-h{margin:18px 0 10px;font:500 12.5px "IBM Plex Mono",monospace;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-dim);display:flex;align-items:center;gap:12px}.sxr-h:after{content:"";flex:1;height:1px;background:var(--border)}' +
       '.sxr-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sxr-f{padding:10px 13px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--text) 3%,var(--panel));overflow-wrap:anywhere}.sxr-f span{display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:3px}.sxr-f strong{font-size:14.5px;font-weight:600}.sxr-f.is-empty strong{font-weight:400;color:var(--text-faint)}' +
       '.sxr-review{padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--text) 3%,var(--panel))}.sxr-review p{margin:10px 0 0;white-space:pre-line;overflow-wrap:anywhere;line-height:1.5}' +
+      '#reviews .sxr-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0 16px}#reviews .btn-danger,#sxOverlay .btn-danger{background:transparent;color:var(--red);border:1px solid var(--red);font-family:inherit;font-weight:600}#reviews .btn-danger:hover,#sxOverlay .btn-danger:hover{background:color-mix(in srgb,var(--red) 14%,transparent)}#reviews tbody td:nth-child(5){white-space:nowrap}#reviews .sxr-kpi{padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--text) 3%,var(--panel))}#reviews .sxr-kpi span{display:block;font:500 12px "IBM Plex Mono",monospace;letter-spacing:1.1px;text-transform:uppercase;color:var(--text-faint)}#reviews .sxr-kpi strong{display:block;margin-top:6px;font:600 26px Oswald,sans-serif}#reviews .sxr-kpi.good strong{color:var(--green)}#reviews .sxr-kpi.bad strong{color:var(--red)}' +
+      '#reviews .sxr-dist{display:flex;flex-direction:column;gap:5px;margin-top:6px}#reviews .sxr-dist div{display:grid;grid-template-columns:22px 1fr 28px;gap:8px;align-items:center;font-size:12.5px;color:var(--text-dim)}#reviews .sxr-bar{height:7px;border-radius:99px;background:color-mix(in srgb,var(--text) 10%,transparent);overflow:hidden}#reviews .sxr-bar i{display:block;height:100%;background:var(--amber);border-radius:99px}' +
+      '#reviews table{border-collapse:separate;border-spacing:0;width:100%}#reviews thead th{position:sticky;top:0;z-index:1;background:color-mix(in srgb,var(--text) 5%,var(--panel));font:500 12px "IBM Plex Mono",monospace;letter-spacing:1.1px;text-transform:uppercase;color:var(--text-dim);padding:12px 14px;text-align:left;border-bottom:1px solid var(--border)}#reviews tbody td{padding:13px 14px;border-bottom:1px solid color-mix(in srgb,var(--border) 70%,transparent);vertical-align:middle}#reviews tbody tr:last-child td{border-bottom:0}#reviews .sxr-row:hover td{background:color-mix(in srgb,var(--blue-bright) 7%,transparent)}' +
+      '.sxr-more{margin-top:10px;padding:11px 14px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--text) 3%,var(--panel))}.sxr-more header{display:flex;justify-content:space-between;gap:10px;font-size:14px}.sxr-more p{margin:6px 0 0;font-size:13.5px;color:var(--text-dim);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
       '@media(max-width:560px){.sx-info,.sx-two,.sxr-grid{grid-template-columns:1fr}}';
     var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   }
@@ -80,8 +84,10 @@
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '</div>' +
       '<button class="btn-secondary btn-sm" id="sxrRefresh" type="button">Refresh</button></div>' +
+      '<div class="sxr-kpis" id="sxrKpis"></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Reviews</div><div class="panel-sub" id="sxrSub">Loading\u2026</div></div>' +
       '<div class="inv-filters"><input type="text" id="sxrSearch" class="inv-search" placeholder="Search product, customer or text..." autocomplete="off">' +
+      '<select id="sxrRating" class="inv-select" aria-label="Filter by rating"><option value="all">All ratings</option><option value="5">5 stars</option><option value="4">4 stars</option><option value="3">3 stars</option><option value="2">2 stars</option><option value="1">1 star</option></select>' +
       '<select id="sxrFilter" class="inv-select"><option value="all">All reviews</option><option value="visible">Visible</option><option value="hidden">Hidden</option></select></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Product</th><th>Rating</th><th>Customer</th><th>Review</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody id="sxrBody"></tbody></table></div></div>';
     if (q) {
@@ -92,6 +98,7 @@
     if (r) {
       $('sxrRefresh').addEventListener('click', loadReviews);
       $('sxrFilter').addEventListener('change', renderReviews);
+      $('sxrRating').addEventListener('change', renderReviews);
       $('sxrSearch').addEventListener('input', renderReviews);
       $('sxrBody').addEventListener('click', function (e) {
         var b = e.target.closest('[data-sxr]');
@@ -272,9 +279,10 @@
   /* ---------------- reviews ---------------- */
   function renderReviews() {
     if (!$('sxrBody')) return;
-    var f = $('sxrFilter').value, t = $('sxrSearch').value.trim().toLowerCase();
+    var f = $('sxrFilter').value, t = $('sxrSearch').value.trim().toLowerCase(), rt = $('sxrRating').value;
+    paintReviewKpis();
     var list = reviews.filter(function (r) {
-      return (f === 'all' || r.status === f) && (!t || (r.product + ' ' + r.sku + ' ' + r.customer + ' ' + r.body).toLowerCase().indexOf(t) >= 0);
+      return (f === 'all' || r.status === f) && (rt === 'all' || String(r.rating) === rt) && (!t || (r.product + ' ' + r.sku + ' ' + r.customer + ' ' + r.body).toLowerCase().indexOf(t) >= 0);
     });
     var hidden = reviews.filter(function (r) { return r.status === 'hidden'; }).length;
     $('sxrSub').textContent = reviews.length ? reviews.length + ' review' + (reviews.length === 1 ? '' : 's') + ' \u00B7 ' + hidden + ' hidden' : 'Reviews will appear here after customers rate products they received.';
@@ -286,6 +294,21 @@
         '<td style="white-space:nowrap"><button type="button" class="' + (r.status === 'hidden' ? 'btn-secondary' : 'btn-danger') + ' btn-sm" data-sxr="' + r.id + '">' + (r.status === 'hidden' ? 'Restore' : 'Hide') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="7" class="sx-empty">' + (reviews.length ? 'No reviews match.' : 'No reviews yet.') + '</td></tr>';
   }
+  function paintReviewKpis() {
+    var box = $('sxrKpis'); if (!box) return;
+    var vis = reviews.filter(function (r) { return r.status !== 'hidden'; });
+    var avg = vis.length ? (vis.reduce(function (t, r) { return t + r.rating; }, 0) / vis.length) : 0;
+    var low = vis.filter(function (r) { return r.rating <= 2; }).length, hidden = reviews.length - vis.length;
+    var dist = [5, 4, 3, 2, 1].map(function (n) {
+      var c = vis.filter(function (r) { return r.rating === n; }).length;
+      return '<div><span>' + n + '\u2605</span><span class="sxr-bar"><i style="width:' + (vis.length ? Math.round(c * 100 / vis.length) : 0) + '%"></i></span><span>' + c + '</span></div>';
+    }).join('');
+    box.innerHTML = '<div class="sxr-kpi"><span>Total reviews</span><strong>' + reviews.length + '</strong></div>' +
+      '<div class="sxr-kpi good"><span>Average rating</span><strong>' + (vis.length ? avg.toFixed(1) + ' \u2605' : '\u2014') + '</strong></div>' +
+      '<div class="sxr-kpi' + (low ? ' bad' : '') + '"><span>Low (1-2 stars)</span><strong>' + low + '</strong></div>' +
+      '<div class="sxr-kpi"><span>Hidden</span><strong>' + hidden + '</strong></div>' +
+      '<div class="sxr-kpi"><span>Rating mix (visible)</span><div class="sxr-dist">' + dist + '</div></div>';
+  }
   async function loadReviews() {
     if (loadingR) return; loadingR = true;
     try { var d = await api('/finance/reviews'); reviews = Array.isArray(d) ? d : []; renderReviews(); }
@@ -294,6 +317,13 @@
   }
   var fld = function (l, v) { var e = v == null || String(v).trim() === ''; return '<div class="sxr-f' + (e ? ' is-empty' : '') + '"><span>' + esc(l) + '</span><strong>' + (e ? 'Not provided' : esc(v)) + '</strong></div>'; };
   var reviewToken = 0;
+  function otherReviews(rv) {
+    var more = reviews.filter(function (x) { return x.userId && x.userId === rv.userId && x.id !== rv.id; });
+    if (!more.length) return '';
+    return '<div class="sxr-h">More reviews by this customer (' + more.length + ')</div>' + more.slice(0, 5).map(function (x) {
+      return '<div class="sxr-more"><header><strong>' + esc(x.product) + '</strong>' + stars(x.rating) + '</header>' + (x.body ? '<p>' + esc(x.body) + '</p>' : '') + '</div>';
+    }).join('') + (more.length > 5 ? '<p class="faint" style="font-size:13px;margin:8px 0 0">+ ' + (more.length - 5) + ' more</p>' : '');
+  }
   async function openReview(id) {
     var rv = reviews.find(function (x) { return x.id === id; }); if (!rv) return;
     ensureOverlay(); openQuote = null; var tok = ++reviewToken;
@@ -309,6 +339,7 @@
         (note ? '<p class="faint" style="margin:0">' + esc(note) + '</p>' :
           '<div class="sxr-grid">' + fld('Phone', d.phone) + fld('Birthdate', d.birthdate) + fld('Gender', d.gender) + fld('Email Verified', d.emailVerified ? 'Yes' : 'No') +
           fld('Joined', d.joined) + fld('Last Login', d.lastLogin) + fld('Company', d.companyName) + fld('Position', d.companyPosition) + '</div>') +
+        otherReviews(rv) +
         '<div class="sx-actions"><button type="button" class="' + (rv.status === 'hidden' ? 'btn-secondary' : 'btn-danger') + '" id="sxrAct">' + (rv.status === 'hidden' ? 'Restore review' : 'Hide review') + '</button><button type="button" class="btn-secondary" id="sxCancel">Close</button></div>';
       $('sxCancel').addEventListener('click', closeModal);
       $('sxrAct').addEventListener('click', function () { if (rv.status === 'hidden') setVisibility(rv, false, ''); else askHide(rv); });
