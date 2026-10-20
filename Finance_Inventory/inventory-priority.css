@@ -48,3 +48,26 @@
 html[data-theme="light"] #stockLevelsTableBody tr.inv-row.low { background: rgba(214,69,69,.08); }
 html[data-theme="light"] .inv-chip-qty, html[data-theme="light"] .inv-short { color: #b02a2a; }
 @media (max-width: 640px) { .inv-pri-head { flex-wrap: wrap; } .inv-pri-btn { width: 100%; } .inv-chip { min-width: 100%; max-width: 100%; } }
+
+/* ---------- Dashboard: Low Stock KPI + the table that follows the selected KPI ---------- */
+#dashboard .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1280px) { #dashboard .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { #dashboard .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat-card.dash-kpi { cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
+.stat-card.dash-kpi:hover { border-color: var(--blue-bright); }
+.stat-card.dash-kpi:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.stat-card.dash-kpi.is-selected { border-color: var(--blue-bright); box-shadow: 0 0 0 1px var(--blue-bright), inset 0 -3px 0 var(--blue-bright); }
+.stat-card.dash-low-on { border-color: var(--red); background: linear-gradient(0deg, rgba(227,91,91,.08), rgba(227,91,91,.08)), var(--card); box-shadow: inset 4px 0 0 var(--red); }
+.stat-card.dash-low-on .stat-value { color: var(--red); }
+.stat-card.dash-low-on.is-selected { box-shadow: 0 0 0 1px var(--red), inset 4px 0 0 var(--red), inset 0 -3px 0 var(--red); }
+.dash-kpi-panel { margin-bottom: 22px; }
+.dash-kpi-panel.kpi-low { border-color: rgba(227,91,91,.5); }
+.dash-kpi-panel .panel-head { align-items: center; gap: 12px; flex-wrap: wrap; }
+.dash-kpi-title { display: flex; align-items: center; gap: 12px; }
+.dash-kpi-ico { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 9px; background: rgba(74,144,217,.14); color: var(--blue-bright); flex: none; }
+.dash-kpi-panel.kpi-low .dash-kpi-ico { background: rgba(227,91,91,.16); color: var(--red); }
+.dash-kpi-ico .ico { width: 19px; height: 19px; }
+.dash-kpi-more { padding: 10px 4px 2px; font-size: 13px; color: var(--text-dim); }
+.dash-kpi-panel tr.inv-row.low { background: rgba(227,91,91,.09); box-shadow: inset 4px 0 0 var(--red); }
+.dash-kpi-panel tr.inv-row.watch { box-shadow: inset 4px 0 0 var(--amber); }
+html[data-theme="light"] .dash-kpi-panel tr.inv-row.low { background: rgba(214,69,69,.08); }

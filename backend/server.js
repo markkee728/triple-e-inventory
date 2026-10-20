@@ -965,8 +965,9 @@ app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
 
 app.get('/api/products', auth('finance'), wrap(async (req, res) => {
   await reorder.ready;
-  const { rows } = await pool.query(productSelectFull);
-  res.json(rows.map(r => ({ sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
+  const archivedOnly = String(req.query.archived || '') === '1';
+  const { rows } = await pool.query(archivedOnly ? productSelectFull.replace('WHERE NOT v.is_archived', 'WHERE v.is_archived') : productSelectFull);
+  res.json(rows.map(r => ({ archived: !!r.is_archived, sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
     grade: r.grade || '', form: r.form || '', unit: r.unit, costUnit: r.unit, status: r.stock_status, available: +r.on_hand,
     reorderLevel: +r.reorder_level, reorderAuto: !!r.reorder_auto, reorderBasis: r.reorder_basis || '',
     stdCost: +r.unit_cost, listPrice: +r.selling_price, location: r.location,
@@ -1007,6 +1008,10 @@ app.put('/api/products/:sku/suppliers', auth('finance'), wrap(async (req, res) =
 }));
 
 async function categoryId(client, name) {
+  name = String(name == null ? '' : name).trim().replace(/\s+/g, ' ');
+  // reuse an existing category whatever its upper/lower case ("Sheet" and "sheet" are one category)
+  const found = await client.query(`SELECT category_id FROM categories WHERE lower(btrim(name)) = lower($1) ORDER BY category_id LIMIT 1`, [name]);
+  if (found.rowCount) return found.rows[0].category_id;
   const c = await client.query(
     `INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name RETURNING category_id`, [name]);
   return c.rows[0].category_id;
@@ -1073,6 +1078,18 @@ app.delete('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
   const r = await pool.query('UPDATE products SET is_archived = TRUE WHERE sku = $1 AND NOT is_archived', [str(req.params.sku).toUpperCase()]);
   if (!r.rowCount) return res.status(404).json({ error: 'Product not found' });
   await audit(pool, req.user, 'Record edited', `Archived product ${req.params.sku}`);
+  res.json({ ok: true });
+}));
+
+app.post('/api/products/:sku/restore', auth('finance'), wrap(async (req, res) => {
+  const sku = str(req.params.sku).toUpperCase();
+  const p = await pool.query('SELECT name FROM products WHERE sku = $1 AND is_archived', [sku]);
+  if (!p.rowCount) return res.status(404).json({ error: 'Archived product not found' });
+  // an active product may already use this name (names are unique among active products)
+  const dup = await pool.query(`SELECT sku FROM products WHERE lower(btrim(name)) = lower(btrim($1)) AND NOT is_archived AND sku <> $2 LIMIT 1`, [p.rows[0].name, sku]);
+  if (dup.rowCount) return res.status(409).json({ error: `Cannot restore: an active product named "${p.rows[0].name}" already exists (SKU ${dup.rows[0].sku}). Rename that one first.` });
+  await pool.query('UPDATE products SET is_archived = FALSE WHERE sku = $1', [sku]);
+  await audit(pool, req.user, 'Record edited', `Restored product ${sku}`);
   res.json({ ok: true });
 }));
 

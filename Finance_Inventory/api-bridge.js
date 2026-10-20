@@ -151,12 +151,14 @@
       if (e.message === 'Not signed in') throw e;
       console.warn('[api-bridge] ' + path + ' failed: ' + e.message); return fallback;
     });
+    const archivedRes = soft('/products?archived=1', archivedProductData.slice());
     const [inventory, products, suppliers, movements, users, audit, reasons, categories, salesRes] = await Promise.all([
       soft('/inventory', inventoryCache), soft('/products', productCatalogData.slice()),
       soft('/suppliers', supplierData.slice()), soft('/movements?limit=1000', movementCache),
       soft('/users', userAccountsData.slice()), soft('/audit', auditLogData.slice()), soft('/reasons', REASONS), soft('/categories', CATEGORIES),
       soft('/sales', { sales: [] })]);
     salesCache = (salesRes && salesRes.sales) || [];
+    replace(archivedProductData, Array.isArray(await archivedRes) ? await archivedRes : []);
     try { const qr = await api('/finance/quotes'); quotesCache = Array.isArray(qr) ? qr : []; } catch (e) { if (e.message === 'Not signed in') throw e; console.warn('[api-bridge] /finance/quotes failed: ' + e.message); }
     updateOrderStats();
     // dropdown list = categories table + any category already used by a product (so it is never empty if products exist)
@@ -189,7 +191,7 @@
       totalSkus: inventory.length,
       departments: new Set(inventory.map((i) => i.department)).size,
       lowStock: low.length,
-      movements: movements.length,
+      movements: movements7d(movements),
       inventoryValue: inventory.reduce((s, i) => s + i.onHand * i.unitCost, 0)
     });
     const colors = { 'Raw Materials': '#4a90d9', 'Finished Goods': '#43c47a', 'Finishing Supplies': '#9b6bd1' };
@@ -203,6 +205,7 @@
     safe(applyInventoryFilters);
     safe(renderCategoryPills); safe(applyCatalogFilters);
     safe(renderStockAlerts);
+    safe(renderDashKpiTable);
     safe(renderWarehousePills); safe(applySupplierFilters);
     safe(renderAccountsTable);
     safe(applyAuditFilters);
@@ -1419,6 +1422,112 @@
     if (prod) { prod.value = sku; prod.dispatchEvent(new Event('change', { bubbles: true })); }
     const qty = $('movementQuantity');
     if (qty) qty.focus();
+  }
+
+  /* ---------------- Dashboard: every KPI card opens its own matching table ---------------- */
+  const KPI_ICONS = {
+    skus: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>',
+    low: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>',
+    alerts: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></svg>',
+    movements: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>',
+    orders: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>'
+  };
+  const dashKpi = { sel: 'low', bound: false, alerts: null, alertsAt: 0, alertsErr: '' };
+  const KPI_CARD = { skus: 'totalSkus', low: 'dashLowStock', alerts: 'ncStatValue', movements: 'dashMovements', orders: 'totalOrders' };
+  const ratioOf = (i) => (i.reorderLevel > 0 ? i.onHand / i.reorderLevel : (i.onHand <= 0 ? 0 : 99));
+  const byPriority = (list) => {
+    const rank = { low: 0, watch: 1, ok: 2 };
+    return list.slice().sort((a, b) => {
+      const ra = rank[getStockStatus(a)], rb = rank[getStockStatus(b)];
+      if (ra !== rb) return ra - rb;
+      return ra < 2 ? ratioOf(a) - ratioOf(b) : String(a.name).localeCompare(String(b.name));
+    });
+  };
+  function movements7d(list) {
+    const to = saleDay(Date.now()), from = saleDay(Date.now() - 6 * 86400000);
+    return (list || []).filter((m) => m.date && m.date >= from && m.date <= to).length;
+  }
+  const dTable = (heads, rows, empty, cols) => '<div class="table-wrapper"><table><thead><tr>' + heads.map((h) => '<th>' + h + '</th>').join('') + '</tr></thead><tbody>' +
+    (rows.length ? rows.join('') : '<tr><td colspan="' + cols + '" class="report-note">' + empty + '</td></tr>') + '</tbody></table></div>';
+  const statusCell = (i) => { const st = getStockStatus(i); return '<span class="status-pill ' + st + '">' + (st === 'low' && i.onHand <= 0 ? 'Out of stock' : getStockStatusLabel(st)) + '</span>'; };
+
+  async function fetchDashAlerts() {
+    try {
+      const d = await api('/notifications?unread=1&limit=10');
+      dashKpi.alerts = d; dashKpi.alertsErr = '';
+    } catch (e) { if (e.message === 'Not signed in') throw e; dashKpi.alertsErr = e.message || 'Could not load alerts.'; }
+    dashKpi.alertsAt = Date.now();
+    if (dashKpi.sel === 'alerts') safe(renderDashKpiTable);
+  }
+
+  function renderDashKpiTable() {
+    const box = $('dashKpiPanel'); if (!box) return;
+    const dash = $('dashboard');
+    if (!dashKpi.bound && dash) {
+      dashKpi.bound = true;
+      Object.keys(KPI_CARD).forEach((k) => {
+        const v = $(KPI_CARD[k]), card = v && v.closest('.stat-card');
+        if (!card) return;
+        card.dataset.kpi = k; card.setAttribute('role', 'button'); card.setAttribute('tabindex', '0'); card.classList.add('dash-kpi');
+      });
+      const pick = (e) => {
+        const card = e.target.closest('.stat-card[data-kpi]'); if (!card) return false;
+        e.preventDefault(); e.stopPropagation();       // the Unread Alerts card used to jump away; now it shows its table here
+        dashKpi.sel = card.dataset.kpi;
+        if (dashKpi.sel === 'alerts') fetchDashAlerts();
+        renderDashKpiTable();
+        return true;
+      };
+      dash.addEventListener('click', (e) => { if (pick(e)) return; }, true);
+      dash.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') pick(e); }, true);
+      box.addEventListener('click', (e) => {
+        const go = e.target.closest('[data-kpi-go]'); if (!go) return;
+        const t = go.dataset.kpiGo;
+        if (t === 'notifications' && window.NotificationCenter) window.NotificationCenter.openPage();
+        else { const nav = document.querySelector('.nav-item[data-page="' + t + '"]'); if (nav) nav.click(); }
+      });
+      if (dashKpi.sel === 'alerts') fetchDashAlerts();
+    }
+    document.querySelectorAll('#dashboard .stat-card[data-kpi]').forEach((c) => c.classList.toggle('is-selected', c.dataset.kpi === dashKpi.sel));
+
+    const inv = inventoryCache || [];
+    let title = '', sub = '', go = '', goLabel = '', body = '';
+    if (dashKpi.sel === 'skus') {
+      title = 'All SKUs'; sub = inv.length + ' product' + (inv.length === 1 ? '' : 's') + ' \u00B7 low stock listed first'; go = 'inventory'; goLabel = 'Open Inventory Monitoring';
+      body = dTable(['Product', 'SKU', 'Department', 'On hand', 'Reorder level', 'Status'],
+        byPriority(inv).slice(0, 12).map((i) => '<tr class="inv-row ' + getStockStatus(i) + '"><td>' + esc(i.name) + '</td><td class="mono">' + esc(i.sku) + '</td><td class="dim">' + esc(i.department) + '</td><td>' + esc(num(i.onHand)) + ' ' + esc(i.unit) + '</td><td class="dim">' + esc(num(i.reorderLevel)) + ' ' + esc(i.unit) + '</td><td>' + statusCell(i) + '</td></tr>'),
+        'No products yet.', 6) + (inv.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + inv.length + '. Open Inventory Monitoring for the full list.</div>' : '');
+    } else if (dashKpi.sel === 'low') {
+      const low = byPriority(inv.filter((i) => getStockStatus(i) === 'low'));
+      title = 'Low stock'; sub = low.length ? low.length + ' at or below reorder level \u00B7 most urgent first' : 'Nothing is at or below its reorder level'; go = 'inventory'; goLabel = 'Open Inventory Monitoring';
+      body = dTable(['Product', 'SKU', 'Department', 'On hand', 'Reorder level', 'Need', 'Location'],
+        low.slice(0, 12).map((i) => '<tr class="inv-row low"><td>' + esc(i.name) + '</td><td class="mono">' + esc(i.sku) + '</td><td class="dim">' + esc(i.department) + '</td><td class="qty-out">' + (i.onHand <= 0 ? 'Out of stock' : esc(num(i.onHand)) + ' ' + esc(i.unit)) + '</td><td class="dim">' + esc(num(i.reorderLevel)) + ' ' + esc(i.unit) + '</td><td class="qty-out">' + esc(num(Math.max(i.reorderLevel - i.onHand, 0))) + ' ' + esc(i.unit) + '</td><td class="dim">' + esc(i.location || '') + '</td></tr>'),
+        'All stock is healthy.', 7) + (low.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + low.length + '. Open Inventory Monitoring for the rest.</div>' : '');
+    } else if (dashKpi.sel === 'alerts') {
+      const d = dashKpi.alerts, items = (d && d.items) || [];
+      title = 'Unread alerts'; sub = d ? (d.unread || 0) + ' unread \u00B7 newest first' : 'Loading...'; go = 'notifications'; goLabel = 'Open Notification Center';
+      body = dashKpi.alertsErr ? '<div class="dash-kpi-more">' + esc(dashKpi.alertsErr) + '</div>'
+        : dTable(['Type', 'Alert', 'Details', 'When'], items.map((n) => '<tr><td><span class="status-pill ' + (n.severity === 'critical' ? 'low' : n.severity === 'warn' ? 'watch' : 'ok') + '">' + esc(n.category || '') + '</span></td><td>' + esc(n.title) + '</td><td class="dim">' + esc(n.body || '') + '</td><td class="dim">' + esc(n.when || '') + '</td></tr>'),
+          d ? 'You are all caught up.' : 'Loading...', 4);
+      if (!dashKpi.alerts && !dashKpi.alertsErr && Date.now() - dashKpi.alertsAt > 3000) fetchDashAlerts();
+    } else if (dashKpi.sel === 'movements') {
+      const to = saleDay(Date.now()), from = saleDay(Date.now() - 6 * 86400000);
+      const mv = movementCache.filter((m) => m.date && m.date >= from && m.date <= to);
+      title = 'Stock movements, last 7 days'; sub = mv.length + ' entr' + (mv.length === 1 ? 'y' : 'ies') + ' \u00B7 ' + niceDate(from) + ' to ' + niceDate(to); go = 'stockflow'; goLabel = 'Open Stock In / Out';
+      body = dTable(['Ref', 'Date', 'Product', 'Type', 'Quantity', 'Reason', 'Handled by'],
+        mv.slice(0, 12).map((m) => { const isIn = m.type === 'in'; return '<tr><td class="mono">' + esc(m.ref) + '</td><td class="dim">' + esc(niceDate(m.date)) + '</td><td>' + esc(m.product) + '</td><td><span class="status-pill ' + (isIn ? 'in' : 'out') + '">' + (isIn ? 'In' : 'Out') + '</span></td><td class="' + (isIn ? 'qty-in' : 'qty-out') + '">' + (isIn ? '+' : '-') + esc(num(m.qty)) + ' ' + esc(m.unit) + '</td><td class="dim">' + esc(m.reason || '') + '</td><td class="dim">' + esc(m.handledBy || '') + '</td></tr>'; }),
+        'No stock movements in the last 7 days.', 7) + (mv.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + mv.length + '. Open Stock In / Out for the full log.</div>' : '');
+    } else {
+      const all = salesCache.slice().sort((a, b) => b.createdAt - a.createdAt);
+      title = 'Orders and sales'; sub = dashboardMockDisplay.orders === null ? 'Loading...' : dashboardMockDisplay.orders + ' online order' + (dashboardMockDisplay.orders === 1 ? '' : 's') + ' (' + dashboardMockDisplay.ordersOpen + ' to process) \u00B7 ' + dashboardMockDisplay.posSales + ' POS sales \u00B7 latest first'; go = 'sales'; goLabel = 'Open POS Management';
+      body = dTable(['Ref', 'Date', 'Source', 'Customer', 'Total', 'Status'],
+        all.slice(0, 12).map((t) => '<tr><td class="mono">' + esc(t.ref) + '</td><td class="dim">' + esc(niceDate(saleDay(t.createdAt))) + '</td><td class="dim">' + (t.source === 'POS' ? 'POS walk-in' : 'Online shop') + '</td><td>' + esc(t.customer || '') + '</td><td>' + esc(money(t.total || 0)) + '</td><td><span class="status-pill ' + (/cancel|void/i.test(t.status) ? 'low' : /deliver|picked|complete|paid/i.test(t.status) ? 'ok' : 'watch') + '">' + esc(t.status || '') + '</span></td></tr>'),
+        'No orders or sales yet.', 6) + (all.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + all.length + '. Open POS Management for everything.</div>' : '');
+    }
+    const navOk = go === 'notifications' ? !!window.NotificationCenter : !!document.querySelector('.nav-item[data-page="' + go + '"]');
+    box.className = 'panel dash-kpi-panel kpi-' + dashKpi.sel;
+    box.innerHTML = '<div class="panel-head"><div class="dash-kpi-title"><span class="dash-kpi-ico">' + KPI_ICONS[dashKpi.sel] + '</span><div><div class="panel-title">' + esc(title) + '</div><div class="panel-sub">' + esc(sub) + '</div></div></div>' +
+      (navOk ? '<button type="button" class="btn-secondary" data-kpi-go="' + go + '">' + esc(goLabel) + '</button>' : '') + '</div>' + body;
   }
 
   function renderStockAlerts() {

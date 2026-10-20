@@ -35,9 +35,8 @@
     rust_corrosion: 'Rust / corrosion', damaged: 'Damaged', damage: 'Damaged', scrap_cutting_waste: 'Scrap / cutting waste', production_use: 'Used in production', quality_rejection: 'Failed quality inspection', lost_missing: 'Lost / missing', returned_to_supplier: 'Returned to supplier',
     sale: 'POS sale', online_order: 'Online order', return: 'Return restocked', refund: 'Cancelled / refunded order restocked', correction: 'Correction', write_off: 'Write-off', other: 'Other' };
   const GROUPS = ['Supplier receipts', 'Finished goods produced', 'Returns and restocking', 'Stock adjustments', 'Sales', 'Material consumption', 'Losses and write-offs', 'Returned to supplier', 'Other'];
-  const TABS = [['overview', 'Overview'], ['materials', 'Materials & production'], ['returns', 'Returns & restocking'], ['movements', 'Movement ledger']];
-
-  const state = { preset: '30d', from: '', to: '', grain: '', tab: 'overview', dept: 'all', type: 'all', group: 'all', search: '', page: 1, data: null, loading: false, error: '', seq: 0, built: false, loadedOnce: false, timer: null };
+  
+  const state = { preset: '30d', from: '', to: '', grain: '', dept: 'all', type: 'all', group: 'all', search: '', page: 1, data: null, loading: false, error: '', seq: 0, built: false, loadedOnce: false, timer: null };
 
   const qs = (extra) => 'from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to) + (state.grain ? '&grain=' + state.grain : '') + '&dept=' + encodeURIComponent(state.dept) + '&type=' + state.type + '&group=' + encodeURIComponent(state.group) + '&q=' + encodeURIComponent(state.search) + '&page=' + state.page + '&pageSize=25' + (extra || '');
   async function getJson(path) {
@@ -68,14 +67,11 @@
         '<div class="panel-sub" id="ivSub">Stock in and out, material use, production, adjustments and returns. Values are at cost.</div></div>' +
         '<div class="rs-actions"><button type="button" class="btn-secondary" id="ivRefresh">Refresh</button><button type="button" class="btn-primary" id="ivCsv">Export CSV</button></div></div>' +
         '<div class="rs-filters">' +
-          '<div class="rs-follow" title="Change the dates in Report Period at the top of this page"><span class="rs-follow-dot"></span>Dates follow <b>Report Period</b>: <span id="ivFollow">…</span></div>' +
           '<div class="rs-msg" id="ivMsg" role="alert"></div>' +
         '</div>' +
       '</div>' +
-      '<div class="rs-subtabs" id="ivTabs" role="tablist">' + TABS.map((t) => '<button type="button" class="rs-tab" role="tab" data-t="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>' +
       '<div id="ivBody"></div>';
 
-    $('ivTabs').addEventListener('click', (e) => { const b = e.target.closest('.rs-tab'); if (!b) return; state.tab = b.dataset.t; sync(); render(); });
     $('ivRefresh').addEventListener('click', load); $('ivCsv').addEventListener('click', downloadCsv);
     $('ivBody').addEventListener('click', (e) => {
       if (e.target.closest('#ivRetry')) return load();
@@ -101,8 +97,6 @@
     const page = $('reports'); if (state.loadedOnce || (page && page.classList.contains('active-page'))) load();
   }
   function sync() {
-    document.querySelectorAll('#ivTabs .rs-tab').forEach((b) => b.classList.toggle('on', b.dataset.t === state.tab));
-    const f = $('ivFollow'); if (f) f.textContent = state.from === state.to ? state.from : state.from + ' to ' + state.to;
   }
 
   async function load(keepFocus) {
@@ -132,11 +126,9 @@
     if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load the inventory report</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="ivRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
     $('ivSub').textContent = 'Stock in and out, material use, production, adjustments and returns. Values at cost. ' + d.range.from + ' to ' + d.range.to + ', Philippine time.';
-    let html = '';
-    if (state.tab === 'overview') html = overview(d);
-    else if (state.tab === 'materials') html = materials(d);
-    else if (state.tab === 'returns') html = returns(d);
-    else html = movements(d);
+    const section = (id, title, inner) => '<section class="rs-section" id="' + id + '"><h3 class="rs-section-title">' + title + '</h3>' + inner + '</section>';
+    const html = section('ivOverview', 'Overview', overview(d)) + section('ivMaterials', 'Materials &amp; production', materials(d)) +
+      section('ivReturns', 'Returns &amp; restocking', returns(d)) + section('ivMovements', 'Movement ledger', movements(d));
     const active = document.activeElement && document.activeElement.id, pos = active === 'ivSearch' ? document.activeElement.selectionStart : null;
     body.classList.toggle('rs-busy', state.loading); body.innerHTML = html;
     if (keepFocus && active === 'ivSearch') { const s = $('ivSearch'); if (s) { s.focus(); try { s.setSelectionRange(pos, pos); } catch (e) { /* ignore */ } } }

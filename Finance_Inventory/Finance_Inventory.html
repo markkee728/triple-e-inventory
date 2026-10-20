@@ -306,6 +306,23 @@
                     </div>
 
 
+                    <div class="stat-card" id="dashLowCard">
+
+                        <div class="stat-label">
+                            Low Stock
+                        </div>
+
+                        <div class="stat-value" id="dashLowStock">
+                            —
+                        </div>
+
+                        <div class="stat-foot low-foot" id="dashLowStockFoot">
+                            Loading...
+                        </div>
+
+                    </div>
+
+
                     <div class="stat-card nc-stat" id="ncStatCard" role="button" tabindex="0" title="Open Notification Center">
 
                         <div class="stat-label">
@@ -357,6 +374,9 @@
                     </div>
 
                 </div>
+
+
+                <div id="dashKpiPanel" class="panel dash-kpi-panel"></div>
 
 
                 <!-- QUICK ACTIONS + STOCK HEALTH -->
@@ -1079,10 +1099,16 @@
 
                 <div class="catalog-toolbar">
 
-                    <div
-                        class="category-pills"
-                        id="categoryPills"
-                    ></div>
+                    <div class="prod-toolbar-left">
+                        <div class="prod-view-toggle" id="prodViewToggle" role="group" aria-label="Show active or archived products">
+                            <button type="button" class="pill-btn active" data-view="active" aria-pressed="true">Active<span class="count">0</span></button>
+                            <button type="button" class="pill-btn" data-view="archived" aria-pressed="false">Archived<span class="count">0</span></button>
+                        </div>
+                        <div
+                            class="category-pills"
+                            id="categoryPills"
+                        ></div>
+                    </div>
 
 
                     <div class="catalog-toolbar-right">
@@ -3528,19 +3554,20 @@
     <script src="input-rules.js?v=1"></script>
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
-    <script src="script.js?v=16"></script>
-    <script src="api-bridge.js?v=19"></script>
+    <script src="script.js?v=18"></script>
+    <script src="api-bridge.js?v=21"></script>
     <script src="sales-orders.js?v=12"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">
-    <link rel="stylesheet" href="reports-sales.css?v=7">
+    <link rel="stylesheet" href="reports-sales.css?v=8">
     <link rel="stylesheet" href="quick-stock.css?v=2">
-    <link rel="stylesheet" href="inventory-priority.css?v=1">
+    <link rel="stylesheet" href="inventory-priority.css?v=2">
+    <link rel="stylesheet" href="product-details.css?v=1">
     <script src="sales-admin.js?v=11"></script>
     <script src="reports-jump.js?v=1"></script>
     <script src="reports-sales.js?v=2"></script>
-    <script src="reports-top-products.js?v=3"></script>
+    <script src="reports-top-products.js?v=4"></script>
     <script src="reports-low-stock.js?v=1"></script>
-    <script src="reports-inventory.js?v=2"></script>
+    <script src="reports-inventory.js?v=3"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 
     <script src="refund-admin.js?v=2"></script>

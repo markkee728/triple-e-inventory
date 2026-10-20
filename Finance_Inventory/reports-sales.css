@@ -215,3 +215,7 @@
 .rs-kpi-label { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 1.2px; color: var(--text-faint); }
 .rs-kpi-value { font-family: "Oswald", sans-serif; font-weight: 600; font-size: 26px; letter-spacing: -.3px; margin-top: 8px; }
 .rs-kpi-sub { font-size: 12.5px; color: var(--text-faint); margin-top: 4px; }
+/* Inventory report: its four parts are separate sections, one after another */
+.rs-section { margin-top: 26px; }
+.rs-section:first-child { margin-top: 6px; }
+.rs-section-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }

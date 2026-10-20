@@ -125,18 +125,7 @@
     const card = (l, v, s) => '<div class="rs-kpi"><div class="rs-kpi-label">' + l + '</div><div class="rs-kpi-value">' + v + '</div><div class="rs-kpi-sub">' + s + '</div></div>';
     const best = d.rows[0]; setTopSeller(best);
     body.innerHTML = '<div class="rs-kpis three">' + card('Products sold', num(d.totals.products), 'distinct SKUs with sales') + card('Units sold', num(d.totals.units), 'after returns') + card('Product revenue', peso(d.totals.revenue), 'best seller: ' + esc(best.name)) + '</div>' +
-      chart(d) + table(d, rows);
-  }
-
-  function chart(d) {
-    const top = d.rows.slice(0, 10), byUnits = d.sort === 'units', val = (r) => (byUnits ? r.units : r.revenue);
-    const max = Math.max.apply(null, top.map(val).concat([1]));
-    const pos = (r) => (byUnits ? r.posUnits : r.posRevenue), on = (r) => (byUnits ? r.onlineUnits : r.onlineRevenue);
-    const rows = top.map((r) => '<div class="rs-hrow" title="' + esc(r.name) + ' (' + esc(r.sku) + ')"><div class="rs-hname">' + esc(r.name) + '<small>' + esc(r.sku) + '</small></div>' +
-      '<div class="rs-htrack"><div class="rs-pos" style="width:' + (pos(r) / max * 100).toFixed(2) + '%"></div><div class="rs-online" style="width:' + (on(r) / max * 100).toFixed(2) + '%"></div></div>' +
-      '<div class="rs-hval">' + (byUnits ? num(r.units) + ' ' + esc(r.unit || '') : peso(r.revenue)) + '</div></div>').join('');
-    return '<div class="panel rs-card" style="margin-bottom:14px"><div class="panel-head"><div><div class="panel-title">Top ' + top.length + ' by ' + (byUnits ? 'units sold' : 'revenue') + '</div><div class="panel-sub">Bars split by channel</div></div>' +
-      '<div class="rs-legend"><span><i class="rs-pos"></i>POS</span><span><i class="rs-online"></i>Online</span></div></div><div class="rs-hbars">' + rows + '</div></div>';
+      table(d, rows);
   }
 
   function table(d, rows) {

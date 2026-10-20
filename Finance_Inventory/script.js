@@ -342,6 +342,26 @@ function renderDashboardStats() {
             dashboardMockDisplay.lowStock;
     }
 
+    {
+        const lowEl = document.getElementById("dashLowStock");
+        const lowFootEl = document.getElementById("dashLowStockFoot");
+        const lowCard = document.getElementById("dashLowCard");
+        const rows = (typeof inventoryMonitoringData !== "undefined" && inventoryMonitoringData.length)
+            ? inventoryMonitoringData : [];
+        const low = rows.length
+            ? rows.filter(i => getStockStatus(i) === "low")
+            : null;
+        const lowCount = low ? low.length : dashboardMockDisplay.lowStock;
+        const outCount = low ? low.filter(i => i.onHand <= 0).length : 0;
+        if (lowEl) lowEl.textContent = lowCount;
+        if (lowFootEl) {
+            lowFootEl.textContent = lowCount
+                ? (outCount ? `${outCount} out of stock · needs restock` : "At or below reorder level")
+                : "Nothing needs restocking";
+        }
+        if (lowCard) lowCard.classList.toggle("dash-low-on", lowCount > 0);
+    }
+
     if (lowStockFoot) {
         lowStockFoot.textContent =
             "At or below reorder";
@@ -1583,254 +1603,136 @@ const productCatalogData = [
 let activeCatalogCategory =
     "All categories";
 
+// Products page shows either the active products or the archived ones
+let catalogView = "active";
+const archivedProductData = [];
 
+const catKey = (c) =>
+    String(c || "Uncategorized").trim().replace(/\s+/g, " ").toLowerCase();
+
+function currentCatalogList() {
+    return catalogView === "archived"
+        ? archivedProductData
+        : productCatalogData;
+}
+
+// One pill per category (upper/lower case and extra spaces ignored), A to Z, Uncategorized last.
 function getCatalogCategories() {
-
-    const categories =
-        ["All categories"];
-
-    productCatalogData.forEach(
-        product => {
-
-            if (
-                !categories.includes(
-                    product.category
-                )
-            ) {
-
-                categories.push(
-                    product.category
-                );
-
-            }
-
-        }
-    );
-
-    return categories;
-
+    const seen = new Map();
+    currentCatalogList().forEach(product => {
+        const label = String(product.category || "Uncategorized").trim().replace(/\s+/g, " ");
+        if (!seen.has(catKey(label))) seen.set(catKey(label), label);
+    });
+    const names = [...seen.values()].sort((a, b) => {
+        if (catKey(a) === "uncategorized") return 1;
+        if (catKey(b) === "uncategorized") return -1;
+        return a.localeCompare(b);
+    });
+    return ["All categories", ...names];
 }
 
 
 function renderCategoryPills() {
-
-    const container =
-        document.getElementById(
-            "categoryPills"
-        );
-
-    if (!container) {
-        return;
+    const container = document.getElementById("categoryPills");
+    if (!container) return;
+    const list = currentCatalogList();
+    const categories = getCatalogCategories();
+    // the chosen category can disappear (last product archived or moved): fall back to All so the table is never stuck empty
+    if (activeCatalogCategory !== "All categories" &&
+        !categories.some(c => catKey(c) === catKey(activeCatalogCategory))) {
+        activeCatalogCategory = "All categories";
     }
-
     container.innerHTML = "";
-
-    getCatalogCategories()
-        .forEach(category => {
-
-            const count =
-                category === "All categories"
-                    ? productCatalogData.length
-                    : productCatalogData.filter(
-                        item =>
-                            item.category === category
-                    ).length;
-
-            const button =
-                document.createElement("button");
-
-            button.type = "button";
-
-            button.className =
-                "pill-btn" +
-                (
-                    category === activeCatalogCategory
-                        ? " active"
-                        : ""
-                );
-
-            button.innerHTML = `
-
-                ${escapeHTML(category)}
-
-                <span class="count">
-                    ${count}
-                </span>
-
-            `;
-
-            button.addEventListener(
-                "click",
-                () => {
-
-                    activeCatalogCategory =
-                        category;
-
-                    container
-                        .querySelectorAll(
-                            ".pill-btn"
-                        )
-                        .forEach(
-                            pill =>
-                                pill.classList.remove(
-                                    "active"
-                                )
-                        );
-
-                    button.classList.add(
-                        "active"
-                    );
-
-                    applyCatalogFilters();
-
-                }
-            );
-
-            container.appendChild(button);
-
+    categories.forEach(category => {
+        const isAll = category === "All categories";
+        const count = isAll
+            ? list.length
+            : list.filter(item => catKey(item.category) === catKey(category)).length;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "pill-btn" +
+            ((isAll ? activeCatalogCategory === "All categories" : catKey(category) === catKey(activeCatalogCategory)) ? " active" : "");
+        button.innerHTML = `${escapeHTML(category)}<span class="count">${count}</span>`;
+        button.addEventListener("click", () => {
+            activeCatalogCategory = category;
+            container.querySelectorAll(".pill-btn").forEach(p => p.classList.remove("active"));
+            button.classList.add("active");
+            applyCatalogFilters();
         });
-
+        container.appendChild(button);
+    });
 }
-
 
 function renderProductTable(items) {
-
-    const tableBody =
-        document.getElementById(
-            "productTableBody"
-        );
-
-    if (!tableBody) {
-        return;
-    }
+    const tableBody = document.getElementById("productTableBody");
+    if (!tableBody) return;
+    const archivedView = catalogView === "archived";
 
     if (!items || items.length === 0) {
-
         tableBody.innerHTML = `
-
             <tr class="no-results-row">
-
                 <td colspan="11">
-                    No products match your search or category.
+                    ${archivedView
+                        ? "No archived products. Archive a product from its details and it will be kept here."
+                        : "No products match your search or category."}
                 </td>
-
             </tr>
-
         `;
-
         return;
-
     }
 
-    tableBody.innerHTML =
-        items.map(item => {
+    tableBody.innerHTML = items.map(item => {
+        const costLabel = "/" + (item.costUnit || item.unit || "kg");
+        const metaLine = [item.grade, item.form].filter(Boolean).join(" · ");
+        return `
+            <tr class="product-row${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details">
+                <td>
+                    <div class="supplier-name">${escapeHTML(item.name)}</div>
+                    ${metaLine ? `<div class="supplier-meta">${escapeHTML(metaLine)}</div>` : ""}
+                </td>
+                <td class="mono">${escapeHTML(item.sku)}</td>
+                <td class="dim">${escapeHTML(item.category)}</td>
+                <td class="dim">${escapeHTML(item.department || "\u2014")}</td>
+                <td class="dim">${formatNumber(item.available)} ${escapeHTML(item.unit)}</td>
+                <td class="dim">₱${item.stdCost.toFixed(2)} ${costLabel}</td>
+                <td class="dim">
+                    ${item.department === "Finished Goods"
+                        ? (item.listPrice > 0 ? "₱" + item.listPrice.toFixed(2) : `<span class="prod-supplier warn" title="Finished Goods need a selling price">No price</span>`)
+                        : `<span title="Not sold: only Finished Goods have a selling price">&mdash;</span>`}
+                </td>
+                <td>
+                    ${item.department === "Finished Goods" && item.listPrice > 0
+                        ? `<span class="margin-value">${item.margin.toFixed(1)}%</span>`
+                        : `<span class="dim">&mdash;</span>`}
+                </td>
+                <td class="dim">${renderProductSuppliers(item)}</td>
+                <td>
+                    ${archivedView
+                        ? `<span class="status-pill archived">Archived</span>`
+                        : `<span class="status-pill ${item.status}">${getStockStatusLabel(item.status)}</span>`}
+                </td>
+                <td class="prod-actions">
+                    ${archivedView
+                        ? `<button type="button" class="btn-secondary btn-sm product-restore-btn" data-sku="${escapeHTML(item.sku)}">Restore</button>`
+                        : `<button type="button" class="btn-secondary btn-sm product-edit-btn" data-sku="${escapeHTML(item.sku)}">Edit</button>`}
+                </td>
+            </tr>
+        `;
+    }).join("");
 
-            const costLabel =
-                "/" + (item.costUnit || item.unit || "kg");
-
-            const metaLine =
-                [item.grade, item.form]
-                    .filter(Boolean)
-                    .join(" · ");
-
-            return `
-
-                <tr>
-
-                    <td>
-
-                        <div class="supplier-name">
-                            ${escapeHTML(item.name)}
-                        </div>
-
-                        ${metaLine
-                            ? `<div class="supplier-meta">${escapeHTML(metaLine)}</div>`
-                            : ""}
-
-                    </td>
-
-                    <td class="mono">
-                        ${escapeHTML(item.sku)}
-                    </td>
-
-                    <td class="dim">
-                        ${escapeHTML(item.category)}
-                    </td>
-
-                    <td class="dim">
-                        ${escapeHTML(item.department || "\u2014")}
-                    </td>
-
-                    <td class="dim">
-                        ${formatNumber(item.available)}
-                        ${escapeHTML(item.unit)}
-                    </td>
-
-                    <td class="dim">
-                        ₱${item.stdCost.toFixed(2)}
-                        ${costLabel}
-                    </td>
-
-                    <td class="dim">
-                        ${item.department === "Finished Goods"
-                            ? (item.listPrice > 0 ? "₱" + item.listPrice.toFixed(2) : `<span class="prod-supplier warn" title="Finished Goods need a selling price">No price yet</span>`)
-                            : `<span title="Not sold: only Finished Goods have a selling price">&mdash;</span>`}
-                    </td>
-
-                    <td>
-                        ${item.department === "Finished Goods" && item.listPrice > 0
-                            ? `<span class="margin-value">${item.margin.toFixed(1)}%</span>`
-                            : `<span class="dim">&mdash;</span>`}
-                    </td>
-
-                    <td class="dim">
-                        ${renderProductSuppliers(item)}
-                    </td>
-
-                    <td>
-                        <span class="status-pill ${item.status}">
-                            ${getStockStatusLabel(item.status)}
-                        </span>
-                    </td>
-
-                        <td>
-
-                            <button
-                                type="button"
-                                class="btn-secondary btn-sm product-edit-btn"
-                                data-sku="${escapeHTML(item.sku)}"
-                            >
-                                Edit
-                            </button>
-
-                        </td>
-
-                </tr>
-
-            `;
-
-        }).join("");
-
-
-        tableBody
-            .querySelectorAll(".product-edit-btn")
-            .forEach(button => {
-
-                button.addEventListener(
-                    "click",
-                    () => {
-
-                        openNewProductModal(
-                            button.dataset.sku
-                        );
-
-                    }
-                );
-
-            });
-
+    tableBody.querySelectorAll(".product-edit-btn").forEach(button => {
+        button.addEventListener("click", (e) => {
+            e.stopPropagation();
+            openNewProductModal(button.dataset.sku);
+        });
+    });
+    tableBody.querySelectorAll(".product-restore-btn").forEach(button => {
+        button.addEventListener("click", (e) => {
+            e.stopPropagation();
+            restoreProduct(button.dataset.sku);
+        });
+    });
 }
-
 
 // Suppliers shown in the Products table: every supplier linked to the product, primary first.
 function renderProductSuppliers(item) {
@@ -1877,81 +1779,219 @@ function renderProductSuppliers(item) {
 }
 
 function applyCatalogFilters() {
+    const searchInput = document.getElementById("catalogSearch");
+    const searchTerm = searchInput ? searchInput.value.trim().toLowerCase() : "";
+    const list = currentCatalogList();
 
-    const searchInput =
-        document.getElementById(
-            "catalogSearch"
-        );
+    // keep the pills (and a possibly vanished active category) in step with the data
+    renderCategoryPills();
+    syncCatalogViewToggle();
 
-    const searchTerm =
-        searchInput
-            ? searchInput.value
-                .trim()
-                .toLowerCase()
-            : "";
+    const filtered = list.filter(item => {
+        const categoryMatch =
+            activeCatalogCategory === "All categories" ||
+            catKey(item.category) === catKey(activeCatalogCategory);
+        const searchMatch =
+            !searchTerm ||
+            item.name.toLowerCase().includes(searchTerm) ||
+            item.sku.toLowerCase().includes(searchTerm) ||
+            (item.grade || "").toLowerCase().includes(searchTerm) ||
+            (item.category || "").toLowerCase().includes(searchTerm) ||
+            (Array.isArray(item.suppliers) && item.suppliers.length
+                ? item.suppliers
+                : [{ name: item.primarySource || "" }])
+                .some(sp => (sp.name || "").toLowerCase().includes(searchTerm));
+        return categoryMatch && searchMatch;
+    });
 
-
-    const filtered =
-        productCatalogData.filter(item => {
-
-            const categoryMatch =
-                activeCatalogCategory ===
-                    "All categories" ||
-                item.category ===
-                    activeCatalogCategory;
-
-            const searchMatch =
-                !searchTerm ||
-                item.name
-                    .toLowerCase()
-                    .includes(searchTerm) ||
-                item.sku
-                    .toLowerCase()
-                    .includes(searchTerm) ||
-                (item.grade || "")
-                    .toLowerCase()
-                    .includes(searchTerm) ||
-                (Array.isArray(item.suppliers) && item.suppliers.length
-                    ? item.suppliers
-                    : [{ name: item.primarySource || "" }])
-                    .some(sp =>
-                        (sp.name || "")
-                            .toLowerCase()
-                            .includes(searchTerm)
-                    );
-
-            return (
-                categoryMatch &&
-                searchMatch
-            );
-
-        });
-
-
-    const sub =
-        document.getElementById(
-            "productListSub"
-        );
-
+    const sub = document.getElementById("productListSub");
     if (sub) {
-
         sub.textContent =
-            `${filtered.length} product${
-                filtered.length === 1
-                    ? ""
-                    : "s"
-            }`;
-
+            `${filtered.length} ${catalogView === "archived" ? "archived " : ""}product${filtered.length === 1 ? "" : "s"}`;
     }
-
     renderProductTable(filtered);
-
 }
 
+/* ---- Active / Archived switch ---- */
+function syncCatalogViewToggle() {
+    const box = document.getElementById("prodViewToggle");
+    if (!box) return;
+    const counts = { active: productCatalogData.length, archived: archivedProductData.length };
+    box.querySelectorAll("[data-view]").forEach(b => {
+        const on = b.dataset.view === catalogView;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+        const c = b.querySelector(".count");
+        if (c) c.textContent = counts[b.dataset.view];
+    });
+    const title = document.querySelector("#products .panel-title");
+    if (title) title.textContent = catalogView === "archived" ? "Archived Products" : "Product Catalog";
+    const btn = document.getElementById("newProductBtn");
+    if (btn) btn.hidden = catalogView === "archived";
+}
+
+function initCatalogViewToggle() {
+    const box = document.getElementById("prodViewToggle");
+    if (!box || box.dataset.bound) return;
+    box.dataset.bound = "1";
+    box.addEventListener("click", e => {
+        const b = e.target.closest("[data-view]");
+        if (!b || b.dataset.view === catalogView) return;
+        catalogView = b.dataset.view;
+        activeCatalogCategory = "All categories";
+        applyCatalogFilters();
+    });
+}
+
+/* ---- Product details: click a row to see everything, then Edit or Archive ---- */
+const PD_ICONS = {
+    box: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"></path><path d="M3 8v8l9 5 9-5V8"></path><path d="M12 13v8"></path></svg>',
+    edit: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.376 3.622a1 1 0 0 1 3.002 3.002L7.368 18.635a2 2 0 0 1-.855.506l-2.872.838a.5.5 0 0 1-.62-.62l.838-2.872a2 2 0 0 1 .506-.854z"/></svg>',
+    archive: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="5" x="2" y="3" rx="1"/><path d="M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8"/><path d="M10 12h4"/></svg>',
+    restore: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>'
+};
+let productDetailSku = null;
+
+function findCatalogProduct(sku) {
+    return productCatalogData.find(p => p.sku === sku) ||
+        archivedProductData.find(p => p.sku === sku) || null;
+}
+
+function ensureProductDetailModal() {
+    let overlay = document.getElementById("productDetailOverlay");
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.id = "productDetailOverlay";
+    overlay.innerHTML = `
+        <div class="account-modal supplier-modal product-modal pd-modal" role="dialog" aria-modal="true" aria-labelledby="pdTitle">
+            <button type="button" class="modal-close" id="pdClose" aria-label="Close">×</button>
+            <div id="pdBody"></div>
+        </div>`;
+    document.body.appendChild(overlay);
+    overlay.addEventListener("click", e => { if (e.target === overlay) closeProductDetails(); });
+    overlay.querySelector("#pdClose").addEventListener("click", closeProductDetails);
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && overlay.classList.contains("open")) closeProductDetails();
+    });
+    overlay.addEventListener("click", e => {
+        const act = e.target.closest("[data-pd]");
+        if (!act) return;
+        const sku = productDetailSku;
+        if (act.dataset.pd === "close") closeProductDetails();
+        else if (act.dataset.pd === "edit") { closeProductDetails(); openNewProductModal(sku); }
+        else if (act.dataset.pd === "archive") archiveProduct(sku);
+        else if (act.dataset.pd === "restore") restoreProduct(sku);
+    });
+    return overlay;
+}
+
+function openProductDetails(sku) {
+    const p = findCatalogProduct(sku);
+    if (!p) return;
+    const overlay = ensureProductDetailModal();
+    productDetailSku = sku;
+    const archived = !!p.archived || archivedProductData.some(x => x.sku === sku);
+    const sells = p.department === "Finished Goods";
+    const stockLabel = archived ? "Archived" : getStockStatusLabel(p.status);
+    const stockClass = archived ? "archived" : p.status;
+    const row = (label, value) =>
+        `<div class="pd-row"><dt>${label}</dt><dd>${value}</dd></div>`;
+    document.getElementById("pdBody").innerHTML = `
+        <div class="supplier-modal-head">
+            <div class="supplier-modal-icon">${PD_ICONS.box}</div>
+            <div>
+                <div class="modal-eyebrow">${escapeHTML(p.category || "Uncategorized")} · ${escapeHTML(p.department || "")}</div>
+                <h2 class="modal-title" id="pdTitle" style="margin-bottom:0;">${escapeHTML(p.name)}</h2>
+                <div class="pd-sub"><span class="mono">${escapeHTML(p.sku)}</span> <span class="status-pill ${stockClass}">${stockLabel}</span></div>
+            </div>
+        </div>
+        ${archived ? `<div class="pd-note">This product is archived. It is hidden from stock lists, the shop, POS and production. Restore it to use it again.</div>` : ""}
+        <dl class="pd-grid">
+            ${row("Category", escapeHTML(p.category || "Uncategorized"))}
+            ${row("Department", escapeHTML(p.department || "\u2014"))}
+            ${row("In stock", `${formatNumber(p.available)} ${escapeHTML(p.unit)}`)}
+            ${row("Reorder level", `${formatNumber(p.reorderLevel ?? 0)} ${escapeHTML(p.unit)}${p.reorderAuto ? " (automatic)" : ""}`)}
+            ${row("Standard cost", `₱${p.stdCost.toFixed(2)} /${escapeHTML(p.costUnit || p.unit)}`)}
+            ${row("Selling price", sells ? (p.listPrice > 0 ? `₱${p.listPrice.toFixed(2)}` : "Not set") : "Not sold")}
+            ${row("Margin", sells && p.listPrice > 0 ? `${p.margin.toFixed(1)}%` : "\u2014")}
+            ${row("Location", escapeHTML(p.location || "\u2014"))}
+            ${p.grade || p.form ? row("Grade / form", escapeHTML([p.grade, p.form].filter(Boolean).join(" · "))) : ""}
+            ${row("Source", renderProductSuppliers(p))}
+        </dl>
+        <div class="modal-actions pd-actions">
+            <button type="button" class="btn-secondary" data-pd="close">Close</button>
+            ${archived
+                ? `<button type="button" class="btn-primary" data-pd="restore">${PD_ICONS.restore} Restore product</button>`
+                : `<button type="button" class="btn-secondary pd-archive" data-pd="archive">${PD_ICONS.archive} Archive</button>
+                   <button type="button" class="btn-primary" data-pd="edit">${PD_ICONS.edit} Edit</button>`}
+        </div>`;
+    overlay.classList.add("open");
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+}
+
+function closeProductDetails() {
+    const overlay = document.getElementById("productDetailOverlay");
+    if (!overlay) return;
+    overlay.classList.remove("open");
+    productDetailSku = null;
+    if (!document.querySelector(".modal-overlay.open")) {
+        document.body.style.overflow = "";
+        document.documentElement.style.overflow = "";
+    }
+}
+
+async function productAction(path, options, doneMessage) {
+    const bridge = window.TripleEBridge;
+    if (!bridge) return;
+    try {
+        await bridge.api(path, options);
+        closeProductDetails();
+        await bridge.reload();
+        bridge.toast(doneMessage);
+    } catch (e) {
+        bridge.toast(e.message || "Something went wrong", "error");
+    }
+}
+
+function archiveProduct(sku) {
+    const p = findCatalogProduct(sku);
+    if (!p) return;
+    const stock = p.available > 0 ? `\n\nIt still has ${formatNumber(p.available)} ${p.unit} in stock.` : "";
+    if (!confirm(`Archive ${p.name} (${p.sku})?${stock}\n\nIt will be hidden from stock lists, the shop, POS and production. You can restore it from the Archived tab.`)) return;
+    productAction("/products/" + encodeURIComponent(sku), { method: "DELETE" }, "Product archived");
+}
+
+function restoreProduct(sku) {
+    const p = findCatalogProduct(sku);
+    if (!p) return;
+    if (!confirm(`Restore ${p.name} (${p.sku})?`)) return;
+    productAction("/products/" + encodeURIComponent(sku) + "/restore", { method: "POST" }, "Product restored");
+}
+
+function initProductRowClicks() {
+    const body = document.getElementById("productTableBody");
+    if (!body || body.dataset.bound) return;
+    body.dataset.bound = "1";
+    body.addEventListener("click", e => {
+        if (e.target.closest("button, a")) return;
+        const tr = e.target.closest("tr.product-row");
+        if (tr) openProductDetails(tr.dataset.sku);
+    });
+    body.addEventListener("keydown", e => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.matches("tr.product-row")) {
+            e.preventDefault();
+            openProductDetails(e.target.dataset.sku);
+        }
+    });
+}
 
 function initProductCatalog() {
 
     initNewProductModal();
+    initCatalogViewToggle();
+    initProductRowClicks();
 
     renderCategoryPills();
 
