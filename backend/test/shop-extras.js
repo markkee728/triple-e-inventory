@@ -51,18 +51,38 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         updated_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_customer ON quote_requests (customer_id, created_at DESC)');
       await pool.query('CREATE INDEX IF NOT EXISTS idx_quotes_status ON quote_requests (status, created_at DESC)');
+
+      await pool.query(`CREATE TABLE IF NOT EXISTS quote_clarifications (
+        clarification_id BIGSERIAL PRIMARY KEY,
+        quote_id BIGINT NOT NULL REFERENCES quote_requests(quote_id) ON DELETE CASCADE,
+        fields JSONB NOT NULL,
+        message TEXT NOT NULL,
+        response_due DATE,
+        status TEXT NOT NULL DEFAULT 'awaiting_customer' CHECK(status IN ('awaiting_customer','answered')),
+        response TEXT,
+        submitted_specs JSONB,
+        created_by INT NOT NULL REFERENCES users(user_id),
+        answered_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`);
+      await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_open_clarification ON quote_clarifications(quote_id) WHERE status = 'awaiting_customer'");
+
       // walk-in customers logged at the POS have no shop account
       await pool.query('ALTER TABLE quote_requests ALTER COLUMN customer_id DROP NOT NULL');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS approval_reason TEXT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_amount NUMERIC(14,2)');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_lead_time TEXT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_valid_days INT');
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
       for (const c of ['needed_months INT CHECK (needed_months BETWEEN 1 AND 24)', 'specs JSONB', 'lead_time TEXT', 'valid_until DATE', 'responded_at TIMESTAMPTZ', 'response_note TEXT',
-                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT', 'request_type TEXT', 'item_type TEXT'])
+                       'paid_amount NUMERIC(14,2) NOT NULL DEFAULT 0', "payments JSONB NOT NULL DEFAULT '[]'::jsonb", "progress JSONB NOT NULL DEFAULT '[]'::jsonb", 'received_by TEXT', 'pay_method TEXT', 'xendit_invoice_id TEXT', 'xendit_external_id TEXT'])
         await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ' + c);
       await pool.query(`DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%preparing%') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_requests_status_check' AND pg_get_constraintdef(oid) LIKE '%awaiting_details%') THEN
           ALTER TABLE quote_requests DROP CONSTRAINT IF EXISTS quote_requests_status_check;
-          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed'));
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_requests_status_check CHECK (status IN ('new','quoted','accepted','declined','preparing','ready','completed','closed','pending_approval','awaiting_details'));
         END IF; END $$`);
       await pool.query(`CREATE TABLE IF NOT EXISTS stock_alerts (
         alert_id    BIGSERIAL PRIMARY KEY,
@@ -106,9 +126,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const signoff = () => { const i = shopInfo() || {}; return ['', 'Triple E Metal Products', [i.phone, i.email].filter(Boolean).join(' \u00B7 ')]; };
 
   /* =====================================================
-     1. Reserve / Pre-order  (the "quote request")
-     A request is a RESERVATION when the item is a catalog product and the whole quantity is in stock (we set it aside), and a
-     PRE-ORDER otherwise (not enough stock, or a custom item we make / order for the date asked). The server decides this, never the browser.
+     1. Request a quote
      Flow:  customer (shop) or cashier (walk-in) sends a request  ->  status 'new'
             Finance replies with an amount, lead time and validity  ->  'quoted'
             customer accepts / declines (or asks for a new quote)    ->  'accepted' / 'declined' / back to 'new'
@@ -116,18 +134,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
                              -> 'completed' (Picked Up / Delivered; needs the receiver's name and the balance paid)
             Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
-  const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'];
-  const SHEET_SIZES = ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'];
   const QUOTE_OPTIONS = {
     neededMaxMonths: 6,                                                      // "needed by" is a date: from tomorrow up to this many months from today
     units: ['pcs', 'sheets', 'lengths', 'boxes', 'sets', 'kg', 'linear m', 'rolls', 'bundles'],
     decimalUnits: ['kg', 'linear m'],                                        // every other unit is counted in whole numbers
     material: ['Brass', 'Bronze', 'Copper', 'Stainless Steel 304', 'Stainless Steel 316', 'Carbon Steel', 'Galvanized Steel', 'Aluminum', 'Cast Iron', 'Not sure (advise me)'],
-    size: [...PIPE_SIZES, ...SHEET_SIZES, 'Not applicable'],
+    size: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"', '3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft', 'Not applicable'],
     thickness: ['0.4 mm', '0.5 mm', '0.6 mm', '0.8 mm', '1.0 mm', '1.2 mm', '1.5 mm', '2.0 mm', '2.5 mm', '3.0 mm', '4.5 mm', '6.0 mm', '9.0 mm', '12.0 mm', 'Not applicable'],
     finish: ['Polished', 'Satin / Brushed', 'Matte', 'Powder Coated', 'Galvanized', 'Chrome Plated', 'Painted', 'Raw / Unfinished', 'Not sure (advise me)'],
     service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
-    customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
+    customAllowed: ['material', 'size', 'thickness', 'finish', 'service'],     // every detail also accepts a typed value ("Other...")
     leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
@@ -164,53 +180,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     { label: 'bronze', words: ['bronze'], materials: ['Bronze'] },
     { label: 'copper', words: ['copper'], materials: ['Copper'] }
   ];
-  /* ITEM TYPE is a dropdown the customer (or cashier) picks, and it decides what is offered for size, thickness and cutting / bending:
-       sizes      the sizes that exist for this kind of item (a sheet is never offered a pipe size)
-       na         whether "Not applicable" is a valid size
-       thickness  'required' = a real thickness is needed (sheet) | 'optional' | 'none' = does not apply (a fitting has no sheet thickness)
-       service    the cutting / bending that makes sense for it (a fitting is not bent)
-     For a catalog product the type is taken from the product's name (same words), so a brass elbow is a Fitting / Valve without asking.
-     `words` match the START of a word, so "steel" never matches "tee". The first type that matches wins, so the order matters. */
-  const ALL_SERVICES = QUOTE_OPTIONS.service;
-  QUOTE_OPTIONS.itemTypes = [
-    { value: 'Sheet / Plate', words: ['sheet', 'plate', 'panel', 'coil'], sizes: SHEET_SIZES, na: false, thickness: 'required', service: ALL_SERVICES },
-    { value: 'Pipe / Tube', words: ['pipe', 'tube'], sizes: PIPE_SIZES, na: false, thickness: 'optional', service: ALL_SERVICES },
-    { value: 'Fitting / Valve', words: ['fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: PIPE_SIZES, na: false, thickness: 'none', service: ['None (as is)', 'Drilling / punching', 'Welding / fabrication'] },
-    { value: 'Forged / Die-cast part', words: ['forged', 'die-cast', 'die cast', 'diecast', 'casting', 'housing', 'heat sink', 'heatsink'], sizes: [], na: true, thickness: 'optional', service: ['None (as is)', 'Drilling / punching'] },
-    { value: 'Other', words: [], sizes: [...PIPE_SIZES, ...SHEET_SIZES], na: true, thickness: 'optional', service: ALL_SERVICES }
+  QUOTE_OPTIONS.forms = [
+    { label: 'sheets and plates', words: ['sheet', 'plate', 'panel', 'coil'], sizes: ['3 x 6 ft', '4 x 8 ft', '4 x 10 ft', '5 x 10 ft'] },
+    { label: 'pipes and fittings', words: ['pipe', 'tube', 'fitting', 'elbow', 'tee', 'coupling', 'valve', 'nipple', 'union', 'flange', 'bushing', 'reducer'], sizes: ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"', '2-1/2"', '3"', '4"'] }
   ];
-  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const typeFromText = (text) => {
-    const t = String(text || '').toLowerCase();
-    return QUOTE_OPTIONS.itemTypes.find((it) => it.words.some((w) => new RegExp('(^|[^a-z0-9])' + escRe(w), 'i').test(t))) || null;
-  };
-  const typeByName = (name) => QUOTE_OPTIONS.itemTypes.find((it) => it.value === name) || null;
-  // what is really offered for one field once the item type and the material are known (client and server use the same rules)
-  const allowedFor = (key, type, material) => {
-    let list = QUOTE_OPTIONS[key];
-    const r = QUOTE_OPTIONS.rules[material];
-    if (r && r[key]) list = r[key];
-    if (key === 'size') return type.sizes.concat(type.na ? ['Not applicable'] : []);
-    if (key === 'thickness') return type.thickness === 'none' ? ['Not applicable'] : type.thickness === 'required' ? list.filter((v) => v !== 'Not applicable') : list;
-    if (key === 'service') return list.filter((v) => type.service.includes(v));
-    return list;
-  };
   // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
-  const SPEC_LABEL = { itemType: 'Item type', material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
-  // typed values (the "Other" choice of size / thickness) must be a real measurement with its unit, not any text with a digit in it
-  const NUM = '\\d+(?:\\.\\d+)?(?:-\\d+\\/\\d+|\\/\\d+)?';
-  const CUSTOM_RE = {
-    size: new RegExp('^' + NUM + '(?:\\s*[x\\u00D7]\\s*' + NUM + '){0,2}\\s*(?:mm|cm|m|in|ft|"|\')$', 'i'),
-    thickness: /^\d+(?:\.\d+)?\s*mm$/i
-  };
-  const customOk = (key, v) => v.length >= 2 && v.length <= 40 && CUSTOM_RE[key].test(v) && /[1-9]/.test(v) && (key !== 'thickness' || (parseFloat(v) >= 0.1 && parseFloat(v) <= 50));
-  // units: a catalog product is counted in its own unit ("pcs" = "pc", "sheet" = "sheets"), so the quantity can never be in another unit
-  const UNIT_CANON = { pcs: 'pc', pc: 'pc', piece: 'pc', pieces: 'pc', sheet: 'sheet', sheets: 'sheet', length: 'length', lengths: 'length', box: 'box', boxes: 'box', set: 'set', sets: 'set', roll: 'roll', rolls: 'roll', bundle: 'bundle', bundles: 'bundle', kg: 'kg', kgs: 'kg', 'linear m': 'linear m' };
-  const canon = (u) => UNIT_CANON[String(u || '').toLowerCase().trim()] || String(u || '').toLowerCase().trim();
-  const DECIMAL_CANON = QUOTE_OPTIONS.decimalUnits.map(canon);
+  const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Cutting / bending' };
+  const CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const addDays = (d, n) => new Date(Date.parse(d) + n * 86400000).toISOString().slice(0, 10);
   const addMonthsISO = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCMonth(x.getUTCMonth() + n); return x.toISOString().slice(0, 10); };
@@ -224,30 +203,44 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
   const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
-    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed' })[st] || st;
+    ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval', awaiting_details: 'Awaiting customer details' })[st] || st;
   const quoteJson = (q) => {
     const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
+    const terms = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
     const at = QFLOW.indexOf(q.status), next = at >= 0 && at < QFLOW.length - 1 ? QFLOW[at + 1] : null;
     const progress = [];
     if (at >= 0 && q.responded_at) progress.push({ status: 'accepted', label: 'Accepted', at: ms(q.responded_at) });
     (Array.isArray(q.progress) ? q.progress : []).forEach((e) => progress.push({ status: e.s, label: stepLabel(e.s, q.fulfillment), at: e.at, note: e.note || undefined }));
     return {
-      id: q.quote_no, requestType: q.request_type || undefined, itemType: q.item_type || undefined, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
+      id: q.quote_no, status: q.status, statusLabel: stepLabel(q.status, q.fulfillment), product: q.product_name || undefined, sku: q.product_sku || undefined,
       quantity: q.quantity, details: q.details, specs: q.specs || undefined,
       neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
+      flexibleDate: q.flexible_date === true || undefined, contactEmail: q.contact_email || undefined, company: q.company_name || undefined,
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
-      quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
+      proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
       respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
       paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
+      // derived by the payment ledger trigger, never by these screens
+      paymentState: q.payment_state || (paid > 0 && total != null && paid >= total ? 'paid' : paid > 0 ? 'partially_paid' : 'unpaid'),
+      terms: terms || undefined, dueNow: terms && terms.state === 'approved' && total != null && paid <= 0 ? terms.amount : undefined,
       payments: (Array.isArray(q.payments) ? q.payments : []).map((p) => ({ amount: p.amount, method: p.method, note: p.note || undefined, at: p.at })),
       progress, next: next || undefined, nextLabel: next ? stepLabel(next, q.fulfillment) : undefined, receivedBy: q.received_by || undefined,
-      source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
+      clarification: q.clarification || undefined, source: q.source || 'shop', createdAt: ms(q.created_at), updatedAt: ms(q.updated_at)
     };
   };
   const nc = () => app.locals.notifications;                                   // in-app notification center (fails soft)
+  /* The payment terms block printed on a quotation (§2). Nothing is collected while a quote is still pending —
+     these lines only tell the customer what will be due, when, and what the balance covers. */
+  const termsLines = (q) => {
+    const t = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
+    if (!t || t.state === 'proposed' || t.total == null) return [];
+    if (t.key === 'full' || +t.percent >= 100) return [`Payment terms: Full Payment - ${peso(t.total)} before ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}`];
+    return [`Payment terms: ${t.percent}% now (${peso(t.amount)}), balance ${peso(t.balance)} - ${t.condition || 'due before release'}`]
+      .concat(t.availability ? [`Estimated availability: ${t.availability}`] : []);
+  };
   const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
   const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
 
@@ -272,77 +265,69 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const phone = str(b.phone).replace(/[\s().-]/g, '');
     if (!phone) throw bad('phone', 'Enter your mobile number so we can reach you');
     if (!MOBILE_RE.test(phone)) throw bad('phone', 'Enter a valid mobile number, e.g. 0917 123 4567');
+    // optional on the cashier's walk-in form: an email to send the written quote to, and the company the request is for
+    const contactEmail = str(b.contactEmail).toLowerCase();
+    if (contactEmail && (contactEmail.length > 120 || !/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(contactEmail))) throw bad('contactEmail', 'Enter a valid email address, or leave it empty');
+    const company = str(b.company).replace(/\s+/g, ' ');
+    if (company.length > 80) throw bad('company', 'Keep the company name within 80 characters');
 
     // the product (or a described custom item)
-    let sku = null, productName = str(b.productName).replace(/\s+/g, ' ').slice(0, 120) || null, productUnit = '', fromProduct = {}, onHand = 0, productType = null;
+    let sku = null, productName = str(b.productName).slice(0, 120) || null, productUnit = '', fromProduct = {};
     if (str(b.sku)) {
-      const p = (await pool.query(`SELECT sku, name, unit, on_hand, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
+      const p = (await pool.query(`SELECT sku, name, unit, shop_specs FROM products WHERE upper(sku) = $1 AND department = 'Finished Goods' AND NOT is_archived`, [str(b.sku).toUpperCase()])).rows[0];
       if (!p) throw bad('sku', 'That product is not available');
-      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs); onHand = Number(p.on_hand) || 0;
-      productType = typeFromText(p.name);                                 // a catalog product's type comes from its name, so the browser cannot contradict it
+      sku = p.sku; productName = p.name; productUnit = String(p.unit || '').toLowerCase(); fromProduct = productSpecs(p.shop_specs);
     } else if (!productName || productName.length < 3) throw bad('productName', 'Tell us what you need (at least 3 characters)');
-    else if (productName.length > 120 || !/\p{L}{2}/u.test(productName)) throw bad('productName', 'Enter the item name in words, e.g. Stainless sheet');
 
-    // amount required: a number plus a unit. A catalog product is counted in its own unit; a custom item uses a unit from the list.
+    // amount required: a number plus a unit from the list (or the product's own unit)
     const raw = String(b.quantity == null ? '' : b.quantity).replace(/,/g, '').trim();
     const qty = Number(raw);
     if (!raw) throw bad('quantity', 'Enter how much you need');
     if (!Number.isFinite(qty) || qty <= 0) throw bad('quantity', 'Enter a number greater than 0');
     if (qty > 1000000 || Math.abs(Math.round(qty * 100) - qty * 100) > 1e-6) throw bad('quantity', 'Enter a quantity up to 1,000,000 with at most 2 decimals');
-    let unit = str(b.quantityUnit).toLowerCase();
-    if (sku) {
-      if (canon(unit) !== canon(productUnit)) throw bad('quantity', 'This item is counted in ' + productUnit + '. Please use that unit');
-      unit = productUnit;
-    } else if (!QUOTE_OPTIONS.units.includes(unit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
-    if (!DECIMAL_CANON.includes(canon(unit)) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
+    const unit = str(b.quantityUnit).toLowerCase();
+    if (!QUOTE_OPTIONS.units.includes(unit) && !(unit && unit === productUnit)) throw bad('quantity', 'Choose the unit (pcs, sheets, lengths...)');
+    if (!QUOTE_OPTIONS.decimalUnits.includes(unit) && !Number.isInteger(qty)) throw bad('quantity', 'Use a whole number for ' + unit + ', e.g. 200');
     const quantity = qty.toLocaleString('en-US', { maximumFractionDigits: 2 }) + ' ' + unit;
-    // RESERVATION = a catalog product with the whole quantity in stock (we set it aside); everything else is a PRE-ORDER (made / ordered for the date)
-    const requestType = sku && qty <= onHand ? 'Reservation' : 'Pre-order';
 
-    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted
+    // needed by: a date from tomorrow up to 6 months from today (Philippine time), so nothing in the past or far away is accepted.
+    // At the counter the cashier may tick "the date is flexible" when the walk-in customer has no deadline; an online account always picks a date.
+    const flexibleDate = !userId && b.flexibleDate === true;
     const neededBy = str(b.neededBy), today = todayPH(), latest = addMonthsISO(today, QUOTE_OPTIONS.neededMaxMonths);
-    if (!neededBy) throw bad('neededBy', 'Choose the date you need it');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
-    if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
-    if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
+    if (!neededBy) { if (!flexibleDate) throw bad('neededBy', 'Choose the date you need it'); }
+    else {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(neededBy) || new Date(neededBy + 'T00:00:00Z').toISOString().slice(0, 10) !== neededBy) throw bad('neededBy', 'Choose a valid date');
+      if (neededBy <= today) throw bad('neededBy', 'Choose a date after today');
+      if (neededBy > latest) throw bad('neededBy', 'Choose a date within the next ' + QUOTE_OPTIONS.neededMaxMonths + ' months');
+    }
 
-    // sizes and details: every one is a dropdown (size and thickness can also be typed as a measurement). The ITEM TYPE comes first and decides
-    // which sizes, thickness and cutting / bending fit; the MATERIAL then decides finish / thickness / cutting. The browser's choice is re-checked here.
+    // sizes and details: a dropdown for each, and every one can also be typed in. Nothing is locked: a catalog product only PRE-FILLS
+    // these (the form sends the value the person ended up with); the server falls back to the product record only when none is sent.
+    // A request is not an order, so no material / finish combination is refused here - Finance and the cashier price what is asked.
     const inSpecs = b.specs && typeof b.specs === 'object' && !Array.isArray(b.specs) ? b.specs : {};
     const specs = {};
-    let type = productType;
-    if (!type) {
-      const t = str(inSpecs.itemType);
-      if (!t) throw bad('itemType', 'Choose the item type');
-      type = typeByName(t);
-      if (!type) throw bad('itemType', 'Choose the item type from the list');
-    }
-    specs.itemType = type.value;
     for (const key of Object.keys(SPEC_LABEL)) {
-      if (key === 'itemType') continue;
-      const label = SPEC_LABEL[key].toLowerCase();
-      if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
-      const v = str(inSpecs[key]);
-      if (!v) throw bad(key, 'Choose the ' + label);
-      const allowed = allowedFor(key, type, specs.material);
-      if (allowed.includes(v)) { specs[key] = v; continue; }
-      const typeable = QUOTE_OPTIONS.customAllowed.includes(key) && !(key === 'thickness' && type.thickness === 'none');
-      if (QUOTE_OPTIONS[key].includes(v)) {                             // a real choice, but not for this item / material
-        if (key === 'size') throw bad(key, 'That size is not offered for ' + type.value.toLowerCase() + '. Choose one from the list or type your own');
-        if (key === 'thickness' && type.thickness === 'none') throw bad(key, 'Thickness does not apply to ' + type.value.toLowerCase());
-        if (key === 'thickness' && v === 'Not applicable') throw bad(key, 'Choose the thickness. ' + type.value + ' needs one');
-        if (key === 'service') throw bad(key, 'That is not offered for ' + type.value.toLowerCase() + (specs.material ? ' in ' + specs.material : '') + '. Choose one from the list');
-        if (typeable) throw bad(key, 'That ' + label + ' is not offered for ' + specs.material + '. Choose another or type it');
-        throw bad(key, 'That ' + label + ' does not go with ' + specs.material + '. Choose one from the list');
+      const v = str(inSpecs[key]).replace(/\s+/g, ' ');
+      if (!v) {
+        if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }
+        throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
       }
-      if (!typeable) throw bad(key, 'Choose the ' + label + ' from the list');
-      if (!customOk(key, v)) throw bad(key, 'Type the ' + label + ' with its unit, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm'));
-      specs[key] = v.replace(/\s+/g, ' ');
+      const listed = QUOTE_OPTIONS[key].includes(v) || v === fromProduct[key];      // a listed choice, or the product's own value left as it was
+      if (!listed) {
+        const needsNumber = key === 'size' || key === 'thickness';
+        if (v.length < 2 || v.length > 40 || (needsNumber && !/\d/.test(v)) || !CUSTOM_RE.test(v)) {
+          throw bad(key, needsNumber ? 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' with its number, e.g. ' + (key === 'size' ? '600 x 900 mm' : '1.8 mm')
+            : 'Type the ' + SPEC_LABEL[key].toLowerCase() + ' using letters and numbers only (2 to 40 characters)');
+        }
+      }
+      specs[key] = v;
     }
     const notes = str(b.notes);
     if (notes.length > 1000) throw bad('notes', 'Please keep the extra notes under 1,000 characters');
     if (notes) specs.notes = notes;
-    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k]).concat(notes ? ['Notes: ' + notes] : []).join('\n');
+    const details = Object.keys(SPEC_LABEL).map((k) => SPEC_LABEL[k] + ': ' + specs[k])
+      .concat(flexibleDate && !neededBy ? ['Needed by: Flexible / whenever ready'] : [])
+      .concat(notes ? ['Notes: ' + notes] : []).join('\n');
 
     // delivery or pickup is required; delivery needs an address (a saved one, or the city and barangay typed in)
     const fulfillment = str(b.fulfillment);
@@ -370,12 +355,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       area = area.slice(0, 250);
     }
-    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, requestType, itemType: type.value };
+    return { contactName, phone, quantity, details, specs, neededBy, fulfillment, area, sku, productName, contactEmail, company, flexibleDate };
   }
 
-  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, request_type, item_type';
-  const insertPh = (from) => INSERT_COLS.split(',').map((_, i) => '$' + (from + i) + (i === 6 ? '::jsonb' : '')).join(',');   // $n placeholders, specs is jsonb
-  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy, v.fulfillment, v.area, v.requestType, v.itemType];
+  const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, contact_email, company_name, flexible_date';
+  const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy || null, v.fulfillment, v.area, v.contactEmail || null, v.company || null, v.flexibleDate === true];
   const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
   const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
@@ -386,7 +370,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,${insertPh(2)}) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
       return r.rows[0];
@@ -396,12 +380,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     // email: a copy to the customer and a heads-up to Finance (fire-and-forget)
     (async () => {
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id])).rows[0];
-      await send(u && u.email, `We received your ${v.requestType.toLowerCase()} request ${row.quote_no}`, [
-        `Hi ${v.contactName},`, `Thank you for your request. We will send you a price soon.`, '',
-        `Reference: ${row.quote_no}`, `Type: ${v.requestType}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
+      await send(u && u.email, `We received your quote request ${row.quote_no}`, [
+        `Hi ${v.contactName},`, `Thank you for your request. We will send you a quote soon.`, '',
+        `Reference: ${row.quote_no}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`, `Needed by: ${needText(v.neededBy)}`, ...signoff()], 'quote-received');
       const to = financeTo();
-      if (to) await send(to, `New ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
-        `Type: ${v.requestType}`, `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+      if (to) await send(to, `New quote request ${row.quote_no} from ${v.contactName}`, [
+        `Customer: ${v.contactName} (${v.phone})`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
         `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `Open Finance > Quote Requests${baseUrl() ? ' at ' + baseUrl() + '/Finance_Inventory.html' : ''} to reply.`], 'quote-new');
       else console.warn('[shop] new quote request ' + row.quote_no + ' saved. Set QUOTE_EMAIL or SHOP_EMAIL in .env to get an email for each request');
@@ -410,7 +394,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   app.get('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query('SELECT * FROM quote_requests WHERE customer_id = $1 ORDER BY created_at DESC LIMIT 50', [req.user.id]);
-    res.json(rows.map(quoteJson));
+    res.json((await latestClarifications(rows)).map(quoteJson));
   }));
 
   /* After Finance replies, the customer (or the cashier for a walk-in) answers the quote:
@@ -435,6 +419,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
         [cur.quote_id, next, note || null, payMethod]);
+      // Accepting covers the payment terms printed on the quote, so they are stamped as seen with the acceptance.
+      if (action === 'accept' && app.locals.paymentTerms) await app.locals.paymentTerms.markTermsSeen(client, cur.quote_id);
       await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'sent back for a new quote'} by ${who}`);
       return r.rows[0];
     });
@@ -451,10 +437,73 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const verb = action === 'accept' ? 'ACCEPTED' : action === 'decline' ? 'declined' : 'is asking for a new quote on';
       await send(to, `Quote ${q.quote_no} ${action === 'accept' ? 'accepted' : action === 'decline' ? 'declined' : 'needs a new quote'}`, [
         `${q.contact_name} (${q.phone}) ${verb} quote ${q.quote_no}.`, `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`,
-        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
+        ...(q.quoted_amount != null ? [`Quoted amount: ${peso(q.quoted_amount)}`] : []), ...termsLines(q), ...(action === 'accept' && q.pay_method ? [`Payment method: ${q.pay_method}`] : []), ...(note ? ['', `Note: ${note}`] : []), '',
         action === 'accept' ? (/^Pay on /.test(q.pay_method || '') ? `Next: open Finance > Quote Requests and move it to Preparing. The customer pays on ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}; record the payment then.` : `The customer is paying online through Xendit. You will be notified when the payment arrives; then move it to Preparing.`) : 'Open Finance > Quote Requests to see it.'], 'quote-response');
     })().catch((e) => console.error('[mail] quote response failed:', e.message));
   }
+
+  // Clarification is a separate auditable exchange: never overwrite original specs.
+  const CLARIFY_FIELDS = ['dimensions','thickness','material','finish','drawing','quantity','other'];
+  const clarificationJson = c => c && ({ id: c.clarification_id, fields: c.fields, message: c.message,
+    responseDue: dateStr(c.response_due), status: c.status, response: c.response || undefined,
+    submittedSpecs: c.submitted_specs || undefined, createdAt: ms(c.created_at), answeredAt: ms(c.answered_at) });
+  async function latestClarifications(rows) {
+    if (!rows.length) return rows;
+    const ids = rows.map(q => q.quote_id);
+    const { rows: cs } = await pool.query(`SELECT DISTINCT ON (quote_id) * FROM quote_clarifications
+      WHERE quote_id = ANY($1::bigint[]) ORDER BY quote_id, created_at DESC`, [ids]);
+    const byId = new Map(cs.map(c => [String(c.quote_id), clarificationJson(c)]));
+    return rows.map(q => ({ ...q, clarification: byId.get(String(q.quote_id)) }));
+  }
+  app.post('/api/pos/quotes/:no/clarifications', auth('cashier'), wrap(async (req,res) => {
+    const b = req.body || {};
+    const fields = Array.isArray(b.fields) ? [...new Set(b.fields)] : [];
+    if (!fields.length || fields.length > CLARIFY_FIELDS.length || fields.some(f => !CLARIFY_FIELDS.includes(f))) throw bad('fields','Select at least one valid specification');
+    const message = str(b.message);
+    if (message.length < 15 || message.length > 1000) throw bad('message','Explain the missing details in 15–1000 characters');
+    const due = b.responseDue ? str(b.responseDue) : null;
+    if (due && (!/^\d{4}-\d{2}-\d{2}$/.test(due) || !Number.isFinite(Date.parse(due)) || due < todayPH() || due > addMonthsISO(todayPH(), 6))) throw bad('responseDue','Choose a valid date within six months');
+    const c = await tx(async client => {
+      const q = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE',[req.params.no])).rows[0];
+      if (!q) throw bad('id','Quotation not found');
+      if (!['new','awaiting_details'].includes(q.status)) throw bad('status','Clarification is only available before quotation pricing');
+      const existing = (await client.query("SELECT clarification_id FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer'",[q.quote_id])).rows[0];
+      if (existing) throw bad('status','A clarification request is already awaiting the customer');
+      if (!q.customer_id) throw bad('customer','Walk-in customers must be contacted directly; this action requires an online customer account');
+      const row=(await client.query(`INSERT INTO quote_clarifications(quote_id,fields,message,response_due,created_by)
+        VALUES($1,$2::jsonb,$3,$4,$5) RETURNING *`,[q.quote_id,JSON.stringify(fields),message,due,req.user.id])).rows[0];
+      await client.query("UPDATE quote_requests SET status='awaiting_details', updated_at=now() WHERE quote_id=$1",[q.quote_id]);
+      await audit(client,req.user,'Record edited',`Clarification requested for ${q.quote_no}`);
+      return {row,customerId:q.customer_id,no:q.quote_no};
+    });
+    res.status(201).json({ok:true,clarification:clarificationJson(c.row)});
+    Promise.resolve(pingUser(c.customerId,{category:'orders',title:'Quotation details needed',body:`Please provide missing specifications for ${c.no}.`,link:'Shop_Customer.html',entityType:'quote',entityId:c.no},'customer')).catch(()=>{});
+  }));
+  app.post('/api/shop/quotes/:no/clarifications/respond', auth('customer'), wrap(async(req,res)=>{
+    const b=req.body||{}, response=str(b.response);
+    if (response.length < 10 || response.length > 1500) throw bad('response','Enter a clear response of 10–1500 characters');
+    const specs=b.specs && typeof b.specs==='object' && !Array.isArray(b.specs) ? b.specs : {};
+    const allowed=['dimensions','thickness','material','finish','quantity','other'];
+    if (Object.keys(specs).some(k=>!allowed.includes(k))) throw bad('specs','Unsupported specification field');
+    for (const [key,val] of Object.entries(specs)) {
+      if (typeof val!=='string' || !val.trim() || val.length>200) throw bad('specs',`Enter a valid ${key} (maximum 200 characters)`);
+    }
+    const result=await tx(async client=>{
+      const q=(await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 AND customer_id=$2 FOR UPDATE',[req.params.no,req.user.id])).rows[0];
+      if(!q) throw bad('id','Quotation not found');
+      if(q.status!=='awaiting_details') throw bad('status','This quotation is not awaiting details');
+      const c=(await client.query("SELECT * FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer' FOR UPDATE",[q.quote_id])).rows[0];
+      if(!c) throw bad('status','There is no outstanding clarification');
+      if(Object.keys(specs).some(k=>!c.fields.includes(k))) throw bad('specs','Only requested specifications may be updated');
+      const row=(await client.query(`UPDATE quote_clarifications SET status='answered',response=$2,submitted_specs=$3::jsonb,answered_at=now()
+        WHERE clarification_id=$1 RETURNING *`,[c.clarification_id,response,JSON.stringify(specs)])).rows[0];
+      await client.query("UPDATE quote_requests SET status='new',updated_at=now() WHERE quote_id=$1",[q.quote_id]);
+      await audit(client,req.user,'Record edited',`Customer clarified ${q.quote_no}`);
+      return {row,no:q.quote_no};
+    });
+    res.json({ok:true,clarification:clarificationJson(result.row)});
+    Promise.resolve(pingFinance({category:'orders',title:'Quotation clarification received',body:`Customer provided details for ${result.no}.`,link:'Finance_Inventory.html#quotes',entityType:'quote',entityId:result.no})).catch(()=>{});
+  }));
 
   app.post('/api/shop/quotes/:no/respond', auth('customer'), wrap((req, res) => respondToQuote(req, res, { where: 'customer_id = $2', params: [req.user.id], who: 'the customer' })));
 
@@ -466,7 +515,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,${insertPh(2)}) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
       return r.rows[0];
@@ -475,8 +524,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     (async () => {
       const to = financeTo();
       if (!to) return;
-      await send(to, `Walk-in ${v.requestType.toLowerCase()} request ${row.quote_no} from ${v.contactName}`, [
-        `Type: ${v.requestType}`, `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
+      await send(to, `Walk-in quote request ${row.quote_no} from ${v.contactName}`, [
+        `Walk-in customer: ${v.contactName} (${v.phone}) \u2014 logged at the counter by ${req.user.name || 'a cashier'}`, `Item: ${v.productName || 'See details'}`, `Quantity: ${v.quantity}`,
         `Needed by: ${needText(v.neededBy)}`, `Receive by: ${v.fulfillment}${v.area ? ' \u00B7 ' + v.area : ''}`, '', v.details, '',
         `This customer has no online account. Open Finance > Quote Requests to price it, then the cashier or Finance calls them.`], 'quote-new');
     })().catch((e) => console.error('[mail] walk-in quote email failed:', e.message));
@@ -486,18 +535,73 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   app.get('/api/pos/quotes', auth('cashier'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT q.*, c.full_name AS created_by_name FROM quote_requests q LEFT JOIN users c ON c.user_id = q.created_by
-        WHERE q.source = 'pos' ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 60`);
-    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, loggedBy: q.created_by_name || undefined })));
+        ORDER BY (q.status = 'quoted') DESC, q.created_at DESC LIMIT 150`);
+    res.json((await latestClarifications(rows)).map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, source: q.source, loggedBy: q.created_by_name || undefined })));
   }));
 
   app.post('/api/pos/quotes/:no/respond', auth('cashier'), wrap((req, res) => respondToQuote(req, res, { where: `source = 'pos'`, params: [], autoPay: true, who: 'the cashier (walk-in customer)' })));
 
+  // Cashier prices routine requests. Custom manufacturing and exceptions require Finance review.
+  // The monetary ceiling is intentionally configurable; no unapproved company policy is assumed.
+  const cashierQuoteLimit = () => Number(process.env.CASHIER_QUOTE_LIMIT_PHP || 0);
+  const readPrice = (b) => {
+    const raw = String(b.amount ?? '').trim();
+    if (!/^(?:\d{1,9})(?:\.\d{1,2})?$/.test(raw)) throw bad('amount', 'Enter a positive peso amount with up to two decimal places');
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) throw bad('amount', 'Enter a valid amount');
+    const leadTime = str(b.leadTime), days = Number(b.validDays);
+    if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Select a valid preparation time');
+    if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Select a valid quotation period');
+    const note = str(b.note);
+    if (note.length > 1500) throw bad('note', 'Notes cannot exceed 1500 characters');
+    return { amount, leadTime, days, note };
+  };
+  app.post('/api/pos/quotes/:no/price', auth('cashier'), wrap(async (req, res) => {
+    const b = req.body || {}, v = readPrice(b);
+    const reason = str(b.reason);
+    const q = await tx(async client => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quotation not found');
+      if (!['new','pending_approval'].includes(cur.status)) throw bad('status', 'Only new or pending quotations can be priced');
+      const exceptional = b.customManufacturing === true || b.exception === true || !Number.isFinite(cashierQuoteLimit()) || cashierQuoteLimit() <= 0 || v.amount > cashierQuoteLimit();
+      if (exceptional && reason.length < 10) throw bad('reason', 'Explain why Finance approval is required (at least 10 characters)');
+      const result = await client.query(`UPDATE quote_requests SET status=$2, proposed_amount=$3, proposed_lead_time=$4, proposed_valid_days=$5,
+        approval_reason=$6, quoted_amount=CASE WHEN $2='quoted' THEN $3 ELSE quoted_amount END,
+        lead_time=CASE WHEN $2='quoted' THEN $4 ELSE lead_time END,
+        valid_until=CASE WHEN $2='quoted' THEN $7::date ELSE valid_until END,
+        reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now()
+        WHERE quote_id=$1 RETURNING *`, [cur.quote_id, exceptional?'pending_approval':'quoted', v.amount, v.leadTime, v.days,
+          exceptional?reason:null, addDays(todayPH(),v.days),v.note||null,req.user.id]);
+      await audit(client,req.user,'Record edited',`Cashier ${exceptional?'requested approval for':'priced'} quote ${cur.quote_no}`);
+      return result.rows[0];
+    });
+    res.json({ok:true, status:q.status, quote:quoteJson(q)});
+  }));
+  app.post('/api/finance/quotes/:no/approve-price', auth('finance'), wrap(async (req,res) => {
+    const q = await tx(async client => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE',[req.params.no])).rows[0];
+      if (!cur) throw bad('id','Quotation not found');
+      if (cur.status !== 'pending_approval' || !cur.proposed_amount || !cur.proposed_lead_time || !cur.proposed_valid_days) throw bad('status','No pending price proposal');
+      const r = await client.query(`UPDATE quote_requests SET status='quoted', quoted_amount=proposed_amount,
+        lead_time=proposed_lead_time,valid_until=$2::date,handled_by=$3,updated_at=now() WHERE quote_id=$1 RETURNING *`,
+        [cur.quote_id,addDays(todayPH(),cur.proposed_valid_days),req.user.id]);
+      await audit(client,req.user,'Record edited',`Finance approved quotation ${cur.quote_no}`);
+      return r.rows[0];
+    });
+    res.json({ok:true,quote:quoteJson(q)});
+  }));
+
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name
+      `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name, d.full_name AS terms_decided_by_name,
+              conv.order_no AS converted_order_no
          FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
+         LEFT JOIN users d ON d.user_id = q.terms_decided_by
+         LEFT JOIN orders conv ON conv.order_id = q.converted_order_id
         ORDER BY (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
-    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email, handledBy: q.handled_by_name || undefined })));
+    // convertedOrder tells the Sales report that this quotation's money belongs to an order it already lists (§10)
+    res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email,
+      handledBy: q.handled_by_name || undefined, convertedOrder: q.converted_order_no || undefined })));
   }));
 
   // Finance: send the quote (amount is required), close a request, or reopen it
@@ -545,8 +649,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
         `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
         `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}`, `Price valid until: ${dateStr(q.valid_until)}`,
+        ...termsLines(q),
         ...(q.reply_note ? ['', q.reply_note] : []), '',
-        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
+        `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. Accepting covers these payment terms too. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
       else await send(u && u.email, `Update on your quote request ${q.quote_no}`, [`Hi ${q.contact_name},`, 'We have an update on your quote request.', '', q.reply_note, ...signoff()], 'quote-reply');
     })().catch((e) => console.error('[mail] quote reply failed:', e.message));
   }));
@@ -600,6 +705,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     })().catch((e) => console.error('[mail] quote step failed:', e.message));
   }));
 
+  // Finance records cash / transfer received against an accepted quote. The money itself is written to the
+  // payment ledger (payment-terms.js), which owns quote_requests.paid_amount and payment_state through a trigger;
+  // the payments JSONB array below stays only as the display copy the quotation screens already read.
   app.post('/api/finance/quotes/:no/payment', auth('finance'), wrap(async (req, res) => {
     const b = req.body || {};
     const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, ''), method = str(b.method), note = str(b.note);
@@ -609,21 +717,25 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     amount = round2(amount);
     if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
     if (note.length > 100) throw bad('note', 'The note must be 100 characters or fewer');
-    const q = await tx(async (client) => {
+    const pt = app.locals.paymentTerms;
+    if (!pt) throw bad('ledger', 'The payment ledger is not available');
+    const out = await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
       if (!['accepted', 'preparing', 'ready'].includes(cur.status)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
-      const balance = round2(+cur.quoted_amount - (+cur.paid_amount || 0));
-      if (amount > balance + 0.004) throw bad('amount', `The balance is only ${peso(balance)}`);
-      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([{ amount, method, note: note || undefined, at: Date.now() }]);
-      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, handled_by = $4, updated_at = now() WHERE quote_id = $1 RETURNING *',
-        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays), req.user.id]);
-      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no}: payment of ${peso(amount)} received (${method})`);
-      return r.rows[0];
+      const paid = await pt.applyPayment(client, { kind: 'quote', no: cur.quote_no, amount, method, note, actor: req.user, requestId: str(b.requestId) || undefined });
+      if (paid.replayed) return { cur, paid };
+      const entry = { id: paid.paymentId, amount, method, note: note || undefined, at: Date.now() };
+      const pays = (Array.isArray(cur.payments) ? cur.payments : []).concat([entry]);
+      await client.query('UPDATE quote_requests SET payments = $2::jsonb, handled_by = $3, updated_at = now() WHERE quote_id = $1',
+        [cur.quote_id, JSON.stringify(pays), req.user.id]);
+      return { cur, paid };
     });
-    res.json({ ok: true, paidAmount: +q.paid_amount, balance: Math.max(0, round2(+q.quoted_amount - +q.paid_amount)) });
-    const bal = Math.max(0, round2(+q.quoted_amount - +q.paid_amount));
-    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid.');
+    const parent = out.paid.parent, q = out.cur;
+    res.json({ ok: true, replayed: !!out.paid.replayed, paidAmount: parent.paid, balance: parent.balance, paymentState: parent.state,
+      payments: (Array.isArray(q.payments) ? q.payments : []).concat(out.paid.replayed ? [] : [{ amount, method, note: note || undefined, at: Date.now() }]) });
+    if (out.paid.replayed) return;
+    const body = `Payment of ${peso(amount)} received for ${q.quote_no}. ` + (parent.balance > 0 ? `Balance: ${peso(parent.balance)}.` : 'Fully paid.');
     Promise.resolve(pingUser(q.customer_id, { category: 'payment', title: 'Payment received', body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
     (async () => {
       if (!q.customer_id) return;
@@ -647,7 +759,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!r.ok) { const e = new Error(data.message || 'Xendit request failed'); e.status = r.status; throw e; }
     return data;
   }
-  const owedOn = (q) => round2(+q.quoted_amount - (+q.paid_amount || 0));
+  /* What an online checkout should bill for this quote.
+     With approved partial terms the first invoice is only the initial payment (a 50% or 30% down payment is not the
+     whole order), and only once nothing has been paid yet. After that it is whatever balance is left. */
+  const owedOn = (q) => {
+    const bal = round2(+q.quoted_amount - (+q.paid_amount || 0));
+    const pt = app.locals.paymentTerms;
+    if (!pt || (+q.paid_amount || 0) > 0) return bal;
+    const terms = pt.approvedDueOf(q);
+    return terms && +terms.amount > 0 ? Math.min(bal, round2(+terms.amount)) : bal;
+  };
   // returns the Xendit checkout link for what the customer still owes (re-uses a still-open invoice)
   async function quoteCheckoutUrl(q) {
     const owed = owedOn(q); if (!(owed > 0)) return null;
@@ -664,27 +785,35 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     await pool.query('UPDATE quote_requests SET xendit_invoice_id = $2, xendit_external_id = $3 WHERE quote_id = $1', [q.quote_id, inv.id, externalId]);
     return inv.invoice_url;
   }
-  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is kept on the payment)
+  // a paid Xendit invoice becomes a payment on the quote (once only: the invoice id is the ledger's provider reference,
+  // so a retried callback re-reads the same row instead of adding money twice)
   async function applyQuoteInvoice(q, event, invoiceId) {
     if (!['PAID', 'SETTLED'].includes(String(event.status))) return null;
+    const pt = app.locals.paymentTerms;
+    if (!pt) { console.error('[xendit] the payment ledger module is not mounted — quote payment not recorded'); return null; }
+    const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
+    if (!(amount > 0)) return null;
     let done = null;
     await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_id = $1 FOR UPDATE', [q.quote_id])).rows[0];
       if (!cur) return;
+      const paid = await pt.applyPayment(client, {
+        kind: 'quote', id: cur.quote_id, amount, method: 'Xendit', providerRef: invoiceId, note: 'Paid online',
+        actorName: 'Xendit Webhook',
+        // money already captured online is recorded as it is, even if the quote was amended below it — Finance refunds the difference
+        allowOver: true
+      });
+      if (paid.replayed) { done = null; return; }
       const pays = Array.isArray(cur.payments) ? cur.payments : [];
-      if (pays.some((p) => p.ref === invoiceId)) return;
-      const amount = round2(Number(event.paid_amount != null ? event.paid_amount : event.amount));
-      if (!(amount > 0)) return;
-      const r = await client.query('UPDATE quote_requests SET paid_amount = $2, payments = $3::jsonb, updated_at = now() WHERE quote_id = $1 RETURNING *',
-        [cur.quote_id, round2((+cur.paid_amount || 0) + amount), JSON.stringify(pays.concat([{ amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
-      await audit(client, { id: null, name: 'Xendit Webhook', roleLabel: 'System' }, 'Record edited', `Quote ${cur.quote_no}: online payment of ${peso(amount)} received (Xendit invoice ${invoiceId})`);
-      done = { q: r.rows[0], amount };
+      await client.query('UPDATE quote_requests SET payments = $2::jsonb, updated_at = now() WHERE quote_id = $1',
+        [cur.quote_id, JSON.stringify(pays.concat([{ id: paid.paymentId, amount, method: 'Xendit', note: 'Paid online', ref: invoiceId, at: Date.now() }]))]);
+      done = { cur, parent: paid.parent, amount };
     });
     if (done) {
-      const q2 = done.q, bal = Math.max(0, owedOn(q2));
-      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(done.amount)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : ' Fully paid.'),
+      const { cur: q2, parent, amount: amt } = done, bal = parent.balance;
+      Promise.resolve(pingFinance({ category: 'payment', title: 'Quote paid online', body: `${q2.quote_no} — ${peso(amt)} received through Xendit.` + (bal > 0 ? ` Balance: ${peso(bal)}.` : parent.paid > parent.total ? ` Overpaid by ${peso(round2(parent.paid - parent.total))} — please refund.` : ' Fully paid.'),
         link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q2.quote_no })).catch(() => {});
-      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(done.amount)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
+      Promise.resolve(pingUser(q2.customer_id, { category: 'payment', title: 'Payment received', body: `Payment of ${peso(amt)} received for ${q2.quote_no}. ` + (bal > 0 ? `Balance: ${peso(bal)}.` : 'Fully paid. Thank you!'),
         link: 'Shop_Customer.html', entityType: 'quote', entityId: q2.quote_no }, 'customer')).catch(() => {});
     }
     return done;

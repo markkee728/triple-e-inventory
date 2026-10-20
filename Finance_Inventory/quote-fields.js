@@ -14,7 +14,8 @@
   var esc = function (v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var OTHER = '__other__';
   var FIELDS = [['material', 'Material'], ['size', 'Size'], ['thickness', 'Thickness'], ['finish', 'Finish'], ['service', 'Cutting / bending']];
-  var CUSTOM_HINT = { size: 'e.g. 600 x 900 mm or 3/4 inch', thickness: 'e.g. 1.8 mm' };
+  var CUSTOM_HINT = { material: 'e.g. Titanium', size: 'e.g. 600 x 900 mm or 3/4 inch', thickness: 'e.g. 1.8 mm', finish: 'e.g. Mirror polish', service: 'e.g. Laser cutting' };
+  var NEEDS_NUMBER = { size: 1, thickness: 1 };         // a typed size / thickness must contain a number; the others are free text
   var CUSTOM_RE = /^[\p{L}\p{N}\s.,x\u00D7\-"'\/()+*]+$/u;
   var state = {};                                           // prefix -> { options, picked, hint, offKey, timer }
 
@@ -63,7 +64,9 @@
       var k = f[0], sel = $(p + 'S_' + k), c = $(p + 'C_' + k);
       sel.addEventListener('change', function () {
         if (c) { c.hidden = sel.value !== OTHER; if (!c.hidden) c.focus(); }
-        if (k === 'material') { state[p].picked = true; rebuildAll(p, true); updateAvailability(p); }      // the material decides which finishes / thicknesses fit
+        if (k === 'material') { state[p].picked = true; $(p + 'Narrow').hidden = true; }      // the person chose it, so the "pre-selected" note no longer applies
+        var fn = $(p + 'A_' + k); if (fn) { fn.hidden = true; fn.textContent = ''; }
+        sel.removeAttribute('data-filled');
         check(p, k);
       });
       if (c) { c.addEventListener('input', function () { if (c.classList.contains('is-bad')) check(p, k); }); c.addEventListener('blur', function () { check(p, k); }); }
@@ -98,19 +101,17 @@
     if (!pick && mats && mats.length === 1) pick = mats[0];
     return { key: (fam ? fam.label : '') + '|' + (form ? form.label : ''), famLabel: fam && fam.label, formLabel: form && form.label, materials: mats, sizes: form && form.sizes, pick: pick };
   }
-  function matValue(p) { var v = $(p + 'S_material').value, r = state[p].options.rules || {}; return v && v !== OTHER && r[v] ? v : ''; }
+  // Nothing is narrowed or locked: every dropdown always offers every choice (and "Other" to type your own).
+  // The words in "Describe the item" only put the likely choices FIRST (stainless sheet -> stainless materials and sheet sizes on top).
   function listFor(p, k) {
-    var s = state[p], o = s.options, h = s.hint || {};
-    if (k === 'material') return h.materials || o.material;
-    if (k === 'size') return h.sizes || o.size;
-    var m = matValue(p), mats = m ? [m] : (h.materials || null);
-    if (!mats) return o[k] || [];
-    var filtered = (o[k] || []).filter(function (v) { return mats.some(function (x) { var r = o.rules && o.rules[x]; return !r || !Array.isArray(r[k]) || r[k].indexOf(v) >= 0; }); });
-    return filtered.length ? filtered : (o[k] || []); // Never present an empty selector due to incomplete rule data
+    var s = state[p], all = s.options[k] || [], h = s.hint, pref = h && (k === 'material' ? h.materials : k === 'size' ? h.sizes : null);
+    if (!pref || !pref.length) return all;
+    return all.filter(function (v) { return pref.indexOf(v) >= 0; }).concat(all.filter(function (v) { return pref.indexOf(v) < 0; }));
   }
   function rebuild(p, k) {
-    var o = state[p].options, sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel || sel.getAttribute('data-auto')) return;   // locked from the product record
-    var cur = sel.value, list = listFor(p, k), label = FIELDS.filter(function (f) { return f[0] === k; })[0][1];
+    var o = state[p].options, sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
+    var cur = sel.value, list = listFor(p, k).slice(), label = FIELDS.filter(function (f) { return f[0] === k; })[0][1];
+    if (cur && cur !== OTHER && list.indexOf(cur) < 0 && cur === sel.getAttribute('data-added')) list.push(cur);      // a value taken from the product record stays selectable
     sel.innerHTML = opts(list, 'Choose ' + label.toLowerCase()) + (isCustom(o, k) ? '<option value="' + OTHER + '">Other (type it)</option>' : '');
     sel.value = (cur === OTHER && isCustom(o, k)) || list.indexOf(cur) >= 0 ? cur : '';
     if (c) c.hidden = sel.value !== OTHER;
@@ -131,16 +132,15 @@
   }
   function refresh(p) {
     var s = state[p]; if (!s) return;
-    var h = detect(p); s.hintKey = h && h.key;
-    if (h && h.key === s.offKey) h = null; else if (!h || h.key !== s.offKey) s.offKey = null;
-    var changed = (s.hint && s.hint.key) !== (h && h.key); s.hint = h;
-    var msel = $(p + 'S_material');
+    var h = detect(p), changed = (s.hint && s.hint.key) !== (h && h.key); s.hint = h;
+    var msel = $(p + 'S_material'), note = $(p + 'Narrow'), pre = '';
     if (changed) s.picked = false;                                                            // a new description starts afresh
     rebuild(p, 'material');
-    if (h && h.pick && !s.picked && !msel.getAttribute('data-auto')) msel.value = h.pick;      // only until the person picks a material themselves
+    if (h && h.pick && !s.picked && !msel.getAttribute('data-filled') && msel.value !== h.pick && Array.prototype.some.call(msel.options, function (x) { return x.value === h.pick; })) { msel.value = h.pick; pre = h.pick; }
+    else if (h && h.pick && !s.picked && msel.value === h.pick && !msel.getAttribute('data-filled')) pre = h.pick;       // only until the person picks a material themselves
     rebuildAll(p, false);
-    var note = $(p + 'Narrow');
-    if (h) { note.innerHTML = '<span>Suggested specifications for <b>' + esc([h.famLabel, h.formLabel].filter(Boolean).join(' \u00B7 ')) + '</b>. Choose from the fields below.</span> <button type="button" class="qx-link" data-showall="1">Show all options</button>'; note.hidden = false; }
+    if (pre) { note.innerHTML = '<span>Material pre-selected from your description: <b>' + esc(pre) + '</b>. You can change it, and every other detail below, or type your own.</span>'; note.hidden = false; }
+    else if (h && ((h.materials && h.materials.length) || (h.sizes && h.sizes.length))) { note.innerHTML = '<span>Suggested for <b>' + esc([h.famLabel, h.formLabel].filter(Boolean).join(' \u00B7 ')) + '</b>: the likely choices are listed first. Everything else is still available, or type your own.</span>'; note.hidden = false; }
     else { note.innerHTML = ''; note.hidden = true; }
     updateAvailability(p);
   }
@@ -178,7 +178,7 @@
     if (field === 'notes') return $(p + 'Notes').value.length > 1000 ? 'Keep notes within 1,000 characters.' : '';
     var label = FIELDS.filter(function (f) { return f[0] === field; })[0][1].toLowerCase(), v2 = $(p + 'S_' + field).value;
     if (!v2) return 'Choose the ' + label + '.';
-    if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(); return t.length >= 2 && t.length <= 40 && /\d/.test(t) && CUSTOM_RE.test(t) && !/[<>]/.test(t) ? '' : 'Type the ' + label + ' with its number, ' + CUSTOM_HINT[field] + '.'; }
+    if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(); return t.length >= 2 && t.length <= 40 && (!NEEDS_NUMBER[field] || /\d/.test(t)) && CUSTOM_RE.test(t) && !/[<>]/.test(t) ? '' : NEEDS_NUMBER[field] ? 'Type the ' + label + ' with its number, ' + CUSTOM_HINT[field] + '.' : 'Type the ' + label + ' (2 to 40 letters or numbers), ' + CUSTOM_HINT[field] + '.'; }
     return '';
   }
   function check(p, field) { return setErr(p, field, rule(p, field)); }
@@ -217,10 +217,9 @@
     sel.value = u;
     var q = $(p + 'Qty'); if (q && wholeUnit(p)) q.value = q.value.replace(/\..*$/, '');
   }
-  // Fill Material / Size / Thickness / Finish from the chosen product's own record (its online specifications) and lock them,
-  // so the customer or cashier does not retype what the database already knows. Anything the record does not state stays a dropdown
-  // (narrowed to the product, e.g. a brass valve shows brass finishes). Call with the product's specs object, or with nothing
-  // (custom item) to unlock everything. Same mapping as productSpecs() in shop-extras.js.
+  // Pre-fill Material / Size / Thickness / Finish from the chosen product's own record so nothing the database already knows has to be
+  // retyped. The fields are NOT locked: the person can change any of them, pick another choice, or type their own ("Other"). Call with
+  // the product's specs object, or with nothing (custom item) to clear what a product filled in. Same mapping as productSpecs() in shop-extras.js.
   var ALIAS = { material: ['material'], size: ['size', 'dimensions'], thickness: ['thickness'], finish: ['finish'] };
   function autofill(p, specs) {
     var lower = {}; Object.keys(specs || {}).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
@@ -229,18 +228,21 @@
       var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0];
       var note = $(p + 'A_' + k);
       if (!note) { note = document.createElement('small'); note.id = p + 'A_' + k; note.className = 'q-hint'; sel.parentNode.insertBefore(note, sel.nextSibling); }
+      var added = sel.getAttribute('data-added');
       if (v) {
-        if (!Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); sel.setAttribute('data-added', v); }
-        sel.value = v; sel.disabled = true; if (c) { c.hidden = true; c.value = ''; }
-        note.textContent = 'Taken from the product details.'; note.hidden = false; sel.setAttribute('data-auto', '1');
+        if (!Array.prototype.some.call(sel.options, function (o) { return o.value === v; })) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); }
+        if (added && added !== v) Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); });
+        sel.setAttribute('data-added', v); sel.value = v; sel.setAttribute('data-filled', '1'); if (c) { c.hidden = true; c.value = ''; }
+        note.textContent = 'Filled in from the product details. Change it if you need something different.'; note.hidden = false;
       } else {
-        if (sel.getAttribute('data-auto')) { sel.value = ''; sel.removeAttribute('data-auto'); }
-        sel.disabled = false; note.textContent = ''; note.hidden = true;
-        var added = sel.getAttribute('data-added'); if (added && sel.value !== added) { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === added) o.remove(); }); sel.removeAttribute('data-added'); }
+        if (sel.getAttribute('data-filled')) { sel.value = ''; sel.removeAttribute('data-filled'); }
+        note.textContent = ''; note.hidden = true;
+        if (added && sel.value !== added) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
       }
+      sel.disabled = false;
       setErr(p, k, '');
     });
-    if (state[p]) { state[p].picked = false; refresh(p); }
+    if (state[p]) { state[p].picked = !!$(p + 'S_material').getAttribute('data-filled'); refresh(p); }       // a material from the product record is not overridden by the description
   }
   function setHint(p, text) { var h = $(p + 'QtyHint'); if (h) h.textContent = text || ''; }
   function setQuantity(p, n) { $(p + 'Qty').value = n == null ? '' : String(n); }
