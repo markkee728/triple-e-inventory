@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="style.css?v=2">
     <link rel="stylesheet" href="production.css?v=1">
     <link rel="stylesheet" href="notifications.css?v=6">
-    <link rel="stylesheet" href="sidebar.css?v=1">
+    <link rel="stylesheet" href="sidebar.css?v=2">
     <link rel="stylesheet" href="customers.css?v=6">
 
     <!-- Google Fonts -->
@@ -100,10 +100,12 @@
                 </button>
                 <div class="nav-items" id="navg-sales">
                     <div class="nav-items-inner">
-                        <button type="button" class="nav-item sales-parent" data-page="sales-overview" data-title="Sales &amp; Transactions"><span class="nav-symbol icon-chart" aria-hidden="true"></span> Overview</button>
-                        <button type="button" class="nav-item" data-page="sales"><span class="nav-symbol icon-pos" aria-hidden="true"></span> POS Management</button>
-                        <button type="button" class="nav-item" data-page="payment-terms"><span class="nav-symbol icon-chart" aria-hidden="true"></span> Payment Terms</button>
-                        
+                        <div class="nav-sub" role="presentation">Monitor</div>
+                        <button type="button" class="nav-item sales-parent" data-page="sales-overview" data-title="Sales Overview"><span class="nav-symbol icon-chart" aria-hidden="true"></span> Overview</button>
+                        <button type="button" class="nav-item" data-page="orders" data-title="Online Orders"><span class="nav-symbol icon-bag" aria-hidden="true"></span> Online Orders</button>
+                        <button type="button" class="nav-item" data-page="sales" data-title="POS Sales &amp; Shifts"><span class="nav-symbol icon-pos" aria-hidden="true"></span> POS Sales &amp; Shifts</button>
+                        <div class="nav-sub" role="presentation">Payments</div>
+                        <button type="button" class="nav-item" data-page="payment-terms" data-title="Payment Terms"><span class="nav-symbol icon-coins" aria-hidden="true"></span> Payment Terms</button>
                     </div>
                 </div>
             </div>
@@ -266,6 +268,14 @@
         ====================================================== -->
 
         <div class="content">
+
+            <!-- Sales pages share one tab strip (shown only on those pages: see navigateToPage in script.js) -->
+            <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections" hidden>
+                <button type="button" class="sales-tab" role="tab" data-page="sales-overview">Overview</button>
+                <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders</button>
+                <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
+                <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Terms</button>
+            </div>
 
 
             <!-- =================================================
@@ -1295,8 +1305,9 @@
                  SALES & TRANSACTIONS OVERVIEW
             ================================================== -->
             <section id="sales-overview" class="page">
-                <div class="catalog-header"><div><div class="catalog-eyebrow">Sales Management</div>
-                    <h1 class="catalog-title">Sales &amp; Transactions</h1>
+                <div class="catalog-header"><div><div class="catalog-eyebrow">Sales / Overview</div>
+                    <h1 class="catalog-title">Sales Overview</h1>
+                    <div class="panel-sub">Every POS sale and online order in one read-only ledger. The cashier processes them; you monitor, and approve the requests sent to you.</div>
                 </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
                 <div id="salesAdminRoot"></div>
                 <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div></div><div id="soPay" style="padding:0 18px 18px"></div></div>
@@ -1310,13 +1321,13 @@
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Sales &amp; Transactions / Online</div>
+                        <div class="catalog-eyebrow">Sales / Online Orders</div>
                         <h1 class="catalog-title">Online Orders</h1>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
 
-                <div class="sales-page-tabs"><button type="button" class="sales-tab active" data-page="orders">Online Orders</button></div>
+                <div class="sales-view-note" role="note"><b>View only.</b> The cashier confirms, packs, releases and delivers online orders (POS &rarr; Online Orders). You can follow every order here and decide on <b>cancellation requests</b> from customers.</div>
                 <div class="panel sales-log-panel">
                     <div class="panel-head">
                         <div>
@@ -1358,11 +1369,13 @@
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Sales &amp; Transactions / POS</div>
-                        <h1 class="catalog-title">POS Management</h1>
+                        <div class="catalog-eyebrow">Sales / POS</div>
+                        <h1 class="catalog-title">POS Sales &amp; Cash Shifts</h1>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
                 </div>
+
+                <div class="sales-view-note" role="note"><b>View only.</b> Sales are rung up and shifts are run by the cashier. You review them here and decide on <b>void</b> and <b>return</b> requests.</div>
 
                 <div id="posTransactionsPanel" class="pos-management-section" aria-label="POS Sales">
                 <!-- 2. POS walk-in sales -->
@@ -3554,15 +3567,15 @@
     <script src="input-rules.js?v=1"></script>
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
-    <script src="script.js?v=18"></script>
-    <script src="api-bridge.js?v=21"></script>
-    <script src="sales-orders.js?v=12"></script>
-    <link rel="stylesheet" href="sales-admin.css?v=9">
+    <script src="script.js?v=19"></script>
+    <script src="api-bridge.js?v=22"></script>
+    <script src="sales-orders.js?v=13"></script>
+    <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=8">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <link rel="stylesheet" href="inventory-priority.css?v=2">
     <link rel="stylesheet" href="product-details.css?v=1">
-    <script src="sales-admin.js?v=11"></script>
+    <script src="sales-admin.js?v=12"></script>
     <script src="reports-jump.js?v=1"></script>
     <script src="reports-sales.js?v=2"></script>
     <script src="reports-top-products.js?v=4"></script>

@@ -55,7 +55,7 @@
     var host = $('payment-terms');
     if (!host || host.dataset.built === '1') return;
     host.dataset.built = '1';
-    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Payment Terms</h1>'
+    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales / Payment Terms</div><h1 class="catalog-title">Payment Terms</h1>'
       + '<div class="panel-sub">Who may pay part of a bill, what the cashier proposes, what is still owed and what has actually been collected.</div></div>'
       + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
       + PANELS.map(function (p) {

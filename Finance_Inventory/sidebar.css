@@ -359,3 +359,18 @@ html.sb-noanim .sidebar.sb2 * { transition: none !important; }
 @media (prefers-reduced-motion: reduce) {
     .sidebar.sb2, .sidebar.sb2 *, .sb-tip { transition: none !important; }
 }
+
+/* ---------- Sales group: small sub-headings (Monitor / Payments) ---------- */
+.sidebar.sb2 .nav-sub {
+    margin: 8px 12px 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--text-faint, #7d8aa0);
+    user-select: none;
+}
+.sidebar.sb2 .nav-sub:first-child { margin-top: 2px; }
+@media (min-width: 1025px) {
+    html.sb-rail .sidebar.sb2 .nav-sub { display: none; }
+}

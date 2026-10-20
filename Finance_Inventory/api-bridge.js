@@ -1519,10 +1519,10 @@
         'No stock movements in the last 7 days.', 7) + (mv.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + mv.length + '. Open Stock In / Out for the full log.</div>' : '');
     } else {
       const all = salesCache.slice().sort((a, b) => b.createdAt - a.createdAt);
-      title = 'Orders and sales'; sub = dashboardMockDisplay.orders === null ? 'Loading...' : dashboardMockDisplay.orders + ' online order' + (dashboardMockDisplay.orders === 1 ? '' : 's') + ' (' + dashboardMockDisplay.ordersOpen + ' to process) \u00B7 ' + dashboardMockDisplay.posSales + ' POS sales \u00B7 latest first'; go = 'sales'; goLabel = 'Open POS Management';
+      title = 'Orders and sales'; sub = dashboardMockDisplay.orders === null ? 'Loading...' : dashboardMockDisplay.orders + ' online order' + (dashboardMockDisplay.orders === 1 ? '' : 's') + ' (' + dashboardMockDisplay.ordersOpen + ' to process) \u00B7 ' + dashboardMockDisplay.posSales + ' POS sales \u00B7 latest first'; go = 'sales'; goLabel = 'Open POS Sales & Shifts';
       body = dTable(['Ref', 'Date', 'Source', 'Customer', 'Total', 'Status'],
         all.slice(0, 12).map((t) => '<tr><td class="mono">' + esc(t.ref) + '</td><td class="dim">' + esc(niceDate(saleDay(t.createdAt))) + '</td><td class="dim">' + (t.source === 'POS' ? 'POS walk-in' : 'Online shop') + '</td><td>' + esc(t.customer || '') + '</td><td>' + esc(money(t.total || 0)) + '</td><td><span class="status-pill ' + (/cancel|void/i.test(t.status) ? 'low' : /deliver|picked|complete|paid/i.test(t.status) ? 'ok' : 'watch') + '">' + esc(t.status || '') + '</span></td></tr>'),
-        'No orders or sales yet.', 6) + (all.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + all.length + '. Open POS Management for everything.</div>' : '');
+        'No orders or sales yet.', 6) + (all.length > 12 ? '<div class="dash-kpi-more">Showing 12 of ' + all.length + '. Open POS Sales & Shifts for everything.</div>' : '');
     }
     const navOk = go === 'notifications' ? !!window.NotificationCenter : !!document.querySelector('.nav-item[data-page="' + go + '"]');
     box.className = 'panel dash-kpi-panel kpi-' + dashKpi.sel;
