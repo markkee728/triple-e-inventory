@@ -461,14 +461,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       'SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2', [req.params.no, req.user.id]);
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
+    let paymentError;
     if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid') {
       try {
         const inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
         await applyShopInvoice(o, inv, o.xendit_invoice_id);
-      } catch (e) { console.warn('[xendit] order payment check failed:', e.message); }
+      } catch (e) { console.error('[xendit] order payment check failed for ' + o.order_no + ':', e.message); paymentError = e.message; }   // shown on the payment window instead of waiting forever
     }
     const cur = await pool.query('SELECT * FROM orders WHERE order_id = $1', [o.order_id]);
-    res.json({ status: cur.rows[0].status, paymentStatus: cur.rows[0].payment_status, ...moneyJson(cur.rows[0]) });
+    res.json({ status: cur.rows[0].status, paymentStatus: cur.rows[0].payment_status, ...moneyJson(cur.rows[0]), ...(paymentError ? { paymentError } : {}) });
   }));
 
   // Xendit calls this endpoint directly. Never trust the browser redirect as payment proof.

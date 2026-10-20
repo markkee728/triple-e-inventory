@@ -786,6 +786,7 @@ async function checkPay() {
       (r.outstanding != null && Number(r.outstanding) <= 0.005) ||
       (payInvoice != null && r.paidAmount != null && Number(r.paidAmount) + 0.005 >= payBase + payInvoice.amount);
     if (settled) { stopPayPoll(); await showPaid(r); }
+    else if (r.paymentError) { $('payState').textContent = 'We could not record your payment yet: ' + r.paymentError + ' If you already paid, keep this order number (' + payOrderId + ') and contact us — your money is safe with Xendit.'; }
     else if (r.paymentStatus === 'expired') { stopPayPoll(); $('payState').textContent = 'This payment link expired. Close this and tap “Continue Online Payment” in My Orders for a new one.'; }
   } catch (e) {}
 }
@@ -1456,7 +1457,7 @@ async function tqSubmitQuote() {
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review],[data-received]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-term],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review],[data-received]'); if (!el) return; const d = el.dataset;
   if (d.receipt) return openReceipt(d.receipt);
   if (d.notify) return setAlert(d.notify, true);
   if (d.unnotify) return setAlert(d.unnotify, false);

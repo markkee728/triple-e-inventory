@@ -139,19 +139,19 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
         RETURN CASE WHEN p_refunded THEN 'refunded' ELSE 'unpaid' END;
       END $$ LANGUAGE plpgsql`, 'state function');
     const trigger = await run(`CREATE OR REPLACE FUNCTION apply_payment_totals() RETURNS trigger AS $$
-      DECLARE net NUMERIC; total NUMERIC; refunded BOOLEAN;
+      DECLARE net NUMERIC; v_total NUMERIC; refunded BOOLEAN;
       BEGIN
         IF NEW.paid_for = 'order' THEN
           SELECT COALESCE(SUM(CASE WHEN p.direction = 'in' THEN p.amount ELSE -p.amount END), 0), bool_or(p.direction = 'out' AND p.purpose = 'refund')
             INTO net, refunded FROM payments p WHERE p.order_id = NEW.order_id;
-          total := COALESCE((SELECT total FROM orders WHERE order_id = NEW.order_id), 0);
-          UPDATE orders SET paid_amount = GREATEST(net, 0), payment_state = payment_state_for(GREATEST(net, 0), total, refunded)
+          v_total := COALESCE((SELECT o.total FROM orders o WHERE o.order_id = NEW.order_id), 0);
+          UPDATE orders SET paid_amount = GREATEST(net, 0), payment_state = payment_state_for(GREATEST(net, 0), v_total, refunded)
            WHERE order_id = NEW.order_id;
         ELSE
           SELECT COALESCE(SUM(CASE WHEN p.direction = 'in' THEN p.amount ELSE -p.amount END), 0), bool_or(p.direction = 'out' AND p.purpose = 'refund')
             INTO net, refunded FROM payments p WHERE p.quote_id = NEW.quote_id;
-          total := COALESCE((SELECT quoted_amount FROM quote_requests WHERE quote_id = NEW.quote_id), 0);
-          UPDATE quote_requests SET paid_amount = GREATEST(net, 0), payment_state = payment_state_for(GREATEST(net, 0), total, refunded)
+          v_total := COALESCE((SELECT q.quoted_amount FROM quote_requests q WHERE q.quote_id = NEW.quote_id), 0);
+          UPDATE quote_requests SET paid_amount = GREATEST(net, 0), payment_state = payment_state_for(GREATEST(net, 0), v_total, refunded)
            WHERE quote_id = NEW.quote_id;
         END IF;
         RETURN NEW;
@@ -198,14 +198,17 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
   // disagreeing total in application code.
   let triggerLive = null;
   async function ledgerOwnsTotals(client) {
-    if (triggerLive !== null) return triggerLive;
+    if (triggerLive === true) return true;                 // only a positive answer is remembered: a failed check is retried, never cached
+    let live = false;
     try {
+      // pg_trigger.tgisinternal marks the triggers PostgreSQL creates itself (foreign keys); ours is a normal one
       const { rows } = await (client || pool).query(`SELECT COUNT(*)::int AS n FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
-        WHERE c.relname = 'payments' AND t.tgname = 'trg_apply_payment_totals' AND NOT t.tgdelimit`);
-      triggerLive = Number(rows[0] && rows[0].n) > 0;
-    } catch (err) { console.warn('[payment-terms] could not check the ledger trigger:', err.message); triggerLive = false; }
-    if (!triggerLive) console.error('[payment-terms] trg_apply_payment_totals is missing: run backend/db/020_payment_terms.sql — payments are refused until then.');
-    return triggerLive;
+        WHERE c.relname = 'payments' AND t.tgname = 'trg_apply_payment_totals' AND NOT t.tgisinternal`);
+      live = Number(rows[0] && rows[0].n) > 0;
+    } catch (err) { console.warn('[payment-terms] could not check the ledger trigger:', err.message); }
+    if (!live) console.error('[payment-terms] trg_apply_payment_totals is missing: run backend/db/020_payment_terms.sql — payments are refused until then.');
+    triggerLive = live ? true : null;
+    return live;
   }
 
   app.use('/api/finance/payment-terms', (req, res, next) => { ready.then(() => next(), next); });
