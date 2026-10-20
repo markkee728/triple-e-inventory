@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="app-ui.css?v=2">
 <link rel="stylesheet" href="store.css">
 <link rel="stylesheet" href="notifications.css?v=6">
+<link rel="stylesheet" href="quote-fields.css?v=1">
 <style>
 a.nav-item{text-decoration:none}
 .fulfil-note{margin:10px 0 4px;padding:10px 12px;border-radius:8px;background:var(--inset);border:1px solid var(--border);font-size:13.5px;color:var(--text-dim);line-height:1.55}
@@ -189,19 +190,19 @@ a.nav-item{text-decoration:none}
 
     <!-- ===== REQUEST A QUOTE ===== -->
     <section class="page" id="quote">
-      <div class="page-head"><div><h1>Request a quote</h1></div></div>
+      <div class="page-head"><div><h1>Request a quote</h1><p>Tell us what you need and our team will send you a price. Nothing is reserved and no payment is taken until you accept.</p></div></div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
-          <div class="qf-sec first"><span class="qf-num">1</span>What do you need?</div>
+          <div class="qf-sec first"><span class="qf-num">1</span><span class="qf-txt"><b>What do you need?</b><small>Pick a product from the catalog, or choose “Other” and describe it.</small></span></div>
           <div class="q-field"><label for="qProduct">Product</label><select id="qProduct"></select></div>
           <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Describe the item</label><input id="qProductName" maxlength="120" placeholder="e.g. Stainless sheet, 1.5 mm, cut to 600 x 900 mm"><div class="err-text" id="qE_productName"></div></div>
           <div id="qFields"><p class="dim">Loading the form…</p></div>
 
-          <div class="qf-sec"><span class="qf-num">2</span>How will you receive it?</div>
+          <div class="qf-sec"><span class="qf-num">2</span><span class="qf-txt"><b>How will you receive it?</b><small>Delivery quotes only need the area, not your full address.</small></span></div>
           <div id="qDeliveryAnchor" tabindex="-1"></div>
           <div class="q-seg" role="radiogroup" aria-label="Delivery or pickup">
-            <label class="q-opt"><input type="radio" name="qFulfil" value="Delivery"><span class="q-opt-body"><b>Delivery</b><small>We bring it to your address</small></span></label>
-            <label class="q-opt"><input type="radio" name="qFulfil" value="Pickup"><span class="q-opt-body"><b>Pickup</b><small>You collect it at our shop</small></span></label>
+            <label class="q-opt"><input type="radio" name="qFulfil" value="Delivery"><span class="q-opt-body"><svg class="q-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/></svg><span class="q-opt-txt"><b>Delivery</b><small>We bring it to your address</small></span></span></label>
+            <label class="q-opt"><input type="radio" name="qFulfil" value="Pickup"><span class="q-opt-body"><svg class="q-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9.5 20v-6h5v6"/></svg><span class="q-opt-txt"><b>Pickup</b><small>You collect it at our shop</small></span></span></label>
           </div>
           <div class="err-text" id="qE_fulfillment"></div>
           <div id="qPickupBox" class="fulfil-note" hidden></div>
@@ -223,15 +224,22 @@ a.nav-item{text-decoration:none}
             <div class="err-text" id="qE_address"></div>
           </div>
 
-          <div class="qf-sec"><span class="qf-num">3</span>Your contact details</div>
+          <div class="qf-sec"><span class="qf-num">3</span><span class="qf-txt"><b>Your contact details</b><small>We call or text this number with your price.</small></span></div>
           <div class="q-grid">
             <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="80" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
             <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
           <div class="err-text q-formerr" id="qErr" role="alert"></div>
           <button type="submit" class="btn-primary btn-lg" id="qSend">Review Request</button>
+          <p class="q-foot-note">You will see a summary to check before anything is sent. This is a request for a price only, not an order.</p>
         </form>
         <aside class="sticky-side">
+          <div class="card quote-how" style="margin-bottom:14px"><h3>How it works</h3>
+            <ol class="q-how-list">
+              <li><b>Send your request</b><span>Tell us the product, size and quantity.</span></li>
+              <li><b>We send you a price</b><span>It appears under “My quote requests” when it is ready.</span></li>
+              <li><b>Accept or decline</b><span>Accept to go ahead, or ask for a new quote.</span></li>
+            </ol></div>
           <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
           <div class="help-line" data-help></div>
         </aside>
@@ -1330,7 +1338,7 @@ async function loadQuotes() {
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
       ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
-    : '<p class="dim">You have not sent a request yet.</p>';
+    : '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>';
 }
 $('quoteList').addEventListener('submit',async e=>{const form=e.target.closest('[data-clarify-quote]');if(!form)return;e.preventDefault();const id=form.dataset.clarifyQuote,response=form.elements.response.value.trim(),err=form.querySelector('[data-clarify-error]');err.textContent='';if(response.length<10||response.length>1500){err.textContent='Enter 10–1500 characters.';return}const q=QUOTES.find(x=>String(x.id)===String(id));tqOpen({title:'Review missing details',subtitle:'Confirm the information you are sending to the cashier.',details:[['Quotation',id],['Product',q?.product||'Custom product'],['Requested information',q?.clarification?.fields?.join(', ')||'See message'],['Your response',response]],disclaimer:'This does not confirm an order, reserve stock or make a payment.',confirm:'Confirm & Send',run:async()=>{await api('/api/shop/quotes/'+encodeURIComponent(id)+'/clarifications/respond',{method:'POST',body:JSON.stringify({response})});toast('Details sent to cashier.');await loadQuotes()}})});
 $('quoteList').addEventListener('click', e => {

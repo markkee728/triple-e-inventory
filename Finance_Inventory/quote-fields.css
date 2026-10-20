@@ -1,0 +1,69 @@
+/* quote-fields.css — the one look for every field on the two quotation forms:
+     Shop_Customer.html  (customer "Request a quote", form#quoteForm)
+     POS_Cashier.html    (cashier walk-in quotation,  form#pqForm)
+   It styles the markup quote-fields.js really renders (.q-grid .q-field .qx-row .qx-title .qx-narrow ...) plus the plain
+   selects and inputs those pages add around it. Colours, radius and focus ring all come from the app-ui.css tokens, so
+   light and dark themes follow automatically. Rules start with the form's id so they beat the bare label / input rules in
+   app-ui.css, store.css, quotes.css and the small <style> quote-fields.js injects at runtime. */
+
+#quoteForm label,#page-quotes #pqForm label{font-family:Inter,system-ui,sans-serif;font-size:13px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--text-dim);margin:0 0 7px}
+#quoteForm .q-optional,#page-quotes #pqForm .q-optional{font-weight:400;color:var(--text-faint)}
+#quoteForm .q-field,#page-quotes #pqForm .q-field{margin-bottom:18px;min-width:0}
+#quoteForm .q-grid,#page-quotes #pqForm .q-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px;min-width:0}
+
+/* inputs, selects, textareas */
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]),#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]){width:100%;min-height:44px;padding:10px 13px;border:1px solid var(--border);border-radius:10px;background-color:var(--field);color:var(--text);font:400 14.5px/1.35 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none;transition:border-color .15s,box-shadow .15s,background-color .15s}
+#quoteForm select,#page-quotes #pqForm select{width:100%;min-height:44px;padding:10px 13px;border:1px solid var(--border);border-radius:10px;background-color:var(--field);color:var(--text);font:400 14.5px/1.35 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none;transition:border-color .15s,box-shadow .15s,background-color .15s}
+#quoteForm textarea,#page-quotes #pqForm textarea{width:100%;min-height:44px;padding:10px 13px;border:1px solid var(--border);border-radius:10px;background-color:var(--field);color:var(--text);font:400 14.5px/1.35 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none;transition:border-color .15s,box-shadow .15s,background-color .15s;min-height:96px;resize:vertical}
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search])::placeholder,#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search])::placeholder{color:var(--text-faint)}
+#quoteForm textarea::placeholder,#page-quotes #pqForm textarea::placeholder{color:var(--text-faint)}
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):hover:not(:disabled),#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):hover:not(:disabled){border-color:var(--text-faint)}
+#quoteForm select:hover:not(:disabled),#page-quotes #pqForm select:hover:not(:disabled){border-color:var(--text-faint)}
+#quoteForm textarea:hover:not(:disabled),#page-quotes #pqForm textarea:hover:not(:disabled){border-color:var(--text-faint)}
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):focus,#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):focus{outline:none;border-color:var(--blue-bright);box-shadow:var(--ring)}
+#quoteForm select:focus,#page-quotes #pqForm select:focus{outline:none;border-color:var(--blue-bright);box-shadow:var(--ring)}
+#quoteForm textarea:focus,#page-quotes #pqForm textarea:focus{outline:none;border-color:var(--blue-bright);box-shadow:var(--ring)}
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):disabled,#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]):disabled{opacity:.55;cursor:not-allowed;background-color:var(--inset)}
+#quoteForm select:disabled,#page-quotes #pqForm select:disabled{opacity:.55;cursor:not-allowed;background-color:var(--inset)}
+#quoteForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]).is-bad,#page-quotes #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]).is-bad{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(227,91,91,.16)}
+#quoteForm select.is-bad,#page-quotes #pqForm select.is-bad{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(227,91,91,.16)}
+#quoteForm textarea.is-bad,#page-quotes #pqForm textarea.is-bad{border-color:var(--red)!important;box-shadow:0 0 0 3px rgba(227,91,91,.16)}
+#quoteForm select,#page-quotes #pqForm select{-webkit-appearance:none;appearance:none;padding-right:38px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238fa1b0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
+#quoteForm select:disabled,#page-quotes #pqForm select:disabled{cursor:not-allowed}
+#quoteForm input[type=date],#page-quotes #pqForm input[type=date]{color-scheme:dark;cursor:text}
+html[data-theme="light"] #quoteForm input[type=date],html[data-theme="light"] #page-quotes #pqForm input[type=date]{color-scheme:light}
+
+/* hints, errors, counters */
+#quoteForm .q-hint,#page-quotes #pqForm .q-hint{display:block;margin-top:7px;font-size:12.5px;line-height:1.45;color:var(--text-faint)}
+#quoteForm .err-text,#page-quotes #pqForm .err-text{margin-top:6px;font-size:12.5px;line-height:1.4;color:var(--red)}
+#quoteForm .err-text:empty,#page-quotes #pqForm .err-text:empty{display:none}
+#quoteForm .q-meta,#page-quotes #pqForm .q-meta{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+#quoteForm .q-count,#page-quotes #pqForm .q-count{margin:6px 0 0 auto;font:500 11.5px "IBM Plex Mono",monospace;color:var(--text-faint);white-space:nowrap}
+#quoteForm .qx-custom,#page-quotes #pqForm .qx-custom{margin-top:8px}
+#quoteForm .qx-empty,#page-quotes #pqForm .qx-empty{display:block;margin-top:6px}
+
+/* "Sizes and details" sub-heading and the suggestion banner */
+#quoteForm .qx-title,#page-quotes #pqForm .qx-title{display:flex;align-items:center;gap:12px;margin:6px 0 14px;font:700 11.5px/1 Inter,system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint)}
+#quoteForm .qx-title::after,#page-quotes #pqForm .qx-title::after{content:"";flex:1;height:1px;background:var(--border)}
+#quoteForm .qx-narrow,#page-quotes #pqForm .qx-narrow{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin:-2px 0 16px;padding:10px 12px;border:1px solid rgba(74,144,217,.38);border-radius:10px;background:rgba(74,144,217,.08);font-size:13px;line-height:1.5;color:var(--text-dim)}
+#quoteForm .qx-narrow[hidden],#page-quotes #pqForm .qx-narrow[hidden]{display:none}
+#quoteForm .qx-narrow b,#page-quotes #pqForm .qx-narrow b{color:var(--text);font-weight:650}
+#quoteForm .qx-narrow span,#page-quotes #pqForm .qx-narrow span{flex:1 1 220px;min-width:0}
+#quoteForm .qx-link,#page-quotes #pqForm .qx-link{flex:none;min-height:32px;margin:0 0 0 auto;padding:5px 13px;border:1px solid var(--blue-bright);border-radius:999px;background:transparent;color:var(--blue-bright);font:650 12.5px/1 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none;cursor:pointer;transition:background .15s,color .15s}
+#quoteForm .qx-link:hover,#page-quotes #pqForm .qx-link:hover{background:var(--blue-bright);color:var(--btn-ink)}
+#quoteForm .qx-link:focus-visible,#page-quotes #pqForm .qx-link:focus-visible{outline:none;box-shadow:var(--ring)}
+
+/* quantity + unit: one joined control */
+#quoteForm .qx-row,#page-quotes #pqForm .qx-row{display:flex;gap:0;align-items:stretch}
+#quoteForm .qx-row input,#page-quotes #pqForm .qx-row input{flex:1 1 auto;min-width:0;width:auto;border-top-right-radius:0;border-bottom-right-radius:0}
+#quoteForm .qx-row select,#page-quotes #pqForm .qx-row select{flex:0 0 118px;width:118px;min-width:0;margin-left:-1px;border-top-left-radius:0;border-bottom-left-radius:0;background-color:var(--inset);font-weight:600}
+#quoteForm .qx-row input:focus,#quoteForm .qx-row select:focus,#page-quotes #pqForm .qx-row input:focus,#page-quotes #pqForm .qx-row select:focus{position:relative;z-index:1}
+
+@media(max-width:640px){
+  #quoteForm .q-grid,#page-quotes #pqForm .q-grid{grid-template-columns:minmax(0,1fr)}
+  #quoteForm .qx-row select,#page-quotes #pqForm .qx-row select{flex-basis:104px;width:104px}
+  #quoteForm .qx-link,#page-quotes #pqForm .qx-link{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){
+  #quoteForm input,#quoteForm select,#quoteForm textarea,#page-quotes #pqForm input,#page-quotes #pqForm select,#page-quotes #pqForm textarea,#quoteForm .qx-link,#page-quotes #pqForm .qx-link{transition:none}
+}

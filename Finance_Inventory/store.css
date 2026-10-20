@@ -262,3 +262,69 @@ html[data-theme="light"] .pd-stockmsg.bad{color:#b53a3a}
 .star-pick button.on{color:var(--amber)}.star-pick button:hover{transform:scale(1.1)}
 @media(max-width:600px){.q-grid{grid-template-columns:1fr}.quote-form{padding:18px 16px 20px}.q-seg{grid-template-columns:1fr}}
 .q-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+/* =====================================================================================================================
+   Request a quote, v2 (customer). Field look lives in quote-fields.css; this block is the page frame, step headings,
+   delivery / pickup cards, submit area and the side column.
+   ===================================================================================================================== */
+.page-head p{max-width:62ch;font-size:14px;line-height:1.5}
+.quote-form{padding:26px 28px 28px}
+#quoteForm .qf-sec{align-items:flex-start;gap:12px;margin:30px 0 18px;padding-top:26px}
+#quoteForm .qf-sec.first{margin-top:0;padding-top:0}
+#quoteForm .qf-num{width:30px;height:30px;font-size:14px;background:linear-gradient(180deg,var(--blue-bright),var(--blue));color:var(--btn-ink)}
+#quoteForm .qf-txt{display:flex;flex-direction:column;gap:3px;min-width:0}
+#quoteForm .qf-txt b{font:600 17px/1.2 Oswald,sans-serif;letter-spacing:.3px}
+#quoteForm .qf-txt small{font:400 12.5px/1.4 Inter,system-ui,sans-serif;letter-spacing:0;color:var(--text-faint)}
+#quoteForm .q-sub{margin:20px 0 12px;font:700 11.5px/1 Inter,system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint)}
+
+/* delivery / pickup cards */
+#quoteForm .q-seg{gap:14px}
+#quoteForm .q-opt-body{position:relative;flex-direction:row;align-items:center;gap:14px;padding:15px 48px 15px 16px;border-radius:12px}
+#quoteForm .q-opt-ico{flex:none;width:40px;height:40px;padding:9px;border-radius:10px;background:var(--inset);color:var(--text-dim);fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:background .15s,color .15s}
+#quoteForm .q-opt-txt{display:flex;flex-direction:column;gap:2px;min-width:0}
+#quoteForm .q-opt-body b{font:600 15px/1.25 Inter,system-ui,sans-serif;text-transform:none;letter-spacing:0}
+#quoteForm .q-opt-body small{font:400 12.5px/1.4 Inter,system-ui,sans-serif;text-transform:none;letter-spacing:0}
+#quoteForm .q-opt-body::after{content:"";position:absolute;right:16px;top:50%;width:20px;height:20px;margin-top:-10px;border:1.5px solid var(--border);border-radius:50%;background:var(--field);transition:border-color .15s,background .15s}
+#quoteForm .q-opt input:checked+.q-opt-body .q-opt-ico{background:var(--blue-bright);color:var(--btn-ink)}
+#quoteForm .q-opt input:checked+.q-opt-body::after{border-color:var(--blue-bright);background:var(--blue-bright) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5.5 10.5l3 3 6-6.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/16px no-repeat}
+#quoteForm #qDeliveryBox,#quoteForm #qPickupBox{margin-top:16px}
+#quoteForm #qAddrNew{padding:18px 18px 2px;border:1px dashed var(--border);border-radius:12px;background:var(--inset)}
+#quoteForm #qAddrNew .q-hint{margin:0 0 16px}
+
+/* submit */
+#quoteForm .q-formerr{margin:6px 0 0}
+#quoteForm button[type=submit]{margin-top:26px;min-height:50px}
+#quoteForm .q-foot-note{margin:12px 0 0;text-align:center;font-size:12.5px;line-height:1.5;color:var(--text-faint)}
+
+/* side column */
+.quote-how{padding:18px 20px}
+.quote-how h3,.quote-side h3{margin:0 0 14px;font:600 11.5px/1 Inter,system-ui,sans-serif;letter-spacing:.09em;text-transform:uppercase;color:var(--text-faint)}
+.q-how-list{display:grid;gap:14px;margin:0;padding:0;list-style:none;counter-reset:qhow}
+.q-how-list li{position:relative;display:grid;gap:2px;padding-left:36px;counter-increment:qhow}
+.q-how-list li::before{content:counter(qhow);position:absolute;left:0;top:0;display:grid;place-items:center;width:25px;height:25px;border-radius:50%;background:rgba(74,144,217,.16);color:var(--blue-bright);font:700 12.5px Inter,sans-serif}
+.q-how-list b{font:600 13.5px/1.35 Inter,system-ui,sans-serif}
+.q-how-list span{font-size:12.5px;line-height:1.5;color:var(--text-faint)}
+
+.quote-side .quote-row{margin:0 0 12px;padding:14px;border:1px solid var(--border);border-radius:12px;background:var(--inset)}
+.quote-side .quote-row:last-child{margin-bottom:0}
+.quote-side .quote-row:first-child{padding-top:14px}
+.quote-side .quote-row .order-head{align-items:center;margin-bottom:6px}
+.quote-side .quote-row .order-head .id{font-size:14.5px}
+.quote-side .quote-row>.dim{font-size:13px;line-height:1.5}
+.quote-side .quote-row .row{padding:4px 0;font-size:13.5px}
+.quote-side .quote-row .row:first-of-type{margin-top:6px}
+.quote-side .quote-row .refund-why{margin-top:8px;padding:9px 11px;border-radius:8px;background:var(--card);font-size:12.5px;line-height:1.5;color:var(--text-dim)}
+.quote-side .quote-row label.dim{display:block;margin:0 0 6px;font:600 12.5px/1.3 Inter,system-ui,sans-serif;letter-spacing:0;text-transform:none}
+.quote-side .quote-row select{min-height:42px;border-radius:10px}
+.quote-side .q-actions{margin-top:12px;gap:8px}
+.quote-side .q-actions .btn-primary,.quote-side .q-actions .btn-secondary{flex:1 1 auto;min-height:38px;padding:8px 12px;font-size:12.5px}
+.q-empty{display:grid;justify-items:center;gap:4px;padding:22px 12px;border:1px dashed var(--border);border-radius:12px;text-align:center}
+.q-empty svg{width:28px;height:28px;margin-bottom:4px;fill:none;stroke:var(--text-faint);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.q-empty b{font-size:14px}
+.q-empty span{font-size:12.5px;line-height:1.5;color:var(--text-faint)}
+
+@media(max-width:600px){
+  .quote-form{padding:20px 16px 22px}
+  #quoteForm .qf-txt b{font-size:16px}
+  #quoteForm .q-opt-body{padding-right:44px}
+}
+.quote-side .quote-row select{width:100%;-webkit-appearance:none;appearance:none;padding:9px 38px 9px 13px;border:1px solid var(--border);background-color:var(--field);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238fa1b0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;font:400 14px/1.3 Inter,system-ui,sans-serif;cursor:pointer}
