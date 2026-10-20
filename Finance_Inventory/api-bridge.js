@@ -254,6 +254,20 @@
     'out:other': 'Anything not listed. Note required: explain what happened.'
   };
 
+  // department dropdown: dynamically built from inventory data
+  function fillMovementDepartments() {
+    const select = $('movementDept');
+    if (!select) return;
+    const depts = [...new Set(inventoryCache.map((i) => i.department).filter(Boolean))].sort();
+    const sig = depts.join(',');
+    if (select.dataset.deptSig === sig) return;
+    select.dataset.deptSig = sig;
+    const prev = select.value;
+    select.innerHTML = '<option value="">All departments</option>' +
+      depts.map((d) => '<option value="' + esc(d) + '">' + esc(d) + '</option>').join('');
+    if (depts.indexOf(prev) >= 0) select.value = prev;
+  }
+
   // product dropdown only lists products of the chosen department
   function fillMovementProducts() {
     const select = $('movementProduct');
@@ -292,6 +306,7 @@
     const form = $('movementForm');
     if (!form) return;
     const type = movementType();
+    fillMovementDepartments();
     fillMovementProducts();
     fillReasons();
     if (window.ProductionUI) window.ProductionUI.beforeSync();   // Finished Goods Stock In: source picker sets the reason
