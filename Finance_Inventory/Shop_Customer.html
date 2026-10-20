@@ -1383,6 +1383,8 @@ async function loadQuotes() {
       ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
       ${q.leadTime ? `<div class="row"><span>Ready in</span><span>${esc(q.leadTime)}</span></div>` : ''}
+      ${q.estimatedReady ? `<div class="row"><span>Estimated ready date</span><span>${new Date(q.estimatedReady + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}${q.readyFromAcceptance ? '' : ' <span class="dim">(if you accept today)</span>'}</span></div>` : ''}
+      ${q.estimatedReady && q.lateForNeededBy ? `<div class="dim" style="color:#b32929">This is later than the date you asked for${q.neededBy ? ' (' + qDay(q.neededBy) + ')' : ''}. You can still accept, or ask for a new quote.</div>` : ''}
       ${q.validUntil && q.status === 'quoted' ? `<div class="row"><span>${q.expired ? 'Expired on' : 'Price valid until'}</span><span>${qDay(q.validUntil)}</span></div>` : ''}
       ${termsRows(q)}
       ${pay}

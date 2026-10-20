@@ -145,6 +145,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     service: ['None (as is)', 'Cut to size', 'Bending', 'Cut and bend', 'Drilling / punching', 'Welding / fabrication'],
     customAllowed: ['size', 'thickness'],                                    // these two also accept a typed value ("Other...")
     leadTimes: ['1 to 3 working days', '1 week', '2 weeks', '3 weeks', '1 month', '2 months', '3 months', '4 to 6 months'],
+    // how many WORKING days (Mon-Fri) each lead time means, so the screens can show a real calendar date. Upper bound of the wording.
+    leadWorkdays: { '1 to 3 working days': 3, '1 week': 5, '2 weeks': 10, '3 weeks': 15, '1 month': 22, '2 months': 44, '3 months': 66, '4 to 6 months': 132 },
     validDays: [3, 7, 14, 30],
     payMethods: ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card']
   };
@@ -248,6 +250,26 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
   };
 
+  /* Estimated ready date. The clock starts when the customer accepts (responded_at); before that it is shown as "if accepted today".
+     Weekends are skipped; holidays are not known, so it is an estimate, not a promise. */
+  const addWorkdays = (iso, n) => { let d = new Date(iso + 'T00:00:00Z'), left = n; while (left > 0) { d = new Date(d.getTime() + 86400000); const w = d.getUTCDay(); if (w !== 0 && w !== 6) left--; } return d.toISOString().slice(0, 10); };
+  const phDay = (t) => (t ? new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) : null);
+  // lead_time is free TEXT in the database: quotes saved before the dropdown ("3-5 working days", "2 weeks") still get a date
+  const leadWorkdaysOf = (t) => {
+    if (QUOTE_OPTIONS.leadWorkdays[t] != null) return QUOTE_OPTIONS.leadWorkdays[t];
+    const x = String(t || '').toLowerCase().match(/(\d+)(?:\s*(?:-|\u2013|to)\s*(\d+))?\s*(working\s*day|day|week|month)s?/);
+    if (!x) return undefined;
+    const n = Number(x[2] || x[1]);
+    return /day/.test(x[3]) ? n : x[3] === 'week' ? n * 5 : n * 22;
+  };
+  const readyBy = (leadTime, startIso) => { const n = leadWorkdaysOf(leadTime); return n && startIso ? addWorkdays(startIso, n) : undefined; };
+  const quoteReadyBy = (q) => {
+    if (!q || !q.lead_time || ['declined', 'closed', 'new', 'pending_approval', 'awaiting_details'].includes(q.status)) return undefined;
+    const started = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) && q.responded_at;
+    return readyBy(q.lead_time, started ? phDay(q.responded_at) : todayPH());
+  };
+  app.locals.quoteReadyBy = quoteReadyBy;
+  app.locals.readyBy = readyBy;
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
   const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
@@ -268,6 +290,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
       proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
+      estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
+      lateForNeededBy: (() => { const r = quoteReadyBy(q), n = dateStr(q.needed_by); return !!(r && n && r > n) || undefined; })(),
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
       respondedAt: ms(q.responded_at), responseNote: q.response_note || undefined,
       paidAmount: paid, balance: total == null ? undefined : Math.max(0, round2(total - paid)),
@@ -285,9 +309,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const termsLines = (q) => {
     const t = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
     if (!t || t.state === 'proposed' || t.total == null) return [];
-    if (t.key === 'full' || +t.percent >= 100) return [`Payment terms: Full Payment - ${peso(t.total)} before ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}`];
-    return [`Payment terms: ${t.percent}% now (${peso(t.amount)}), balance ${peso(t.balance)} - ${t.condition || 'due before release'}`]
-      .concat(t.availability ? [`Estimated availability: ${t.availability}`] : []);
+    const head = (t.key === 'full' || +t.percent >= 100)
+      ? `Payment terms: Full Payment - ${peso(t.total)} before ${q.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}`
+      : `Payment terms: ${t.percent}% now (${peso(t.amount)}), balance ${peso(t.balance)} - ${t.condition || 'due before release'}`;
+    const est = quoteReadyBy(q);
+    return [head].concat(t.availability ? [`Estimated availability: ${t.availability}${est ? ' (about ' + needText(est) + ' if accepted today)' : ''}`] : []);
   };
   const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);
   const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
@@ -725,7 +751,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
       if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
         `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
-        `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}`, `Price valid until: ${dateStr(q.valid_until)}`,
+        `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}${quoteReadyBy(q) ? ' (about ' + needText(quoteReadyBy(q)) + ' if you accept today)' : ''}`, `Price valid until: ${dateStr(q.valid_until)}`,
         ...termsLines(q),
         ...(q.reply_note ? ['', q.reply_note] : []), '',
         `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. Accepting covers these payment terms too. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
@@ -737,7 +763,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const msgFor = (q, st) => {
     const f = q.fulfillment, bal = Math.max(0, round2(+q.quoted_amount - (+q.paid_amount || 0))), shop = (shopInfo() || {}).address;
     const owe = bal > 0 ? ` Balance to pay ${f === 'Delivery' ? 'on delivery' : 'at pickup'}: ${peso(bal)}.` : ' Your quote is fully paid.';
-    if (st === 'preparing') return { title: 'We started on your order', body: `${q.quote_no} is now being prepared.${q.lead_time ? ' Estimated time: ' + q.lead_time + '.' : ''}` };
+    if (st === 'preparing') return { title: 'We started on your order', body: `${q.quote_no} is now being prepared.${q.lead_time ? ' Estimated time: ' + q.lead_time + (quoteReadyBy(q) ? ', about ' + needText(quoteReadyBy(q)) : '') + '.' : ''}` };
     if (st === 'ready') return f === 'Delivery'
       ? { title: 'Your order is out for delivery', body: `${q.quote_no} is on its way${q.area ? ' to ' + q.area : ''}.${owe}` }
       : { title: 'Your order is ready for pickup', body: `${q.quote_no} is ready${shop ? ' at ' + shop : ' at our shop'}.${owe}` };

@@ -3,35 +3,14 @@
    shop-extras.js already owns the quotation life-cycle (create, clarify, price, approve, respond, pay, fulfil).
    This module only adds what the desk screen needs on top of it, without changing those routes:
      • GET    /api/pos/quote-desk                     full-width list: search, status/source filters, sorting, pagination, facet counts
-     • GET    /api/pos/quote-desk/:no                 one quotation in full, with its whole clarification history and attachments
-     • POST   /api/pos/quote-desk/:no/attachments     reference drawing / product photo (JPG, PNG, WEBP or PDF, max 5 MB, 3 per quote)
-     • GET    /api/pos/quote-desk/:no/attachments/:id  serve the file bytes
-     • DELETE /api/pos/quote-desk/:no/attachments/:id  remove one
+     • GET    /api/pos/quote-desk/:no                 one quotation in full, with its whole clarification history
      • POST   /api/pos/quote-desk/:no/convert         accepted quotation -> order (online customer) or POS hand-off (walk-in)
-
-   Files live in PostgreSQL as BYTEA, exactly like the proof-of-delivery photos in order-delivery.js, so nothing is written to the
-   Cloud Run container's disk (which is ephemeral) and there is no extra bucket to secure.
 
    Mounted in server.js:  require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 */
-const express = require('express');
-
-const MAX_FILES = 3;
-const MAX_FILE_BYTES = '5mb';
-const FILE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 const PAGE_SIZES = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 const REQUEST_ID_RE = /^[a-zA-Z0-9-]{12,100}$/;
-
-/* Magic-number check, same idea as sniff() in order-delivery.js: the declared content type is never trusted. */
-function sniff(buf) {
-  if (!Buffer.isBuffer(buf) || buf.length < 4) return null;
-  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
-  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
-  if (buf.length > 12 && buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
-  if (buf.toString('ascii', 0, 5) === '%PDF-' && Number(buf[5]) >= 45) return 'application/pdf';
-  return null;
-}
 
 /* The quoted quantity must be in the unit the product is sold in. Without this, "5 kg" on a product sold by pcs would become
    5 pcs at (price / 5) each: the number crosses over but the unit does not. */
@@ -67,18 +46,8 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS contact_email TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS company_name TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS flexible_date BOOLEAN NOT NULL DEFAULT FALSE');
-      await pool.query(`CREATE TABLE IF NOT EXISTS quote_attachments (
-        attachment_id BIGSERIAL PRIMARY KEY,
-        quote_id      BIGINT NOT NULL REFERENCES quote_requests(quote_id) ON DELETE CASCADE,
-        file_name     TEXT NOT NULL,
-        mime          TEXT NOT NULL,
-        size_bytes    INT  NOT NULL,
-        data          BYTEA NOT NULL,
-        uploaded_by   INT  REFERENCES users(user_id),
-        created_at    TIMESTAMPTZ NOT NULL DEFAULT now())`);
-      await pool.query('CREATE INDEX IF NOT EXISTS idx_quote_attachments ON quote_attachments (quote_id, attachment_id)');
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_convert_request ON quote_requests (convert_request_id) WHERE convert_request_id IS NOT NULL');
-      console.log('[quote-desk] attachment / conversion columns ready');
+      console.log('[quote-desk] conversion columns ready');
     } catch (err) { console.warn('[quote-desk] could not prepare the quotation desk tables:', err.message); }
   })();
   app.use('/api/pos/quote-desk', (req, res, next) => { ready.then(() => next(), next); });
@@ -117,15 +86,17 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       flexibleDate: q.flexible_date === true, company: q.company_name || null,
       fulfillment: q.fulfillment || null, area: q.area || null, source: q.source || 'shop', requestDate: ms(q.created_at),
       amount: money(total), proposedAmount: money(q.proposed_amount), leadTime: q.lead_time || null,
+      estimatedReady: ((app.locals.quoteReadyBy && app.locals.quoteReadyBy(q)) || null),
+      lateForNeededBy: !!(app.locals.quoteReadyBy && app.locals.quoteReadyBy(q) && dateStr(q.needed_by) && app.locals.quoteReadyBy(q) > dateStr(q.needed_by)),
       validUntil: dateStr(q.valid_until) || null, expired, status: q.status, statusLabel: labelFor(q.status, q.fulfillment, expired),
       paidAmount: money(q.paid_amount), balance: total == null ? null : Math.max(0, round2(total - (+q.paid_amount || 0))),
       // both come from the payment ledger trigger in PostgreSQL, never worked out here
       paymentState: q.payment_state || (+q.paid_amount > 0 && total != null && +q.paid_amount >= total ? 'paid' : +q.paid_amount > 0 ? 'partially_paid' : 'unpaid'),
-      clarificationStatus: q.clarification_status || null, attachmentCount: Number(q.attachment_count) || 0,
+      clarificationStatus: q.clarification_status || null,
       orderNo: q.order_no || null, converted: !!q.converted_order_id, handoverAt: ms(q.handover_at) || null, createdBy: q.created_by_name || null
     };
   };
-  const detailJson = (q, clarifications, attachments, notes) => ({
+  const detailJson = (q, clarifications, notes) => ({
     ...briefJson(q),
     details: q.details, replyNote: q.reply_note || null, approvalReason: q.approval_reason || null,
     contactEmail: q.contact_email || null,
@@ -141,7 +112,6 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       response: c.response || undefined, submittedSpecs: c.submitted_specs || undefined, askedBy: c.asked_by_name || undefined,
       createdAt: ms(c.created_at), answeredAt: ms(c.answered_at)
     })),
-    attachments: attachments.map((a) => ({ id: Number(a.attachment_id), name: a.file_name, mime: a.mime, sizeBytes: Number(a.size_bytes), url: `/api/pos/quote-desk/${encodeURIComponent(q.quote_no)}/attachments/${a.attachment_id}`, uploadedBy: a.uploaded_by_name || undefined, createdAt: ms(a.created_at) })),
     notes
   });
 
@@ -169,7 +139,6 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
     const [pageRows, facetRows, totals, baseTotals] = await Promise.all([
       pool.query(
         `SELECT q.*, c.full_name AS created_by_name, h.full_name AS handled_by_name, cu.email AS customer_email, o.order_no,
-                (SELECT count(*) FROM quote_attachments a WHERE a.quote_id = q.quote_id) AS attachment_count,
                 (SELECT k.status FROM quote_clarifications k WHERE k.quote_id = q.quote_id AND k.status = 'awaiting_customer' LIMIT 1) AS clarification_status
            FROM quote_requests q
            LEFT JOIN users c ON c.user_id = q.created_by
@@ -219,68 +188,10 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
     const { rows: clar } = await pool.query(
       `SELECT k.*, u.full_name AS asked_by_name FROM quote_clarifications k LEFT JOIN users u ON u.user_id = k.created_by
         WHERE k.quote_id = $1 ORDER BY k.created_at DESC`, [q.quote_id]);
-    const { rows: files } = await pool.query(
-      `SELECT a.attachment_id, a.file_name, a.mime, a.size_bytes, a.uploaded_by, a.created_at, u.full_name AS uploaded_by_name
-         FROM quote_attachments a LEFT JOIN users u ON u.user_id = a.uploaded_by
-        WHERE a.quote_id = $1 ORDER BY a.attachment_id`, [q.quote_id]);
     const { rows: log } = await pool.query(
       `SELECT action, detail, user_name, role_label, occurred_at FROM audit_log
         WHERE detail LIKE '%' || $1 || '%' ORDER BY occurred_at DESC LIMIT 25`, [no]);
-    res.json(detailJson(q, clar, files, log.map((l) => ({ at: ms(l.occurred_at), action: l.action, detail: l.detail, by: `${l.user_name || 'System'} (${l.role_label || ''})` }))));
-  }));
-
-  /* ---------------- attachments ---------------- */
-  const photoUpload = express.raw({ type: FILE_TYPES, limit: MAX_FILE_BYTES });
-  async function loadQuoteForFile(client, no) {
-    const q = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [no])).rows[0];
-    if (!q) throw bad('id', 'Quotation not found');
-    if (['completed', 'closed', 'declined'].includes(q.status)) throw bad('status', 'A finished quotation can no longer be changed');
-    return q;
-  }
-  const fileNameOf = (raw) => {
-    const n = String(raw || '').trim().replace(/[\\/:*?"<>|]/g, '').slice(0, 120);
-    return n || 'reference';
-  };
-
-  app.post('/api/pos/quote-desk/:no/attachments', auth('cashier'), photoUpload, wrap(async (req, res) => {
-    const mime = sniff(req.body);
-    if (!mime) throw bad('attachment', 'Choose a JPG, PNG, WEBP image or a PDF (max 5 MB)');
-    const id = await tx(async (client) => {
-      const q = await loadQuoteForFile(client, req.params.no);
-      const n = await client.query('SELECT count(*)::int AS n FROM quote_attachments WHERE quote_id = $1', [q.quote_id]);
-      if (n.rows[0].n >= MAX_FILES) throw bad('attachment', `A quotation can have up to ${MAX_FILES} reference files. Remove one first`);
-      const ins = await client.query(
-        `INSERT INTO quote_attachments (quote_id, file_name, mime, size_bytes, data, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6) RETURNING attachment_id`,
-        [q.quote_id, fileNameOf(req.query.name), mime, req.body.length, req.body, req.user.id]);
-      await client.query('UPDATE quote_requests SET updated_at = now() WHERE quote_id = $1', [q.quote_id]);
-      await audit(client, req.user, 'Record edited', `Reference file added to quote ${q.quote_no}`);
-      return Number(ins.rows[0].attachment_id);
-    });
-    res.status(201).json({ id });
-  }));
-
-  // Cashier or Finance can read the file; the query is keyed on the quote reference so one quote's id cannot leak another's.
-  app.get('/api/pos/quote-desk/:no/attachments/:id', auth('cashier', 'finance'), wrap(async (req, res) => {
-    if (!/^\d{1,12}$/.test(String(req.params.id))) throw bad('attachment', 'File not found');
-    const r = await pool.query(
-      `SELECT a.mime, a.data, a.file_name FROM quote_attachments a JOIN quote_requests q ON q.quote_id = a.quote_id
-        WHERE a.attachment_id = $1 AND q.quote_no = $2`, [Number(req.params.id), req.params.no]);
-    if (!r.rowCount) throw bad('attachment', 'File not found');
-    res.setHeader('Content-Type', r.rows[0].mime);
-    res.setHeader('Content-Disposition', 'inline; filename="' + String(r.rows[0].file_name).replace(/["\r\n]/g, '') + '"');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.end(r.rows[0].data);
-  }));
-
-  app.delete('/api/pos/quote-desk/:no/attachments/:id', auth('cashier'), wrap(async (req, res) => {
-    if (!/^\d{1,12}$/.test(String(req.params.id))) throw bad('attachment', 'File not found');
-    await tx(async (client) => {
-      const q = await loadQuoteForFile(client, req.params.no);
-      const del = await client.query('DELETE FROM quote_attachments WHERE attachment_id = $1 AND quote_id = $2', [Number(req.params.id), q.quote_id]);
-      if (!del.rowCount) throw bad('attachment', 'File not found');
-      await audit(client, req.user, 'Record edited', `Reference file removed from quote ${q.quote_no}`);
-    });
-    res.json({ ok: true });
+    res.json(detailJson(q, clar, log.map((l) => ({ at: ms(l.occurred_at), action: l.action, detail: l.detail, by: `${l.user_name || 'System'} (${l.role_label || ''})` }))));
   }));
 
   /* ---------------- accepted quotation -> order / POS transaction ----------------
@@ -405,5 +316,5 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
     ready
   };
 
-  return { ready, briefJson, detailJson, splitQuantity, sniff, labelFor };
+  return { ready, briefJson, detailJson, splitQuantity, labelFor };
 };

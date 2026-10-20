@@ -85,6 +85,10 @@ async function main() {
     const list = await call('customer', 'GET', '/api/shop/quotes');
     const quoted = list.body.find((q) => q.status === 'quoted');
     ok('the customer sees the priced quote with the approved amount', !!quoted && quoted.quotedAmount > 0, list.body);
+    const isoOk = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v || '');
+    const dow = (v) => new Date(v + 'T00:00:00Z').getUTCDay();
+    ok('a priced quote carries an estimated ready date, "if accepted today"', isoOk(quoted.estimatedReady) && !quoted.readyFromAcceptance, quoted);
+    ok('the estimated ready date is after today and never a weekend', quoted.estimatedReady > new Date().toISOString().slice(0, 10) && dow(quoted.estimatedReady) !== 0 && dow(quoted.estimatedReady) !== 6, quoted.estimatedReady);
     const noMethod = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept' });
     ok('accepting without choosing how to pay is refused', noMethod.status === 400 && noMethod.body.fields.payMethod, noMethod);
     const yes = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept', payMethod: 'cod' });
@@ -93,6 +97,7 @@ async function main() {
     const card = back.body.find((q) => q.id === quoted.id);
     ok('the payment label is resolved, not raw SQL text', /^Pay on /.test(card.payMethod || ''), card);
     ok('acceptance never marks the quote paid', +card.paidAmount === 0, card);
+    ok('after acceptance the date is counted from the acceptance day', isoOk(card.estimatedReady) && card.readyFromAcceptance === true, card);
     ok('acceptance never creates an order', card.orderNo == null && (await state()).orders.length === 0, card);
 
     const first = await call('cashier', 'POST', '/api/pos/quote-desk/' + quoted.id + '/convert', { requestId: 'online-convert-000000000001' });

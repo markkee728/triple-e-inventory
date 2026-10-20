@@ -184,6 +184,7 @@
         row('Paid so far', money(d.paidAmount) || '₱0.00'),
         row('Balance', d.balance != null ? money(d.balance) : '—'),
         row('Estimated availability', esc(d.leadTime || '—')),
+        row('Estimated ready date', d.estimatedReady ? '<b>' + esc(day(d.estimatedReady)) + '</b> <span class="dim">· ' + (d.readyFromAcceptance ? 'counted from the day the customer accepted' : 'if the customer accepts today') + '</span>' + (d.lateForNeededBy ? ' <span class="qd-pill warn">later than the date they need it</span>' : '') : '—'),
         row('Price valid until', d.validUntil ? day(d.validUntil) + (d.expired ? ' <span class="qd-pill bad">expired</span>' : '') : '—'),
         row('Approval status', d.approvalReason ? '<span class="qd-pill warn">Finance asked</span> ' + esc(d.approvalReason)
           : d.status === 'pending_approval' ? 'waiting for Finance' : '—'),
@@ -191,7 +192,6 @@
         row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
 
       sec('Payment terms on this quotation', termsSectionHtml(d)),
-      sec('Reference drawings & photos', filesHtml(d)),
       sec('History', timelineHtml(d)),
       d.orderNo ? sec('Converted', '<div class="qd-callout ok">This quotation became order <b>' + esc(d.orderNo) + '</b>. A quotation is not a reservation: stock leaves inventory only at the sale or order-confirm step.</div>') : '',
       sec('Pricing', priceFormHtml(d))
@@ -206,18 +206,6 @@
       loadTermOptions(form, total, (d.terms || {}).key);
     }
     if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
-  }
-  function filesHtml(d) {
-    const files = d.attachments || [];
-    const grid = files.length ? '<div class="qd-files">' + files.map((f) =>
-      '<div class="qd-file"><button type="button" class="qd-del" data-delfile="' + f.id + '" aria-label="Remove ' + esc(f.name) + '">&times;</button>' +
-      (f.mime === 'application/pdf' ? '<div class="qd-pdf">PDF</div>' : '<img src="' + esc(f.url) + '" alt="' + esc(f.name) + '" loading="lazy">') +
-      '<b title="' + esc(f.name) + '">' + esc(f.name) + '</b><small>' + Math.max(1, Math.round((f.sizeBytes || 0) / 1024)) + ' KB · ' + day(f.createdAt) + '</small></div>').join('') + '</div>'
-      : '<p class="qd-mut dim" style="margin:0">No drawing attached yet.</p>';
-    const closed = ['completed', 'closed', 'declined'].includes(d.status);
-    return grid + (closed || (files.length >= 3) ? '' :
-      '<div class="qd-drop"><span>Add a JPG, PNG, WEBP or PDF up to 5 MB. Up to 3 files per quotation; they stay in the database, never on this machine.</span>' +
-      '<label class="btn-secondary btn-sm" for="qdFileInput">Choose file</label><input type="file" id="qdFileInput" accept="image/jpeg,image/png,image/webp,application/pdf"></div>');
   }
   function timelineHtml(d) {
     const items = (d.clarifications || []).map((c) => '<div class="qd-tl-item ' + (c.status === 'answered' ? 'done' : 'wait') + '">' +
@@ -243,6 +231,8 @@
       '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
       '<label>Estimated availability<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></label>' +
+      '<div class="qd-calc" data-ready hidden role="status"><span>Estimated ready date <span class="dim">(working days, if accepted today)</span></span><strong data-ready-date>—</strong></div>' +
+      '<div class="qd-callout warn wide" data-ready-late hidden>That is later than the date the customer needs it' + (d.neededBy ? ' (' + esc(shortDay(d.neededBy)) + ')' : '') + '. Choose a shorter time, or say in your remarks when you can deliver.</div>' +
       '<label>Quotation validity<select name="validDays" required>' + (o.validDays || []).map((x) => '<option value="' + esc(x) + '"' + (x === 7 ? ' selected' : '') + '>' + esc(x) + ' days</option>').join('') + '</select></label>' +
       '<fieldset class="qd-terms"><legend>Payment terms</legend>' +
       '<div class="qd-term-list" data-terms-opts><p class="q-hint">Reading the payment policy…</p></div>' +
@@ -454,25 +444,16 @@
     } catch (e) { toast(fieldErr(e), true); }
   }
 
-  async function uploadFile(file) {
-    const d = S.detail; if (!d || !file) return;
-    if (file.size > 5 * 1024 * 1024) return toast('That file is larger than 5 MB.', true);
-    if (!['image/jpeg', 'image/png', 'image/webp', 'application/pdf'].includes(file.type)) return toast('Choose a JPG, PNG, WEBP or PDF.', true);
-    const box = el('qdDrawerBody');
-    try {
-      const buf = await file.arrayBuffer();
-      await fetch(desk('/' + encodeURIComponent(d.id) + '/attachments?name=' + encodeURIComponent(file.name)), {
-        method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: buf });
-      await openDetail(d.id); loadDesk(); box.scrollTop = box.scrollHeight;
-    } catch (e) { toast('The file could not be stored: ' + (e.message || 'server refused it'), true); }
-  }
-  async function delFile(id) {
-    const d = S.detail; if (!d) return;
-    const go = await pqConfirm({ title: 'Remove this file?', description: 'The drawing or photo is deleted from the quotation. The customer can still see the request itself.',
-      rows: [['Quotation', d.id], ['File id', id]], acknowledgment: 'This file is no longer needed.', confirmLabel: 'Remove file' });
-    if (!go) return;
-    try { await call(desk('/' + encodeURIComponent(d.id) + '/attachments/' + id), { method: 'DELETE' }); await openDetail(d.id); loadDesk(); }
-    catch (e) { toast(fieldErr(e), true); }
+  // live "estimated ready date" under the lead-time select: working days from today (Philippine time), never a weekend
+  function updateReady(form) {
+    const d = S.detail, o = window.PQ_OPTIONS || {}, box = form.querySelector('[data-ready]'), out = form.querySelector('[data-ready-date]'), late = form.querySelector('[data-ready-late]');
+    if (!box || !d) return;
+    const n = (o.leadWorkdays || {})[form.elements.leadTime.value];
+    if (!n) { box.hidden = true; late.hidden = true; return; }
+    let x = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) + 'T00:00:00Z'), left = n;
+    while (left > 0) { x = new Date(x.getTime() + 86400000); const w = x.getUTCDay(); if (w !== 0 && w !== 6) left--; }
+    const iso = x.toISOString().slice(0, 10);
+    out.textContent = day(iso); box.hidden = false; late.hidden = !(d.neededBy && iso > d.neededBy);
   }
 
   async function submitPrice(form) {
@@ -718,8 +699,8 @@
         termTimer = setTimeout(() => loadTermOptions(e.target.form, q && okNum ? Number(e.target.value) * q.qty : 0, (d.terms || {}).key), 350); }
     });
     el('qdDrawerBody').addEventListener('change', (e) => {
+      if (e.target.name === 'leadTime') updateReady(e.target.form);
       if (e.target.name === 'exception') { const box = e.target.form.querySelector('[data-reason]'); box.hidden = !e.target.checked; if (e.target.checked) box.querySelector('textarea').focus(); }
-      if (e.target.id === 'qdFileInput') uploadFile(e.target.files[0]);
     });
     el('qdDrawerBody').addEventListener('submit', (e) => {
       if (e.target.id === 'qdPriceForm') { e.preventDefault(); submitPrice(e.target); }
@@ -734,8 +715,7 @@
       else if (['accept', 'decline', 'renew'].includes(act)) doRespond(act);
     });
     el('qdDrawerBody').addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-act],[data-delfile]'); if (!b) return;
-      if (b.dataset.delfile) { delFile(b.dataset.delfile); return; }
+      const b = e.target.closest('[data-act]'); if (!b) return;
       if (b.dataset.act === 'price') { S.openPrice = true; renderDetail(); }
       if (b.dataset.act === 'cancelprice') { S.openPrice = false; renderDetail(); }
       if (b.dataset.act === 'terms') { S.openTerms = true; renderDetail(); }

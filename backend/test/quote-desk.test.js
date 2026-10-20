@@ -178,7 +178,6 @@ async function call(method, url, { body, headers } = {}) {
   ROLE = 'customer';
   ok('the desk list refuses a customer (403)', (await call('GET', '/api/pos/quote-desk')).status === 403);
   ok('the desk detail refuses a customer (403)', (await call('GET', '/api/pos/quote-desk/QR-1001')).status === 403);
-  ok('a file upload refuses a customer (403)', (await call('POST', '/api/pos/quote-desk/QR-1005/attachments', { body: Buffer.alloc(24) })).status === 403);
   ok('conversion refuses a customer (403)', (await call('POST', '/api/pos/quote-desk/QR-1001/convert', { body: JSON.stringify({ requestId: 'x'.repeat(20) }) })).status === 403);
   ROLE = 'cashier';
 
@@ -209,33 +208,18 @@ async function call(method, url, { body, headers } = {}) {
 
   console.log('\n3. one quotation in full');
   const det = await call('GET', '/api/pos/quote-desk/QR-1002');
-  ok('detail returns the quote plus history arrays', det.status === 200 && det.json.id === 'QR-1002' && Array.isArray(det.json.clarifications) && Array.isArray(det.json.attachments), det.json && det.json.error);
+  ok('detail returns the quote plus history arrays', det.status === 200 && det.json.id === 'QR-1002' && Array.isArray(det.json.clarifications) && det.json.attachments === undefined, det.json && det.json.error);
   ok('detail carries the full specifications and the audit trail', typeof det.json.details === 'string' && Array.isArray(det.json.notes));
   ok('a fresh request reads "Pending Cashier Review" for the cashier', (await call('GET', '/api/pos/quote-desk/QR-1005')).json.statusLabel === 'Pending Cashier Review');
   const nf = await call('GET', '/api/pos/quote-desk/QR-9999');
   ok('an unknown reference is a 400 with a field error', nf.status === 400 && nf.json.fields.id !== undefined, nf.json);
 
-  console.log('\n4. reference drawings (secure storage)');
-  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(64, 7)]);
-  const up = await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=drawing%20A.png', { body: png });
-  ok('a real PNG is stored', up.status === 201 && Number(up.json.id) > 0, up.json);
-  const fake = await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=evil.sh', { body: Buffer.from('#!/bin/sh\nrm -rf /\n'), headers: { 'Content-Type': 'image/png' } });
-  ok('bytes that are not really an image are refused', fake.status === 400 && fake.json.fields.attachment !== undefined, fake.json);
-  const pdf = await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=spec.pdf', { body: Buffer.from('%PDF-1.7' + 'x'.repeat(40)), headers: { 'Content-Type': 'application/pdf' } });
-  ok('a PDF drawing is accepted', pdf.status === 201, pdf.json);
-  const served = await call('GET', '/api/pos/quote-desk/QR-1005/attachments/' + up.json.id);
-  ok('the file is served with its real type, inline and nosniff', served.status === 200 && served.headers['content-type'] === 'image/png' && served.headers['x-content-type-options'] === 'nosniff' && /^image\/png/.test(served.headers['content-disposition'] || '') === false);
-  const cross = await call('GET', '/api/pos/quote-desk/QR-1002/attachments/' + up.json.id);
-  ok('a file cannot be read through another quotation reference', cross.status === 400, cross.json);
-  for (let i = 0; i < 4; i++) await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=x.png', { body: png });
-  ok('at most 3 files per quotation', DB.attachments.filter((a) => a.quote_id === 5).length === 3, DB.attachments.filter((a) => a.quote_id === 5).length);
-  const inDetail = await call('GET', '/api/pos/quote-desk/QR-1005');
-  ok('the detail response lists the stored files with a download url', inDetail.json.attachments.length === 3 && /\/attachments\/\d+$/.test(inDetail.json.attachments[0].url), inDetail.json.attachments.length);
-  const del = await call('DELETE', '/api/pos/quote-desk/QR-1005/attachments/' + DB.attachments.filter((a) => a.quote_id === 5)[0].attachment_id);
-  ok('a file can be removed again', del.status === 200 && DB.attachments.filter((a) => a.quote_id === 5).length === 2);
-  const closedQuote = DB.quotes.get('QR-1005'); closedQuote.status = 'completed';
-  ok('a finished quotation no longer accepts files', (await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=y.png', { body: png })).status === 400);
-  closedQuote.status = 'new';
+  console.log('\n4. no reference drawings or photos any more');
+  const gone = await call('POST', '/api/pos/quote-desk/QR-1005/attachments?name=a.png', { body: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]), headers: { 'Content-Type': 'image/png' } });
+  ok('the upload route no longer exists', gone.status === 404, gone.status);
+  ok('nothing was stored', DB.attachments.length === 0, DB.attachments.length);
+  const noFiles = await call('GET', '/api/pos/quote-desk/QR-1005');
+  ok('the detail and the list carry no file fields', noFiles.json.attachments === undefined && (await call('GET', '/api/pos/quote-desk')).json.rows.every((r) => r.attachmentCount === undefined));
 
   console.log('\n5. accepted quotation -> order, exactly once');
   const conv = await call('POST', '/api/pos/quote-desk/QR-1001/convert', { body: JSON.stringify({ requestId: 'convert-pickup-0001' }) });
@@ -294,12 +278,6 @@ async function call(method, url, { body, headers } = {}) {
   ok('"12.5 linear m" parses into a quantity and a unit', JSON.stringify(desk.splitQuantity('12.5 linear m')) === JSON.stringify({ qty: 12.5, unit: 'linear m' }));
   ok('"1,200 pcs" keeps its thousands separator out of the number', desk.splitQuantity('1,200 pcs').qty === 1200);
   ok('a malformed quantity is rejected instead of guessed', desk.splitQuantity('lots of them') === null);
-  ok('PNG magic bytes are recognised', desk.sniff(Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(8)])) === 'image/png');
-  ok('JPEG magic bytes are recognised', desk.sniff(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0])) === 'image/jpeg');
-  ok('WEBP magic bytes are recognised', desk.sniff(Buffer.from('RIFF' + '\0\0\0\0' + 'WEBPVP8 ')) === 'image/webp');
-  ok('PDF magic bytes are recognised', desk.sniff(Buffer.from('%PDF-1.7 rest')) === 'application/pdf');
-  ok('a script masquerading as an image is not recognised', desk.sniff(Buffer.from('MZ executable file')) === null);
-  ok('a short buffer never matches', desk.sniff(Buffer.from('ab')) === null);
   ok('the cashier label for a customer answer says "Awaiting Customer Details"', desk.labelFor('awaiting_details', 'Pickup') === 'Awaiting Customer Details');
   ok('an expired quote is labelled as expired, not "Quote Ready"', desk.labelFor('quoted', 'Pickup', true) === 'Quote Expired');
   ok('ready means "Out for Delivery" only on delivery quotes', desk.labelFor('ready', 'Delivery') === 'Out for Delivery' && desk.labelFor('ready', 'Pickup') === 'Ready for Pickup');
