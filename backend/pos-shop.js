@@ -462,7 +462,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
     let paymentError;
-    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid') {
+    // an invoice the ledger already holds (e.g. the down payment) has nothing left to confirm; asking Xendit again every poll is wasted work
+    const booked = o.xendit_invoice_id ? (await pool.query('SELECT 1 FROM payments WHERE provider_ref = $1', [o.xendit_invoice_id])).rowCount > 0 : false;
+    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid' && !booked) {
       try {
         const inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
         await applyShopInvoice(o, inv, o.xendit_invoice_id);

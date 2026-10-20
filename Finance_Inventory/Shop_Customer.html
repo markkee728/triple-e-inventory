@@ -795,10 +795,13 @@ async function showPaid(led) {
   try { orders = await loadOrders(); } catch (e) {}
   const o = orders.find(x => x.id === id); if (!o) return;
   if (led) { o.paymentState = led.paymentState || o.paymentState; o.paidAmount = led.paidAmount; o.outstanding = led.outstanding; o.dueNow = led.dueNow; }
-  receiptShown.add(id);
+  receiptShown.add(id); markAnnounced(rcptKey(id, led && led.paidAmount != null ? led.paidAmount : (orders.find(x => x.id === id) || {}).paidAmount)); try { sessionStorage.removeItem('payInv:' + id); } catch (e) {}
   closePay(); renderOrders(); syncCounts();
   openReceipt(id, true);                       // payment confirmed: show the receipt straight away
 }
+const rcptKey = (id, amt) => 'rcptDone:' + id + ':' + (Number(amt) || 0).toFixed(2);
+const wasAnnounced = k => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
+const markAnnounced = k => { try { localStorage.setItem(k, '1'); } catch (e) {} };
 function closePay() { stopPayPoll(); payOrderId = null; payInvoice = null; payBase = 0; closeModal('payBg'); }
 function openPayModal(order, url, payment) {
   payOrderId = order.id; stopPayPoll();
@@ -849,6 +852,7 @@ const RCPT_CSS = `
 .rcpt-tot div{display:flex;justify-content:space-between;padding:3px 0;color:#5b6877}
 .rcpt-tot .grand{margin-top:6px;padding:12px 14px;background:#f1f6fb;border-radius:10px;color:#16202b;font-weight:700;font-size:17px;align-items:center}
 .rcpt-tot .grand span:last-child{font-family:"IBM Plex Mono",monospace;color:#1f5fa8}
+.balbar{margin:10px 0 2px;text-align:left}.balbar-top{display:flex;justify-content:space-between;gap:10px;font-size:13px;margin-bottom:5px}.balbar-top b{font-weight:700}.balbar-track{height:10px;border-radius:99px;background:rgba(128,140,155,.28);overflow:hidden}.balbar-track i{display:block;height:100%;border-radius:99px;background:#d69e2e;transition:width .4s ease}.balbar.full .balbar-track i{background:#2ea066}.balbar.none .balbar-track i{background:transparent}.balbar-sub{font-size:12px;opacity:.7;margin-top:4px}
 .rcpt-foot{text-align:center;padding:12px 22px 16px;font-size:12.5px;color:#7a8794;border-top:1px dashed #cfd7e0;margin-top:10px}
 .rcpt-foot b{display:block;color:#16202b;font-size:14px;margin-bottom:2px}
 .rcpt-items table{min-width:0;table-layout:auto}
@@ -900,6 +904,7 @@ function receiptHtml(o) {
       ${o.paymentState && !paid && Number(o.paidAmount) > 0 ? `<div><span>Received so far</span><span>${peso(o.paidAmount)}</span></div>` : ''}
       <div class="grand"><span>${paid ? 'Total paid' : 'Total due'}</span><span>${peso(o.total)}</span></div>
       ${o.paymentState && Number(o.outstanding) > 0 ? `<div><span>Balance still to pay</span><span>${peso(o.outstanding)}</span></div>` : ''}
+      ${balBarHtml(o)}
     </div>
     <div class="rcpt-foot"><b>Thank you for shopping with us!</b>Keep this receipt for your records.</div>
   </div>`;
@@ -971,12 +976,21 @@ function cancelBlock(o) {
 }
 /* §5: the payment state is shown next to the fulfilment status, from the ledger — never inferred from the order status,
    the chosen method or a payment page the customer came back from. */
+function balBarHtml(o) {
+  if (!['unpaid', 'partially_paid', 'paid'].includes(o.paymentState) || ['Cancelled', 'Returned'].includes(o.status)) return '';
+  const total = Number(o.total) || 0; if (!(total > 0)) return '';
+  const paid = Math.min(Math.max(Number(o.paidAmount) || 0, 0), total), left = Math.max(total - paid, 0), pct = Math.floor(paid / total * 100 + 1e-9);
+  const cls = left <= 0.005 ? 'full' : paid > 0 ? 'part' : 'none';
+  return `<div class="balbar ${cls}"><div class="balbar-top"><b>${cls === 'full' ? 'Fully paid' : pct + '% paid'}</b><span>${left > 0.005 ? peso(left) + ' remaining' : 'No balance'}</span></div>`
+    + `<div class="balbar-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>`
+    + `<div class="balbar-sub">${peso(paid)} of ${peso(total)} received</div></div>`;
+}
 function payRowHtml(o) {
   if (!o.paymentState) return '';
   const st = { unpaid: 'Not paid yet', partially_paid: 'Partially paid', paid: 'Paid in full', refunded: 'Refunded', partially_refunded: 'Partially refunded' }[o.paymentState] || o.paymentState;
   const bal = Number(o.outstanding || 0);
   return `<div class="row"><span class="dim">Payment</span><span class="mono">${esc(st)}${bal > 0 ? ' \u00B7 ' + peso(bal) + ' to pay' : ''}</span></div>`
-    + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
+    + balBarHtml(o) + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
 }
 function renderOrders() {
   $('navOrderCount').textContent = orders.length;
@@ -1596,15 +1610,22 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
       try {
         const r = await api('/api/shop/orders/' + encodeURIComponent(o.id) + '/verify-payment', { method: 'POST', body: '{}' });
         if (r.paymentStatus === 'paid' || (r.outstanding != null && Number(r.outstanding) <= 0.005) || (r.paidAmount != null && Number(r.paidAmount) + 0.005 > before)) {
-          paid = true; paidNow.push(o.id);
           Object.assign(o, { paymentState: r.paymentState, paidAmount: r.paidAmount, outstanding: r.outstanding, dueNow: r.dueNow });
+          const k = rcptKey(o.id, r.paidAmount);
+          if (wasAnnounced(k)) continue;          // already told this device about this payment (reload, second tab, next poll)
+          markAnnounced(k); paid = true; paidNow.push(o.id);
         }
       } catch (e) {}
     }
     if (paid && !$('payBg').classList.contains('show')) {
       try { orders = await loadOrders(); } catch (e) {}
       const id = paidNow.find(x => !receiptShown.has(x));
-      if (id) { receiptShown.add(id); renderOrders(); syncCounts(); openReceipt(id, true); }
+      if (id) {
+        receiptShown.add(id); renderOrders(); syncCounts();
+        let mine = false; try { mine = sessionStorage.getItem('payInv:' + id) != null; sessionStorage.removeItem('payInv:' + id); } catch (e) {}
+        // the full receipt only opens for the visit that started this payment; a payment recorded elsewhere (counter, another device) is a quiet toast
+        if (mine) openReceipt(id, true); else toast('Payment received for order ' + id + '. See My Orders for your balance.');
+      }
       else toast('Payment received. Thank you!');
     }
     return paid;
