@@ -61,31 +61,26 @@
           '<div class="rs-actions"><button type="button" class="btn-secondary" id="rsRefresh">Refresh</button><button type="button" class="btn-primary" id="rsCsv">Export CSV</button></div>' +
         '</div>' +
         '<div class="rs-filters">' +
-          '<div class="rs-chips" id="rsChips" role="group" aria-label="Period">' + PRESETS.map((p) => '<button type="button" class="rs-chip" data-p="' + p[0] + '">' + p[1] + '</button>').join('') + '</div>' +
-          '<label class="rs-date">From <input type="date" id="rsFrom"></label><label class="rs-date">To <input type="date" id="rsTo"></label>' +
+          '<div class="rs-follow" title="Change the dates in Report Period at the top of this page"><span class="rs-follow-dot"></span>Dates follow <b>Report Period</b>: <span id="rsFollow">…</span></div>' +
           '<label class="rs-date">Group by <select id="rsGrain" class="inv-select"><option value="">Auto</option><option value="day">Day</option><option value="week">Week</option><option value="month">Month</option><option value="year">Year</option></select></label>' +
           '<div class="rs-msg" id="rsMsg" role="alert"></div>' +
         '</div>' +
       '</div>' +
       '<div id="rsBody"></div>';
 
-    $('rsChips').addEventListener('click', (e) => {
-      const b = e.target.closest('.rs-chip'); if (!b) return;
-      state.preset = b.dataset.p;
-      const r = presetRange(state.preset); if (r) { state.from = r.from; state.to = r.to; }
-      syncControls(); if (r) load();
-    });
-    const onDate = () => {
-      state.preset = 'custom'; state.from = $('rsFrom').value; state.to = $('rsTo').value; syncControls();
-      const err = checkDates(); $('rsMsg').textContent = err; $('rsFrom').classList.toggle('rs-bad', !!err); $('rsTo').classList.toggle('rs-bad', !!err);
-      if (!err) load();
-    };
-    $('rsFrom').addEventListener('change', onDate); $('rsTo').addEventListener('change', onDate);
     $('rsGrain').addEventListener('change', (e) => { state.grain = e.target.value; load(); });
     $('rsRefresh').addEventListener('click', load);
     $('rsCsv').addEventListener('click', downloadCsv);
     $('rsBody').addEventListener('mouseover', tipOver); $('rsBody').addEventListener('mouseout', tipOut); $('rsBody').addEventListener('click', (e) => { if (e.target.closest('#rsRetry')) load(); });
-    const r = presetRange(state.preset); state.from = r.from; state.to = r.to; syncControls();
+    const r = sharedRange() || presetRange(state.preset); state.from = r.from; state.to = r.to; syncControls();
+    window.addEventListener('tripleE:reportrange', (e) => applyRange(e.detail));
+  }
+  /* the dates come from the Report Period panel at the top of the Reports page */
+  function sharedRange() { try { const r = window.TripleEReportRange && window.TripleEReportRange.get(); return r && r.from && r.to ? r : null; } catch (e) { return null; } }
+  function applyRange(r) {
+    if (!r || !r.from || !r.to) return;
+    state.from = r.from; state.to = r.to; syncControls();
+    const page = $('reports'); if (state.loadedOnce || (page && page.classList.contains('active-page'))) load();
   }
 
   function checkDates() {
@@ -95,8 +90,8 @@
     return '';
   }
   function syncControls() {
-    document.querySelectorAll('#rsChips .rs-chip').forEach((b) => b.classList.toggle('on', b.dataset.p === state.preset));
-    $('rsFrom').value = state.from; $('rsTo').value = state.to; $('rsGrain').value = state.grain;
+    const f = $('rsFollow'); if (f) f.textContent = state.from === state.to ? state.from : state.from + ' to ' + state.to;
+    $('rsGrain').value = state.grain;
   }
 
   /* ---------- load ---------- */

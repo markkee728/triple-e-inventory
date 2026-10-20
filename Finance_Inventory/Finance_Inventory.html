@@ -1754,13 +1754,8 @@
                 </div>
 
 
-                <!-- NEW REPORTS (server-side): Sales Overview, Top-Selling Products, Low-Stock, Inventory -->
-                <div id="repSalesRoot"></div>
-                <div id="repTopRoot"></div>
-                <div id="repLowRoot"></div>
-                <div id="repInvRoot"></div>
-
-                <!-- REPORT PERIOD -->
+                <div id="repSummaryTop" class="report-summary-top">
+<!-- REPORT PERIOD -->
 
                 <div class="panel report-period-panel">
 
@@ -1908,183 +1903,102 @@
                 </div>
 
 
-                <!-- REPORT STATS -->
-
-                <div class="stats report-stat-cards">
-
-                    <div class="stat-card icon-stat">
-
+                <!-- REPORT STATS: each box jumps to its own report below -->
+                <div class="stats report-stat-cards" id="repStatCards">
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repStockDetail" title="Open the Stock Value Detail table" aria-label="SKUs in report. Open the Stock Value Detail table">
                         <div class="stat-icon neutral">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                SKUs in report
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repSkusInReport"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">SKUs in report</div>
+                            <div class="stat-value" id="repSkusInReport">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repChartsGrid" title="See stock value by department" aria-label="Stock value. See stock value by department">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Stock value
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repStockValue"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Stock value</div>
+                            <div class="stat-value" id="repStockValue">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repMovementPanel" title="Open the Stock Movement Report" aria-label="Movements in period. Open the Stock Movement Report">
                         <div class="stat-icon blue">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Movements in period
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repMovementsInPeriod"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Movements in period</div>
+                            <div class="stat-value" id="repMovementsInPeriod">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesTxnPanel" title="Open the Sales Transaction Report" aria-label="Sales in period. Open the Sales Transaction Report">
                         <div class="stat-icon blue">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Sales in period
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repSalesInPeriod"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Sales in period</div>
+                            <div class="stat-value" id="repSalesInPeriod">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales revenue. Open the Sales Overview">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Sales revenue
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repSalesRevenue"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Sales revenue</div>
+                            <div class="stat-value" id="repSalesRevenue">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales profit. Open the Sales Overview">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Sales profit
-                            </div>
-
-                            <div
-                                class="stat-value"
-                                id="repSalesProfit"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Sales profit</div>
+                            <div class="stat-value" id="repSalesProfit">—</div>
                         </div>
-
-                    </div>
-
-
-                    <div class="stat-card icon-stat">
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repTopRoot" title="Open Top-Selling Products" aria-label="Top seller. Open Top-Selling Products">
+                        <div class="stat-icon green">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-label">Top seller</div>
+                            <div class="stat-value stat-value-text" id="repTopSeller">—</div><div class="stat-sub" id="repTopSellerSub">best product in this period</div>
+                        </div>
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repLowRoot" title="Open the Low-Stock Report" aria-label="Low-stock alerts. Open the Low-Stock Report">
                         <div class="stat-icon red">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                         </div>
-
-                        <div>
-
-                            <div class="stat-label">
-                                Low-stock alerts
-                            </div>
-
-                            <div
-                                class="stat-value alert-value"
-                                id="repLowStockAlerts"
-                            >
-                                —
-                            </div>
-
+                        <div class="stat-body">
+                            <div class="stat-label">Low-stock alerts</div>
+                            <div class="stat-value alert-value" id="repLowStockAlerts">—</div>
                         </div>
-
-                    </div>
-
+                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button>
                 </div>
+                <p class="report-jump-hint">Every report on this page follows the Report Period above. Click a box to jump to its report.</p>
 
+</div>
+
+<!-- NEW REPORTS (server-side): Sales Overview, Top-Selling Products, Low-Stock, Inventory -->
+                <div id="repSalesRoot"></div>
+                <div id="repTopRoot"></div>
+                <div id="repLowRoot"></div>
+                <div id="repInvRoot"></div>
 
                 <!-- REPORT CHARTS -->
 
-                <div class="panels report-charts-grid">
+                <div class="panels report-charts-grid" id="repChartsGrid">
 
                     <div class="panel">
 
@@ -2167,7 +2081,7 @@
 
                 <!-- STOCK VALUE DETAIL -->
 
-                <div class="panel report-detail-panel">
+                <div class="panel report-detail-panel" id="repStockDetail">
 
                     <div class="panel-title">
                         Stock Value Detail
@@ -2212,7 +2126,7 @@
 
                 <!-- STOCK MOVEMENT REPORT -->
 
-                <div class="panel report-detail-panel">
+                <div class="panel report-detail-panel" id="repMovementPanel">
 
                     <div class="panel-title">
                         Stock Movement Report
@@ -2261,7 +2175,7 @@
                      SALES REPORT
                 ================================================== -->
 
-                <div class="panel report-detail-panel">
+                <div class="panel report-detail-panel" id="repSalesTxnPanel">
 
                     <div class="panel-title">
                         Sales Transaction Report
@@ -3613,16 +3527,17 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="script.js?v=15"></script>
-    <script src="api-bridge.js?v=16"></script>
+    <script src="api-bridge.js?v=17"></script>
     <script src="sales-orders.js?v=12"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">
-    <link rel="stylesheet" href="reports-sales.css?v=4">
+    <link rel="stylesheet" href="reports-sales.css?v=5">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <script src="sales-admin.js?v=11"></script>
-    <script src="reports-sales.js?v=1"></script>
-    <script src="reports-top-products.js?v=1"></script>
+    <script src="reports-jump.js?v=1"></script>
+    <script src="reports-sales.js?v=2"></script>
+    <script src="reports-top-products.js?v=2"></script>
     <script src="reports-low-stock.js?v=1"></script>
-    <script src="reports-inventory.js?v=1"></script>
+    <script src="reports-inventory.js?v=2"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 
     <script src="refund-admin.js?v=2"></script>

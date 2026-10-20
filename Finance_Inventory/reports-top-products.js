@@ -60,8 +60,7 @@
         '<div class="panel-sub" id="tpSub">Ranked from completed sales lines. POS and online are combined, each sale counted once.</div></div>' +
         '<div class="rs-actions"><button type="button" class="btn-secondary" id="tpRefresh">Refresh</button><button type="button" class="btn-primary" id="tpCsv">Export CSV</button></div></div>' +
         '<div class="rs-filters">' +
-          '<div class="rs-chips" id="tpChips" role="group" aria-label="Period">' + PRESETS.map((p) => '<button type="button" class="rs-chip" data-p="' + p[0] + '">' + p[1] + '</button>').join('') + '</div>' +
-          '<label class="rs-date">From <input type="date" id="tpFrom"></label><label class="rs-date">To <input type="date" id="tpTo"></label>' +
+          '<div class="rs-follow" title="Change the dates in Report Period at the top of this page"><span class="rs-follow-dot"></span>Dates follow <b>Report Period</b>: <span id="tpFollow">…</span></div>' +
           '<label class="rs-date">Channel <select id="tpChannel" class="inv-select"><option value="all">POS + Online</option><option value="pos">POS only</option><option value="online">Online only</option></select></label>' +
           '<label class="rs-date">Rank by <select id="tpSort" class="inv-select"><option value="revenue">Revenue</option><option value="units">Units sold</option></select></label>' +
           '<label class="rs-date">Show <select id="tpLimit" class="inv-select"><option>10</option><option selected>20</option><option>50</option><option>100</option></select></label>' +
@@ -70,27 +69,24 @@
         '</div>' +
       '</div><div id="tpBody"></div>';
 
-    $('tpChips').addEventListener('click', (e) => {
-      const b = e.target.closest('.rs-chip'); if (!b) return;
-      state.preset = b.dataset.p; const r = presetRange(state.preset); if (r) { state.from = r.from; state.to = r.to; }
-      sync(); if (r) load();
-    });
-    const onDate = () => {
-      state.preset = 'custom'; state.from = $('tpFrom').value; state.to = $('tpTo').value; sync();
-      const err = checkDates(); $('tpMsg').textContent = err; $('tpFrom').classList.toggle('rs-bad', !!err); $('tpTo').classList.toggle('rs-bad', !!err); if (!err) load();
-    };
-    $('tpFrom').addEventListener('change', onDate); $('tpTo').addEventListener('change', onDate);
     $('tpChannel').addEventListener('change', (e) => { state.channel = e.target.value; load(); });
     $('tpSort').addEventListener('change', (e) => { state.sort = e.target.value; load(); });
     $('tpLimit').addEventListener('change', (e) => { state.limit = +e.target.value; load(); });
     $('tpSearch').addEventListener('input', (e) => { state.search = e.target.value.trim().toLowerCase(); render(); });
     $('tpRefresh').addEventListener('click', load); $('tpCsv').addEventListener('click', downloadCsv);
     $('tpBody').addEventListener('click', (e) => { if (e.target.closest('#tpRetry')) load(); });
-    const r = presetRange(state.preset); state.from = r.from; state.to = r.to; sync();
+    const r = sharedRange() || presetRange(state.preset); state.from = r.from; state.to = r.to; sync();
+    window.addEventListener('tripleE:reportrange', (e) => applyRange(e.detail));
+  }
+  /* the dates come from the Report Period panel at the top of the Reports page */
+  function sharedRange() { try { const r = window.TripleEReportRange && window.TripleEReportRange.get(); return r && r.from && r.to ? r : null; } catch (e) { return null; } }
+  function applyRange(r) {
+    if (!r || !r.from || !r.to) return;
+    state.from = r.from; state.to = r.to; sync();
+    const page = $('reports'); if (state.loadedOnce || (page && page.classList.contains('active-page'))) load();
   }
   function sync() {
-    document.querySelectorAll('#tpChips .rs-chip').forEach((b) => b.classList.toggle('on', b.dataset.p === state.preset));
-    $('tpFrom').value = state.from; $('tpTo').value = state.to;
+    const f = $('tpFollow'); if (f) f.textContent = state.from === state.to ? state.from : state.from + ' to ' + state.to;
   }
 
   async function load() {
@@ -111,17 +107,23 @@
     } catch (e) { toast(e.message, 'error'); } finally { btn.disabled = false; }
   }
 
+  /* the "Top seller" box in the summary at the top of the Reports page */
+  function setTopSeller(row) {
+    const v = $('repTopSeller'), sub = $('repTopSellerSub'); if (!v) return;
+    v.textContent = row ? row.name : '\u2014'; v.title = row ? row.name : '';
+    if (sub) sub.textContent = row ? num(row.units) + ' sold \u00B7 ' + peso(row.revenue) : 'no completed sales in this period';
+  }
   function render() {
     const body = $('tpBody'); if (!body) return;
     if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis three">' + '<div class="rs-kpi rs-skel"></div>'.repeat(3) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
-    if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load top-selling products</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="tpRetry">Try again</button></div>'; return; }
+    if (state.error) { setTopSeller(null); body.innerHTML = '<div class="panel rs-empty"><strong>Could not load top-selling products</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="tpRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
     $('tpSub').textContent = 'Completed sales only, returns and refunds deducted. ' + d.range.from + ' to ' + d.range.to + ', Philippine time.';
-    if (!d.rows.length) { body.innerHTML = '<div class="panel rs-empty"><strong>No products sold in this period</strong><p>No completed sales lines between ' + esc(d.range.from) + ' and ' + esc(d.range.to) + (d.channel !== 'all' ? ' for this channel' : '') + '. Try a wider date range.</p></div>'; return; }
+    if (!d.rows.length) { setTopSeller(null); body.innerHTML = '<div class="panel rs-empty"><strong>No products sold in this period</strong><p>No completed sales lines between ' + esc(d.range.from) + ' and ' + esc(d.range.to) + (d.channel !== 'all' ? ' for this channel' : '') + '. Try a wider date range.</p></div>'; return; }
     body.classList.toggle('rs-busy', state.loading);
     const rows = state.search ? d.rows.filter((r) => String(r.sku).toLowerCase().includes(state.search) || String(r.name).toLowerCase().includes(state.search)) : d.rows;
     const card = (l, v, s) => '<div class="rs-kpi"><div class="rs-kpi-label">' + l + '</div><div class="rs-kpi-value">' + v + '</div><div class="rs-kpi-sub">' + s + '</div></div>';
-    const best = d.rows[0];
+    const best = d.rows[0]; setTopSeller(best);
     body.innerHTML = '<div class="rs-kpis three">' + card('Products sold', num(d.totals.products), 'distinct SKUs with sales') + card('Units sold', num(d.totals.units), 'after returns') + card('Product revenue', peso(d.totals.revenue), 'best seller: ' + esc(best.name)) + '</div>' +
       chart(d) + table(d, rows);
   }

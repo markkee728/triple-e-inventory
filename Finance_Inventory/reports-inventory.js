@@ -68,24 +68,13 @@
         '<div class="panel-sub" id="ivSub">Stock in and out, material use, production, adjustments and returns. Values are at cost.</div></div>' +
         '<div class="rs-actions"><button type="button" class="btn-secondary" id="ivRefresh">Refresh</button><button type="button" class="btn-primary" id="ivCsv">Export CSV</button></div></div>' +
         '<div class="rs-filters">' +
-          '<div class="rs-chips" id="ivChips" role="group" aria-label="Period">' + PRESETS.map((p) => '<button type="button" class="rs-chip" data-p="' + p[0] + '">' + p[1] + '</button>').join('') + '</div>' +
-          '<label class="rs-date">From <input type="date" id="ivFrom"></label><label class="rs-date">To <input type="date" id="ivTo"></label>' +
+          '<div class="rs-follow" title="Change the dates in Report Period at the top of this page"><span class="rs-follow-dot"></span>Dates follow <b>Report Period</b>: <span id="ivFollow">…</span></div>' +
           '<div class="rs-msg" id="ivMsg" role="alert"></div>' +
         '</div>' +
       '</div>' +
       '<div class="rs-subtabs" id="ivTabs" role="tablist">' + TABS.map((t) => '<button type="button" class="rs-tab" role="tab" data-t="' + t[0] + '">' + t[1] + '</button>').join('') + '</div>' +
       '<div id="ivBody"></div>';
 
-    $('ivChips').addEventListener('click', (e) => {
-      const b = e.target.closest('.rs-chip'); if (!b) return;
-      state.preset = b.dataset.p; const r = presetRange(state.preset); if (r) { state.from = r.from; state.to = r.to; state.page = 1; }
-      sync(); if (r) load();
-    });
-    const onDate = () => {
-      state.preset = 'custom'; state.from = $('ivFrom').value; state.to = $('ivTo').value; state.page = 1; sync();
-      const err = checkDates(); $('ivMsg').textContent = err; $('ivFrom').classList.toggle('rs-bad', !!err); $('ivTo').classList.toggle('rs-bad', !!err); if (!err) load();
-    };
-    $('ivFrom').addEventListener('change', onDate); $('ivTo').addEventListener('change', onDate);
     $('ivTabs').addEventListener('click', (e) => { const b = e.target.closest('.rs-tab'); if (!b) return; state.tab = b.dataset.t; sync(); render(); });
     $('ivRefresh').addEventListener('click', load); $('ivCsv').addEventListener('click', downloadCsv);
     $('ivBody').addEventListener('click', (e) => {
@@ -101,12 +90,19 @@
       if (e.target.id !== 'ivSearch') return;
       state.search = e.target.value.trim().slice(0, 60); clearTimeout(state.timer); state.timer = setTimeout(() => { state.page = 1; load(true); }, 300);
     });
-    const r = presetRange(state.preset); state.from = r.from; state.to = r.to; sync();
+    const r = sharedRange() || presetRange(state.preset); state.from = r.from; state.to = r.to; sync();
+    window.addEventListener('tripleE:reportrange', (e) => applyRange(e.detail));
+  }
+  /* the dates come from the Report Period panel at the top of the Reports page */
+  function sharedRange() { try { const r = window.TripleEReportRange && window.TripleEReportRange.get(); return r && r.from && r.to ? r : null; } catch (e) { return null; } }
+  function applyRange(r) {
+    if (!r || !r.from || !r.to) return;
+    state.from = r.from; state.to = r.to; state.page = 1; sync();
+    const page = $('reports'); if (state.loadedOnce || (page && page.classList.contains('active-page'))) load();
   }
   function sync() {
-    document.querySelectorAll('#ivChips .rs-chip').forEach((b) => b.classList.toggle('on', b.dataset.p === state.preset));
     document.querySelectorAll('#ivTabs .rs-tab').forEach((b) => b.classList.toggle('on', b.dataset.t === state.tab));
-    $('ivFrom').value = state.from; $('ivTo').value = state.to;
+    const f = $('ivFollow'); if (f) f.textContent = state.from === state.to ? state.from : state.from + ' to ' + state.to;
   }
 
   async function load(keepFocus) {

@@ -1911,6 +1911,17 @@
     else if (rep.type === 'yearly') rep.anchor = addMonths(rep.anchor, 12 * dir);
   }
 
+  /* The Report Period panel is the ONE date range for the whole Reports page. Other report scripts read it from here
+     and listen for 'tripleE:reportrange' (fired whenever the from / to dates change). */
+  window.TripleEReportRange = { get: function () { const r = repRange(); return { from: r.from, to: r.to, label: r.label, invalid: !!r.invalid, type: rep.type }; } };
+  let lastBroadcast = '';
+  function broadcastRange(range) {
+    const key = range.from + '|' + range.to + '|' + (range.invalid ? 1 : 0);
+    if (key === lastBroadcast) return;
+    lastBroadcast = key;
+    try { window.dispatchEvent(new CustomEvent('tripleE:reportrange', { detail: window.TripleEReportRange.get() })); } catch (e) { /* old browser: sections keep their last range */ }
+  }
+
   /* Sales that count as real revenue in a period: POS sales that are not voided, and online orders that were
      confirmed (not pending / cancelled) and not refunded. One row per product line. Dates use Manila time. */
   const SALE_TZ = 'Asia/Manila';
@@ -2280,6 +2291,7 @@
   function renderReports() {
     if (!$('reports')) return;
     const range = repRange();
+    broadcastRange(range);
     const moves = repMovements(range);
     const inv = inventoryCache;
     const catOf = {};

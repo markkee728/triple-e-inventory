@@ -313,3 +313,115 @@
   #page-quotes .qd-form-foot{position:static;box-shadow:none}
   #page-quotes .qd-form-foot .btn-primary{width:100%}
 }
+
+/* =====================================================================================================================
+   v3 — use the full width of the screen and bigger, easier-to-read type on the cashier Quotation Desk.
+   The old layout capped the walk-in form at 1280px (leaving a blank strip on wide monitors) and used 12–14px text.
+   These rules sit last and use #page-quotes .qd-walkin #pqForm so they also beat quote-fields.css (loaded after this file).
+   ===================================================================================================================== */
+
+/* ---- page header + tabs ---- */
+#page-quotes .welcome h1{font-size:32px}
+#page-quotes .welcome p{font-size:17px;line-height:1.5;max-width:none}
+#page-quotes .qd-tab{font-size:16px;padding:13px 22px}
+#page-quotes .qd-tab .qd-tab-n{font-size:13.5px;min-width:26px}
+#page-quotes .qd-intro h2{font-size:24px}
+#page-quotes .qd-intro p{font-size:15.5px;line-height:1.5;max-width:none}
+
+/* ---- walk-in layout: form takes ALL the free width, guidance card stays a fixed column on the right ---- */
+#page-quotes .qd-walkin{grid-template-columns:minmax(0,1fr) 380px;gap:28px;max-width:none;width:100%}
+#page-quotes .qd-walkin .qd-form{max-width:none;width:100%}
+#page-quotes .qd-fsec{padding:28px 32px 12px;margin-bottom:20px}
+#page-quotes .qd-fsec-head{gap:16px;margin-bottom:24px;padding-bottom:18px}
+#page-quotes .qd-fsec-head h3{font-size:23px}
+#page-quotes .qd-fsec-head p{font-size:15px;line-height:1.45}
+#page-quotes .qd-num-badge{width:38px;height:38px;font-size:17px}
+#page-quotes .qd-fsec>.q-hint,#page-quotes .qd-fsec>p.q-hint{font-size:14.5px}
+
+/* ---- labels, inputs, selects, hints (cashier walk-in form only) ---- */
+#page-quotes .qd-walkin #pqForm label{font-size:15px;margin-bottom:8px}
+#page-quotes .qd-walkin #pqForm .q-field{margin-bottom:22px}
+#page-quotes .qd-walkin #pqForm .q-grid{gap:0 26px}
+#page-quotes .qd-walkin #pqForm input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=search]),
+#page-quotes .qd-walkin #pqForm select,
+#page-quotes .qd-walkin #pqForm textarea{min-height:52px;padding:12px 16px;font-size:16.5px;border-radius:11px}
+#page-quotes .qd-walkin #pqForm textarea{min-height:120px}
+#page-quotes .qd-walkin #pqForm select{padding-right:44px}
+#page-quotes .qd-walkin #pqForm .qx-row select{flex-basis:140px;width:140px}
+#page-quotes .qd-walkin #pqForm .q-hint,
+#page-quotes .qd-walkin #pqForm .err-text{font-size:14px;line-height:1.5}
+#page-quotes .qd-walkin #pqForm .q-count{font-size:13px}
+#page-quotes .qd-walkin #pqForm .qx-title{font-size:13.5px;margin:10px 0 18px}
+#page-quotes .qd-walkin #pqForm .qx-narrow{font-size:15px;padding:12px 16px}
+#page-quotes .qd-walkin #pqForm .qx-link{font-size:14px;min-height:36px;padding:7px 16px}
+
+/* ---- pickup / delivery cards + flexible-date switch ---- */
+#page-quotes .qd-opt-body{padding:18px 56px 18px 20px}
+#page-quotes .qd-opt-ico{width:48px;height:48px;padding:11px}
+#page-quotes .qd-opt-body b{font-size:17.5px}
+#page-quotes .qd-opt-body small{font-size:14.5px}
+#page-quotes .qd-area{padding:22px 22px 4px}
+#page-quotes #pqForm .q-field>label.qd-flex{font-size:14.5px;padding:14px 16px}
+#page-quotes .qd-flex b{font-size:16px}
+
+/* ---- sticky action bar ---- */
+#page-quotes .qd-form-foot{padding:16px 22px;gap:18px}
+#page-quotes .qd-form-foot .btn-primary{min-height:52px;padding:0 30px;font-size:15.5px}
+#page-quotes .qd-form-foot p{font-size:14.5px;line-height:1.5}
+
+/* ---- guidance card ---- */
+#page-quotes .qd-aside{padding:26px 26px 22px;top:88px}
+#page-quotes .qd-aside h3{font-size:13.5px;margin-bottom:20px}
+#page-quotes .qd-steps{gap:22px}
+#page-quotes .qd-steps li{padding-left:46px;gap:4px}
+#page-quotes .qd-steps li::before{width:32px;height:32px;font-size:15px}
+#page-quotes .qd-steps b{font-size:16.5px}
+#page-quotes .qd-steps span{font-size:15px;line-height:1.55}
+#page-quotes .qd-aside-note{font-size:14.5px;line-height:1.55;padding:14px 16px;margin-top:24px}
+
+/* ---- review step ---- */
+#page-quotes .qd-review{padding:24px 28px}
+#page-quotes .qd-review h3{font-size:22px}
+#page-quotes .qd-review>p{font-size:15.5px}
+#page-quotes .qd-review-row{font-size:16px;padding:13px 0}
+#page-quotes .qd-review-actions button{min-height:50px;font-size:15.5px}
+
+/* ---- customer requests tab: same readable scale ---- */
+#page-quotes .qd-bar{padding:16px 18px;gap:14px}
+#page-quotes .qd-search input,#page-quotes .qd-pick select{font-size:15.5px;min-height:46px}
+#page-quotes .qd-search input{padding-left:40px}
+#page-quotes .qd-chip{font-size:14.5px;padding:8px 14px}
+#page-quotes .qd-pick{font-size:14.5px}
+#page-quotes .qd-note,#page-quotes .qd-pager{font-size:14.5px}
+#page-quotes .qd-table{font-size:15.5px}
+#page-quotes .qd-table th{font-size:13px;padding:14px 16px}
+#page-quotes .qd-table td{padding:15px 16px}
+#page-quotes .qd-ref{font-size:14.5px}
+#page-quotes .qd-who small,#page-quotes .qd-what small{font-size:13.5px}
+#page-quotes .qd-pill{font-size:13px;padding:4px 11px}
+#page-quotes .qd-src{font-size:12px}
+#page-quotes .qd-open{font-size:14px;padding:8px 14px}
+
+/* ---- detail drawer + modals ---- */
+#page-quotes .qd-drawer{width:min(100%,720px)}
+#page-quotes .qd-drawer-head h3{font-size:22px}
+#page-quotes .qd-sec>h4{font-size:13px}
+#page-quotes .qd-kv,#page-quotes .qd-callout,#page-quotes .qd-note-box{font-size:15.5px}
+#page-quotes .qd-price label{font-size:14.5px}
+#page-quotes .qd-price input,#page-quotes .qd-price select,#page-quotes .qd-price textarea{font-size:15.5px}
+#page-quotes .qd-term-name{font-size:15.5px}
+#page-quotes .qd-term-calc{font-size:14.5px}
+#page-quotes .qd-tl-item b,#page-quotes .qd-tl-item p{font-size:15px}
+#page-quotes .qd-modal-grid label,#page-quotes .pq-confirm-check{font-size:15.5px}
+#page-quotes .pq-confirm-description,#page-quotes .qd-modal>p{font-size:15.5px}
+#page-quotes .pq-confirm-heading h2,#page-quotes .qd-modal h3{font-size:21px}
+
+/* stack below 1180px as before; keep fonts large on tablets */
+@media(max-width:1180px){
+  #page-quotes .qd-walkin{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:600px){
+  #page-quotes .welcome h1{font-size:26px}
+  #page-quotes .qd-fsec{padding:20px 16px 6px}
+  #page-quotes .qd-fsec-head h3{font-size:20px}
+}
