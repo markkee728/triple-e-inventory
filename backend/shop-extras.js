@@ -980,7 +980,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }));
 
   // Finance: see every review (visible and hidden), hide or restore one.
-  app.get('/api/finance/reviews', auth('finance'), wrap(async (req, res) => {
+  app.get('/api/finance/reviews', auth('cashier'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
          FROM product_reviews r JOIN products p ON p.product_id = r.product_id JOIN users u ON u.user_id = r.user_id
@@ -990,7 +990,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       customer: r.full_name, email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
       hiddenAt: ms(r.hidden_at), hiddenReason: r.hidden_reason || undefined, hiddenBy: r.hidden_by_name || undefined })));
   }));
-  app.post('/api/finance/reviews/:id/visibility', auth('finance'), wrap(async (req, res) => {
+  app.post('/api/finance/reviews/:id/visibility', auth('cashier'), wrap(async (req, res) => {
     const hide = !!(req.body && req.body.hidden), reason = str(req.body && req.body.reason);
     if (hide && reason.length < 3) throw bad('reason', 'Write a short reason for hiding this review');
     if (reason.length > 300) throw bad('reason', 'The reason is too long (max 300 characters)');

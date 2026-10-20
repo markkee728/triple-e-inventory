@@ -1308,6 +1308,23 @@ reorder.start();   // recalculate automatic reorder levels now and every 6 hours
 /* ---------- production (material requirements, produced-internally Stock In, production history) ---------- */
 productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 
+/* Customer directory belongs to the cashier, not Finance. Never expose other staff accounts. */
+app.get('/api/pos/customer-directory', auth('cashier'), wrap(async (req, res) => {
+  const { rows } = await pool.query(`SELECT u.user_id AS id, u.full_name AS name, u.email, u.phone, u.status,
+    to_char(u.last_login AT TIME ZONE $1, 'Mon DD, YYYY HH12:MI AM') AS "lastLogin"
+    FROM users u JOIN roles r ON r.role_id=u.role_id WHERE r.role_key='customer' ORDER BY u.full_name`, [TZ]);
+  res.json(rows);
+}));
+app.get('/api/pos/customers/:id/profile', auth('cashier'), wrap(async (req,res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(400).json({error:'Invalid customer ID'});
+  const {rows}=await pool.query(`SELECT u.full_name AS name,u.email,u.phone,u.status,u.username,
+    u.first_name,u.middle_name,u.last_name,u.suffix,to_char(u.birthdate,'YYYY-MM-DD') AS birthdate,
+    u.gender,u.company_name,u.company_position,
+    to_char(u.created_at AT TIME ZONE $2,'Mon DD, YYYY') AS joined
+    FROM users u JOIN roles r ON r.role_id=u.role_id WHERE u.user_id=$1 AND r.role_key='customer'`,[req.params.id,TZ]);
+  if(!rows.length)return res.status(404).json({error:'Customer not found'});
+  res.json(rows[0]);
+}));
 /* ---------- users & audit (finance only) ---------- */
 app.get('/api/users', auth('finance'), wrap(async (req, res) => {
   const { rows } = await pool.query(

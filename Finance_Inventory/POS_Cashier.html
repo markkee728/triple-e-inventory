@@ -59,6 +59,9 @@
       <button class="nav-item" data-page="orders"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><path d="M3 6h18M16 10a4 4 0 0 1-8 0"/></svg>Online Orders<span class="count" id="navOrdersBadge" hidden></span></button>
       <button class="nav-item" data-page="quotes"><svg class="nav-ico" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Quotations<span class="count" id="navQuoteCount" hidden>0</span></button>
       </div>
+      <div class="nav-group"><div class="nav-label">Customers</div>
+      <button class="nav-item" data-page="customers"><span aria-hidden="true">♙</span> Customer Profiles</button>
+      <button class="nav-item" data-page="reviews"><span aria-hidden="true">☆</span> Product Reviews</button></div>
     </nav>
   <div class="sidebar-foot"><span class="live"></span><div><strong>Point of Sale</strong>Triple E Metal Products</div></div>
 </aside>
@@ -243,6 +246,8 @@
     </section>
 
     <!-- ===== Quotations: full-width desk (quote-desk-ui.js + quotes.css) ===== -->
+    <section class="page" id="page-customers"><div class="welcome"><h1>Customer Profiles</h1><p>Registered customers and their contact information.</p></div><div class="panel" style="padding:20px"><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"><input id="cmSearch" type="search" placeholder="Search name or email" aria-label="Search customers"><button class="btn-secondary" id="cmRefresh" type="button">Refresh</button></div><div id="cmMessage" role="status"></div><div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Details</th></tr></thead><tbody id="cmRows"></tbody></table></div><div id="cmDetail" class="panel" hidden style="padding:18px;margin-top:16px"></div></div></section>
+    <section class="page" id="page-reviews"><div class="welcome"><h1>Product Reviews</h1><p>Review customer feedback and moderate visibility.</p></div><div class="panel" style="padding:20px"><button type="button" class="btn-secondary" id="cmReviewRefresh">Refresh reviews</button><div id="cmReviewMessage" role="status"></div><div id="cmReviews" style="margin-top:15px"></div></div></section>
     <section class="page" id="page-quotes">
       <div class="welcome"><h1>Quotation Desk</h1><p>Every customer request in one place: review the specifications, ask for what is missing, prepare the price, and turn an accepted quotation into an order or a counter sale. A quotation never reserves stock and never takes payment.</p></div>
 
@@ -448,6 +453,7 @@
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
+<script src="cashier-customers.js?v=1"></script>
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
@@ -628,6 +634,8 @@ $('sidebarClose').onclick = $('sidebarBackdrop').onclick = () => setNav(false);
 function showPage(p) {
   document.querySelectorAll('.page').forEach(x => x.classList.toggle('active-page', x.id === 'page-' + p));
   document.querySelectorAll('.nav-item').forEach(x => x.classList.toggle('active', x.dataset.page === p));
+  if (p === 'customers') window.cashierCustomers?.load();
+  if (p === 'reviews') window.cashierCustomers?.reviews();
   if (p === 'orders') cashierOrdersLoad();
   if (p === 'quotes') { renderPosQuoteForm(); loadPosQuotes(); }
   if (p === 'sales') loadTodaySales().then(r => { if (r) { sales = r; renderSales(); } }); setNav(false); updateFab(); window.scrollTo(0, 0);
