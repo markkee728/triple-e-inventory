@@ -7,15 +7,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const dns = require('dns').promises;
 
-const pool = new Pool(process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL }
-  : {
-      host: process.env.DB_HOST || 'localhost',
-      port: Number(process.env.DB_PORT) || 5432,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME
-    });
+const pool = new Pool(require('./db-config')());
 
 // Safety net: a database hiccup (dropped connection, wrong password, database not ready yet) must be LOGGED, not kill the server.
 // Without these, Node 22 exits on the first unhandled error and Cloud Run reports "container failed to start".

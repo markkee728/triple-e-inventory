@@ -1,50 +1,94 @@
-/* reports-tabs.js — Finance > Reports: one tab per question, so the page is not one long scroll.
-     Summary             headline numbers + two charts
-     Sales               sales overview, top sellers, sales transactions, cash shifts, collections
-     Inventory           totals and trends: stock in / out, materials, production, returns, low stock, stock value
-     Stock Movement Log  the ONE detailed list: every stock in / out entry (the Inventory tab only adds up these same entries)
-   The tabs only show / hide blocks that already exist (the rules are in reports-sales.css), so every report keeps
-   working and the Report Period above stays shared by all of them. Printing always prints every tab. */
+/* reports-tabs.js — Finance > Reports: ONE scrollable page, with a sticky section bar.
+     Highlights   the numbers and facts that matter most
+     Sales        sales overview, top sellers, sales transactions, cash shifts, receivables
+     Inventory    low stock, stock in / out, materials, production, returns, stock value
+     Movement Log the detailed record behind the inventory totals (one row per entry)
+   Every report is always on the page. The bar only (1) scrolls to a section when clicked, (2) highlights the section you
+   are reading as you scroll, and (3) shows the Report Period that every section follows. */
 (function () {
   'use strict';
-  var KEY = 'tripleE.reportsTab', TABS = ['summary', 'sales', 'inventory', 'movements'];
-  // which tab each report lives on (used by the summary boxes, which jump straight to a report)
-  var HOME = { repChartsGrid: 'summary', repStatCards: 'summary', repSalesRoot: 'sales', repTopRoot: 'sales', repSalesTxnPanel: 'sales',
-    reportCashPanel: 'sales', reportLedgerPanel: 'sales', repLowRoot: 'inventory', repInvRoot: 'inventory', repStockDetail: 'inventory',
-    ivOverview: 'inventory', ivMaterials: 'inventory', ivReturns: 'inventory', ivMovements: 'movements', repMovementPanel: 'movements' };
+  var reduce = function () { return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; };
 
   function init() {
     var page = document.getElementById('reports'), bar = document.getElementById('repTabs');
     if (!page || !bar) return;
     var buttons = Array.prototype.slice.call(bar.querySelectorAll('.rep-tab'));
+    var current = 'summary', ticking = false;
 
-    function show(name, focus) {
-      if (TABS.indexOf(name) < 0) name = 'summary';
-      var changed = page.dataset.rtab !== name;
-      page.dataset.rtab = name;
+    // .content has overflow:auto, which would make it (not the window) the scroll box a sticky bar sticks to.
+    // While Reports is open, let the window scroll instead so the bar stays under the top bar.
+    var host = page.closest('.content');
+    // html/body are height:100%, so the body would end one screen down and the sticky sidebar would scroll away with it:
+    // let the document grow while Reports is open (rep-scroll), so the sidebar stays pinned.
+    function syncHost() {
+      var on = page.classList.contains('active-page');
+      if (host) host.classList.toggle('rep-content', on);
+      document.documentElement.classList.toggle('rep-scroll', on);
+    }
+
+    // sticky bar sits just under the top bar: measure it so it never hides behind it
+    function measure() {
+      var tb = document.querySelector('.topbar'), h = tb ? tb.getBoundingClientRect().height : 0;
+      var navH = bar.getBoundingClientRect().height || 56;
+      page.style.setProperty('--rep-sticky', Math.round(h) + 'px');
+      page.style.setProperty('--rep-offset', Math.round(h + navH + 14) + 'px');   // scroll-margin for jump targets
+    }
+
+    function mark(name) {
+      if (name === current) return;
+      current = name;
       buttons.forEach(function (b) {
         var on = b.dataset.rtab === name;
         b.classList.toggle('active', on);
-        b.setAttribute('aria-selected', String(on));
-        b.tabIndex = on ? 0 : -1;
-        if (on && focus) b.focus();
+        if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
+        if (on && bar.scrollWidth > bar.clientWidth) { try { b.scrollIntoView({ inline: 'nearest', block: 'nearest' }); } catch (e) { /* ignore */ } }
       });
-      try { sessionStorage.setItem(KEY, name); } catch (e) { /* storage blocked */ }
-      if (changed) document.dispatchEvent(new CustomEvent('tripleE:reportstab', { detail: { tab: name } }));
     }
 
-    bar.addEventListener('click', function (e) { var b = e.target.closest('.rep-tab'); if (b) show(b.dataset.rtab); });
-    bar.addEventListener('keydown', function (e) {                 // arrow keys move between tabs
-      var i = buttons.indexOf(document.activeElement);
-      if (i < 0) return;
-      var k = e.key, n = k === 'ArrowRight' ? i + 1 : k === 'ArrowLeft' ? i - 1 : k === 'Home' ? 0 : k === 'End' ? buttons.length - 1 : -1;
-      if (n < 0) return;
-      e.preventDefault(); show(buttons[(n + buttons.length) % buttons.length].dataset.rtab, true);
-    });
+    function spy() {
+      ticking = false;
+      if (!page.classList.contains('active-page')) return;
+      var offset = (parseInt(page.style.getPropertyValue('--rep-offset'), 10) || 120) + 10, found = buttons[0].dataset.rtab;
+      buttons.forEach(function (b) {
+        var el = document.getElementById(b.dataset.target);
+        if (el && el.getBoundingClientRect().top <= offset) found = b.dataset.rtab;
+      });
+      // at the very bottom of the page the last section is the one being read
+      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 4) found = buttons[buttons.length - 1].dataset.rtab;
+      mark(found);
+    }
+    function onScroll() { if (!ticking) { ticking = true; requestAnimationFrame(spy); } }
 
-    window.TripleEReportsTab = { show: show, current: function () { return page.dataset.rtab; }, homeOf: function (id) { return HOME[id] || null; } };
-    var saved = null; try { saved = sessionStorage.getItem(KEY); } catch (e) { /* ignore */ }
-    show(saved || 'summary');
+    function go(name) {
+      var b = buttons.filter(function (x) { return x.dataset.rtab === name; })[0]; if (!b) return;
+      var el = document.getElementById(b.dataset.target); if (!el) return;
+      mark(name);
+      el.scrollIntoView({ behavior: reduce() ? 'auto' : 'smooth', block: 'start' });
+    }
+
+    bar.addEventListener('click', function (e) { var b = e.target.closest('.rep-tab'); if (b) go(b.dataset.rtab); });
+
+    // which Report Period the whole page is showing, kept visible in the bar
+    var period = document.getElementById('repNavPeriod');
+    function paintPeriod() {
+      if (!period) return;
+      var label = '';
+      try { var r = window.TripleEReportRange && window.TripleEReportRange.get(); label = r && (r.label || (r.from && r.to ? (r.from === r.to ? r.from : r.from + ' to ' + r.to) : '')); } catch (e) { /* ignore */ }
+      if (!label) { var pill = document.getElementById('dateShowingPill'); label = pill ? pill.textContent.replace(/^\s*Showing\s*/i, '').trim() : ''; }
+      period.textContent = label || '\u2014';
+    }
+    window.addEventListener('tripleE:reportrange', paintPeriod);
+    var pill = document.getElementById('dateShowingPill');
+    if (pill && 'MutationObserver' in window) new MutationObserver(paintPeriod).observe(pill, { childList: true, characterData: true, subtree: true });
+
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', function () { measure(); onScroll(); });
+    if ('MutationObserver' in window) new MutationObserver(function () { syncHost(); if (page.classList.contains('active-page')) { measure(); paintPeriod(); onScroll(); } }).observe(page, { attributes: true, attributeFilter: ['class'] });
+
+    // kept so older code that asks "which tab / where does this report live" still works: everything is on one page now
+    window.TripleEReportsTab = { show: go, current: function () { return current; }, homeOf: function () { return null; } };
+    syncHost(); measure(); paintPeriod(); spy();
+    setTimeout(function () { measure(); paintPeriod(); }, 600);   // after fonts / the first data load
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
 })();

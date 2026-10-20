@@ -92,7 +92,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
   // Best effort, on every start, additive only. If the database user cannot create a trigger the columns still
   // come up, applyPayment() detects that and refuses to write instead of keeping its own running total.
   async function ensureSchema() {
-    const run = async (sql, label) => { try { await pool.query(sql); return true; } catch (err) { console.warn(`[payment-terms] ${label} failed:`, err.message); return false; } };
+    const run = async (sql, label) => { try { await require('./schema-retry')(() => pool.query(sql)); return true; } catch (err) { console.warn(`[payment-terms] ${label} failed:`, err.message); return false; } };
     await run(`CREATE TABLE IF NOT EXISTS payment_terms (
       term_key TEXT PRIMARY KEY CHECK (term_key IN ('full','half','down','custom')),
       label TEXT NOT NULL, basis TEXT NOT NULL DEFAULT 'percent' CHECK (basis IN ('percent','fixed')),

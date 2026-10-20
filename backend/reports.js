@@ -14,7 +14,7 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
 
   // Runs db/021_reporting.sql (idempotent), then checks which optional pieces exist so the queries never reference a missing one.
   const ready = (async () => {
-    try { await pool.query(fs.readFileSync(path.join(__dirname, 'db', '021_reporting.sql'), 'utf8')); }
+    try { const sql = fs.readFileSync(path.join(__dirname, 'db', '021_reporting.sql'), 'utf8'); await require('./schema-retry')(() => pool.query(sql)); }
     catch (err) { console.warn('[reports] could not run 021_reporting.sql:', err.message); }
     try {
       const has = async (sql) => (await pool.query(sql)).rows.length > 0;

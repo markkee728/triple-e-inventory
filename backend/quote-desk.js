@@ -39,17 +39,19 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
   /* ---------------- schema (runs on every start, nothing is dropped) ---------------- */
   const ready = (async () => {
     try {
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_order_id BIGINT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_note TEXT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS convert_request_id TEXT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS handover_sale_id BIGINT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS handover_at TIMESTAMPTZ');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS contact_email TEXT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS company_name TEXT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS flexible_date BOOLEAN NOT NULL DEFAULT FALSE');
-      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_convert_request ON quote_requests (convert_request_id) WHERE convert_request_id IS NOT NULL');
-      console.log('[quote-desk] conversion columns ready');
+      await require('./schema-retry')(async () => {   // quote_requests is created by shop-extras.js, which may not have run yet
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_order_id BIGINT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_at TIMESTAMPTZ');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS converted_note TEXT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS convert_request_id TEXT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS handover_sale_id BIGINT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS handover_at TIMESTAMPTZ');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS contact_email TEXT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS company_name TEXT');
+        await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS flexible_date BOOLEAN NOT NULL DEFAULT FALSE');
+        await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_convert_request ON quote_requests (convert_request_id) WHERE convert_request_id IS NOT NULL');
+        console.log('[quote-desk] conversion columns ready');
+      });
     } catch (err) { console.warn('[quote-desk] could not prepare the quotation desk tables:', err.message); }
   })();
   app.use('/api/pos/quote-desk', (req, res, next) => { ready.then(() => next(), next); });

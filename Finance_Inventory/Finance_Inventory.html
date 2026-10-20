@@ -772,6 +772,9 @@
                                     class="form-select"
                                 >
                                     <option value="">All departments</option>
+                                    <option value="Raw Materials">Raw Materials</option>
+                                    <option value="Finished Goods">Finished Goods</option>
+                                    <option value="Finishing Supplies">Finishing Supplies</option>
                                 </select>
                                 <div class="field-hint" id="movementDeptHint"></div>
 
@@ -1753,19 +1756,16 @@
                  REPORTS
             ================================================== -->
 
-            <section id="reports" class="page" data-rtab="summary">
+            <section id="reports" class="page">
 
-                <div class="catalog-header">
+                <div class="catalog-header rep-header">
 
                     <div>
-
                         <h1 class="catalog-title">
-                            Inventory & Sales Reports
+                            Inventory &amp; Sales Reports
                         </h1>
-
-
+                        <p class="rep-lede">Everything on one page, top to bottom: the highlights first, then the Sales report, the Inventory report and the Stock Movement Log. Use the bar below to jump between them.</p>
                     </div>
-
 
                     <div class="catalog-actions">
 
@@ -1937,58 +1937,40 @@
                 </div>
 
 
-                <!-- REPORT TABS: one question per tab. Summary = headline numbers. Sales = money in. Inventory = totals and trends of stock.
-                     Stock Movement Log = the detailed record behind those totals (one row per entry). See reports-tabs.js -->
-                <div class="rep-tabs" id="repTabs" role="tablist" aria-label="Report sections">
-                    <button type="button" class="rep-tab active" role="tab" id="repTab-summary" data-rtab="summary" aria-selected="true">Summary</button>
-                    <button type="button" class="rep-tab" role="tab" id="repTab-sales" data-rtab="sales" aria-selected="false">Sales</button>
-                    <button type="button" class="rep-tab" role="tab" id="repTab-inventory" data-rtab="inventory" aria-selected="false">Inventory</button>
-                    <button type="button" class="rep-tab" role="tab" id="repTab-movements" data-rtab="movements" aria-selected="false">Stock Movement Log</button>
+                
                 </div>
 
-                <!-- REPORT STATS: each box jumps to its own report below -->
-                <div class="stats report-stat-cards" id="repStatCards">
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repStockDetail" title="Open the Stock Value Detail table" aria-label="SKUs in report. Open the Stock Value Detail table">
-                        <div class="stat-icon neutral">
-                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                <!-- SECTION BAR: sticky, jumps to each part of the one-page report and follows your scroll. See reports-tabs.js -->
+                <nav class="rep-nav" id="repTabs" aria-label="Report sections">
+                    <div class="rep-nav-links">
+                        <button type="button" class="rep-tab active" data-rtab="summary" data-target="repHighlights" aria-current="true">Highlights</button>
+                        <button type="button" class="rep-tab" data-rtab="sales" data-target="secSales">Sales</button>
+                        <button type="button" class="rep-tab" data-rtab="inventory" data-target="secInventory">Inventory</button>
+                        <button type="button" class="rep-tab" data-rtab="movements" data-target="secMovements">Movement Log</button>
+                    </div>
+                    <div class="rep-nav-period" title="The Report Period applies to every section below"><span class="rep-nav-dot" aria-hidden="true"></span><span id="repNavPeriod">&mdash;</span></div>
+                </nav>
+
+                <div class="rep-flow" id="repFlow">
+
+                <!-- =================================================
+                     HIGHLIGHTS: the few numbers and facts that matter most
+                ================================================== -->
+                <section class="rep-sec" id="repHighlights" aria-labelledby="repHlTitle">
+
+                    <div class="rep-sec-head">
+                        <span class="rep-sec-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z"/></svg></span>
+                        <div>
+                            <h2 class="rep-sec-title" id="repHlTitle">Key highlights</h2>
+                            <p class="rep-sec-sub">The numbers and facts that matter most. Click any card to open its full report.</p>
                         </div>
-                        <div class="stat-body">
-                            <div class="stat-label">SKUs (now)</div>
-                            <div class="stat-value" id="repSkusInReport">—</div>
-                        </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repChartsGrid" title="See stock value by department" aria-label="Stock value. See stock value by department">
-                        <div class="stat-icon green">
-                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
-                        </div>
-                        <div class="stat-body">
-                            <div class="stat-label">Stock value (now)</div>
-                            <div class="stat-value" id="repStockValue">—</div>
-                        </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="ivMovements" title="Open the Stock Movement Log" aria-label="Movements in period. Open the Stock Movement Log">
-                        <div class="stat-icon blue">
-                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
-                        </div>
-                        <div class="stat-body">
-                            <div class="stat-label">Movements in period</div>
-                            <div class="stat-value" id="repMovementsInPeriod">—</div>
-                        </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesTxnPanel" title="Open the Sales Transaction Report" aria-label="Sales in period. Open the Sales Transaction Report">
-                        <div class="stat-icon blue">
-                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
-                        </div>
-                        <div class="stat-body">
-                            <div class="stat-label">Sales in period</div>
-                            <div class="stat-value" id="repSalesInPeriod">—</div>
-                        </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales revenue. Open the Sales Overview">
+                    </div>
+
+                    <div class="rep-kgroups report-stat-cards" id="repStatCards">
+                        <div class="rep-kgroup">
+                            <div class="rep-kgroup-head"><b>Sales</b><span>follows the Report Period</span></div>
+                            <div class="rep-kgrid">
+                                <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales revenue. Open the Sales Overview">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4"/></svg>
                         </div>
@@ -1996,9 +1978,7 @@
                             <div class="stat-label">Sales revenue</div>
                             <div class="stat-value" id="repSalesRevenue">—</div>
                         </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales profit. Open the Sales Overview">
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesRoot" title="Open the Sales Overview" aria-label="Sales profit. Open the Sales Overview">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/></svg>
                         </div>
@@ -2006,9 +1986,15 @@
                             <div class="stat-label">Sales profit</div>
                             <div class="stat-value" id="repSalesProfit">—</div>
                         </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
-                    </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repTopRoot" title="Open Top-Selling Products" aria-label="Top seller. Open Top-Selling Products">
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="repSalesTxnPanel" title="Open the Sales Transaction Report" aria-label="Sales in period. Open the Sales Transaction Report">
+                        <div class="stat-icon blue">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-label">Transactions</div>
+                            <div class="stat-value" id="repSalesInPeriod">—</div>
+                        </div>
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="repTopRoot" title="Open Top-Selling Products" aria-label="Top seller. Open Top-Selling Products">
                         <div class="stat-icon green">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
                         </div>
@@ -2016,24 +2002,54 @@
                             <div class="stat-label">Top seller</div>
                             <div class="stat-value stat-value-text" id="repTopSeller">—</div><div class="stat-sub" id="repTopSellerSub">best product in this period</div>
                         </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
                     </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repLowRoot" title="Open the Low-Stock Report" aria-label="Low-stock alerts. Open the Low-Stock Report">
+                            </div>
+                        </div>
+                        <div class="rep-kgroup is-live">
+                            <div class="rep-kgroup-head"><b>Inventory</b><span class="rep-live"><i></i>live right now</span></div>
+                            <div class="rep-kgrid">
+                                <button type="button" class="stat-card icon-stat stat-link" data-jump="repStockDetail" title="See stock value by department" aria-label="Stock value. See stock value by department">
+                        <div class="stat-icon green">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-label">Stock value</div>
+                            <div class="stat-value" id="repStockValue">—</div>
+                        </div>
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="repLowRoot" title="Open the Low-Stock Report" aria-label="Low-stock alerts. Open the Low-Stock Report">
                         <div class="stat-icon red">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                         </div>
                         <div class="stat-body">
-                            <div class="stat-label">Low stock (now)</div>
+                            <div class="stat-label">Low stock</div>
                             <div class="stat-value alert-value" id="repLowStockAlerts">—</div>
                         </div>
-                        <span class="stat-go" aria-hidden="true">&rsaquo;</span>
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="repStockDetail" title="Open the Stock Value Detail table" aria-label="SKUs in report. Open the Stock Value Detail table">
+                        <div class="stat-icon neutral">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-label">Products tracked</div>
+                            <div class="stat-value" id="repSkusInReport">—</div>
+                        </div>
+                    </button><button type="button" class="stat-card icon-stat stat-link" data-jump="secMovements" title="Open the Stock Movement Log" aria-label="Movements in period. Open the Stock Movement Log">
+                        <div class="stat-icon blue">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+                        </div>
+                        <div class="stat-body">
+                            <div class="stat-label">Stock movements</div>
+                            <div class="stat-value" id="repMovementsInPeriod">—</div>
+                        </div>
                     </button>
-                </div>
-                <p class="report-jump-hint">Sales, movement and report figures follow the Report Period above. <b>SKUs, Stock value and Low-stock are live right now</b> and do not change with the period. Click a box to jump to its report.</p>
+                            </div>
+                        </div>
+                    </div>
 
-</div>
+                    <div id="repInsights" class="rep-insights" aria-live="polite"></div>
 
-                <!-- ANALYTICS CHARTS: directly under the summary boxes -->
+                </section>
+
+<!-- ANALYTICS CHARTS: directly under the summary boxes -->
 
                 <div class="panels report-charts-grid" id="repChartsGrid">
 
@@ -2115,13 +2131,88 @@
 
                 </div>
 
-                <!-- NEW REPORTS (server-side): Sales Overview, Top-Selling Products, Low-Stock, Inventory -->
+                
+                <!-- =================================================
+                     SALES REPORT
+                ================================================== -->
+                <header class="rep-banner sales" id="secSales">
+                    <div class="rep-banner-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+                    <div class="rep-banner-main">
+                        <h2 class="rep-banner-title">Sales Report</h2>
+                        <p class="rep-banner-sub">Money coming in: revenue and trend, best sellers, every transaction, cash drawer shifts and what customers still owe.</p>
+                    </div>
+                    <div class="rep-banner-figs" id="secSalesFigs"></div>
+                    <div class="rep-banner-links" aria-label="Jump within this section"><button type="button" class="rep-chip" data-jump="repSalesRoot">Overview</button><button type="button" class="rep-chip" data-jump="repTopRoot">Top sellers</button><button type="button" class="rep-chip" data-jump="repSalesTxnPanel">Transactions</button><button type="button" class="rep-chip" data-jump="reportCashPanel">Cash shifts</button><button type="button" class="rep-chip" data-jump="reportLedgerPanel">Receivables</button></div>
+                </header>
+
                 <div id="repSalesRoot"></div>
                 <div id="repTopRoot"></div>
+
+                <!-- SALES TRANSACTION REPORT (cash shifts and receivables are added right below it) -->
+<div class="panel report-detail-panel" id="repSalesTxnPanel">
+
+                    <div class="panel-title">
+                        Sales Transaction Report
+                    </div>
+
+                    <div
+                        class="panel-sub report-period-sub"
+                        id="reportSalesSub"
+                    >
+                        Sales transactions, revenue and profit
+                    </div>
+
+
+                    <div class="table-wrapper">
+
+                        <table>
+
+                            <thead>
+
+                                <tr>
+                                    <th>Sales Ref</th>
+                                    <th>Date</th>
+                                    <th>Product</th>
+                                    <th>Quantity Sold</th>
+                                    <th>Unit Price</th>
+                                    <th>Revenue</th>
+                                    <th>Profit</th>
+                                    <th>Customer</th>
+                                    <th>Payment</th>
+                                    <th>Handled by</th>
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody id="reportSalesBody"></tbody>
+
+                            <tfoot id="reportSalesFoot"></tfoot>
+
+                        </table>
+
+                    </div>
+
+                </div>
+
+                <!-- =================================================
+                     INVENTORY REPORT
+                ================================================== -->
+                <header class="rep-banner inventory" id="secInventory">
+                    <div class="rep-banner-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></div>
+                    <div class="rep-banner-main">
+                        <h2 class="rep-banner-title">Inventory Report</h2>
+                        <p class="rep-banner-sub">What is on the shelf and what needs action: low stock first, then stock in and out, materials and production, returns and stock value.</p>
+                    </div>
+                    <div class="rep-banner-figs" id="secInventoryFigs"></div>
+                    <div class="rep-banner-links" aria-label="Jump within this section"><button type="button" class="rep-chip" data-jump="repLowRoot">Low stock</button><button type="button" class="rep-chip" data-jump="ivOverview">Stock in &amp; out</button><button type="button" class="rep-chip" data-jump="ivMaterials">Materials &amp; production</button><button type="button" class="rep-chip" data-jump="ivReturns">Returns</button><button type="button" class="rep-chip" data-jump="repStockDetail">Stock value</button></div>
+                </header>
+
+                <!-- Server-side reports. The Stock Movement Log section is drawn inside repInvRoot and moved to the end by CSS. -->
                 <div id="repLowRoot"></div>
                 <div id="repInvRoot"></div>
 
-                <!-- STOCK VALUE DETAIL -->
+<!-- STOCK VALUE DETAIL -->
 
                 <div class="panel report-detail-panel" id="repStockDetail">
 
@@ -2166,7 +2257,20 @@
                 </div>
 
 
-                <!-- STOCK MOVEMENT REPORT -->
+                
+                <!-- =================================================
+                     STOCK MOVEMENT LOG (the entries behind the Inventory totals)
+                ================================================== -->
+                <header class="rep-banner log" id="secMovements">
+                    <div class="rep-banner-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg></div>
+                    <div class="rep-banner-main">
+                        <h2 class="rep-banner-title">Stock Movement Log</h2>
+                        <p class="rep-banner-sub">The detailed record: every stock in and stock out entry, newest first, with who handled it. The Inventory totals above add these same entries up.</p>
+                    </div>
+                    <div class="rep-banner-figs" id="secMovementsFigs"></div>
+                </header>
+
+<!-- STOCK MOVEMENT REPORT -->
 
                 <div class="panel report-detail-panel" id="repMovementPanel">
 
@@ -2213,55 +2317,8 @@
                 </div>
 
 
-                <!-- =================================================
-                     SALES REPORT
-                ================================================== -->
-
-                <div class="panel report-detail-panel" id="repSalesTxnPanel">
-
-                    <div class="panel-title">
-                        Sales Transaction Report
-                    </div>
-
-                    <div
-                        class="panel-sub report-period-sub"
-                        id="reportSalesSub"
-                    >
-                        Sales transactions, revenue and profit
-                    </div>
-
-
-                    <div class="table-wrapper">
-
-                        <table>
-
-                            <thead>
-
-                                <tr>
-                                    <th>Sales Ref</th>
-                                    <th>Date</th>
-                                    <th>Product</th>
-                                    <th>Quantity Sold</th>
-                                    <th>Unit Price</th>
-                                    <th>Revenue</th>
-                                    <th>Profit</th>
-                                    <th>Customer</th>
-                                    <th>Payment</th>
-                                    <th>Handled by</th>
-                                </tr>
-
-                            </thead>
-
-
-                            <tbody id="reportSalesBody"></tbody>
-
-                            <tfoot id="reportSalesFoot"></tfoot>
-
-                        </table>
-
-                    </div>
-
-                </div>
+                
+                </div><!-- /repFlow -->
 
             </section>
 
@@ -3573,17 +3630,18 @@
     <script src="api-bridge.js?v=25"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
-    <link rel="stylesheet" href="reports-sales.css?v=10">
+    <link rel="stylesheet" href="reports-sales.css?v=12">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <link rel="stylesheet" href="inventory-priority.css?v=3">
     <link rel="stylesheet" href="product-details.css?v=1">
     <script src="sales-admin.js?v=12"></script>
-    <script src="reports-tabs.js?v=1"></script>
-    <script src="reports-jump.js?v=2"></script>
+    <script src="reports-tabs.js?v=3"></script>
+    <script src="reports-jump.js?v=3"></script>
     <script src="reports-sales.js?v=3"></script>
     <script src="reports-top-products.js?v=5"></script>
     <script src="reports-low-stock.js?v=2"></script>
-    <script src="reports-inventory.js?v=5"></script>
+    <script src="reports-inventory.js?v=6"></script>
+    <script src="reports-highlights.js?v=1"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 
     <script src="refund-admin.js?v=2"></script>

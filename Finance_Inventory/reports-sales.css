@@ -187,31 +187,8 @@
 @media print { .rep-backtop, .stat-go { display: none !important; } }
 @media (prefers-reduced-motion: reduce) { .rep-flash { animation: none; } .stat-card.stat-link, .stat-card.stat-link .stat-go { transition: none; } }
 
-/* =====================================================================================================================
-   Summary strip (v6): one connected bar, icon on top, small mono label, big number — like a dashboard ticker.
-   8 across on a wide screen, 4 on a laptop, 2 on a phone. The width is measured on the summary block itself (container query),
-   so it adapts to the space beside the sidebar and not only to the window.
-   ===================================================================================================================== */
-#repSummaryTop { container: repsum / inline-size; }
-#repStatCards.report-stat-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 18px 0 10px; padding: 0; background: var(--border); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-@container repsum (min-width: 640px) { #repStatCards.report-stat-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-@container repsum (min-width: 1340px) { #repStatCards.report-stat-cards { grid-template-columns: repeat(8, minmax(0, 1fr)); } }
-
-#repStatCards .stat-card.stat-link { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 16px; min-width: 0; padding: 18px 18px 20px; background: var(--card); border: 0; border-radius: 0; box-shadow: none; transform: none; }
-#repStatCards .stat-card.stat-link:hover { background: var(--hover, var(--inset)); transform: none; box-shadow: none; }
-#repStatCards .stat-card.stat-link:focus-visible { box-shadow: inset 0 0 0 2px var(--blue-bright); }
-#repStatCards .stat-icon { width: 30px; height: 30px; border-radius: 7px; }
-#repStatCards .stat-icon .ico { width: 17px; height: 17px; }
-#repStatCards .stat-body { width: 100%; }
-#repStatCards .stat-label { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; line-height: 1.45; letter-spacing: 1.3px; color: var(--text-faint); min-height: 2.9em; }   /* two lines tall, so every number sits on the same line */
-#repStatCards .stat-value, #repStatCards .stat-card.icon-stat .stat-value { margin-top: 8px; font-family: "Oswald", sans-serif; font-weight: 600; font-size: clamp(22px, 1.9cqw, 28px); line-height: 1.1; letter-spacing: -.3px; white-space: nowrap; }
-#repStatCards .stat-value.stat-value-text { font-size: clamp(16px, 1.3cqw, 19px) !important; line-height: 1.25; white-space: normal; letter-spacing: 0; }
-#repStatCards .stat-sub { margin-top: 5px; font-size: 12px; }
-#repStatCards #repSalesProfit { color: var(--green); }
-#repStatCards #repSalesProfit.is-loss { color: var(--red); }   /* negative profit */
 .rs-table td.rs-loss, .rs-loss { color: var(--red); font-weight: 600; }
-#repStatCards .stat-card.stat-link .stat-go { right: 12px; top: 10px; bottom: auto; }
-@media (max-width: 560px) { #repStatCards .stat-card.stat-link { padding: 14px 14px 16px; gap: 12px; } #repStatCards .stat-label { letter-spacing: .9px; } }
+#repStatCards #repSalesProfit.is-loss { color: var(--red); }   /* negative profit */
 
 /* the small cards inside each report section use the same type, so the whole page reads as one design */
 .rs-kpi { border-radius: 10px; padding: 16px 18px; }
@@ -223,26 +200,197 @@
 .rs-section:first-child { margin-top: 6px; }
 .rs-section-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
 
-/* ---------- Reports tabs (see reports-tabs.js) ---------- */
-.rep-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border, #dce4ef); }
-.rep-tab { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 10px; cursor: pointer; color: inherit;
-  background: transparent; border: 1px solid var(--border, #ccd6e5); transition: background .15s, border-color .15s; }
-.rep-tab:hover { background: var(--hover, rgba(59, 130, 246, .09)); }
-.rep-tab.active { background: var(--primary, #1c5c9d); border-color: var(--primary, #1c5c9d); color: #fff; }
-.rep-tab:focus-visible { outline: 3px solid #e9ac45; outline-offset: 2px; }
-
-/* The old client-side "Stock Movement Report" table is replaced by the Stock Movement Log tab (same entries, with filters + paging).
+/* The old client-side "Stock Movement Report" table is replaced by the Stock Movement Log section (same entries, with filters + paging).
    It stays in the page only because other scripts still fill it. */
 #repMovementPanel { display: none !important; }
 
-/* Show only the blocks that belong to the open tab. Printing ignores this, so a printout still has every report. */
-@media screen {
-  #reports:not([data-rtab="summary"]) :is(#repStatCards, .report-jump-hint, #repChartsGrid) { display: none; }
-  #reports:not([data-rtab="sales"]) :is(#repSalesRoot, #repTopRoot, #repSalesTxnPanel, #reportCashPanel, #reportLedgerPanel) { display: none; }
-  #reports:not([data-rtab="inventory"]):not([data-rtab="movements"]) #repInvRoot { display: none; }
-  #reports:not([data-rtab="inventory"]) :is(#repLowRoot, #repStockDetail) { display: none; }
-  #reports[data-rtab="inventory"] #repInvRoot #ivMovements { display: none; }
-  #reports[data-rtab="movements"] #repInvRoot :is(#ivOverview, #ivMaterials, #ivReturns) { display: none; }
-  #reports[data-rtab="movements"] #repInvRoot #ivMovements > .rs-section-title { display: none; }   /* the tab name already says it */
+/* =====================================================================================================================
+   Reports v7 — ONE scrollable page
+   header + Report Period  ->  sticky section bar  ->  Key highlights  ->  Sales Report  ->  Inventory Report  ->  Stock Movement Log
+   ===================================================================================================================== */
+#reports { --rep-sticky: 64px; --rep-offset: 132px; }
+.content.rep-content { overflow: visible; }   /* set by reports-tabs.js while Reports is open, so the section bar can stick to the window */
+html.rep-scroll, html.rep-scroll body { height: auto; }   /* the page grows with the report, so the sticky sidebar stays in view */
+.rep-header { align-items: flex-end; margin-bottom: 18px; }
+.rep-lede { margin: 6px 0 0; max-width: 64ch; color: var(--text-dim); font-size: 15.5px; line-height: 1.5; }
+
+/* ---- Report Period: one compact toolbar ---- */
+#repSummaryTop .report-period-panel { margin: 0; padding: 16px 20px; border-radius: 14px; }
+#repSummaryTop .report-period-panel .panel-sub { margin-bottom: 0; }
+#repSummaryTop .report-period-toggle { margin: 14px 0 0; }
+#repSummaryTop .report-period-toggle .period-btn { padding: 8px 14px; font-size: 13.5px; }
+#repSummaryTop .date-nav-row { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-top: 14px; }
+@media (min-width: 960px) {
+  #repSummaryTop .report-period-panel { display: grid; grid-template-columns: minmax(220px, 1fr) auto; column-gap: 28px; align-items: center; }
+  #repSummaryTop .report-period-panel .panel-title, #repSummaryTop .report-period-panel .panel-sub { grid-column: 1; }
+  #repSummaryTop .report-period-panel .report-period-toggle { grid-column: 2; grid-row: 1 / span 2; margin: 0; }
+  #repSummaryTop .report-period-panel .date-nav-row, #repSummaryTop .report-period-panel .custom-range-row { grid-column: 1 / -1; }
 }
-@media print { .rep-tabs { display: none; } }
+
+/* ---- sticky section bar ---- */
+.rep-nav { position: sticky; top: var(--rep-sticky); z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0 22px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 14px; background: var(--panel); box-shadow: 0 12px 26px -18px rgba(0, 0, 0, .6); }
+@supports (backdrop-filter: blur(6px)) { .rep-nav { background: rgba(11, 23, 34, .88); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); } html[data-theme="light"] .rep-nav { background: rgba(255, 255, 255, .92); } }
+.rep-nav-links { display: flex; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.rep-nav-links::-webkit-scrollbar { display: none; }
+.rep-tab { flex: none; font: inherit; font-size: 14.5px; font-weight: 600; padding: 9px 16px; min-height: 40px; border-radius: 10px; cursor: pointer; color: var(--text-dim); background: transparent; border: 1px solid transparent; transition: background .15s, color .15s, border-color .15s; }
+.rep-tab:hover { color: var(--text); background: rgba(74, 144, 217, .12); }
+.rep-tab.active { color: #fff; background: var(--blue); border-color: var(--blue-bright); }
+.rep-tab:focus-visible { outline: 3px solid #e9ac45; outline-offset: 2px; }
+.rep-nav-period { display: inline-flex; align-items: center; gap: 8px; flex: none; max-width: 46%; padding: 7px 14px; border-radius: 999px; font-family: "IBM Plex Mono", monospace; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-dim); background: rgba(74, 144, 217, .08); border: 1px solid rgba(74, 144, 217, .28); }
+.rep-nav-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--blue-bright); }
+@media (max-width: 760px) { .rep-nav-period { display: none; } .rep-nav { margin: 10px 0 16px; } .rep-tab { padding: 8px 13px; } }
+
+/* ---- the page flow: every report one after another, same gap ---- */
+.rep-flow { display: flex; flex-direction: column; gap: 22px; }
+.rep-flow > * { margin: 0 !important; min-width: 0; }
+.rep-flow > .rep-banner { margin-top: 18px !important; }
+/* the Inventory report draws its sections inside repInvRoot; "contents" lets each one take its own place in the flow,
+   and the Stock Movement Log section is sent to the end, under its own banner */
+#repInvRoot, #ivBody { display: contents; }
+#repInvRoot > .rs-panel { margin: 0 0 -8px; }
+#ivBody > .rs-section { margin: 0; }
+#ivBody.rs-busy > * { opacity: .6; transition: opacity .15s; pointer-events: none; }
+#secMovements { order: 30; }
+#ivMovements { order: 31; }
+#ivMovements > .rs-section-title { display: none; }   /* the banner above already names it */
+.rs-section-title { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 0; border: 0; font-family: "Oswald", sans-serif; font-size: 21px; font-weight: 600; letter-spacing: .3px; }
+.rs-section-title::before { content: ""; width: 4px; height: 20px; border-radius: 2px; background: var(--blue-bright); }
+#repHighlights, #secSales, #secInventory, #secMovements, #repChartsGrid, #repSalesRoot, #repTopRoot, #repLowRoot, #ivOverview, #ivMaterials, #ivReturns, #ivMovements,
+#repStockDetail, #repSalesTxnPanel, #reportCashPanel, #reportLedgerPanel, #repSummaryTop { scroll-margin-top: var(--rep-offset); }
+
+/* ---- Key highlights ---- */
+.rep-sec-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.rep-sec-ico { flex: none; width: 46px; height: 46px; display: grid; place-items: center; border-radius: 13px; color: var(--amber); background: rgba(217, 164, 65, .15); border: 1px solid rgba(217, 164, 65, .42); }
+.rep-sec-ico .ico { width: 24px; height: 24px; }
+.rep-sec-title { margin: 0; font-family: "Oswald", sans-serif; font-size: 27px; font-weight: 600; letter-spacing: .3px; }
+.rep-sec-sub { margin: 2px 0 0; color: var(--text-dim); font-size: 14.5px; }
+
+#repStatCards.rep-kgroups { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin: 0 0 16px; padding: 0; background: none; border: 0; border-radius: 0; overflow: visible; }
+@media (min-width: 1180px) { #repStatCards.rep-kgroups { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.rep-kgroup { container-type: inline-size; min-width: 0; padding: 14px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
+.rep-kgroup-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 2px 6px 12px; }
+.rep-kgroup-head b { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text); }
+.rep-kgroup-head > span { font-size: 12.5px; color: var(--text-faint); }
+.rep-kgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+#repStatCards .stat-card.stat-link { flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 10px; min-width: 0; padding: 14px 16px 16px; background: rgba(127, 150, 170, .07); border: 1px solid var(--border); border-radius: 12px; box-shadow: none; transform: none; }
+#repStatCards .stat-card.stat-link:hover { border-color: var(--blue-bright); background: rgba(74, 144, 217, .1); transform: translateY(-2px); }
+#repStatCards .stat-card.stat-link:focus-visible { box-shadow: var(--ring, 0 0 0 3px rgba(74, 144, 217, .28)); }
+#repStatCards .stat-icon { width: 30px; height: 30px; border-radius: 8px; }
+#repStatCards .stat-icon .ico { width: 17px; height: 17px; }
+#repStatCards .stat-body { width: 100%; }
+#repStatCards .stat-label { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--text-faint); }
+#repStatCards .stat-value, #repStatCards .stat-card.icon-stat .stat-value { margin-top: 6px; font-family: "Oswald", sans-serif; font-weight: 600; font-size: clamp(19px, 6.2cqw, 28px); line-height: 1.1; letter-spacing: -.3px; overflow-wrap: anywhere; }
+#repStatCards .stat-value.stat-value-text { font-size: clamp(15px, 4.2cqw, 19px) !important; line-height: 1.25; }
+#repStatCards .stat-sub { margin-top: 4px; font-size: 12px; color: var(--text-faint); }
+#repStatCards #repSalesProfit { color: var(--green); }
+
+.rep-live { display: inline-flex; align-items: center; gap: 6px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .8px; text-transform: uppercase; color: var(--green); }
+.rep-live i { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: rep-live 2s ease-out infinite; }
+@keyframes rep-live { 0% { box-shadow: 0 0 0 0 rgba(67, 196, 122, .55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(67, 196, 122, 0); } }
+
+.rep-insights { display: grid; gap: 14px; }
+.rep-insights.is-busy { opacity: .6; transition: opacity .15s; }
+.rep-hl-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+@media (min-width: 820px) { .rep-hl-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.rep-hl { position: relative; display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 18px 20px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
+.rep-hl.hero { border-color: rgba(74, 144, 217, .5); background: linear-gradient(135deg, rgba(74, 144, 217, .18), rgba(74, 144, 217, .03) 62%), var(--card); }
+.rep-hl.is-bad { border-color: rgba(227, 91, 91, .55); background: linear-gradient(135deg, rgba(227, 91, 91, .13), transparent 62%), var(--card); }
+.rep-hl.is-good { border-color: rgba(67, 196, 122, .45); }
+.rep-hl-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--text-dim); }
+.rep-hl-big { font-family: "Oswald", sans-serif; font-weight: 600; font-size: clamp(30px, 3.4vw, 42px); line-height: 1.05; letter-spacing: -.3px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rep-hl-big small { margin-left: 10px; font-family: Inter, system-ui, sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--text-dim); }
+.rep-hl-line { font-size: 14px; color: var(--text-dim); }
+.rep-hl-sub { font-size: 13px; line-height: 1.45; color: var(--text-faint); }
+.rep-more { align-self: flex-start; margin-top: auto; padding: 8px 0 0; min-height: 0; font: 600 14px/1.2 Inter, system-ui, sans-serif; color: var(--blue-bright); background: none; border: 0; cursor: pointer; }
+.rep-more:hover { text-decoration: underline; }
+.rep-delta { font-weight: 600; font-size: 14px; }
+.rep-delta.up { color: var(--green); } .rep-delta.down { color: var(--red); } .rep-delta.flat { color: var(--text-faint); font-weight: 500; }
+.rep-spark { display: block; width: 100%; height: 64px; margin-top: 2px; }
+.rep-spark rect { fill: rgba(74, 144, 217, .42); }
+.rep-spark rect.hi { fill: var(--blue-bright); }
+
+.rep-rank { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; }
+.rep-rank li { display: flex; align-items: flex-start; gap: 12px; }
+.rep-rank-n { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; font-size: 14px; font-weight: 700; color: var(--text-dim); background: var(--card); border: 1px solid var(--border); }
+.rep-rank-n.first { color: var(--amber); background: rgba(217, 164, 65, .2); border-color: rgba(217, 164, 65, .65); }
+.rep-rank-main { flex: 1; min-width: 0; }
+.rep-rank-top { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
+.rep-rank-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.rep-rank-top b { flex: none; font-variant-numeric: tabular-nums; }
+.rep-bar { height: 8px; margin: 7px 0 5px; overflow: hidden; border-radius: 99px; background: var(--border); }
+.rep-bar i { display: block; height: 100%; border-radius: 99px; background: var(--blue-bright); }
+.rep-rank-sub { font-size: 12.5px; color: var(--text-faint); }
+
+.rep-alerts { display: grid; gap: 8px; margin: 2px 0 0; padding: 0; list-style: none; }
+.rep-alerts li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 12px; font-size: 14px; border-radius: 10px; background: rgba(127, 150, 170, .07); border: 1px solid var(--border); }
+.rep-alert-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-alert-qty { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; white-space: nowrap; color: var(--text-dim); }
+.rep-pill { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 99px; border: 1px solid; }
+.rep-pill.bad { color: var(--red); border-color: rgba(227, 91, 91, .55); background: rgba(227, 91, 91, .12); }
+.rep-pill.warn { color: var(--amber); border-color: rgba(217, 164, 65, .55); background: rgba(217, 164, 65, .12); }
+.rep-allclear { display: flex; align-items: center; gap: 10px; padding: 12px 14px; font-weight: 600; color: var(--green); border-radius: 10px; background: rgba(67, 196, 122, .1); border: 1px solid rgba(67, 196, 122, .35); }
+
+.rep-split { display: flex; height: 16px; overflow: hidden; border-radius: 99px; background: var(--border); }
+.rep-split i, .rep-split-key i { display: inline-block; height: 100%; }
+.rep-split i.pos, .rep-split-key i.pos { background: var(--blue-bright); }
+.rep-split i.online, .rep-split-key i.online { background: #a67be0; }
+.rep-split-key { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.rep-split-key span { display: block; font-size: 14px; color: var(--text-dim); }
+.rep-split-key span i { width: 10px; height: 10px; margin-right: 7px; border-radius: 3px; }
+.rep-split-key b { display: block; margin-top: 2px; font-family: "Oswald", sans-serif; font-size: 26px; font-weight: 600; color: var(--text); }
+.rep-split-key em { display: block; font-style: normal; font-size: 13px; color: var(--text-faint); }
+.rep-outcome { display: flex; flex-wrap: wrap; gap: 6px 16px; padding-top: 10px; font-size: 14px; color: var(--text-dim); border-top: 1px dashed var(--border); }
+.rep-outcome i { display: inline-block; width: 8px; height: 8px; margin-right: 7px; border-radius: 50%; }
+.rep-outcome i.ok { background: var(--green); } .rep-outcome i.warn { background: var(--amber); } .rep-outcome i.bad { background: var(--red); }
+.rep-outcome b { margin-left: 4px; color: var(--text); }
+
+.rep-facts { padding: 16px 18px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 14px; }
+.rep-facts h3 { margin: 0 0 12px; font-family: "Oswald", sans-serif; font-size: 20px; font-weight: 600; letter-spacing: .3px; }
+.rep-facts ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rep-fact { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px; font: inherit; font-size: 15px; line-height: 1.45; text-align: left; color: var(--text); cursor: pointer; border-radius: 10px; background: rgba(127, 150, 170, .06); border: 1px solid var(--border); border-left-width: 4px; transition: background .15s; }
+.rep-fact:hover { background: rgba(74, 144, 217, .1); }
+.rep-fact[tabindex="-1"] { cursor: default; }
+.rep-fact.bad { border-left-color: var(--red); } .rep-fact.warn { border-left-color: var(--amber); } .rep-fact.good { border-left-color: var(--green); } .rep-fact.info { border-left-color: var(--blue-bright); }
+.rep-tag { flex: none; min-width: 62px; padding: 3px 8px; text-align: center; font-size: 11.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; border-radius: 6px; }
+.rep-tag.bad { color: var(--red); background: rgba(227, 91, 91, .16); } .rep-tag.warn { color: var(--amber); background: rgba(217, 164, 65, .16); }
+.rep-tag.good { color: var(--green); background: rgba(67, 196, 122, .16); } .rep-tag.info { color: var(--blue-bright); background: rgba(74, 144, 217, .14); }
+.rep-fact-text { flex: 1; min-width: 0; }
+.rep-fact-go { flex: none; font-size: 22px; line-height: 1; color: var(--text-faint); }
+.rep-skel { min-height: 150px; border-radius: 10px; background: linear-gradient(90deg, var(--card), var(--border), var(--card)); background-size: 200% 100%; animation: rs-pulse 1.3s linear infinite; }
+.rep-hl-empty { display: grid; gap: 4px; color: var(--text-dim); font-size: 14px; }
+.rep-hl-empty strong { color: var(--text); }
+
+/* ---- section banners: Sales Report / Inventory Report / Stock Movement Log ---- */
+.rep-banner { --acc-rgb: 74, 144, 217; position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "ico main figs" "links links links"; gap: 14px 18px; align-items: center; padding: 20px 24px 18px 30px; overflow: hidden; border-radius: 14px; border: 1px solid rgba(var(--acc-rgb), .4); background: linear-gradient(120deg, rgba(var(--acc-rgb), .2), rgba(var(--acc-rgb), .05) 55%, transparent), var(--card); }
+.rep-banner::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 6px; background: rgb(var(--acc-rgb)); }
+.rep-banner.sales { --acc-rgb: 74, 144, 217; } .rep-banner.inventory { --acc-rgb: 43, 179, 163; } .rep-banner.log { --acc-rgb: 139, 143, 217; grid-template-areas: "ico main figs"; }
+.rep-banner-ico { grid-area: ico; width: 54px; height: 54px; display: grid; place-items: center; border-radius: 15px; color: rgb(var(--acc-rgb)); background: rgba(var(--acc-rgb), .18); border: 1px solid rgba(var(--acc-rgb), .45); }
+.rep-banner-ico .ico { width: 27px; height: 27px; }
+.rep-banner-main { grid-area: main; min-width: 0; }
+.rep-banner-title { margin: 0; font-family: "Oswald", sans-serif; font-size: 29px; font-weight: 600; letter-spacing: .3px; }
+.rep-banner-sub { max-width: 70ch; margin: 4px 0 0; font-size: 15px; line-height: 1.45; color: var(--text-dim); }
+.rep-banner-figs { grid-area: figs; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.rep-fig { min-width: 120px; padding: 9px 14px; border-radius: 10px; background: rgba(var(--acc-rgb), .1); border: 1px solid rgba(var(--acc-rgb), .3); }
+.rep-fig-l { display: block; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--text-dim); }
+.rep-fig-v { display: block; margin-top: 2px; font-family: "Oswald", sans-serif; font-size: 21px; font-weight: 600; white-space: nowrap; }
+.rep-fig.bad .rep-fig-v { color: var(--red); } .rep-fig.good .rep-fig-v { color: var(--green); }
+.rep-banner-links { grid-area: links; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(var(--acc-rgb), .28); }
+.rep-chip { min-height: 36px; padding: 0 14px; font: 600 14px Inter, system-ui, sans-serif; color: var(--text); cursor: pointer; border-radius: 999px; background: rgba(var(--acc-rgb), .1); border: 1px solid rgba(var(--acc-rgb), .42); transition: background .15s, transform .15s; }
+.rep-chip:hover { background: rgba(var(--acc-rgb), .24); transform: translateY(-1px); }
+.rep-chip:focus-visible, .rep-more:focus-visible, .rep-fact:focus-visible { outline: 3px solid #e9ac45; outline-offset: 2px; }
+@media (max-width: 900px) {
+  .rep-banner { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "ico main" "figs figs" "links links"; padding: 16px 16px 14px 22px; }
+  .rep-banner.log { grid-template-areas: "ico main" "figs figs"; }
+  .rep-banner-figs { justify-content: flex-start; } .rep-fig { flex: 1 1 120px; }
+  .rep-banner-title { font-size: 24px; } .rep-banner-ico { width: 46px; height: 46px; }
+}
+@media (max-width: 560px) { .rep-kgrid { gap: 8px; } .rep-kgroup { padding: 10px; } .rep-hl { padding: 16px; } .rep-split-key b { font-size: 22px; } }
+
+/* ---- print: keep every section, drop the controls, flatten the tints ---- */
+@media print {
+  .rep-nav, .rep-more, .rep-fact-go, .rep-banner-links, .rep-live { display: none !important; }
+  .rep-banner, .rep-hl, .rep-facts, .rep-kgroup { background: #fff !important; border: 1px solid #999 !important; break-inside: avoid; }
+  .rep-banner::before { background: #666 !important; }
+  .rep-fact, .rep-tag, .rep-fig { background: none !important; }
+}
+@media (prefers-reduced-motion: reduce) { .rep-live i, .rep-skel { animation: none; } #repStatCards .stat-card.stat-link, .rep-chip { transition: none; } }
