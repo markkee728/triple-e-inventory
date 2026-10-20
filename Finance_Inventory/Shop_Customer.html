@@ -259,7 +259,7 @@ a.nav-item{text-decoration:none}
 
 
 <style>
-.tq-overlay{position:fixed;inset:0;background:rgba(10,22,35,.68);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.tq-overlay[hidden]{display:none!important}.tq-dialog{width:min(590px,100%);max-height:88vh;overflow:auto;background:var(--card-bg,var(--surface,#fff));color:var(--text,#202c3a);border:1px solid var(--border,#d7dfe6);border-radius:16px;padding:24px;box-shadow:0 20px 65px rgba(0,0,0,.25)}.tq-dialog h2{margin:0 0 6px;font-size:1.25rem}.tq-dialog p{line-height:1.5}.tq-line{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border,#d7dfe6);padding:9px 0;overflow-wrap:anywhere}.tq-line span:first-child{color:var(--muted,#66758a);flex:0 0 36%}.tq-line strong{text-align:right}.tq-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.tq-note{padding:12px;border-radius:9px;background:var(--bg,#f1f5f9);font-size:.9rem;margin-top:12px}.tq-error{color:#c03b39;margin-top:8px}.tq-dialog textarea{width:100%;min-height:85px;margin-top:8px;padding:10px;border:1px solid var(--border,#d7dfe6);border-radius:8px;background:var(--bg,#fff);color:inherit}@media(max-width:520px){.tq-dialog{padding:16px}.tq-actions button{flex:1}.tq-line{font-size:.9rem}}
+.tq-overlay{position:fixed;inset:0;background:rgba(10,22,35,.68);z-index:10000;display:flex;align-items:center;justify-content:center;padding:18px}.tq-overlay[hidden]{display:none!important}.tq-dialog{width:min(590px,100%);max-height:88vh;overflow:auto;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:16px;padding:24px;box-shadow:0 20px 65px rgba(0,0,0,.25)}.tq-dialog h2{margin:0 0 6px;font-size:1.25rem}.tq-dialog p{line-height:1.5}.tq-dialog #tqSubtitle{color:var(--text-dim)}.tq-line{display:flex;justify-content:space-between;gap:16px;border-bottom:1px solid var(--border);padding:9px 0;overflow-wrap:anywhere}.tq-line span:first-child{color:var(--text-dim);flex:0 0 36%}.tq-line strong{text-align:right;color:var(--text);font-weight:600}.tq-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:20px}.tq-note{padding:12px;border-radius:9px;background:var(--inset);color:var(--text-dim);font-size:.9rem;margin-top:12px}.tq-error{color:var(--red);margin-top:8px}.tq-dialog textarea{width:100%;min-height:85px;margin-top:8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--field,var(--inset));color:inherit}@media(max-width:520px){.tq-dialog{padding:16px}.tq-actions button{flex:1}.tq-line{font-size:.9rem}}
 </style>
 <div class="tq-overlay" id="tqOverlay" hidden><div class="tq-dialog" role="dialog" aria-modal="true" aria-labelledby="tqTitle" tabindex="-1"><h2 id="tqTitle">Review quotation request</h2><p id="tqSubtitle">Check your details before submitting.</p><div id="tqDetails"></div><div class="tq-note" id="tqDisclaimer">This is a quotation request, not a reservation, order or payment.</div><div class="tq-error" id="tqError" role="alert"></div><div class="tq-actions"><button type="button" class="btn-secondary" id="tqBack">Edit details</button><button type="button" class="btn-primary" id="tqConfirm">Confirm &amp; Submit</button></div></div></div>
 
@@ -980,6 +980,7 @@ function cancelBlock(o) {
   if (o.cancelRequested) return '<p class="dim" style="margin-top:10px">Cancellation requested. Our team is reviewing it and will reply here.</p>';
   if (!o.cancellable) return '<p class="dim" style="margin-top:12px">We are already preparing this order, so it can no longer be cancelled online. Please contact us if you need help.</p>';
   const until = new Date(o.cancelInstantUntil).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  if (o.cancelRefund) return `<div class="refund-row"><button class="btn-danger btn-sm" data-cancel="${esc(o.id)}">Cancel &amp; request refund</button><span class="dim">You paid ${peso(o.cancelRefund)}. Our team reviews it and refunds your original payment method.</span></div>`;
   return `<div class="refund-row"><button class="btn-danger btn-sm" data-cancel="${esc(o.id)}">${o.cancelInstant ? 'Cancel order' : 'Request cancellation'}</button><span class="dim">${o.cancelInstant ? 'Cancels right away until ' + until + '.' : 'Our team will review your request.'}</span></div>`;
 }
 /* §5: the payment state is shown next to the fulfilment status, from the ledger — never inferred from the order status,
@@ -1253,12 +1254,24 @@ const QCHECK = {                                    // one rule per field; each 
   contactName: () => { const v = $('qName').value.trim(); return v.length >= 2 && Q_NAME_RE.test(v) ? '' : 'Enter your full name (letters only).'; },
   phone: () => { const v = $('qPhone').value.replace(/[\s().-]/g, ''); return !v ? 'Enter your mobile number so we can reach you.' : Q_PHONE_RE.test(v) ? '' : 'Enter a valid mobile number, e.g. 0917 123 4567.'; },
   region: () => qAddr === 'new' && !$('qRegion').value ? 'Choose the region.' : '',
-  province: () => qAddr === 'new' && !$('qProvince').value ? 'Choose the province.' : '',
+  province: () => qAddr !== 'new' ? '' : !$('qProvince').value ? 'Choose the province.' : qNoCover,
   city: () => { if (qAddr !== 'new') return ''; const v = qClean($('qCity').value); return !v ? 'Choose the city or municipality.' : QG.cities.length && !qCode(QG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
   barangay: () => { if (qAddr !== 'new') return ''; const v = qClean($('qBrgy').value); return !v ? 'Choose the barangay.' : QG.barangays.length && !qCode(QG.barangays, v) ? 'Pick the barangay from the list.' : ''; },
   street: () => { const v = $('qStreet').value.trim(); return qAddr === 'new' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
 };
 const qField = f => qErr(f, QCHECK[f]());
+/* Same delivery coverage as checkout and the POS (Finance > Delivery rates), checked as soon as the area / saved address is chosen,
+   so a quote is never requested for a place we do not deliver to. The server repeats the check when the request is sent. */
+let qNoCover = '', qCoverSeq = 0;
+async function qCheckCover() {
+  const seq = ++qCoverSeq; qNoCover = '';
+  if (qFulfil() !== 'Delivery') return;
+  const a = qAddr === 'new' ? { region: $('qRegion').value, province: $('qProvince').value } : QADDRS.find(x => x.id === qAddr);
+  if (!a || !a.region || !a.province) { if (qAddr === 'new') qField('province'); else $('qE_address').textContent = ''; return; }
+  try { const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(a.region) + '&province=' + encodeURIComponent(a.province)); if (seq !== qCoverSeq) return;
+    if (q && q.available === false) qNoCover = 'Sorry, we do not deliver to ' + a.province + ' yet. Choose another area, or pick it up at our shop.'; } catch (_) { /* the server checks again */ }
+  if (qAddr === 'new') qField('province'); else $('qE_address').textContent = qNoCover;
+}
 
 /* Delivery area: Region > Province > City > Barangay. Each box only offers what belongs to the one above it
    (same /api/geo lists the checkout address form uses), so picking a city offers only that city's barangays. */
@@ -1281,7 +1294,7 @@ async function qLoadRegions() {
   catch (e) { sel.innerHTML = '<option value="">Could not load regions — tap here to try again</option>'; sel.onfocus = () => { sel.onfocus = null; qLoadRegions(); }; qErr('region', e.message); }
 }
 async function qOnRegion() {
-  qReset('province'); ['region', 'province', 'city', 'barangay'].forEach(f => qErr(f, ''));
+  qReset('province'); qNoCover = ''; ['region', 'province', 'city', 'barangay'].forEach(f => qErr(f, ''));
   const reg = QG.regions.find(r => r.name === $('qRegion').value); if (!reg) return;
   const t = ++QG.tok.prov, psel = $('qProvince');
   qOptions(psel, [], 'Loading provinces…', true);
@@ -1289,13 +1302,14 @@ async function qOnRegion() {
     const rows = await qGeo('/api/geo/regions/' + encodeURIComponent(reg.code) + '/provinces'); if (t !== QG.tok.prov) return;
     if (rows.length) { QG.provinces = rows; qOptions(psel, rows, 'Choose a province…'); return; }
     QG.provinces = [{ code: 'NCR', name: 'Metro Manila' }];                 // NCR has no provinces
-    qOptions(psel, QG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila';
+    qOptions(psel, QG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila'; qCheckCover();
     await qLoadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
   } catch (e) { if (t === QG.tok.prov) { qOptions(psel, [], 'Could not load — choose the region again', true); qErr('province', e.message); } }
 }
 async function qOnProvince() {
   qReset('city'); ['province', 'city', 'barangay'].forEach(f => qErr(f, ''));
   const prov = QG.provinces.find(p => p.name === $('qProvince').value); if (!prov) return;
+  qCheckCover();
   await qLoadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
 }
 async function qLoadCities(path) {
@@ -1360,6 +1374,7 @@ function renderQuoteReceive() {
       <div class="addr-full">${esc(full(a))}</div></div></div>`).join('')
     + (QADDRS.length ? `<div class="addr-card addr-new ${qAddr === 'new' ? 'on' : ''}" data-qaddr="new" role="radio" tabindex="0" aria-checked="${qAddr === 'new'}"><span class="addr-radio" aria-hidden="true"></span><div class="addr-body"><b>Deliver to a different area</b></div></div>` : '');
   $('qAddrNew').hidden = qAddr !== 'new';
+  qCheckCover();
 }
 const qAgo = ms => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
 const qDay = ymd => new Date(ymd + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
@@ -1431,6 +1446,7 @@ function validateQuote() {
   const qf = qMounted ? QuoteFields.validate('q') : { ok: false, focus: null }; if (!qf.ok && !first) first = qf.focus || 'qFields';
   if (!f) { qErr('fulfillment', 'Choose delivery or pickup.'); first = first || 'qDeliveryAnchor'; }
   else if (f === 'Delivery' && qAddr !== 'new' && !QADDRS.some(a => a.id === qAddr)) { $('qE_address').textContent = 'Choose where it should be delivered.'; first = first || 'qAddrList'; }
+  else if (f === 'Delivery' && qAddr !== 'new' && qNoCover) { $('qE_address').textContent = qNoCover; first = first || 'qAddrList'; }
   // focus the field that comes first on the page
   const order = ['qProduct', 'qProductName', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qNeeded', 'qDeliveryAnchor', 'qAddrList', 'qRegion', 'qProvince', 'qCity', 'qBrgy', 'qStreet', 'qName', 'qPhone'];
   const bad = [...document.querySelectorAll('#quoteForm .is-bad')].map(e => e.id).concat(first ? [first] : []).sort((x, y) => order.indexOf(x) - order.indexOf(y))[0];
@@ -1454,9 +1470,16 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!tqOverlay.hidden)t
 document.getElementById('tqConfirm').onclick=async()=>{if(!tqPending||tqBusy)return;tqBusy=true;const btn=document.getElementById('tqConfirm');btn.disabled=true;document.getElementById('tqBack').disabled=true;try{await tqPending();tqOverlay.hidden=true;tqPending=null;}catch(er){document.getElementById('tqError').textContent=(er.fields&&Object.values(er.fields)[0])||er.message||'Could not complete the request.';}finally{tqBusy=false;btn.disabled=false;document.getElementById('tqBack').disabled=false;}};
 $('quoteForm').onsubmit=e=>{
  e.preventDefault();const v=validateQuote();if(!v.ok){$('qErr').textContent='Please correct the highlighted fields.';const el=$(v.focus)||document.querySelector('.q-seg');el?.scrollIntoView({block:'center',behavior:'smooth'});el?.focus?.({preventScroll:true});return;}
- const specs=QuoteFields.read('q');const f=qFulfil();
- const details=[['Product',$('qProductName').value.trim()||$('qProduct').selectedOptions[0]?.textContent],...Object.entries(specs).filter(([k,v])=>v!==undefined&&v!=='').map(([k,v])=>[({itemType:'Item type',quantityUnit:'Unit',neededBy:'Needed by'})[k]||k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase()),typeof v==='object'?Object.entries(v).filter(([,x])=>x).map(([a,x])=>a+': '+x).join(', '):v]),['Fulfillment',f],['Contact name',$('qName').value.trim()],['Phone',$('qPhone').value.trim()]];
- if(f==='Delivery')details.push(['Delivery area',qAddr==='new'?[$('qRegion').value,$('qProvince').value,$('qCity').value,$('qBrgy').value].filter(Boolean).join(', '):'Saved delivery address']);
+ // the summary reads exactly what will be sent: one row per detail, the quantity with its unit, the date in words
+ const r=QuoteFields.read('q'),sp=r.specs||{},f=qFulfil(),catalog=!!$('qProduct').value&&$('qProduct').value!=='other';
+ const SPEC=[['material','Material'],['size','Size'],['thickness','Thickness'],['finish','Finish'],['service','Cutting / bending']];
+ const dateTxt=d=>d?new Date(d+'T00:00:00').toLocaleDateString('en-PH',{month:'long',day:'numeric',year:'numeric'}):'';
+ const saved=QADDRS.find(a=>a.id===qAddr);
+ const details=[['Product',catalog?$('qProduct').selectedOptions[0]?.textContent:$('qProductName').value.trim()],
+   ['Item type',sp.itemType||r.itemType],...SPEC.map(([k,l])=>[l,sp[k]]),['Quantity',[r.quantity,r.quantityUnit].filter(Boolean).join(' ')],['Needed by',dateTxt(r.neededBy)],
+   ['Extra notes',r.notes||sp.notes],['Receive by',f],
+   ...(f==='Delivery'?[['Delivery area',qAddr==='new'?[$('qStreet').value.trim(),$('qBrgy').value,$('qCity').value,$('qProvince').value,$('qRegion').value].filter(Boolean).join(', '):saved?[saved.addressLine,saved.barangay,saved.city,saved.province].filter(Boolean).join(', '):'Saved delivery address']]:[]),
+   ['Contact name',$('qName').value.trim()],['Mobile number',$('qPhone').value.trim()]];
  tqOpen({title:'Review quotation request',subtitle:'Please double-check the specifications and contact details.',details,disclaimer:'This is only a request for pricing and availability. No stock is reserved and no payment is taken.',confirm:'Confirm & Submit',run:async()=>{const check=validateQuote();if(!check.ok)throw Error('Some details changed. Please edit and review again.');await tqSubmitQuote();if($('qErr').textContent)throw Error($('qErr').textContent);}});
 };
 async function tqSubmitQuote() {
@@ -1526,10 +1549,12 @@ document.addEventListener('click', e => {
     $('cancelFor').textContent = 'Order ' + o.id + ' · ' + peso(o.total);
     const hrs = o.cancelAutoHours || 24, when = ms => new Date(ms).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
     $('cancelNote').className = 'cancel-note ' + (o.cancelInstant ? 'ok' : 'warn');
-    $('cancelNote').innerHTML = o.cancelInstant
-      ? `<b>This will be cancelled right away.</b> Orders can be cancelled instantly for ${hrs} hours after ordering (until ${when(o.cancelInstantUntil)}).${o.paymentStatus === 'paid' ? ' Your payment is refunded to your original payment method.' : ''}`
+    $('cancelNote').innerHTML = o.cancelRefund
+      ? `<b>You already paid ${peso(o.cancelRefund)} on this order.</b> A paid order is not cancelled instantly: our team approves the cancellation and refunds ${peso(o.cancelRefund)} to your original payment method. You will see the decision and the refund on this page.`
+      : o.cancelInstant
+      ? `<b>This will be cancelled right away.</b> Orders can be cancelled instantly for ${hrs} hours after ordering (until ${when(o.cancelInstantUntil)}). Nothing has been paid, so there is nothing to refund.`
       : `<b>Our team will review this.</b> This order was placed more than ${hrs} hours ago, so we need to confirm it first. You will see our decision on this page.`;
-    $('cancelTitle').textContent = o.cancelInstant ? 'Cancel order' : 'Request cancellation';
+    $('cancelTitle').textContent = o.cancelRefund ? 'Cancel & request refund' : o.cancelInstant ? 'Cancel order' : 'Request cancellation';
     $('cancelSend').textContent = o.cancelInstant ? 'Cancel order' : 'Send request';
     $('cancelReason').value = ''; $('cancelDetails').value = ''; $('cancelErr').textContent = ''; $('cancelReason').classList.remove('is-bad'); $('cancelDetails').classList.remove('is-bad');
     $('cancelDetailsLbl').textContent = 'More details (optional)';

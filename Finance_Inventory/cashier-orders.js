@@ -92,6 +92,7 @@ function flagsFor(o) {
   if (o.cancelRequested) out.push('<div class="co-flag bad">The customer asked to cancel this order. Finance must approve or reject it before it can move.</div>');
   else if (o.awaitingPayment) out.push('<div class="co-flag">Waiting for the customer\u2019s online payment (' + esc(o.method) + '). It cannot be confirmed until it is paid.</div>');
   else if (o.cashOnHandover) out.push(`<div class="co-flag">Collect <b>${peso(dueOf(o))}</b> in cash when the order is ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.${paidOf(o) ? ' ' + peso(paidOf(o)) + ' is already recorded against it.' : ''}</div>`);
+  if (o.hold && !o.cancelRequested && !o.awaitingPayment) out.push(`<div class="co-flag bad">${esc(o.hold)}</div>`);
   if (o.creditException) out.push(`<div class="co-flag">Finance granted a credit exception: ${peso(dueOf(o))} may stay outstanding. ${esc(o.creditException.note)}</div>`);
   return out.join('');
 }
@@ -103,6 +104,8 @@ function moneyFoot(o) {
 function actionButton(o) {
   if (!o.next || o.cancelRequested) return '';
   if (o.next === 'Paid' && o.awaitingPayment && o.method === 'Xendit') return `<button type="button" class="btn-primary" data-check="${esc(o.id)}">Check payment</button>`;
+  // the server's money gate says this step is not allowed yet: show it, but it cannot be pressed (Collect payment comes first)
+  if (o.hold) return `<button type="button" class="btn-primary" disabled title="${esc(o.hold)}">${esc(ACTION[o.next] || 'Next step')}</button>`;
   return `<button type="button" class="btn-primary" data-act="${esc(o.id)}">${esc(ACTION[o.next] || 'Next step')}</button>`;
 }
 /* §4: money is collected against the order from the ledger, separately from moving the order along.
@@ -223,7 +226,8 @@ function printFrame(html, label) {
    The amounts on this sheet come from the ledger (total / already paid / outstanding), never from what the page
    assumes. One requestId is generated per payment attempt and re-used on every send, so a double click or a retry
    after a timeout adds one ledger row, not two.                                       */
-const ONLINE_PAY = ['GCash', 'Maya', 'Bank transfer', 'Card', 'Credit / debit card', 'Xendit'];
+// what the counter can take by hand. Xendit is never typed in here: it is confirmed by Xendit itself (Check payment).
+const ONLINE_PAY = ['GCash', 'Maya', 'Bank transfer', 'Credit / debit card'];
 let payFor = null, payDraft = null, payReceipt = null, payReq = '';
 
 const moneyBox = (o) => `<div class="co-box co-grid" style="margin:0">
@@ -243,7 +247,7 @@ async function openPay(o) {
   const other = dueOf(o) !== due ? `<button type="button" class="btn-secondary" data-amt="${dueOf(o).toFixed(2)}">Full balance ${peso(dueOf(o))}</button>` : '';
   const fields = fld('amount', 'Amount being paid', `<input id="co_amount" inputmode="decimal" autocomplete="off" value="${due.toFixed(2)}" maxlength="12">`,
       `Outstanding ${peso(dueOf(o))}. Quick amounts: <button type="button" class="btn-secondary" data-amt="${due.toFixed(2)}">${peso(due)}</button> ${other}`)
-    + fld('method', 'Received as', `<select id="co_method">${['Cash'].concat(ONLINE_PAY).map((m) => `<option${m === (isCash(o) ? 'Cash' : o.method)}>${esc(m)}</option>`).join('')}</select>`)
+    + fld('method', 'Received as', `<select id="co_method">${['Cash'].concat(ONLINE_PAY).map((m) => `<option value="${esc(m)}"${m === 'Cash' ? ' selected' : ''}>${esc(m)}</option>`).join('')}</select>`)
     + `<div id="coRefBox" hidden>${fld('reference', 'Provider reference no.', '<input id="co_reference" maxlength="40" autocomplete="off" placeholder="e.g. GCASH-7788 or the bank statement no.">')}</div>`
     + `<div id="coCashBox" hidden>${fld('tendered', 'Cash handed over', '<input id="co_tendered" inputmode="decimal" autocomplete="off" placeholder="0.00">')}
         <div class="co-quick">${quick}</div><div class="co-change" id="coChange" aria-live="polite"></div><div id="coShiftWarn"></div></div>`
@@ -392,7 +396,7 @@ function actionBody(o, t) {
   if (t === 'Paid') {
     if (o.paymentState === 'paid') h += `<p>Payment is complete in the ledger (${peso(paidOf(o))} on ${peso(o.total)}). Confirming reserves the stock for this order.</p>`;
     else if (isCash(o)) h += `<p>Accepting this order reserves the stock now. <b>${peso(dueOf(o))}</b> is collected in cash when the customer ${o.fulfillment === 'Delivery' ? 'receives' : 'picks up'} it.</p>`;
-    else h += `<p>Check that the money really arrived in the bank / e-wallet, then enter the reference number from the statement. The server records what actually arrived, so this does not mark anything paid by itself.</p>` + fld('paymentRef', 'Payment reference no.', '<input id="co_paymentRef" maxlength="40" autocomplete="off" placeholder="e.g. GCASH 1234567890">');
+    else h += `<p>The initial payment of ${peso(paidOf(o))} is in the ledger. Confirming reserves the stock for this order.</p>`;
     if (o.terms && o.terms.key !== 'full' && o.paymentState !== 'paid') h += `<div class="co-flag">This order is on a partial payment option: ${peso(o.terms.amount)} (${o.terms.percent}%) now, ${peso(dueOf(o))} later \u2014 ${esc(o.terms.condition)}.</div>`;
   } else if (t === 'Packed') {
     h += `<p>Count the items against the order.</p><ul style="margin:6px 0 0 18px">${(o.items || []).map((i) => `<li>${esc(i.qty)} ${esc(i.unit || '')} \u00D7 ${esc(i.name)}</li>`).join('')}</ul>`
@@ -416,8 +420,9 @@ function actionBody(o, t) {
   }
   return h + fld('note', 'Note (optional)', '<textarea id="co_note" rows="2" maxlength="200"></textarea>');
 }
+let actReq = '';
 async function openAction(o) {
-  chosen = o; target = o.next; shiftOpen = null;
+  chosen = o; target = o.next; shiftOpen = null; actReq = '';
   const t = target;
   $('coAction').innerHTML = `<form class="co-sheet" id="coForm" novalidate>
     <h2 id="coActionTitle">${esc(ACTION[t] || 'Next step')}</h2><div class="co-sub">${esc(o.id)} \u00B7 ${esc(o.customer)} \u00B7 ${peso(o.total)}</div>
@@ -444,9 +449,7 @@ function collect() {                    // reads + validates the form; returns t
   const bad = (n, m) => { setErr(n, m); ok = false; };
   const val = (id) => ($('co_' + id) ? $('co_' + id).value.trim() : '');
   const note = val('note'); if (note.length > 200) bad('note', 'The note must be 200 characters or fewer'); body.note = note;
-  if (t === 'Paid') {
-    if (o.paymentState !== 'paid' && !isCash(o)) { const r = val('paymentRef'); if (!REF_RE.test(r)) bad('paymentRef', 'Enter the reference number (4\u201340 letters and numbers)'); body.paymentRef = r; }
-  } else {
+  if (t !== 'Paid') {
     body.status = t;
     if (t === 'Packed' && !$('co_checked').checked) bad('checked', 'Tick the box once you have counted the items');
     if (FINAL.includes(t)) {
@@ -476,6 +479,7 @@ async function submit(e) {
   e.preventDefault(); if (busy || !chosen) return;
   const body = collect(); if (!body) { const first = document.querySelector('#coAction .co-fld.bad input,#coAction .co-fld.bad select'); if (first) first.focus(); return; }
   const o = chosen, t = target, btn = $('coSubmit'); busy = true; btn.disabled = true; btn.textContent = 'Saving\u2026';
+  if (body.cashReceived != null) body.requestId = actReq || (actReq = 'pos-' + String(o.id).replace(/[^A-Za-z0-9]/g, '') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
   try {
     const res = await request('/orders/' + encodeURIComponent(o.id) + (t === 'Paid' ? '/confirm' : '/status'), { method: 'POST', body: JSON.stringify(body) });
     await load(true);

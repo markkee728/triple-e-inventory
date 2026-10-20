@@ -162,8 +162,8 @@
     if (!d || !st.key) { showBanner('Choose the finished product and enter the quantity produced first.'); return; }
     const status = refreshStatus();
     if (!status.ok) { showBanner(d.hasRequirements ? 'Fix the highlighted material quantities first.' : 'Set up the material requirements first.'); return; }
-    const used = d.materials.map((m, i) => '• ' + m.name + ': -' + fmt(status.items[i].actualQty) + ' ' + m.unit).join('\n');
-    if (!window.confirm('Confirm production of ' + fmt(d.quantity) + ' ' + d.unit + ' of ' + d.name + '?\n\nThis will deduct:\n' + used + '\n\nand add ' + fmt(d.quantity) + ' ' + d.unit + ' to Finished Goods.')) return;
+    const lines = d.materials.map((m, i) => [m.name, '\u2212' + fmt(status.items[i].actualQty) + ' ' + m.unit]).concat([[d.name + ' (Finished Goods)', '+' + fmt(d.quantity) + ' ' + d.unit]]);
+    if (!(await uiConfirm({ title: 'Confirm production', message: 'Record ' + fmt(d.quantity) + ' ' + d.unit + ' of ' + d.name + ' as produced internally. These materials are deducted now and cannot be undone here:', lines, confirm: 'Confirm production' }))) return;
     st.busy = true;
     const btn = $('movementSubmitBtn'); if (btn) btn.disabled = true;
     try {
@@ -287,7 +287,7 @@
       if (Math.abs(n * 1e4 - Math.round(n * 1e4)) > 1e-6) return fail('Line ' + (i + 1) + ': at most 4 decimal places.');
       out.push({ sku: r.sku, qtyPerUnit: n });
     }
-    if (!out.length && !window.confirm('Remove ALL materials from ' + reqFg.name + '? It cannot be produced until new requirements are saved.')) return;
+    if (!out.length && !(await uiConfirm({ title: 'Remove all materials?', message: reqFg.name + ' cannot be produced until new requirements are saved.', confirm: 'Remove all', danger: true }))) return;
     btn.disabled = true;
     try {
       await api('/production/requirements/' + encodeURIComponent(reqFg.sku), { method: 'PUT', body: JSON.stringify({ materials: out }) });

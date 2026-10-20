@@ -515,12 +515,21 @@
     productName: () => el('pqProduct').value || el('pqItem').value.trim().length >= 3 ? '' : 'Tell us what they need (at least 3 characters).',
     neededBy: () => (!pqNeededVal() || isFlexible() ? '' : 'Choose the date they need it, or tick that the date is flexible.'),
     region: () => (pqFulfil() === 'Delivery' && !el('pqRegion').value ? 'Choose the region.' : ''),
-    province: () => (pqFulfil() === 'Delivery' && !el('pqProvince').value ? 'Choose the province.' : ''),
+    province: () => (pqFulfil() !== 'Delivery' ? '' : !el('pqProvince').value ? 'Choose the province.' : pqNoCover),
     city: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean(el('pqCity').value); return !v ? 'Choose the city or municipality.' : PQG.cities.length && !pqCode(PQG.cities, v) ? 'Pick the city / municipality from the list.' : ''; },
     barangay: () => { if (pqFulfil() !== 'Delivery') return ''; const v = pqClean(el('pqBrgy').value); return !v ? 'Choose the barangay.' : PQG.barangays.length && !pqCode(PQG.barangays, v) ? 'Pick the barangay from the list.' : ''; },
     street: () => { const v = el('pqStreet').value.trim(); return pqFulfil() === 'Delivery' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
   };
   const pqField = (f) => pqErr(f, PQ_CHECK[f]());
+  // same coverage as a POS delivery sale (Finance > Delivery rates): the cashier sees it before the request is logged
+  let pqNoCover = '';
+  async function pqCheckCover() {
+    pqNoCover = ''; const region = el('pqRegion').value, province = el('pqProvince').value;
+    if (!region || !province) return;
+    try { const q = await api('/api/pos/delivery-fee?region=' + encodeURIComponent(region) + '&province=' + encodeURIComponent(province));
+      if (q && q.available === false) pqNoCover = 'We do not deliver to ' + province + ' yet. Choose another area or switch to Pickup.'; } catch (_) { /* the server checks again on save */ }
+    if (pqFulfil() === 'Delivery') pqField('province');
+  }
 
   const PQG = { regions: [], provinces: [], cities: [], barangays: [], city: '', tok: { prov: 0, city: 0, bgy: 0 } };
   const pqClean = (v) => String(v == null ? '' : v).trim().replace(/\s+/g, ' ');
@@ -541,7 +550,7 @@
     catch (e) { sel.innerHTML = '<option value="">Could not load regions — focus to try again</option>'; sel.onfocus = () => { sel.onfocus = null; pqLoadRegions(); }; pqErr('region', e.message); }
   }
   async function pqOnRegion() {
-    pqReset('province'); ['region', 'province', 'city', 'barangay'].forEach((f) => pqErr(f, ''));
+    pqReset('province'); pqNoCover = ''; ['region', 'province', 'city', 'barangay'].forEach((f) => pqErr(f, ''));
     const reg = PQG.regions.find((r) => r.name === el('pqRegion').value); if (!reg) return;
     const t = ++PQG.tok.prov, psel = el('pqProvince');
     pqOptions(psel, [], 'Loading provinces…', true);
@@ -549,13 +558,14 @@
       const rows = await pqGeo('/api/geo/regions/' + encodeURIComponent(reg.code) + '/provinces'); if (t !== PQG.tok.prov) return;
       if (rows.length) { PQG.provinces = rows; pqOptions(psel, rows, 'Choose a province…'); return; }
       PQG.provinces = [{ code: 'NCR', name: 'Metro Manila' }];
-      pqOptions(psel, PQG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila';
+      pqOptions(psel, PQG.provinces, 'Metro Manila', true); psel.value = 'Metro Manila'; pqCheckCover();
       await pqLoadCities('/api/geo/regions/' + encodeURIComponent(reg.code) + '/cities');
     } catch (e) { if (t === PQG.tok.prov) { pqOptions(psel, [], 'Could not load — choose the region again', true); pqErr('province', e.message); } }
   }
   async function pqOnProvince() {
     pqReset('city'); ['province', 'city', 'barangay'].forEach((f) => pqErr(f, ''));
     const prov = PQG.provinces.find((p) => p.name === el('pqProvince').value); if (!prov) return;
+    pqCheckCover();
     await pqLoadCities('/api/geo/provinces/' + encodeURIComponent(prov.code) + '/cities');
   }
   async function pqLoadCities(path) {

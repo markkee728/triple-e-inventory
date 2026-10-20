@@ -29,7 +29,9 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
   const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
   const peso = (n) => '\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const todayPH = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-  const dateStr = (d) => (!d ? undefined : typeof d === 'string' ? d.slice(0, 10) : d.toISOString().slice(0, 10));
+  // pg returns DATE columns as a JS Date at LOCAL midnight; toISOString() would shift it to the day before on a UTC+8 server
+  const dateStr = (d) => { if (!d) return undefined; if (typeof d === 'string') return d.slice(0, 10);
+    const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); };
   const ms = (d) => (d ? new Date(d).getTime() : undefined);
   const nc = () => app.locals.notifications;
   const pingFinance = (n) => (nc() ? nc().notifyRole('finance', n) : null);

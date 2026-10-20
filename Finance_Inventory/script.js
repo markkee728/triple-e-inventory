@@ -1963,18 +1963,18 @@ async function productAction(path, options, doneMessage) {
     }
 }
 
-function archiveProduct(sku) {
+async function archiveProduct(sku) {
     const p = findCatalogProduct(sku);
     if (!p) return;
-    const stock = p.available > 0 ? `\n\nIt still has ${formatNumber(p.available)} ${p.unit} in stock.` : "";
-    if (!confirm(`Archive ${p.name} (${p.sku})?${stock}\n\nIt will be hidden from stock lists, the shop, POS and production. You can restore it from the Archived tab.`)) return;
+    const stock = p.available > 0 ? ` It still has ${formatNumber(p.available)} ${p.unit} in stock.` : "";
+    if (!(await uiConfirm({ title: `Archive ${p.name}?`, message: `${p.sku} will be hidden from stock lists, the shop, POS and production.${stock} You can restore it from the Archived tab.`, confirm: "Archive", danger: true }))) return;
     productAction("/products/" + encodeURIComponent(sku), { method: "DELETE" }, "Product archived");
 }
 
-function restoreProduct(sku) {
+async function restoreProduct(sku) {
     const p = findCatalogProduct(sku);
     if (!p) return;
-    if (!confirm(`Restore ${p.name} (${p.sku})?`)) return;
+    if (!(await uiConfirm({ title: `Restore ${p.name}?`, message: `${p.sku} goes back to the stock lists, the shop, POS and production.`, confirm: "Restore" }))) return;
     productAction("/products/" + encodeURIComponent(sku) + "/restore", { method: "POST" }, "Product restored");
 }
 
@@ -2727,7 +2727,7 @@ async function setSupplierStatus(id, next) {
     const s = supplierData.find(x => x.id === id);
     const bridge = window.TripleEBridge;
     if (!s || !bridge) return;
-    if (!confirm((next === "archived" ? "Archive " : "Restore ") + s.name + "?")) return;
+    if (!(await uiConfirm({ title: (next === "archived" ? "Archive " : "Restore ") + s.name + "?", message: next === "archived" ? "The supplier is hidden from new purchase records. You can restore it later." : "The supplier can be used again.", confirm: next === "archived" ? "Archive" : "Restore", danger: next === "archived" }))) return;
     try {
         await bridge.api("/suppliers/" + encodeURIComponent(id) + "/status",
             { method: "PATCH", body: JSON.stringify({ status: next }) });
@@ -4603,7 +4603,7 @@ function renderAccountsTable() {
 
                 const next = user.status === "active" ? "disabled" : "active";
 
-                if (!confirm(`${next === "disabled" ? "Disable" : "Re-enable"} the account of "${user.name}"?`)) {
+                if (!(await uiConfirm({ title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`, message: next === "disabled" ? "They will not be able to sign in until the account is re-enabled." : "They will be able to sign in again.", confirm: next === "disabled" ? "Disable" : "Re-enable", danger: next === "disabled" }))) {
                     return;
                 }
 
@@ -4740,7 +4740,7 @@ async function handleInviteAction(event) {
     const id = button.dataset.inviteResend || button.dataset.inviteCancel;
     const invite = pendingInvitesData.find(i => String(i.id) === String(id));
 
-    if (cancel && !confirm("Cancel the invitation for " + (invite ? invite.email : "this person") + "? Their link will stop working.")) {
+    if (cancel && !(await uiConfirm({ title: "Cancel this invitation?", message: "The link sent to " + (invite ? invite.email : "this person") + " will stop working.", confirm: "Cancel invitation", cancel: "Keep it", danger: true }))) {
         return;
     }
 

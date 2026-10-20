@@ -62,7 +62,7 @@
         return '<div class="panel" id="' + p[0] + 'Box" style="margin-bottom:18px">'
           + '<div class="panel-head"><div><div class="panel-title">' + p[1] + '</div><div class="panel-sub">' + p[2] + '</div></div>'
           + '<div class="inv-filters"><button type="button" class="btn-secondary btn-sm" data-reload="' + p[0] + '">Reload</button></div></div>'
-          + '<div class="faint" data-status="' + p[0] + '" style="padding:8px 16px 0;min-height:18px"></div>'
+          + '<div class="faint" id="' + p[0] + 'Status" data-status="' + p[0] + '" style="padding:8px 16px 0;min-height:18px"></div>'
           + '<div class="table-wrapper"><table><thead><tr>' + p[3] + '</tr></thead>'
           + '<tbody id="' + p[0] + 'Body"><tr><td class="faint">Loading\u2026</td></tr></tbody></table></div></div>';
       }).join('');

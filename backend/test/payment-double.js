@@ -241,7 +241,7 @@ module.exports = function paymentDouble(DB, opts = {}) {
     }
     const led = /^SELECT p\.\*, u\.full_name AS received_by_name, r\.amount AS reversed_amount FROM payments p/i.exec(s);
     if (led) {
-      const col = /WHERE p\.paid_for = \$1 AND (\w+) = \$2/i.exec(s)[1];                  // order_no | quote_no
+      const col = /WHERE (\w+_no) = \$2/i.exec(s)[1];                                       // order_no | quote_no, read through the parent's id
       return rowsOf(DB.payments.filter((x) => {
         if (x.paid_for !== p[0]) return false;
         const parent = x.paid_for === 'order' ? DB.orders.find((o) => Number(o.order_id) === Number(x.order_id)) : quoteById(x.quote_id);

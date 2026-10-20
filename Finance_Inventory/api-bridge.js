@@ -1311,7 +1311,7 @@
       const supplier = id && supplierData.find((s) => s.id === id);
       if (!supplier) return;
       const next = supplier.status === 'archived' ? 'active' : 'archived';
-      if (!confirm((next === 'archived' ? 'Archive ' : 'Restore ') + supplier.name + '?')) return;
+      if (!(await uiConfirm({ title: (next === 'archived' ? 'Archive ' : 'Restore ') + supplier.name + '?', message: next === 'archived' ? 'The supplier is hidden from new purchase records. You can restore it later.' : 'The supplier can be used again.', confirm: next === 'archived' ? 'Archive' : 'Restore', danger: next === 'archived' }))) return;
       try {
         await api('/suppliers/' + encodeURIComponent(id) + '/status', { method: 'PATCH', body: JSON.stringify({ status: next }) });
         toast('Supplier ' + (next === 'archived' ? 'archived' : 'restored'));

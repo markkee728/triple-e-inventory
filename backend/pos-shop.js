@@ -61,7 +61,8 @@ const REFUND_REASONS = {
   wrong_item: 'Wrong item received',
   not_as_described: 'Not as described',
   missing_items: 'Missing items',
-  other: 'Other'
+  other: 'Other',
+  cancelled: 'Order cancelled — refund of the payment'      // created by the system when a paid order is cancelled; customers cannot pick it
 };
 // Cancellations: the customer picks a reason. Cancelling soon after ordering (and before we pack it) is approved on the spot;
 // after that window the shop decides. Change the window with CANCEL_AUTO_HOURS in .env (default 24 hours).
@@ -680,6 +681,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const def = rows.find((r) => r.scope === 'default');
     return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default', available: def ? def.available !== false : false };   // no "all other areas" row: not covered
   }
+  // shared with the quote forms (shop-extras.js), so a quotation can never promise delivery to an area the shop and the POS refuse
+  app.locals.deliveryCoverage = (place) => deliveryFeeFor(pool, place || {});
   const ratesSummary = async () => {
     const rows = await rateRows();
     const fees = rows.filter((r) => r.available !== false).map((r) => +r.fee);
@@ -1251,8 +1254,20 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // the last moment a refund can be requested (the order must be closed: Delivered / Picked Up)
   const refundDeadline = (o) => new Date(o.status_updated_at || o.created_at).getTime() + REFUND_WINDOW_DAYS * 86400000;
 
-  // until this moment a customer can cancel and it is approved immediately
+  // until this moment a customer can cancel and it is approved immediately (only while nothing has been paid)
   const instantUntil = (o) => new Date(o.created_at).getTime() + CANCEL_AUTO_HOURS * 3600000;
+  const paidIn = (o) => round2(Number(o.paid_amount) || 0);
+  /* A cancelled order that had money on it owes the customer a refund. It is put in Finance's refund queue (Sales >
+     Refund requests) for the amount in the ledger; approving it there writes the refund to the ledger. */
+  async function queueCancelRefund(client, o, userId) {
+    const amount = paidIn(o);
+    if (!(amount > 0)) return 0;
+    await client.query(
+      `INSERT INTO order_refund_requests (order_id, reason_code, details, amount, requested_by) VALUES ($1,'cancelled',$2,$3,$4)
+       ON CONFLICT (order_id) DO NOTHING`,
+      [o.order_id, `Order cancelled before release. Refund the ${peso(amount)} received to the original payment method.`, amount, userId]);
+    return amount;
+  }
 
   // What the customer has paid and still owes. It comes from the payment ledger (paid_amount is kept by the database
   // trigger), never from the browser. The shop page needs it to tell "waiting for payment" from "paid".
@@ -1263,6 +1278,24 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     return { paymentState: m.state, paidAmount: m.paid, outstanding: m.balance, dueNow: m.dueNow,
       terms: t ? { key: t.key, percent: t.percent, initial: t.initial, dueNow: t.dueNow, balance: t.balance, condition: t.condition } : null };
   };
+  const isCod = (o) => /^Cash on /.test(o.payment_method || '');
+  /* §8 THE money gate for moving an online order, the same for Finance and the counter (payment-terms.releaseDecision):
+       Confirm            online orders need the payment due now (full, or the approved initial %) in the ledger; COD is confirmed unpaid
+       Out for Delivery   goods leave the shop: an online-payment order must be fully settled; COD is collected at the door
+       Delivered / Picked Up  nothing may stay outstanding. The counter takes COD cash on the spot; Finance has no drawer
+       A Finance credit exception is the only way past the gate with money still owed.                                  */
+  function moneyGate(o, target, role) {
+    const pt = app.locals.paymentTerms;
+    if (!pt || !target) return { ok: true };
+    if (target === 'Paid') return pt.releaseDecision(o, { action: 'confirm', role });
+    if (target === 'Out for Delivery') {
+      const m = pt.orderMoney(o);
+      if (!m.outstanding || isCod(o) || o.credit_exception_by) return { ok: true, money: m };
+      return { ok: false, field: 'payment', money: m, reason: `${peso(m.balance)} is still unpaid on this online-payment order. Collect it first (or ask Finance for a credit exception) before it goes out for delivery` };
+    }
+    if (FINAL_STATUS.includes(target)) return pt.releaseDecision(o, { action: 'release', role });
+    return { ok: true };
+  }
   const orderJson = (o, items, cancelPending, refund, dlv) => ({
     ...moneyJson(o),
     id: o.order_no, createdAt: new Date(o.created_at).getTime(), fulfillment: o.fulfillment, address: o.address || undefined,
@@ -1272,7 +1305,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     delivery: o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(o.status) ? delivery.customerJson(dlv, o) : undefined,
     cancelRequested: !!cancelPending,
     cancellable: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending,
-    cancelInstant: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending && Date.now() <= instantUntil(o),
+    // money already received is never dropped by an instant cancel: a paid order goes to Finance as cancel + refund
+    cancelInstant: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending && !paidIn(o) && Date.now() <= instantUntil(o),
+    cancelRefund: paidIn(o) || undefined,
     cancelInstantUntil: CUSTOMER_CANCELLABLE.includes(o.status) ? instantUntil(o) : undefined,
     cancelAutoHours: CANCEL_AUTO_HOURS,
     refund: refundJson(refund),
@@ -1449,7 +1484,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (!CUSTOMER_CANCELLABLE.includes(o.status)) throw bad('id', 'We are already preparing or have finished this order, so it can no longer be cancelled here. Please contact us if you need help');
       const dup = await client.query(`SELECT 1 FROM order_cancel_requests WHERE order_id = $1 AND status = 'pending'`, [o.order_id]);
       if (dup.rowCount) throw bad('id', 'You already asked to cancel this order. Our team is reviewing it');
-      instant = Date.now() <= instantUntil(o);
+      instant = !paidIn(o) && Date.now() <= instantUntil(o);       // paid: Finance approves the cancellation and the refund
       if (instant) {
         // inside the free-cancel window: cancelled right away, stock goes back if it was already taken
         if (o.stock_deducted) {
@@ -1464,7 +1499,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await audit(client, req.user, 'Record edited', `Order ${o.order_no} cancelled by the customer (within ${CANCEL_AUTO_HOURS} h): ${reason}${o.stock_deducted ? ' \u2014 stock restored, refund to original payment method due' : ''}`);
       } else {
         await client.query('INSERT INTO order_cancel_requests (order_id, reason, reason_code, requested_by) VALUES ($1,$2,$3,$4)', [o.order_id, reason, code, req.user.id]);
-        await audit(client, req.user, 'Record edited', `Cancellation requested for ${o.order_no}: ${reason}`);
+        await audit(client, req.user, 'Record edited', `Cancellation requested for ${o.order_no}: ${reason}${paidIn(o) ? ` — ${peso(paidIn(o))} paid, refund due if approved` : ''}`);
       }
     });
     res.status(201).json({ ok: true, cancelled: instant });
@@ -1484,7 +1519,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.post('/api/shop/orders/:no/refund-request', auth('customer'), wrap(async (req, res) => {
     const b = req.body || {};
     const code = str(b.reason), details = str(b.details);
-    if (!REFUND_REASONS[code]) throw bad('reason', 'Choose the reason for your refund request');
+    if (!REFUND_REASONS[code] || code === 'cancelled') throw bad('reason', 'Choose the reason for your refund request');
     if (details.length < 5 || details.length > 300) throw bad('details', 'Please describe the problem (5 to 300 characters)');
     await tx(async (client) => {
       const r = await client.query('SELECT * FROM orders WHERE order_no = $1 AND customer_id = $2 FOR UPDATE', [req.params.no, req.user.id]);
@@ -1522,9 +1557,22 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const pending = new Set(cr.map(r => r.order_id));
     const refunds = await refundsFor(ids);
     const dl = await delivery.loadFor(ids);
+    const { rows: hist } = ids.length ? await pool.query(
+      `SELECT h.order_id, h.to_status, h.note, h.created_at, u.full_name AS by_name FROM order_status_history h
+         LEFT JOIN users u ON u.user_id = h.changed_by WHERE h.order_id = ANY($1) ORDER BY h.created_at, h.history_id`, [ids]) : { rows: [] };
+    const histBy = new Map();
+    for (const h of hist) { const k = String(h.order_id); if (!histBy.has(k)) histBy.set(k, []); histBy.get(k).push({ to: h.to_status, note: h.note || undefined, by: h.by_name || 'System', at: new Date(h.created_at).getTime() }); }
+    const pt = app.locals.paymentTerms;
     res.json(orders.map(o => {
       const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status), isDelivery = o.fulfillment === 'Delivery';
+      const next = at >= 0 && at < flow.length - 1 ? flow[at + 1] : null, m = pt ? pt.orderMoney(o) : null, gate = moneyGate(o, next, req.user.role);
       return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
+        // money flags the screens show; the server applies the same gate again on every move
+        awaitingPayment: !!(m && o.payment_method === 'Xendit' && o.payment_status === 'pending' && m.dueNow > 0) || undefined,
+        cashOnHandover: !!(m && isCod(o) && m.outstanding && !FINAL_STATUS.includes(o.status)) || undefined,
+        creditException: o.credit_exception_by ? { note: o.credit_exception_note || 'credit exception granted by Finance' } : undefined,
+        hold: next && !gate.ok ? gate.reason : undefined,
+        paymentRef: o.xendit_invoice_id || undefined, history: histBy.get(String(o.order_id)) || [],
         // Finance sees everything: rider phone, internal notes, proof photo ids (the photos themselves are fetched one by one)
         delivery: isDelivery ? delivery.financeJson(dl.rows.get(String(o.order_id)), dl.proofs.get(String(o.order_id))) : undefined,
         receivedBy: o.received_by || undefined, proofRequired: isDelivery ? delivery.proofRequired() : undefined,
@@ -1533,7 +1581,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         recipient: o.fulfillment === 'Delivery' ? (o.recipient_name || undefined) : undefined,
         recipientPhone: o.fulfillment === 'Delivery' ? o.phone : undefined,
         flow,                                                            // the steps this order goes through (Delivery or Pickup)
-        next: at >= 0 && at < flow.length - 1 ? flow[at + 1] : null,     // the one step Finance can do next
+        next,                                                            // the one step that can be done next
         canCancel: ADMIN_CANCELLABLE.includes(o.status) };
     }));
   }));
@@ -1545,7 +1593,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (!r.rowCount) throw bad('id', 'Order not found');
       const o = r.rows[0];
       if (o.status !== 'Pending Confirmation') throw bad('id', `Order is already ${o.status}`);
-      if (req.user.role === 'cashier' && o.payment_status !== 'paid' && !/^Cash on /.test(o.payment_method)) throw bad('payment', 'Online payment must be verified before confirming the order');
+      const gate = moneyGate(o, 'Paid', req.user.role);
+      if (!gate.ok) throw bad(gate.field || 'payment', gate.reason);
       await confirmOrder(client, o, req.user);
     });
     res.json({ ok: true });
@@ -1568,7 +1617,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
             userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: `Cancelled ${o.order_no}` });
         }
         await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
-        await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, 'Customer cancellation approved');
+        const owed = await queueCancelRefund(client, o, req.user.id);
+        await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, 'Customer cancellation approved' + (owed ? ` — refund of ${peso(owed)} queued` : ''));
       }
       await client.query(`UPDATE order_cancel_requests SET status = $2, decided_by = $3, decided_at = now() WHERE request_id = $1`,
         [q.rows[0].request_id, approve ? 'approved' : 'rejected', req.user.id]);
@@ -1624,6 +1674,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'return', qty: +i.qty,
           userId: req.user.id, sourceType: 'order', sourceId: o.order_id, note: `Refund of ${o.order_no}` });
       }
+      // the money goes back out through the ledger, so the order's paid amount / payment state and the reports follow
+      if (approve && app.locals.paymentTerms) await app.locals.paymentTerms.refundOrderPayments(client, o, amount, req.user, `Refund ${o.order_no}${note ? ' — ' + note : ''}`);
       await client.query(
         `UPDATE order_refund_requests SET status = $2, amount = $3, restocked = $4, decision_note = $5, decided_by = $6, decided_at = now() WHERE request_id = $1`,
         [q.rows[0].request_id, approve ? 'approved' : 'rejected', amount, approve && restock, note || null, req.user.id]);
@@ -1724,6 +1776,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);
     if (!target) throw bad('status', 'Choose the new status');
     if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    let handover = null;                                                  // the receipt of COD cash taken with this move
     await tx(async (client) => {
       const r = await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [req.params.no]);
       if (!r.rowCount) throw bad('id', 'Order not found');
@@ -1749,7 +1802,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (dispatch) dispatch.trackingNo = await delivery.trackingFor(client, prev);   // generated here, never typed by Finance
       const arrived = o.fulfillment === 'Delivery' && target === 'Delivered' ? await delivery.deliveredFields(client, b.delivery, o, prev, req.user.role === 'cashier' ? { proof: false } : undefined) : null;
 
+      const gate = moneyGate(o, target, req.user.role);
+      if (!gate.ok) throw bad(gate.field || 'payment', gate.reason);
       let shiftId = null, cashReceived = null;
+      const collect = gate.collect > 0 ? round2(gate.collect) : 0;        // COD balance taken at the counter / door right now
       if (FINAL_STATUS.includes(target) && req.user.role === 'cashier') {
         if (!/^\p{L}[\p{L}\s.'’\-]{1,79}$/u.test(receivedBy)) throw bad('receivedBy', 'Enter a valid recipient name');
         if (target === 'Picked Up') {
@@ -1757,23 +1813,26 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           if (!/^[A-Za-z0-9]{4}$/.test(str(b.pickupIdLast4))) throw bad('pickupIdLast4', 'Enter the last four ID characters');
         }
         if (b.representative && (str(b.relationship).length < 3 || str(b.relationship).length > 60)) throw bad('relationship', 'Enter the representative relationship (3–60 characters)');
-        if (/^Cash on /.test(o.payment_method) && o.payment_status !== 'paid') {
+        if (collect > 0) {
           cashReceived = Number(b.cashReceived);
-          if (!Number.isFinite(cashReceived) || !/^\d+(?:\.\d{1,2})?$/.test(String(b.cashReceived)) || cashReceived < Number(o.total) || cashReceived > Number(o.total) + 100000) throw bad('cashReceived', 'Enter a valid amount covering the order total');
+          if (!Number.isFinite(cashReceived) || !/^\d+(?:\.\d{1,2})?$/.test(String(b.cashReceived)) || cashReceived < collect || cashReceived > collect + 100000)
+            throw bad('cashReceived', `Enter the cash received; it must cover the ${peso(collect)} balance`);
           const shift = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
           if (!shift.rowCount) throw bad('cashReceived', 'Open your Cash Shift before collecting payment');
           shiftId = shift.rows[0].shift_id;
-        } else if (o.payment_status !== 'paid') throw bad('payment', 'The order has not been paid');
+        }
       }
-      if (target === 'Paid' && req.user.role === 'cashier' && o.payment_status !== 'paid' && !/^Cash on /.test(o.payment_method)) throw bad('payment', 'Online payment must be verified before confirming the order');
       if (target === 'Paid') await confirmOrder(client, o, req.user, note);   // also deducts stock and writes its own history line
       else {
         if (!o.stock_deducted) throw bad('status', 'Stock has not been deducted for this order. Contact the system administrator');
         await client.query('UPDATE orders SET status = $2, status_updated_at = now(), received_by = COALESCE($3, received_by) WHERE order_id = $1',
           [o.order_id, target, FINAL_STATUS.includes(target) ? receivedBy : null]);
-        if (shiftId !== null) {
-          await client.query("UPDATE orders SET payment_status = 'paid', cash_shift_id = $2 WHERE order_id = $1 AND payment_status <> 'paid'", [o.order_id, shiftId]);
-          await audit(client, req.user, 'Payment received', `Cash payment for online order ${o.order_no} in shift ${shiftId}: ${o.total}`);
+        if (shiftId !== null) {        // the COD cash goes into the ledger (and this cashier's drawer), like any counter payment
+          const p = await app.locals.paymentTerms.applyPayment(client, { kind: 'order', no: o.order_no, amount: collect, method: 'Cash', tendered: cashReceived,
+            cashShiftId: shiftId, actor: req.user, note: `Collected on ${target === 'Delivered' ? 'delivery' : 'pickup'}`, requestId: str(b.requestId) || undefined });
+          await client.query("UPDATE orders SET payment_status = 'paid', cash_shift_id = $2 WHERE order_id = $1", [o.order_id, shiftId]);
+          handover = { receiptNo: 'RCP-' + o.order_no + '-' + p.paymentId, paymentId: p.paymentId, amount: p.amount, tendered: p.tendered, change: p.change,
+            paidAmount: p.parent.paid, balance: p.parent.balance };
         }
         if (dispatch) await delivery.saveDispatch(client, o.order_id, dispatch, req.user.id);
         if (arrived) await delivery.saveDelivered(client, o.order_id, arrived, req.user.id);
@@ -1783,7 +1842,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await audit(client, req.user, 'Record edited', `Order ${o.order_no} moved from ${o.status} to ${target}` + (dispatch ? ` — ${delivery.summary(dispatch)}` : ''));
       }
     });
-    res.json({ ok: true });
+    res.json({ ok: true, ...(handover || {}) });
     notify(req.params.no, target);
   }));
 
@@ -1805,7 +1864,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
       await client.query(`UPDATE order_cancel_requests SET status = 'approved', decided_by = $2, decided_at = now() WHERE order_id = $1 AND status = 'pending'`, [o.order_id, req.user.id]);
-      await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, reason);
+      const owed = await queueCancelRefund(client, o, req.user.id);
+      await logStatus(client, o.order_id, o.status, 'Cancelled', req.user.id, reason + (owed ? ` — refund of ${peso(owed)} queued` : ''));
       await audit(client, req.user, 'Record edited', `Order ${o.order_no} cancelled by admin: ${reason}${o.stock_deducted ? ' — stock restored, refund to original payment method due' : ''}`);
     });
     res.json({ ok: true });

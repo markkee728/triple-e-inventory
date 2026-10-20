@@ -338,6 +338,13 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some((w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)));
     return fam && fam.materials.length === 1 ? fam.materials[0] : null;
   }
+  // same delivery coverage as checkout and the POS (Finance > Delivery rates); a quote is not sent for an area we cannot deliver to
+  async function mustDeliverTo(place, field) {
+    const cover = app.locals.deliveryCoverage;
+    if (!cover || (!place.region && !place.province)) return;
+    const q = await cover(place);
+    if (q && q.available === false) throw bad(field, `Sorry, we do not deliver to ${place.province || place.region} yet. Choose another area, or switch to Pickup`);
+  }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
     if (!contactName) throw bad('contactName', 'Enter the customer\u2019s name');
@@ -442,6 +449,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         if (!Number.isInteger(id)) throw bad('address', 'Choose where it should be delivered');
         const a = (await pool.query('SELECT * FROM customer_addresses WHERE address_id = $1 AND user_id = $2', [id, userId])).rows[0];
         if (!a) throw bad('address', 'That saved address was not found. Please choose another');
+        await mustDeliverTo({ region: a.region, province: a.province }, 'address');
         area = [a.address_line, a.barangay && (/^(brgy|barangay)/i.test(a.barangay) ? a.barangay : 'Brgy. ' + a.barangay), a.city, a.province, a.zip_code].filter(Boolean).join(', ');
       } else {
         const city = str(b.city), barangay = str(b.barangay), street = str(b.street), region = str(b.region), province = str(b.province);
@@ -451,6 +459,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
           if (region.length < 2 || region.length > 80) throw bad('region', 'Choose the region');
           if (province.length < 2 || province.length > 60 || !/\p{L}/u.test(province)) throw bad('province', 'Choose the province');
         }
+        if (region || province) await mustDeliverTo({ region, province }, 'province');
         if (city.length < 2 || city.length > 60 || !/\p{L}/u.test(city)) throw bad('city', 'Enter the city or municipality');
         if (barangay.length < 2 || barangay.length > 60 || !/\p{L}/u.test(barangay)) throw bad('barangay', 'Enter the barangay');
         if (street && (street.length < 5 || street.length > 100)) throw bad('street', 'Enter the house no. and street (5 to 100 characters), or leave it empty');
@@ -463,8 +472,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   const INSERT_COLS = 'contact_name, phone, product_sku, product_name, quantity, details, specs, needed_by, fulfillment, area, contact_email, company_name, flexible_date';
   const insertVals = (v) => [v.contactName, v.phone, v.sku, v.productName, v.quantity, v.details, JSON.stringify(v.specs), v.neededBy || null, v.fulfillment, v.area, v.contactEmail || null, v.company || null, v.flexibleDate === true];
+  // "$2,$3,...": placeholders generated from INSERT_COLS so the column list and the values can never drift apart
+  // (a hand-written list missed flexible_date and every walk-in quote failed with "Server error"). specs is cast to jsonb.
+  const insertParams = (from) => INSERT_COLS.split(',').map((c, i) => '$' + (from + i) + (c.trim() === 'specs' ? '::jsonb' : '')).join(',');
   const financeTo = () => process.env.QUOTE_EMAIL || (shopInfo() || {}).email;
-  const needText = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  const needText = (d) => !d ? 'Flexible / whenever ready' : new Date(d + 'T00:00:00Z').toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
   app.post('/api/shop/quotes', auth('customer'), wrap(async (req, res) => {
     const v = await readQuote(req.body || {}, { fallbackName: req.user.name, userId: req.user.id });
@@ -473,7 +485,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, ${INSERT_COLS}) VALUES ($1,${insertParams(2)}) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity})`);
       return r.rows[0];
@@ -618,7 +630,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (open >= MAX_OPEN_POS_QUOTES) throw bad('quote', 'There are too many walk-in requests waiting for Finance. Please ask Finance to answer them first');
     const row = await tx(async (client) => {
       const r = await client.query(
-        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13) RETURNING *`,
+        `INSERT INTO quote_requests (customer_id, source, created_by, ${INSERT_COLS}) VALUES (NULL,'pos',$1,${insertParams(2)}) RETURNING *`,
         [req.user.id, ...insertVals(v)]);
       await audit(client, req.user, 'Record added', `Walk-in quote request ${r.rows[0].quote_no}${v.productName ? ' \u2014 ' + v.productName : ''} (${v.quantity}) for ${v.contactName}`);
       return r.rows[0];

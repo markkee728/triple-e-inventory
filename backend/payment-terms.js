@@ -335,7 +335,14 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     }
     if (providerRef) {
       const seen = (await client.query(`SELECT * FROM payments WHERE provider_ref = $1`, [providerRef])).rows[0];
-      if (seen) return await asReplay(client, P, seen);
+      if (seen) {
+        // the same provider event arriving twice for the SAME order / quote is a replay; on another one it is a reused reference
+        const mine = seen.paid_for === kind && String(spec.no != null
+          ? (await client.query(`SELECT ${P.noCol} AS no FROM ${P.table} WHERE ${P.idCol} = $1`, [seen[kind === 'order' ? 'order_id' : 'quote_id']])).rows.map((r) => r.no)[0]
+          : seen[kind === 'order' ? 'order_id' : 'quote_id']) === String(key);
+        if (!mine) throw bad('reference', 'That reference number is already recorded on another payment. Check the reference and try again');
+        return await asReplay(client, P, seen);
+      }
     }
 
     const findCol = spec.no != null ? P.noCol : P.idCol;
@@ -446,7 +453,8 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const { rows } = await db.query(
       `SELECT p.*, u.full_name AS received_by_name, r.amount AS reversed_amount
          FROM payments p LEFT JOIN users u ON u.user_id = p.received_by LEFT JOIN payments r ON r.payment_id = p.reversed_of
-        WHERE p.paid_for = $1 AND ${P.noCol} = $2 ORDER BY p.created_at, p.payment_id`, [kind, no]);
+        WHERE p.paid_for = $1 AND p.${P.idCol} = (SELECT ${P.idCol} FROM ${P.table} WHERE ${P.noCol} = $2)
+        ORDER BY p.created_at, p.payment_id`, [kind, no]);       // payments holds the parent's id, not its order / quote number
     return rows.map((p) => ({
       id: Number(p.payment_id), direction: p.direction, amount: round2(+p.amount), method: p.method, purpose: p.purpose,
       providerRef: p.provider_ref || undefined, requestId: p.request_id || undefined, saleId: p.sale_id == null ? undefined : Number(p.sale_id),
@@ -664,8 +672,11 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       return { ok: false, field: 'payment', money: m,
         reason: `${peso(m.balance)} is still outstanding on this order. Collect it at the counter first, or ask Finance to grant a credit exception` };
     }
-    if (cents(m.dueNow) > 0 && !(role === 'finance' && credit) && !cod)
-      return { ok: false, field: 'payment', money: m, reason: `${peso(m.dueNow)} is still due on this order (${m.key === 'full' ? 'full payment' : `${m.percent}% initial payment`}: ${m.condition})` };
+    // confirming needs the part the terms ask for up front: everything on Full Payment, the initial % on a partial term
+    // (dueNow alone is not enough: once the initial is in, dueNow becomes the balance, which is only due before release)
+    const short = m.key === 'full' ? m.balance : round2(Math.max(0, m.initial - m.paid));
+    if (cents(short) > 0 && !(role === 'finance' && credit) && !cod)
+      return { ok: false, field: 'payment', money: m, reason: `${peso(short)} ${m.key === 'full' ? '(full payment)' : `(${m.percent}% initial payment)`} has not been received yet. Record it with Collect payment, or wait for the online payment, before confirming` };
     if (role === 'cashier' && !cod && !verified && cents(m.paid) <= 0)
       return { ok: false, field: 'payment', money: m, reason: 'Online payment must be verified before confirming the order' };
     return { ok: true, money: m, credit, cod };
@@ -692,6 +703,25 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     return r.rows[0];
   }
 
+  /* Gives back up to `amount` of what the ledger holds for one order, newest payment first, one 'out' row per payment
+     reversed. Returns what was actually written (0 when nothing was ever recorded, e.g. an old COD order). */
+  async function refundOrderPayments(client, o, amount, actor, note) {
+    let left = round2(Math.min(Number(amount) || 0, Number(o.paid_amount) || 0)), done = 0;
+    if (!(left > 0)) return 0;
+    const ins = (await client.query(
+      `SELECT p.payment_id, p.amount, p.method, COALESCE((SELECT SUM(x.amount) FROM payments x WHERE x.reversed_of = p.payment_id), 0) AS back
+         FROM payments p WHERE p.paid_for = 'order' AND p.order_id = $1 AND p.direction = 'in' ORDER BY p.payment_id DESC`, [o.order_id])).rows;
+    for (const p of ins) {
+      const room = round2(Number(p.amount) - Number(p.back));
+      if (!(left > 0) || !(room > 0)) continue;
+      const take = round2(Math.min(room, left));
+      await applyPayment(client, { kind: 'order', no: o.order_no, amount: take, method: p.method, direction: 'out', reversedOf: p.payment_id,
+        purpose: 'refund', note: note || 'Refunded by Finance', actor, requestId: `refund-${o.order_id}-${p.payment_id}-${Date.now()}` });
+      left = round2(left - take); done = round2(done + take);
+    }
+    return done;
+  }
+
   /* ---------------- the ledger as a screen needs it ---------------- */
   app.get('/api/finance/payment-ledger/:kind/:no', auth('finance'), wrap(ledgerView));
 
@@ -712,6 +742,9 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       if (['Cancelled', 'Returned'].includes(cur.status)) throw bad('status', 'This order is closed, so no payment can be recorded on it');
       /* Cash belongs to a drawer, an online payment never does (§4: online money must not inflate the till).
          The shift is the one this cashier actually has open — not a number the page chose. */
+      // an open Xendit invoice may still be paid by the customer: taking the same money at the counter would charge them twice
+      if (cur.payment_method === 'Xendit' && cur.payment_status === 'pending')
+        throw bad('payment', 'An online payment link is still open for this order. Tap Check payment first; collect at the counter only if it was not paid');
       let shiftId = null;
       if (method === 'Cash') {
         const shift = (await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id])).rows[0];
@@ -723,6 +756,8 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
         requestId: str(b.requestId) || undefined, providerRef: providerRef || undefined,
         tendered: b.tendered, cashShiftId: shiftId, saleId: b.saleId
       });
+      if (!paid.replayed && cents(paid.parent.balance) === 0)
+        await client.query("UPDATE orders SET payment_status = 'paid' WHERE order_id = $1 AND payment_status <> 'paid'", [cur.order_id]);
       return { cur, paid };
     });
     const p = out.paid;
@@ -979,7 +1014,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
   app.locals.paymentTerms = {
     ready, listTerms, optionsFor, amountFor, quoteTerms, approvedDueOf, isMadeToOrder,
     applyPayment, ledgerFor, termRows, moveQuotePaymentsToOrder, inheritTerms, DEFAULT_TERMS, METHODS, TERMS,
-    orderMoney, owedOnOrder, orderTerms, setOrderTerms, releaseDecision,
+    orderMoney, owedOnOrder, orderTerms, setOrderTerms, releaseDecision, refundOrderPayments,
     ledgerForOrder: (no) => ledgerFor(pool, { kind: 'order', no }),
     markTermsSeen: (client, quoteId) => client.query(`UPDATE quote_requests SET terms_customer_seen_at = now() WHERE quote_id = $1 AND terms_customer_seen_at IS NULL`, [quoteId])
   };
