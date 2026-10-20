@@ -2254,11 +2254,11 @@
     const idx = {}; data.forEach((d, i) => { idx[d.b.key] = i; });
     all.forEach((m) => {
       const k = buckets[0].month ? m.date.slice(0, 7) : m.date;
-      if (idx[k] !== undefined) data[idx[k]][m.type] += Number(m.qty) || 0;
+      if (idx[k] !== undefined) data[idx[k]][m.type] += 1;   // count entries: quantities are in different units (sheets, kg, pcs) and cannot be added together
     });
     const max = Math.max.apply(null, data.map((d) => Math.max(d.in, d.out)).concat([0]));
     const totIn = data.reduce((t, d) => t + d.in, 0), totOut = data.reduce((t, d) => t + d.out, 0);
-    setText('scatterChartSub', 'Stock in vs stock out \u00B7 In ' + num(totIn) + ' \u00B7 Out ' + num(totOut));
+    setText('scatterChartSub', 'Stock in vs stock out \u00B7 In ' + num(totIn) + ' entries \u00B7 Out ' + num(totOut) + ' entries');
     if (!max) { box.innerHTML = '<div class="rep-chart-empty">No stock movement in this period.</div>'; return; }
     const W = 560, H = 230, L = 46, Rm = 8, T = 18, B = 28, iw = W - L - Rm, ih = H - T - B;
     const step = Math.pow(10, Math.floor(Math.log10(max)));
@@ -2276,8 +2276,8 @@
       // a small quantity next to a big one would be a hairline: keep every non-zero bar at least 4 px tall
       const hi = d.in > 0 ? Math.max(4, ih * d.in / top) : 0, ho = d.out > 0 ? Math.max(4, ih * d.out / top) : 0;
       const short = (n) => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e4 ? Math.round(n / 1e3) + 'k' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n * 10) / 10));
-      svg += '<rect class="trend-bar-in" x="' + (cx - bw - 1) + '" y="' + (T + ih - hi) + '" width="' + bw + '" height="' + hi + '" rx="2"><title>' + esc(d.b.label + ': in ' + num(d.in)) + '</title></rect>' +
-        '<rect class="trend-bar-out" x="' + (cx + 1) + '" y="' + (T + ih - ho) + '" width="' + bw + '" height="' + ho + '" rx="2"><title>' + esc(d.b.label + ': out ' + num(d.out)) + '</title></rect>';
+      svg += '<rect class="trend-bar-in" x="' + (cx - bw - 1) + '" y="' + (T + ih - hi) + '" width="' + bw + '" height="' + hi + '" rx="2"><title>' + esc(d.b.label + ': ' + num(d.in) + ' stock in') + '</title></rect>' +
+        '<rect class="trend-bar-out" x="' + (cx + 1) + '" y="' + (T + ih - ho) + '" width="' + bw + '" height="' + ho + '" rx="2"><title>' + esc(d.b.label + ': ' + num(d.out) + ' stock out') + '</title></rect>';
       if (data.length <= 10) {
         if (d.in > 0) svg += '<text class="trend-axis-label" x="' + (cx - bw / 2 - 1) + '" y="' + (T + ih - hi - 3) + '" text-anchor="middle" font-size="9">' + esc(short(d.in)) + '</text>';
         if (d.out > 0) svg += '<text class="trend-axis-label" x="' + (cx + bw / 2 + 1) + '" y="' + (T + ih - ho - 3) + '" text-anchor="middle" font-size="9">' + esc(short(d.out)) + '</text>';

@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="production.css?v=1">
     <link rel="stylesheet" href="notifications.css?v=6">
     <link rel="stylesheet" href="sidebar.css?v=1">
-    <link rel="stylesheet" href="customers.css?v=4">
+    <link rel="stylesheet" href="customers.css?v=5">
 
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1910,7 +1910,7 @@
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
                         </div>
                         <div class="stat-body">
-                            <div class="stat-label">SKUs in report</div>
+                            <div class="stat-label">SKUs (now)</div>
                             <div class="stat-value" id="repSkusInReport">—</div>
                         </div>
                         <span class="stat-go" aria-hidden="true">&rsaquo;</span>
@@ -1920,7 +1920,7 @@
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
                         </div>
                         <div class="stat-body">
-                            <div class="stat-label">Stock value</div>
+                            <div class="stat-label">Stock value (now)</div>
                             <div class="stat-value" id="repStockValue">—</div>
                         </div>
                         <span class="stat-go" aria-hidden="true">&rsaquo;</span>
@@ -1980,23 +1980,17 @@
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>
                         </div>
                         <div class="stat-body">
-                            <div class="stat-label">Low-stock alerts</div>
+                            <div class="stat-label">Low stock (now)</div>
                             <div class="stat-value alert-value" id="repLowStockAlerts">—</div>
                         </div>
                         <span class="stat-go" aria-hidden="true">&rsaquo;</span>
                     </button>
                 </div>
-                <p class="report-jump-hint">Every report on this page follows the Report Period above. Click a box to jump to its report.</p>
+                <p class="report-jump-hint">Sales, movement and report figures follow the Report Period above. <b>SKUs, Stock value and Low-stock are live right now</b> and do not change with the period. Click a box to jump to its report.</p>
 
 </div>
 
-<!-- NEW REPORTS (server-side): Sales Overview, Top-Selling Products, Low-Stock, Inventory -->
-                <div id="repSalesRoot"></div>
-                <div id="repTopRoot"></div>
-                <div id="repLowRoot"></div>
-                <div id="repInvRoot"></div>
-
-                <!-- REPORT CHARTS -->
+                <!-- ANALYTICS CHARTS: directly under the summary boxes -->
 
                 <div class="panels report-charts-grid" id="repChartsGrid">
 
@@ -2007,7 +2001,7 @@
                         </div>
 
                         <div class="panel-sub">
-                            Share of ₱ value · live snapshot
+                            Share of ₱ value · live snapshot of stock on hand right now (not affected by the Report Period)
                         </div>
 
                         <div class="donut-chart-row">
@@ -2030,14 +2024,14 @@
                     <div class="panel">
 
                         <div class="panel-title">
-                            Stock movement trend
+                            Stock movement activity
                         </div>
 
                         <div
                             class="panel-sub"
                             id="scatterChartSub"
                         >
-                            Stock in vs stock out
+                            Stock in vs stock out · number of entries in the Report Period
                         </div>
 
 
@@ -2056,7 +2050,7 @@
                                     style="background:#43c47a"
                                 ></span>
 
-                                Stock In (qty)
+                                Stock In (entries)
 
                             </div>
 
@@ -2068,7 +2062,7 @@
                                     style="background:#e35b5b"
                                 ></span>
 
-                                Stock Out (qty)
+                                Stock Out (entries)
 
                             </div>
 
@@ -2078,6 +2072,11 @@
 
                 </div>
 
+                <!-- NEW REPORTS (server-side): Sales Overview, Top-Selling Products, Low-Stock, Inventory -->
+                <div id="repSalesRoot"></div>
+                <div id="repTopRoot"></div>
+                <div id="repLowRoot"></div>
+                <div id="repInvRoot"></div>
 
                 <!-- STOCK VALUE DETAIL -->
 
@@ -3527,7 +3526,7 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="script.js?v=15"></script>
-    <script src="api-bridge.js?v=17"></script>
+    <script src="api-bridge.js?v=18"></script>
     <script src="sales-orders.js?v=12"></script>
     <link rel="stylesheet" href="sales-admin.css?v=9">
     <link rel="stylesheet" href="reports-sales.css?v=6">
@@ -3545,7 +3544,7 @@
     <script src="production-admin.js?v=1"></script>
     <script src="quick-stock.js?v=2"></script>
     <script src="finished-goods-shop.js?v=5"></script>
-    <script src="shop-extras-admin.js?v=5"></script>
+    <script src="shop-extras-admin.js?v=6"></script>
     <script src="delivery-rates-admin.js?v=2"></script>
     <script src="payment-terms-admin.js?v=1"></script>
     <script src="customer-profiles-admin.js?v=6"></script>

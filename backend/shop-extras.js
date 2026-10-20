@@ -991,12 +991,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   // Finance: see every review (visible and hidden), hide or restore one.
   app.get('/api/finance/reviews', auth('cashier'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
+      `SELECT r.review_id, r.rating, r.body, r.status, r.created_at, r.hidden_at, r.hidden_reason, p.sku, p.name AS product, r.user_id, u.full_name, u.email, o.order_no, h.full_name AS hidden_by_name
          FROM product_reviews r JOIN products p ON p.product_id = r.product_id JOIN users u ON u.user_id = r.user_id
          LEFT JOIN orders o ON o.order_id = r.order_id LEFT JOIN users h ON h.user_id = r.hidden_by
         ORDER BY r.created_at DESC LIMIT 500`);
     res.json(rows.map((r) => ({ id: Number(r.review_id), rating: r.rating, body: r.body, status: r.status, product: r.product, sku: r.sku,
-      customer: r.full_name, email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
+      customer: r.full_name, userId: Number(r.user_id), email: r.email, orderNo: r.order_no || undefined, createdAt: ms(r.created_at),
       hiddenAt: ms(r.hidden_at), hiddenReason: r.hidden_reason || undefined, hiddenBy: r.hidden_by_name || undefined })));
   }));
   app.post('/api/finance/reviews/:id/visibility', auth('cashier'), wrap(async (req, res) => {

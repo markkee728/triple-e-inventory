@@ -28,6 +28,9 @@
 /* ---------- table ---------- */
 #customers .customer-table-scroll { overflow-x: auto; }
 #customers .customer-click-row { cursor: pointer; transition: background .15s; }
+#customers .customer-click-row:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+#customers .customer-table td { vertical-align: middle; }
+#customers .customer-table .user-row-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
 #customers .customer-click-row:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
 #customers .customer-empty { text-align: center; padding: 28px 10px; color: var(--text-dim); }
 #customers .customer-table-foot {
@@ -64,6 +67,7 @@ html[data-theme="light"] #customers .customer-modal-backdrop { background: rgba(
     max-height: min(90vh, 900px);
     overflow: auto;
     overscroll-behavior: contain;
+    scrollbar-width: thin;
     background: var(--panel);
     color: var(--text);
     border: 1px solid var(--border);
@@ -176,6 +180,8 @@ html[data-theme="light"] #customers .customer-avatar-large { background: #dbe6f0
 }
 #customers .customer-profile-section h3::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 #customers .customer-profile-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+#customers .customer-profile-banner .status-pill { flex: none; }
+@media (max-width: 560px) { #customers .customer-profile-banner { flex-wrap: wrap; } #customers .customer-table-foot span:last-child { display: none; } }
 #customers .customer-profile-field {
     display: flex;
     flex-direction: column;

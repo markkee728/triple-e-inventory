@@ -47,7 +47,14 @@
       '.sx-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.sx-sub{margin:16px 0 4px;font-weight:700;font-size:14px}' +
       '.sx-empty{padding:22px;text-align:center;color:var(--text-faint)}' +
       '.sx-text{max-width:340px;overflow-wrap:anywhere;white-space:pre-line}' +
-      '@media(max-width:560px){.sx-info,.sx-two{grid-template-columns:1fr}}';
+      '.sxr-row{cursor:pointer;transition:background .15s}.sxr-row:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}.sxr-row:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}' +
+      '.sxr-who{display:flex;align-items:center;gap:10px;min-width:0}.sxr-av{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#16283b;border:1px solid rgba(74,144,217,.35);color:var(--blue-bright);font:600 13px Oswald,sans-serif}html[data-theme="light"] .sxr-av{background:#dbe6f0;color:var(--blue)}' +
+      '.sxr-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
+      '.sxr-top{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--text) 4%,var(--panel));margin-bottom:14px}.sxr-top .sxr-av{width:56px;height:56px;font-size:22px}.sxr-top strong{display:block;font-size:18px}.sxr-top span.faint{font-size:14px;overflow-wrap:anywhere}' +
+      '.sxr-h{margin:18px 0 10px;font:500 12.5px "IBM Plex Mono",monospace;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-dim);display:flex;align-items:center;gap:12px}.sxr-h:after{content:"";flex:1;height:1px;background:var(--border)}' +
+      '.sxr-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.sxr-f{padding:10px 13px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--text) 3%,var(--panel));overflow-wrap:anywhere}.sxr-f span{display:block;font-size:12.5px;color:var(--text-dim);margin-bottom:3px}.sxr-f strong{font-size:14.5px;font-weight:600}.sxr-f.is-empty strong{font-weight:400;color:var(--text-faint)}' +
+      '.sxr-review{padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:color-mix(in srgb,var(--text) 3%,var(--panel))}.sxr-review p{margin:10px 0 0;white-space:pre-line;overflow-wrap:anywhere;line-height:1.5}' +
+      '@media(max-width:560px){.sx-info,.sx-two,.sxr-grid{grid-template-columns:1fr}}';
     var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
   }
 
@@ -56,6 +63,7 @@
     return '<span class="status-pill ' + cls + '">' + esc(x.expired ? 'Quote expired' : (x.statusLabel || st)) + '</span>';
   };
   var months = function (m) { return m + (m === 1 ? ' month' : ' months'); };
+  var ini = function (n) { return String(n || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('') || '?'; };
   var rPill = function (st) { return '<span class="status-pill ' + (st === 'hidden' ? 'out' : 'in') + '">' + (st === 'hidden' ? 'Hidden' : 'Visible') + '</span>'; };
 
   /* ---------------- page skeletons ---------------- */
@@ -86,10 +94,17 @@
       $('sxrFilter').addEventListener('change', renderReviews);
       $('sxrSearch').addEventListener('input', renderReviews);
       $('sxrBody').addEventListener('click', function (e) {
-        var b = e.target.closest('[data-sxr]'); if (!b) return;
-        var rv = reviews.find(function (x) { return x.id === Number(b.dataset.sxr); });
-        if (!rv) return;
-        if (rv.status === 'hidden') setVisibility(rv, false, ''); else askHide(rv);
+        var b = e.target.closest('[data-sxr]');
+        if (b) {
+          var rv = reviews.find(function (x) { return x.id === Number(b.dataset.sxr); });
+          if (!rv) return;
+          if (rv.status === 'hidden') setVisibility(rv, false, ''); else askHide(rv);
+          return;
+        }
+        var tr = e.target.closest('[data-sxrow]'); if (tr) openReview(Number(tr.dataset.sxrow));
+      });
+      $('sxrBody').addEventListener('keydown', function (e) {
+        if ((e.key === 'Enter' || e.key === ' ') && !e.target.closest('button')) { var tr = e.target.closest('[data-sxrow]'); if (tr) { e.preventDefault(); openReview(Number(tr.dataset.sxrow)); } }
       });
     }
   }
@@ -264,9 +279,9 @@
     var hidden = reviews.filter(function (r) { return r.status === 'hidden'; }).length;
     $('sxrSub').textContent = reviews.length ? reviews.length + ' review' + (reviews.length === 1 ? '' : 's') + ' \u00B7 ' + hidden + ' hidden' : 'Reviews will appear here after customers rate products they received.';
     $('sxrBody').innerHTML = list.length ? list.map(function (r) {
-      return '<tr><td>' + esc(r.product) + '<div class="faint" style="font-size:12px">' + esc(r.sku) + '</div></td><td>' + stars(r.rating) + '</td>' +
-        '<td>' + esc(r.customer) + (r.orderNo ? '<div class="faint" style="font-size:12px">Order ' + esc(r.orderNo) + '</div>' : '') + '</td>' +
-        '<td class="sx-text">' + (r.body ? esc(r.body) : '<span class="faint">No comment</span>') + (r.status === 'hidden' && r.hiddenReason ? '<div class="faint" style="font-size:12px;margin-top:4px">Hidden: ' + esc(r.hiddenReason) + (r.hiddenBy ? ' (' + esc(r.hiddenBy) + ')' : '') + '</div>' : '') + '</td>' +
+      return '<tr class="sxr-row" tabindex="0" role="button" aria-label="View review and customer details for ' + esc(r.customer) + '" data-sxrow="' + r.id + '"><td>' + esc(r.product) + '<div class="faint" style="font-size:12px">' + esc(r.sku) + '</div></td><td>' + stars(r.rating) + '</td>' +
+        '<td><div class="sxr-who"><span class="sxr-av" aria-hidden="true">' + esc(ini(r.customer)) + '</span><div>' + esc(r.customer) + (r.orderNo ? '<div class="faint" style="font-size:12px">Order ' + esc(r.orderNo) + '</div>' : '') + '</div></div></td>' +
+        '<td class="sx-text">' + (r.body ? '<span class="sxr-clamp">' + esc(r.body) + '</span>' : '<span class="faint">No comment</span>') + (r.status === 'hidden' && r.hiddenReason ? '<div class="faint" style="font-size:12px;margin-top:4px">Hidden: ' + esc(r.hiddenReason) + (r.hiddenBy ? ' (' + esc(r.hiddenBy) + ')' : '') + '</div>' : '') + '</td>' +
         '<td>' + esc(when(r.createdAt)) + '</td><td>' + rPill(r.status) + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="' + (r.status === 'hidden' ? 'btn-secondary' : 'btn-danger') + ' btn-sm" data-sxr="' + r.id + '">' + (r.status === 'hidden' ? 'Restore' : 'Hide') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="7" class="sx-empty">' + (reviews.length ? 'No reviews match.' : 'No reviews yet.') + '</td></tr>';
@@ -276,6 +291,35 @@
     try { var d = await api('/finance/reviews'); reviews = Array.isArray(d) ? d : []; renderReviews(); }
     catch (e) { if (e.message !== 'Not signed in' && $('sxrSub') && !reviews.length) $('sxrSub').textContent = 'Could not load reviews: ' + e.message; }
     finally { loadingR = false; }
+  }
+  var fld = function (l, v) { var e = v == null || String(v).trim() === ''; return '<div class="sxr-f' + (e ? ' is-empty' : '') + '"><span>' + esc(l) + '</span><strong>' + (e ? 'Not provided' : esc(v)) + '</strong></div>'; };
+  var reviewToken = 0;
+  async function openReview(id) {
+    var rv = reviews.find(function (x) { return x.id === id; }); if (!rv) return;
+    ensureOverlay(); openQuote = null; var tok = ++reviewToken;
+    function paint(d, note) {
+      d = d || {};
+      $('sxBody').innerHTML = '<div class="sx-head"><h2>Review details</h2>' + rPill(rv.status) + '</div>' +
+        '<div class="sxr-review"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><strong>' + esc(rv.product) + '</strong>' + stars(rv.rating) + '</div>' +
+        '<div class="faint" style="font-size:12.5px;margin-top:2px">' + esc(rv.sku) + (rv.orderNo ? ' \u00B7 Order ' + esc(rv.orderNo) : '') + ' \u00B7 ' + esc(when(rv.createdAt)) + '</div>' +
+        '<p>' + (rv.body ? esc(rv.body) : '<span class="faint">No comment</span>') + '</p>' +
+        (rv.status === 'hidden' && rv.hiddenReason ? '<div class="faint" style="font-size:13px;margin-top:8px">Hidden: ' + esc(rv.hiddenReason) + (rv.hiddenBy ? ' (' + esc(rv.hiddenBy) + ')' : '') + '</div>' : '') + '</div>' +
+        '<div class="sxr-h">Customer</div>' +
+        '<div class="sxr-top"><span class="sxr-av" aria-hidden="true">' + esc(ini(d.name || rv.customer)) + '</span><div><strong>' + esc(d.name || rv.customer) + '</strong><span class="faint">' + esc(d.email || rv.email || '') + '</span></div></div>' +
+        (note ? '<p class="faint" style="margin:0">' + esc(note) + '</p>' :
+          '<div class="sxr-grid">' + fld('Phone', d.phone) + fld('Birthdate', d.birthdate) + fld('Gender', d.gender) + fld('Email Verified', d.emailVerified ? 'Yes' : 'No') +
+          fld('Joined', d.joined) + fld('Last Login', d.lastLogin) + fld('Company', d.companyName) + fld('Position', d.companyPosition) + '</div>') +
+        '<div class="sx-actions"><button type="button" class="' + (rv.status === 'hidden' ? 'btn-secondary' : 'btn-danger') + '" id="sxrAct">' + (rv.status === 'hidden' ? 'Restore review' : 'Hide review') + '</button><button type="button" class="btn-secondary" id="sxCancel">Close</button></div>';
+      $('sxCancel').addEventListener('click', closeModal);
+      $('sxrAct').addEventListener('click', function () { if (rv.status === 'hidden') setVisibility(rv, false, ''); else askHide(rv); });
+    }
+    paint(null, 'Loading customer details\u2026'); overlay.classList.add('open');
+    try {
+      if (!rv.userId) throw new Error('Customer details unavailable.');
+      var res = await fetch('/api/customers/' + encodeURIComponent(rv.userId) + '/profile', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('Customer details unavailable (' + res.status + ').');
+      var d = await res.json(); if (tok === reviewToken && overlay.classList.contains('open')) paint(d);
+    } catch (e) { if (tok === reviewToken && overlay.classList.contains('open')) paint(null, e.message); }
   }
   function askHide(rv) {
     ensureOverlay(); openQuote = null;
