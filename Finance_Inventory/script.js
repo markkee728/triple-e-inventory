@@ -841,6 +841,91 @@ function getStockStatusLabel(status) {
 }
 
 
+/* ---- low-stock priority: most urgent first, highlighted, with a banner on top ---- */
+const LOW_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>';
+const OK_ICON = '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>';
+
+function stockRatio(item) {
+    return item.reorderLevel > 0 ? item.onHand / item.reorderLevel : (item.onHand <= 0 ? 0 : 99);
+}
+
+function sortByStockPriority(items) {
+    const rank = { low: 0, watch: 1, ok: 2 };
+    return items.slice().sort((a, b) => {
+        const ra = rank[getStockStatus(a)], rb = rank[getStockStatus(b)];
+        if (ra !== rb) return ra - rb;
+        if (ra < 2) return stockRatio(a) - stockRatio(b);          // emptiest first inside Low and Watch
+        return String(a.name).localeCompare(String(b.name));
+    });
+}
+
+function renderInvPriority(items) {
+    const box = document.getElementById("invPriority");
+    if (!box) return;
+    const low = sortByStockPriority(items.filter(i => getStockStatus(i) === "low"));
+    const lowCard = document.getElementById("invBelowReorder");
+    const card = lowCard ? lowCard.closest(".stat-card") : null;
+    if (card) {
+        card.classList.toggle("inv-stat-low", low.length > 0);
+        card.dataset.invFilter = "low";
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.title = "Show only low-stock products";
+    }
+    if (!items.length) { box.hidden = true; return; }
+    box.hidden = false;
+    if (!low.length) {
+        box.className = "inv-priority is-clear";
+        box.innerHTML = '<div class="inv-pri-head"><span class="inv-pri-icon">' + OK_ICON + '</span><div><div class="inv-pri-title">All stock is above its reorder level</div><div class="inv-pri-sub">Nothing needs restocking right now.</div></div></div>';
+        return;
+    }
+    const out = low.filter(i => i.onHand <= 0).length;
+    const chips = low.slice(0, 6).map(i => {
+        const short = Math.max(i.reorderLevel - i.onHand, 0);
+        return '<button type="button" class="inv-chip' + (i.onHand <= 0 ? " is-out" : "") + '" data-sku="' + escapeHTML(i.sku) + '" title="Jump to this product">' +
+            '<span class="inv-chip-name">' + escapeHTML(i.name) + '</span>' +
+            '<span class="inv-chip-qty">' + (i.onHand <= 0 ? "Out of stock" : formatNumber(i.onHand) + " / " + formatNumber(i.reorderLevel) + " " + escapeHTML(i.unit)) + '</span>' +
+            '<span class="inv-chip-short">Need ' + formatNumber(short) + " " + escapeHTML(i.unit) + '</span></button>';
+    }).join("");
+    box.className = "inv-priority is-alert";
+    box.innerHTML = '<div class="inv-pri-head"><span class="inv-pri-icon">' + LOW_ICON + '</span><div class="inv-pri-text"><div class="inv-pri-title">' +
+        low.length + ' product' + (low.length === 1 ? '' : 's') + ' need' + (low.length === 1 ? 's' : '') + ' restocking now' +
+        (out ? ' <span class="inv-pri-out">' + out + ' out of stock</span>' : '') + '</div><div class="inv-pri-sub">At or below reorder level, most urgent first.</div></div>' +
+        '<button type="button" class="btn-secondary inv-pri-btn" data-act="show-low">Show low stock only</button></div>' +
+        '<div class="inv-chips">' + chips + (low.length > 6 ? '<span class="inv-more">+' + (low.length - 6) + ' more in the table below</span>' : '') + '</div>';
+}
+
+function showLowStockOnly() {
+    const f = document.getElementById("invStatusFilter");
+    if (f) { f.value = f.value === "low" ? "all" : "low"; applyInventoryFilters(); }
+    const p = document.getElementById("invPanelSub");
+    if (p) p.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function initInvPriorityClicks() {
+    const page = document.getElementById("inventory");
+    if (!page || page.dataset.priBound) return;
+    page.dataset.priBound = "1";
+    page.addEventListener("click", (e) => {
+        if (e.target.closest('[data-act="show-low"]')) return showLowStockOnly();
+        const card = e.target.closest(".stat-card[data-inv-filter]");
+        if (card) return showLowStockOnly();
+        const chip = e.target.closest(".inv-chip");
+        if (chip) {
+            const f = document.getElementById("invStatusFilter"), s = document.getElementById("invSearch");
+            if (f) f.value = "all";
+            if (s) s.value = chip.dataset.sku;
+            applyInventoryFilters();
+            const row = document.querySelector('#stockLevelsTableBody tr[data-sku="' + (window.CSS && CSS.escape ? CSS.escape(chip.dataset.sku) : chip.dataset.sku) + '"]');
+            if (row) { row.scrollIntoView({ behavior: "smooth", block: "center" }); row.classList.add("inv-flash"); setTimeout(() => row.classList.remove("inv-flash"), 1800); }
+        }
+    });
+    page.addEventListener("keydown", (e) => {
+        if ((e.key === "Enter" || e.key === " ") && e.target.matches(".stat-card[data-inv-filter]")) { e.preventDefault(); showLowStockOnly(); }
+    });
+}
+
+
 function renderInventoryMonitoringStats(items) {
 
     const total =
@@ -907,6 +992,9 @@ function renderInventoryMonitoringStats(items) {
         "Sufficient buffer"
     );
 
+    renderInvPriority(items);
+    initInvPriorityClicks();
+
 }
 
 
@@ -939,10 +1027,13 @@ function renderStockLevelsTable(items) {
     }
 
     tableBody.innerHTML =
-        items.map(item => {
+        sortByStockPriority(items).map(item => {
 
             const status =
                 getStockStatus(item);
+
+            const shortBy =
+                Math.max(item.reorderLevel - item.onHand, 0);
 
             const fillPercent =
                 Math.min(
@@ -953,7 +1044,7 @@ function renderStockLevelsTable(items) {
 
             return `
 
-                <tr data-sku="${escapeHTML(item.sku)}" title="Double-click to record stock in / out">
+                <tr class="inv-row ${status}" data-sku="${escapeHTML(item.sku)}" title="Double-click to record stock in / out">
 
                     <td>
                         ${escapeHTML(item.name)}
@@ -1003,8 +1094,12 @@ function renderStockLevelsTable(items) {
                     <td>
 
                         <span class="status-pill ${status}">
-                            ${getStockStatusLabel(status)}
+                            ${status === "low" ? LOW_ICON : ""}${status === "low" && item.onHand <= 0 ? "Out of stock" : getStockStatusLabel(status)}
                         </span>
+
+                        ${status === "low"
+                            ? `<div class="inv-short">Need ${formatNumber(shortBy)} ${escapeHTML(item.unit)} more</div>`
+                            : ""}
 
                     </td>
 

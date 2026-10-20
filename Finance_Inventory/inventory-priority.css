@@ -1,0 +1,50 @@
+/* inventory-priority.css: Inventory Monitoring puts low stock first and highlights it. Uses the shared theme tokens (dark and light). */
+
+/* banner above the table */
+.inv-priority { margin: 0 0 18px; border-radius: 12px; padding: 16px 18px; border: 1px solid var(--border); background: var(--panel); }
+.inv-priority.is-alert { border-color: var(--red); background: linear-gradient(0deg, rgba(227,91,91,.08), rgba(227,91,91,.08)), var(--panel); box-shadow: inset 4px 0 0 var(--red); }
+.inv-priority.is-clear { border-color: rgba(67,196,122,.45); box-shadow: inset 4px 0 0 var(--green); }
+.inv-pri-head { display: flex; align-items: center; gap: 14px; }
+.inv-pri-text { flex: 1; min-width: 0; }
+.inv-pri-icon { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 10px; }
+.inv-pri-icon .ico { width: 21px; height: 21px; }
+.is-alert .inv-pri-icon { background: rgba(227,91,91,.16); color: var(--red); }
+.is-clear .inv-pri-icon { background: rgba(67,196,122,.16); color: var(--green); }
+.inv-pri-title { font-weight: 700; font-size: 16.5px; color: var(--text); }
+.is-alert .inv-pri-title { color: var(--red); }
+.inv-pri-sub { font-size: 13.5px; color: var(--text-dim); margin-top: 2px; }
+.inv-pri-out { margin-left: 8px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; color: #fff; background: var(--red); vertical-align: 1px; }
+.inv-pri-btn { white-space: nowrap; }
+.inv-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+.inv-chip { display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 170px; max-width: 260px; padding: 9px 12px; border-radius: 9px; cursor: pointer; border: 1px solid rgba(227,91,91,.45); background: var(--card); color: var(--text); }
+.inv-chip:hover { border-color: var(--red); background: rgba(227,91,91,.1); }
+.inv-chip.is-out { border-color: var(--red); background: rgba(227,91,91,.14); }
+.inv-chip-name { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-chip-qty { font-family: "IBM Plex Mono", monospace; font-size: 13px; color: var(--red); }
+.inv-chip-short { font-size: 12px; color: var(--text-dim); }
+.inv-more { align-self: center; font-size: 13px; color: var(--text-dim); }
+
+/* the Below Reorder card lights up and filters the table when clicked */
+.stat-card.inv-stat-low { cursor: pointer; border-color: var(--red); box-shadow: inset 4px 0 0 var(--red), 0 0 0 1px rgba(227,91,91,.25); background: linear-gradient(0deg, rgba(227,91,91,.08), rgba(227,91,91,.08)), var(--card); }
+.stat-card.inv-stat-low .stat-value { color: var(--red); }
+.stat-card.inv-stat-low:hover { background: linear-gradient(0deg, rgba(227,91,91,.14), rgba(227,91,91,.14)), var(--card); }
+.stat-card[data-inv-filter]:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+
+/* table rows */
+#stockLevelsTableBody tr.inv-row.low { background: rgba(227,91,91,.09); box-shadow: inset 4px 0 0 var(--red); }
+#stockLevelsTableBody tr.inv-row.low:hover { background: rgba(227,91,91,.15); }
+#stockLevelsTableBody tr.inv-row.low td:first-child { font-weight: 700; color: var(--text); }
+#stockLevelsTableBody tr.inv-row.low .stock-level-text { color: var(--red); font-weight: 700; }
+#stockLevelsTableBody tr.inv-row.low .stock-bar-track { height: 5px; }
+#stockLevelsTableBody tr.inv-row.watch { box-shadow: inset 4px 0 0 var(--amber); background: rgba(217,164,65,.05); }
+#stockLevelsTableBody tr.inv-row.ok { opacity: .88; }
+#stockLevelsTableBody .status-pill.low { gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--red); color: #fff; }
+#stockLevelsTableBody .status-pill.low::before { display: none; }
+#stockLevelsTableBody .status-pill.low .ico { width: 15px; height: 15px; }
+.inv-short { margin-top: 4px; font-size: 12.5px; font-weight: 600; color: var(--red); }
+#stockLevelsTableBody tr.inv-flash { animation: invFlash 1.8s ease-out; }
+@keyframes invFlash { 0%, 40% { background: rgba(227,91,91,.4); } 100% { } }
+@media (prefers-reduced-motion: reduce) { #stockLevelsTableBody tr.inv-flash { animation: none; } }
+html[data-theme="light"] #stockLevelsTableBody tr.inv-row.low { background: rgba(214,69,69,.08); }
+html[data-theme="light"] .inv-chip-qty, html[data-theme="light"] .inv-short { color: #b02a2a; }
+@media (max-width: 640px) { .inv-pri-head { flex-wrap: wrap; } .inv-pri-btn { width: 100%; } .inv-chip { min-width: 100%; max-width: 100%; } }
