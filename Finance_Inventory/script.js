@@ -48,16 +48,16 @@ const pageInformation = {
         subtitle: "Alerts"
     },
 
-    "sales-overview": { title: "Sales & Transactions", subtitle: "Combined sales summary and transaction ledger" },
+    "sales-overview": { title: "Sales Overview", subtitle: "Read-only ledger of every POS sale and online order" },
 
     orders: {
         title: "Online Orders",
-        subtitle: "Shop orders, delivery and pickup"
+        subtitle: "Monitor shop orders. The cashier processes them"
     },
 
     sales: {
-        title: "POS Management",
-        subtitle: "POS sales and cashier cash shifts"
+        title: "POS Sales & Shifts",
+        subtitle: "Monitor POS sales and cash shifts. The cashier runs them"
     },
 
     inventory: {
@@ -92,7 +92,7 @@ const pageInformation = {
 
     "payment-terms": {
         title: "Payment Terms",
-        subtitle: "Part-payment policy, approvals and outstanding balances"
+        subtitle: "Which terms are offered, partial-term approvals and balances owed"
     },
 
     reviews: {
@@ -128,9 +128,17 @@ function navigateToPage(pageId) {
     navItems.forEach(item => {
         item.classList.toggle("active", item.dataset.page === pageId);
     });
+    const SALES_PAGES = ['sales-overview','orders','sales','payment-terms'];   // the pages in the sidebar's Sales group
+    const inSales = SALES_PAGES.includes(pageId);
     const parent = document.querySelector('.sales-parent');
-    if (parent) parent.classList.toggle('sales-section-active', ['sales-overview','sales','orders','quotes','payment-terms'].includes(pageId));
-    document.querySelectorAll('.sales-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.page === pageId));
+    if (parent) parent.classList.toggle('sales-section-active', inSales);
+    const salesTabs = document.getElementById('salesTabs');
+    if (salesTabs) salesTabs.hidden = !inSales;                       // one shared tab strip on every Sales page
+    document.querySelectorAll('.sales-tab').forEach(tab => {
+        const on = tab.dataset.page === pageId;
+        tab.classList.toggle('active', on);
+        tab.setAttribute('aria-selected', String(on));
+    });
 
     pages.forEach(page => {
         page.classList.toggle(

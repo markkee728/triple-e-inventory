@@ -63,7 +63,7 @@
     state.built = true;
     root.innerHTML =
       '<div class="panel rs-panel">' +
-        '<div class="panel-head rs-head"><div><div class="panel-title">Inventory Reports</div>' +
+        '<div class="panel-head rs-head"><div><div class="panel-title" id="ivTitle">Inventory</div>' +
         '<div class="panel-sub" id="ivSub">Stock in and out, material use, production, adjustments and returns. Values are at cost.</div></div>' +
         '<div class="rs-actions"><button type="button" class="btn-secondary" id="ivRefresh">Refresh</button><button type="button" class="btn-primary" id="ivCsv">Export CSV</button></div></div>' +
         '<div class="rs-filters">' +
@@ -125,7 +125,7 @@
     if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis">' + '<div class="rs-kpi rs-skel"></div>'.repeat(6) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
     if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load the inventory report</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="ivRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
-    $('ivSub').textContent = 'Stock in and out, material use, production, adjustments and returns. Values at cost. ' + d.range.from + ' to ' + d.range.to + ', Philippine time.';
+    paintHead(d);
     const section = (id, title, inner) => '<section class="rs-section" id="' + id + '"><h3 class="rs-section-title">' + title + '</h3>' + inner + '</section>';
     const html = section('ivOverview', 'Overview', overview(d)) + section('ivMaterials', 'Materials &amp; production', materials(d)) +
       section('ivReturns', 'Returns &amp; restocking', returns(d)) + section('ivMovements', 'Movement ledger', movements(d));
@@ -133,6 +133,17 @@
     body.classList.toggle('rs-busy', state.loading); body.innerHTML = html;
     if (keepFocus && active === 'ivSearch') { const s = $('ivSearch'); if (s) { s.focus(); try { s.setSelectionRange(pos, pos); } catch (e) { /* ignore */ } } }
   }
+
+  /* The same data is shown two ways, one per tab: Inventory = totals and trends, Stock Movement Log = the entries behind them. */
+  function paintHead(d) {
+    const log = (document.getElementById('reports') || {}).dataset && document.getElementById('reports').dataset.rtab === 'movements';
+    const t = $('ivTitle'), s = $('ivSub'); if (!t || !s) return;
+    const range = d ? ' ' + d.range.from + ' to ' + d.range.to + ', Philippine time.' : '';
+    t.textContent = log ? 'Stock Movement Log' : 'Inventory';
+    s.textContent = (log ? 'Every stock in and stock out entry, newest first, with who handled it. The Inventory tab adds these same entries up.'
+      : 'Totals and trends: what came in, went out, was used, produced or returned. Values at cost.') + range;
+  }
+  document.addEventListener('tripleE:reportstab', () => paintHead(state.data));
 
   /* ---------- overview ---------- */
   function overview(d) {

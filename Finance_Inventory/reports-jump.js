@@ -1,5 +1,5 @@
 /* reports-jump.js — Finance > Reports.
-   1. Every summary box at the top (data-jump="<section id>") scrolls to its own report and flashes it, so the box and the table match.
+   1. Every summary box at the top (it opens the tab its report is on, then scrolls to it) (data-jump="<section id>") scrolls to its own report and flashes it, so the box and the table match.
    2. A small "Back to summary" button appears once the Report Period / boxes are scrolled out of view.
    The dates themselves are not handled here: the Report Period panel is the one range, shared through
    window.TripleEReportRange and the 'tripleE:reportrange' event (see api-bridge.js). */
@@ -14,6 +14,9 @@
     setTimeout(() => el.classList.remove('rep-flash'), 1800);
   }
   function jump(id) {
+    // the report may sit on another tab: open that tab first, then scroll once it is visible
+    const T = window.TripleEReportsTab, home = T && T.homeOf(id);
+    if (home && T.current() !== home) { T.show(home); requestAnimationFrame(() => jump(id)); return; }
     const el = $(id); if (!el) return;
     // a report inside a wrapper (e.g. repSalesRoot) is highlighted through its first panel
     const target = el.firstElementChild && /^rep.*Root$/.test(id) ? el.firstElementChild : el;

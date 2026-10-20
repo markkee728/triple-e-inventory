@@ -219,3 +219,27 @@
 .rs-section { margin-top: 26px; }
 .rs-section:first-child { margin-top: 6px; }
 .rs-section-title { font-size: 18px; font-weight: 700; color: var(--text); margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+
+/* ---------- Reports tabs (see reports-tabs.js) ---------- */
+.rep-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0 18px; padding-bottom: 12px; border-bottom: 1px solid var(--border, #dce4ef); }
+.rep-tab { font: inherit; font-weight: 600; padding: 10px 18px; border-radius: 10px; cursor: pointer; color: inherit;
+  background: transparent; border: 1px solid var(--border, #ccd6e5); transition: background .15s, border-color .15s; }
+.rep-tab:hover { background: var(--hover, rgba(59, 130, 246, .09)); }
+.rep-tab.active { background: var(--primary, #1c5c9d); border-color: var(--primary, #1c5c9d); color: #fff; }
+.rep-tab:focus-visible { outline: 3px solid #e9ac45; outline-offset: 2px; }
+
+/* The old client-side "Stock Movement Report" table is replaced by the Stock Movement Log tab (same entries, with filters + paging).
+   It stays in the page only because other scripts still fill it. */
+#repMovementPanel { display: none !important; }
+
+/* Show only the blocks that belong to the open tab. Printing ignores this, so a printout still has every report. */
+@media screen {
+  #reports:not([data-rtab="summary"]) :is(#repStatCards, .report-jump-hint, #repChartsGrid) { display: none; }
+  #reports:not([data-rtab="sales"]) :is(#repSalesRoot, #repTopRoot, #repSalesTxnPanel, #reportCashPanel, #reportLedgerPanel) { display: none; }
+  #reports:not([data-rtab="inventory"]):not([data-rtab="movements"]) #repInvRoot { display: none; }
+  #reports:not([data-rtab="inventory"]) :is(#repLowRoot, #repStockDetail) { display: none; }
+  #reports[data-rtab="inventory"] #repInvRoot #ivMovements { display: none; }
+  #reports[data-rtab="movements"] #repInvRoot :is(#ivOverview, #ivMaterials, #ivReturns) { display: none; }
+  #reports[data-rtab="movements"] #repInvRoot #ivMovements > .rs-section-title { display: none; }   /* the tab name already says it */
+}
+@media print { .rep-tabs { display: none; } }

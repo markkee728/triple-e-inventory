@@ -1761,7 +1761,7 @@
                  REPORTS
             ================================================== -->
 
-            <section id="reports" class="page">
+            <section id="reports" class="page" data-rtab="summary">
 
                 <div class="catalog-header">
 
@@ -1945,6 +1945,15 @@
                 </div>
 
 
+                <!-- REPORT TABS: one question per tab. Summary = headline numbers. Sales = money in. Inventory = totals and trends of stock.
+                     Stock Movement Log = the detailed record behind those totals (one row per entry). See reports-tabs.js -->
+                <div class="rep-tabs" id="repTabs" role="tablist" aria-label="Report sections">
+                    <button type="button" class="rep-tab active" role="tab" id="repTab-summary" data-rtab="summary" aria-selected="true">Summary</button>
+                    <button type="button" class="rep-tab" role="tab" id="repTab-sales" data-rtab="sales" aria-selected="false">Sales</button>
+                    <button type="button" class="rep-tab" role="tab" id="repTab-inventory" data-rtab="inventory" aria-selected="false">Inventory</button>
+                    <button type="button" class="rep-tab" role="tab" id="repTab-movements" data-rtab="movements" aria-selected="false">Stock Movement Log</button>
+                </div>
+
                 <!-- REPORT STATS: each box jumps to its own report below -->
                 <div class="stats report-stat-cards" id="repStatCards">
                     <button type="button" class="stat-card icon-stat stat-link" data-jump="repStockDetail" title="Open the Stock Value Detail table" aria-label="SKUs in report. Open the Stock Value Detail table">
@@ -1967,7 +1976,7 @@
                         </div>
                         <span class="stat-go" aria-hidden="true">&rsaquo;</span>
                     </button>
-                    <button type="button" class="stat-card icon-stat stat-link" data-jump="repMovementPanel" title="Open the Stock Movement Report" aria-label="Movements in period. Open the Stock Movement Report">
+                    <button type="button" class="stat-card icon-stat stat-link" data-jump="ivMovements" title="Open the Stock Movement Log" aria-label="Movements in period. Open the Stock Movement Log">
                         <div class="stat-icon blue">
                             <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
                         </div>
@@ -3571,16 +3580,17 @@
     <script src="api-bridge.js?v=22"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
-    <link rel="stylesheet" href="reports-sales.css?v=8">
+    <link rel="stylesheet" href="reports-sales.css?v=9">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <link rel="stylesheet" href="inventory-priority.css?v=2">
     <link rel="stylesheet" href="product-details.css?v=1">
     <script src="sales-admin.js?v=12"></script>
-    <script src="reports-jump.js?v=1"></script>
+    <script src="reports-tabs.js?v=1"></script>
+    <script src="reports-jump.js?v=2"></script>
     <script src="reports-sales.js?v=2"></script>
     <script src="reports-top-products.js?v=4"></script>
     <script src="reports-low-stock.js?v=1"></script>
-    <script src="reports-inventory.js?v=3"></script>
+    <script src="reports-inventory.js?v=4"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 
     <script src="refund-admin.js?v=2"></script>
