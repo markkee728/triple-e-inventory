@@ -62,10 +62,10 @@
    app.innerHTML = `<div class="cs-hero closed"><div><div class="cs-state"><span class="cs-dot"></span>No open shift</div><div class="cs-meta">Count the cash in your drawer, then enter it below to start selling.</div></div></div>
    <div class="cs-grid cs-startgrid"><div class="panel cs-card cs-start"><h3>Start your shift</h3><p>Enter the starting cash (change fund) you put in the drawer.</p>
     <div class="cs-field"><label for="csOpening">Starting cash</label><div class="cs-money"><span>₱</span><input id="csOpening" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csOpeningErr"></div>
-     <div class="cs-chips">${[500, 1000, 2000, 3000, 5000].map(v => '<button type="button" class="cs-chip" data-fill="' + v + '">' + fmt(v).replace('.00', '') + '</button>').join('')}</div></div>
+     <div class="cs-chips" title="Each tap adds that amount">${[100, 500, 1000, 2000, 5000].map(v => '<button type="button" class="cs-chip" data-fill="' + v + '">+' + fmt(v).replace('.00', '') + '</button>').join('')}<button type="button" class="cs-chip" data-fill="clear">Clear</button></div></div>
     <button class="btn-primary cs-btn" id="csOpenBtn">Open cash shift</button></div>
     <div class="panel cs-card cs-tips"><h3>Before you open</h3><p>A quick check keeps your end-of-shift count accurate.</p>
-     <ol class="cs-steps"><li><b>Count the drawer</b><span>Count every bill and coin currently in the cash drawer.</span></li><li><b>Enter the change fund</b><span>Type the total as your starting cash, or tap a quick amount.</span></li><li><b>Start selling</b><span>Cash sales are tracked automatically and compared to your count when you close.</span></li></ol></div></div>`;
+     <ol class="cs-steps"><li><b>Count the drawer</b><span>Count every bill and coin currently in the cash drawer.</span></li><li><b>Enter the change fund</b><span>Type the total, or tap the amounts: each tap adds up (e.g. +₱1,000 twice = ₱2,000).</span></li><li><b>Start selling</b><span>Cash sales are tracked automatically and compared to your count when you close.</span></li></ol></div></div>`;
    return;
   }
   const c = current, mv = c.movements || [];
@@ -199,7 +199,8 @@
  document.addEventListener('click', e => {
   const t = e.target.closest('button'); if (!t) return;
   if (t.id === 'csOpenBtn') openShift();
-  else if (t.dataset.fill) { MoneyInput.set($('csOpening'), t.dataset.fill); fieldErr('csOpening', ''); $('csOpening').focus(); }
+  // each chip ADDS to the starting cash (tap +₱1,000 twice = ₱2,000); Clear empties it
+  else if (t.dataset.fill) { const box = $('csOpening'), now = MoneyInput.parse(box.value) || 0; MoneyInput.set(box, t.dataset.fill === 'clear' ? '' : ((Math.round(now * 100) + Math.round(Number(t.dataset.fill) * 100)) / 100).toFixed(2)); fieldErr('csOpening', ''); box.focus(); }
   else if (t.id === 'csMvBtn') recordMovement();
   else if (t.id === 'csCloseBtn') { current ? closeDialog() : refresh(); }
   else if (t.id === 'csRetry') reload();

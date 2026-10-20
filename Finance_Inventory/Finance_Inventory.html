@@ -9,7 +9,7 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=4">
     <link rel="stylesheet" href="production.css?v=1">
     <link rel="stylesheet" href="notifications.css?v=7">
     <link rel="stylesheet" href="sidebar.css?v=2">
@@ -1483,15 +1483,15 @@
 
                         </div>
 
-                    </div>
+                        <!-- role filter sits on the right of the Accounts header, under "+ Invite User" -->
+                        <div class="inv-filters">
+                            <select id="accountRoleFilter" class="inv-select" aria-label="Filter accounts by role">
+                                <option value="all">All roles</option>
+                                <option value="finance">Finance-Admin Officer</option>
+                                <option value="cashier">Sales Staff / Cashier</option>
+                            </select>
+                        </div>
 
-
-                    <div class="inv-filters" style="margin:0 0 12px">
-                        <select id="accountRoleFilter" class="inv-select">
-                            <option value="all">All roles</option>
-                            <option value="finance">Finance-Admin Officer</option>
-                            <option value="cashier">Sales Staff / Cashier</option>
-                        </select>
                     </div>
 
                     <div class="table-wrapper">
@@ -3626,7 +3626,7 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
-    <script src="script.js?v=21"></script>
+    <script src="script.js?v=22"></script>
     <script src="api-bridge.js?v=25"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">

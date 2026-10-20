@@ -170,7 +170,7 @@
               <button class="seg-btn" data-m="Xendit"><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><path d="M14 14h3v3h-3zM20 14v1M14 20h1M18 18h3v3h-3z"/></svg><span>Online payment<span class="sub">QR / Bank</span></span></button>
             </div>
             <div id="cashBox"><label for="tendered">Cash received</label><input id="tendered" data-money inputmode="decimal" placeholder="0.00">
-              <div class="quick"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="100">₱100</button><button class="btn-secondary btn-sm" data-cash="500">₱500</button><button class="btn-secondary btn-sm" data-cash="1000">₱1,000</button></div>
+              <div class="quick" title="Each tap adds that bill to the cash received"><button class="btn-secondary btn-sm" data-cash="exact">Exact</button><button class="btn-secondary btn-sm" data-cash="50">+₱50</button><button class="btn-secondary btn-sm" data-cash="100">+₱100</button><button class="btn-secondary btn-sm" data-cash="200">+₱200</button><button class="btn-secondary btn-sm" data-cash="500">+₱500</button><button class="btn-secondary btn-sm" data-cash="1000">+₱1,000</button><button class="btn-secondary btn-sm quick-clear" data-cash="clear">Clear</button></div>
               <div class="row" style="margin-top:6px"><span class="dim">Change</span><span class="mono" id="change">₱0.00</span></div></div>
             <div id="cardBox" hidden><label for="cardRef">Payment reference no.</label><input id="cardRef" maxlength="30" autocomplete="off" autocapitalize="characters" placeholder="From the customer's payment confirmation">
               <div class="faint" style="font-size:12.5px;margin-top:6px">The customer pays the total from their own phone (bank / card / e-wallet app). Check that the payment really went through, then type the reference number shown on their confirmation screen.</div>
@@ -990,7 +990,8 @@ document.addEventListener('click', e => {
   if (d.priceoff) { const l = cart.find(x => x.sku === d.priceoff); if (l) { delete l.price; renderCart(); } }
   if (d.rm) { cart = cart.filter(x => x.sku !== d.rm); renderCart(); }
   if (d.m) { if (method !== d.m) { $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; } method = d.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); $('cashBox').hidden = method !== 'Cash'; $('cardBox').hidden = method !== 'Card'; $('xenditBox').hidden = method !== 'Xendit'; updatePay(); }
-  if (d.cash) { MoneyInput.set($('tendered'), d.cash === 'exact' ? total().toFixed(2) : d.cash); updatePay(); }
+  // Exact = the sale total; a bill button ADDS that bill to what is already typed (two taps of +₱500 = ₱1,000); Clear empties it
+  if (d.cash) { const box = $('tendered'), now = MoneyInput.parse(box.value) || 0; MoneyInput.set(box, d.cash === 'exact' ? total().toFixed(2) : d.cash === 'clear' ? '' : ((Math.round(now * 100) + Math.round(Number(d.cash) * 100)) / 100).toFixed(2)); updatePay(); }
   if (d.page) showPage(d.page);
   if (d.cat !== undefined && b.classList.contains('pill-btn')) { cat = d.cat; renderCats(); renderProducts(); }
   if (d.view) { view = d.view; document.querySelectorAll('.view-btn').forEach(x => x.classList.toggle('active', x === b)); renderProducts(); }
@@ -1101,7 +1102,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   }, 20000);
 })();
 </script>
-<script src="cash-shift-ui.js?v=6"></script>
+<script src="cash-shift-ui.js?v=7"></script>
 <script src="notification-center.js?v=8"></script>
 <script src="page-memory.js?v=1"></script>
 <script src="cashier-orders.js?v=4"></script>

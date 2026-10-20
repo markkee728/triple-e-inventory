@@ -4562,7 +4562,7 @@ function renderAccountsTable() {
                             Edit
                         </button>
 
-                        ${user.roleKey === "finance" ? "" : `
+                        ${user.isYou ? `<span class="um-you" title="Another Finance-Admin has to disable your account">You</span>` : `
                         <button
                             type="button"
                             class="btn-danger-sm user-disable-btn"
@@ -4604,7 +4604,7 @@ function renderAccountsTable() {
 
                 const next = user.status === "active" ? "disabled" : "active";
 
-                if (!(await uiConfirm({ title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`, message: next === "disabled" ? "They will not be able to sign in until the account is re-enabled." : "They will be able to sign in again.", confirm: next === "disabled" ? "Disable" : "Re-enable", danger: next === "disabled" }))) {
+                if (!(await uiConfirm({ title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`, message: next === "disabled" ? (user.roleKey === "finance" ? "This Finance-Admin is signed out right away and cannot sign in until another Finance-Admin re-enables the account. At least one Finance-Admin must stay active." : "They are signed out right away and cannot sign in until the account is re-enabled.") : "They will be able to sign in again.", confirm: next === "disabled" ? "Disable" : "Re-enable", danger: next === "disabled" }))) {
                     return;
                 }
 

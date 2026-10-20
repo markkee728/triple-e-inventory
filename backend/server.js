@@ -669,13 +669,36 @@ const tx = async (fn) => {
 };
 
 /* ---------- auth ---------- */
+// A session is only as good as the account behind it: a disabled account (or one whose role changed) loses access on its
+// next request, not when its 8-hour cookie runs out. The answer is cached for a few seconds so this is one small query per user.
+const accountCheck = new Map();                       // user_id -> { ok, at }
+const ACCOUNT_CHECK_MS = 10000;
+async function accountStillValid(user) {
+  const hit = accountCheck.get(user.id);
+  if (hit && Date.now() - hit.at < ACCOUNT_CHECK_MS) return hit.ok;
+  try {
+    const r = (await pool.query('SELECT u.status, r.role_key FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [user.id])).rows[0];
+    const ok = !!r && r.status === 'active' && r.role_key === user.role;
+    accountCheck.set(user.id, { ok, at: Date.now() });
+    if (accountCheck.size > 5000) accountCheck.clear();
+    return ok;
+  } catch (e) {
+    console.error('[auth] could not check the account, allowing the signed session:', e.message);
+    return true;                                      // a database hiccup must not sign everybody out
+  }
+}
+app.locals.forgetAccountCheck = (id) => accountCheck.delete(Number(id));
 function auth(...allowed) {
   return (req, res, next) => {
     try {
       req.user = jwt.verify(req.cookies.session, process.env.JWT_SECRET);
     } catch { return res.status(401).json({ error: 'Not signed in' }); }
     if (allowed.length && !allowed.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    next();
+    accountStillValid(req.user).then((ok) => {
+      if (ok) return next();
+      res.clearCookie('session');
+      res.status(401).json({ code: 'ACCOUNT_DISABLED', error: 'This account is disabled or was changed. Please sign in again.' });
+    }, next);
   };
 }
 async function audit(client, user, action, detail) {
@@ -1359,7 +1382,8 @@ app.get('/api/users', auth('finance'), wrap(async (req, res) => {
       ORDER BY u.last_login DESC NULLS LAST, u.full_name`, [TZ]);   // most recent sign-in first; accounts that never signed in go last
   res.json(rows.map(u => ({ id: u.user_id, name: u.full_name, username: u.username, email: u.email, role: u.label,
     roleKey: u.role_key, status: u.status, lastLogin: u.last_login || 'Never',
-    lastLoginAt: u.last_login_epoch == null ? null : Number(u.last_login_epoch), hasAvatar: !!u.has_avatar })));
+    lastLoginAt: u.last_login_epoch == null ? null : Number(u.last_login_epoch), hasAvatar: !!u.has_avatar,
+    isYou: u.user_id === req.user.id })));   // the page hides Disable on your own row
 }));
 
 // Read-only registered customer details for Finance/Admin Customer Management.
@@ -1484,16 +1508,31 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
     message: PHONE_VERIFICATION_ON && phoneChanged && phone ? 'The new mobile number will be confirmed with a text code the next time they sign in.' : '' });
 }));
 
-// Finance can disable / re-enable Cashier and Customer accounts (not Finance accounts, and not their own)
+// Finance can disable / re-enable any account, including another Finance-Admin (e.g. one who left the company). Two rules:
+//   - never your own account (another Finance-Admin has to do it), so nobody locks themselves out by mistake;
+//   - at least one active Finance-Admin must remain, or nobody could manage the system any more.
+// Finance rows are locked while checking, so two admins disabling each other at the same moment cannot both succeed.
+// The disabled person is signed out on their next request (see accountStillValid above).
 app.patch('/api/users/:id/status', auth('finance'), wrap(async (req, res) => {
   const id = Number(req.params.id);
   const status = str(req.body && req.body.status);
   if (!Number.isInteger(id) || !['active', 'disabled'].includes(status)) return res.status(400).json({ error: 'Invalid request' });
-  const t = (await pool.query('SELECT u.full_name, u.status, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [id])).rows[0];
-  if (!t) return res.status(404).json({ error: 'Account not found' });
-  if (t.role_key === 'finance' || id === req.user.id) return res.status(403).json({ error: 'Finance-Admin accounts cannot be disabled here' });
-  await pool.query('UPDATE users SET status = $2 WHERE user_id = $1', [id, status]);
-  await audit(pool, req.user, 'Record edited', `${t.label} account ${status === 'disabled' ? 'disabled' : 're-enabled'} — ${t.full_name}`);
+  if (id === req.user.id && status === 'disabled') return res.status(403).json({ error: 'You cannot disable your own account. Ask another Finance-Admin to do it.' });
+  const out = await tx(async (c) => {
+    const t = (await c.query('SELECT u.full_name, u.status, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1 FOR UPDATE OF u', [id])).rows[0];
+    if (!t) return { code: 404, error: 'Account not found' };
+    if (t.status === status) return { ok: true, t };
+    if (t.role_key === 'finance' && status === 'disabled') {
+      const left = (await c.query(`SELECT u.user_id FROM users u JOIN roles r USING (role_id) WHERE r.role_key = 'finance' AND u.status = 'active' FOR UPDATE OF u`)).rows
+        .filter((x) => x.user_id !== id).length;
+      if (!left) return { code: 409, error: 'This is the only active Finance-Admin. Invite or enable another Finance-Admin first.' };
+    }
+    await c.query('UPDATE users SET status = $2 WHERE user_id = $1', [id, status]);
+    await audit(c, req.user, 'Record edited', `${t.label} account ${status === 'disabled' ? 'disabled' : 're-enabled'} — ${t.full_name}`);
+    return { ok: true, t };
+  });
+  if (!out.ok) return res.status(out.code).json({ error: out.error });
+  app.locals.forgetAccountCheck(id);
   res.json({ ok: true, status });
 }));
 

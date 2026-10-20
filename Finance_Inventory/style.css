@@ -4856,3 +4856,25 @@ html[data-theme="light"] #sales .pos-date-fields input{color-scheme:light;backgr
 #page-quotes .pq-load-error{padding:18px;border:1px solid var(--red,#d65c5c);border-radius:10px;background:rgba(214,92,92,.06);color:var(--text)}
 #page-quotes .pq-load-error p{margin:8px 0 12px;color:var(--text-dim);overflow-wrap:anywhere}
 @media(max-width:640px){#page-quotes .pq-workspace-tab{width:100%;justify-content:center}#page-quotes .pq-walkin-pane .quote-form{padding:18px}#page-quotes .pq-requests-pane .pq-scroll{padding:10px}}
+/* ===== Side-by-side panels end on the same line, so there is no dead space under the shorter one (wide screens only) =====
+   Dashboard: Stock Health fills down to the bottom of Quick Actions.
+   Reports: Stock movement activity is as tall as Stock value by department.
+   Stock In / Out: the Movement log is as tall as the Record Movement card and scrolls inside. */
+@media (min-width: 1101px) {
+    .dash-top-panels, .report-charts-grid, .stockflow-grid { align-items: stretch; }
+
+    .dash-top-panels > .panel, .report-charts-grid > .panel { display: flex; flex-direction: column; min-width: 0; }
+    .dash-top-panels .health-ring-row { flex: 1; align-items: stretch; }
+    .dash-top-panels .health-ring-card { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .dash-top-panels .health-ring-svg { width: 104px; height: 104px; }
+
+    .report-charts-grid .donut-chart-row { flex: 1; }
+    .report-charts-grid .trend-chart-container { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .report-charts-grid .trend-legend { margin-top: auto; padding-top: 12px; }
+
+    /* "contain: size" keeps the log from setting the row height: the Record Movement card sets it, the log matches it */
+    .stockflow-grid > .movement-log-panel { contain: size; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+    .stockflow-grid > .movement-log-panel .table-wrapper { flex: 1; min-height: 0; overflow: auto; }
+    .stockflow-grid > .movement-log-panel thead th { position: sticky; top: 0; z-index: 1; background: var(--card); }
+}
+.um-you { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); border: 1px dashed var(--border); }
