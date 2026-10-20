@@ -83,15 +83,14 @@
 
   function render() {
     const body = $('lsBody'); if (!body) return;
-    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis five">' + '<div class="rs-kpi rs-skel"></div>'.repeat(5) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
+    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis three">' + '<div class="rs-kpi rs-skel"></div>'.repeat(3) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
     if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load the low-stock report</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="lsRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
     tabs(d); body.classList.toggle('rs-busy', state.loading);
     const s = d.summary, card = (l, v, sub, cls) => '<div class="rs-kpi ' + (cls || '') + '"><div class="rs-kpi-label">' + l + '</div><div class="rs-kpi-value">' + v + '</div><div class="rs-kpi-sub">' + sub + '</div></div>';
-    body.innerHTML = '<div class="rs-kpis five">' +
-      card('Need attention', num(s.needAttention), 'of ' + num(s.total) + ' active products', s.needAttention ? 'bad' : '') +
-      card('Out of stock', num(s.out), 'on hand is zero', s.out ? 'bad' : '') + card('Low', num(s.low), 'at or below reorder level', s.low ? 'warn' : '') +
-      card('Watch', num(s.watch), 'within 20% above the level') + card('Est. restock cost', peso(s.restockCost), 'to reach reorder levels') + '</div>' +
+    body.innerHTML = '<div class="rs-kpis three">' +
+      card('Need attention', num(s.needAttention), num(s.out) + ' out of stock \u00B7 ' + num(s.low) + ' low \u00B7 of ' + num(s.total) + ' active products', s.needAttention ? 'bad' : '') +
+      card('Watch', num(s.watch), 'within 20% above the reorder level') + card('Est. restock cost', peso(s.restockCost), 'to reach reorder levels') + '</div>' +
       depts(d) + table(d);
   }
 

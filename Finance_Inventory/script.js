@@ -1403,7 +1403,7 @@ function initMovementForm() {
 
 
 
-            alert(
+            inviteToast(
                 "Stock movement form submitted. " +
                 "hehe"
             );
@@ -2270,7 +2270,7 @@ function initNewProductModal() {
             if (error) {
                 error.classList.remove("show");
             }
-            alert(
+            inviteToast(
                 editingProductSku
                     ? "Product changes hehe"
                     : "New product information hehe"
@@ -3095,7 +3095,7 @@ function initNewSupplierModal() {
                     );
                 }
 
-                alert(
+                inviteToast(
                     editingSupplierId
                         ? "Supplier changes hehe."
                         : "New supplier information hehe"
@@ -4323,7 +4323,7 @@ function initDispatch() {
                     );
                 }
 
-                alert(
+                inviteToast(
                     "Dispatch form ha wala"
                 );
 
@@ -4403,7 +4403,7 @@ function initDashboardButtons() {
                     }
 
 
-                    alert(
+                    inviteToast(
                         `${text} is hehe`
                     );
 

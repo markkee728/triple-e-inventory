@@ -117,7 +117,7 @@
   /* ---------- drawing ---------- */
   function render() {
     const body = $('rsBody'); if (!body) return;
-    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis">' + '<div class="rs-kpi rs-skel"></div>'.repeat(6) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
+    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis four">' + '<div class="rs-kpi rs-skel"></div>'.repeat(4) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
     if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load the sales overview</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="rsRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
     const empty = !d.statuses.length;
@@ -133,15 +133,16 @@
     return '<span class="rs-delta ' + (up ? 'up' : 'down') + '">' + (up ? '\u25B2 ' : '\u25BC ') + Math.abs(k.netSalesChangePct).toLocaleString('en-PH', { maximumFractionDigits: 1 }) + '% vs previous ' + (state.data.range.days === 1 ? 'day' : state.data.range.days + ' days') + '</span>';
   }
   function kpis(d) {
-    const k = d.kpis, o = d.outcome, pos = d.channels[0], on = d.channels[1];
+    const k = d.kpis;
     const card = (label, value, sub, cls) => '<div class="rs-kpi ' + (cls || '') + '"><div class="rs-kpi-label">' + label + '</div><div class="rs-kpi-value">' + value + '</div><div class="rs-kpi-sub">' + sub + '</div></div>';
-    return '<div class="rs-kpis">' +
-      card('Net sales', peso(k.netSales), delta(k), 'main') +
-      card('Gross sales', peso(k.grossSales), 'before refunds') +
-      card('Refunds', peso(k.refunds), k.grossSales ? (k.refunds / k.grossSales * 100).toFixed(1) + '% of gross' : 'none', k.refunds > 0 ? 'warn' : '') +
-      card('Transactions', int(k.transactions), 'POS ' + int(pos.count) + ' \u00B7 Online ' + int(on.count)) +
+    // One job per card. Gross and refunds are the two halves of net sales, so they sit under Net sales instead of
+    // repeating the same peso figure in three boxes; the cancelled rate lives in "Completed vs cancelled" below.
+    const net = '<span class="rs-kpi-line">Gross ' + peso(k.grossSales) + ' \u2212 refunds ' + peso(k.refunds) + '</span>' + delta(k);
+    return '<div class="rs-kpis four">' +
+      card('Net sales', peso(k.netSales), net, 'rs-main') +
+      card('Refunds', peso(k.refunds), k.grossSales ? (k.refunds / k.grossSales * 100).toFixed(1) + '% of gross sales' : 'none', k.refunds > 0 ? 'warn' : '') +
+      card('Transactions', int(k.transactions), 'completed POS sales and paid online orders') +
       card('Average sale', peso(k.avgSale), 'net per transaction') +
-      card('Cancelled / voided', o.cancellationRate.toLocaleString('en-PH', { maximumFractionDigits: 1 }) + '%', int(o.cancelled.count) + ' of ' + int(o.completed.count + o.cancelled.count) + ' decided', o.cancelled.count > 0 ? 'bad' : '') +
       '</div>';
   }
 
@@ -190,7 +191,7 @@
     const seg = (n, cls) => (all ? '<div class="' + cls + '" style="width:' + (n / all * 100).toFixed(2) + '%"></div>' : '');
     const tone = { Completed: 'ok', Paid: 'ok', Voided: 'bad', Cancelled: 'bad', 'Partly paid': 'warn', Unpaid: 'warn' };
     const rows = d.statuses.map((s) => '<tr><td><span class="rs-dot ' + (tone[s.label] || '') + '"></span>' + esc(s.label) + '</td><td><span class="rs-tag ' + CH[s.channel] + '">' + esc(s.channel) + '</span></td><td class="rs-num">' + int(s.count) + '</td><td class="rs-num">' + peso(s.amount) + '</td></tr>').join('');
-    return '<div class="panel rs-card"><div class="panel-head"><div><div class="panel-title">Completed vs cancelled</div><div class="panel-sub">Only completed sales are counted as revenue</div></div></div>' +
+    return '<div class="panel rs-card"><div class="panel-head"><div><div class="panel-title">Completed vs cancelled</div><div class="panel-sub">Only completed sales are counted as revenue \u00B7 cancelled / voided rate <strong>' + o.cancellationRate.toLocaleString('en-PH', { maximumFractionDigits: 1 }) + '%</strong> (' + int(o.cancelled.count) + ' of ' + int(o.completed.count + o.cancelled.count) + ' decided)</div></div></div>' +
       '<div class="rs-stack">' + seg(o.completed.count, 'ok') + seg(o.pending.count, 'warn') + seg(o.cancelled.count, 'bad') + '</div>' +
       '<div class="rs-outcome"><span><i class="rs-dot ok"></i>Completed <strong>' + int(o.completed.count) + '</strong></span><span><i class="rs-dot warn"></i>Awaiting payment <strong>' + int(o.pending.count) + '</strong></span><span><i class="rs-dot bad"></i>Cancelled / voided <strong>' + int(o.cancelled.count) + '</strong></span></div>' +
       '<div class="rs-scroll"><table class="rs-table"><thead><tr><th>Status</th><th>Channel</th><th class="rs-num">Count</th><th class="rs-num">Order value</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';

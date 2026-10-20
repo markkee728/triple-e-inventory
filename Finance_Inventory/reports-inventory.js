@@ -122,7 +122,7 @@
 
   function render(keepFocus) {
     const body = $('ivBody'); if (!body) return;
-    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis">' + '<div class="rs-kpi rs-skel"></div>'.repeat(6) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
+    if (state.loading && !state.data) { body.innerHTML = '<div class="rs-kpis four">' + '<div class="rs-kpi rs-skel"></div>'.repeat(4) + '</div><div class="panel rs-skel rs-skel-chart"></div>'; return; }
     if (state.error) { body.innerHTML = '<div class="panel rs-empty"><strong>Could not load the inventory report</strong><p>' + esc(state.error) + '</p><button type="button" class="btn-secondary" id="ivRetry">Try again</button></div>'; return; }
     const d = state.data; if (!d) return;
     paintHead(d);
@@ -147,12 +147,11 @@
 
   /* ---------- overview ---------- */
   function overview(d) {
-    const t = d.totals, net = t.inValue - t.outValue, prodUnits = d.production.units;
-    const restocked = d.returns.reduce((n, r) => n + r.restocked, 0);
+    const t = d.totals, net = t.inValue - t.outValue;
     if (!t.movements && !d.production.batches) return empty('No inventory activity in this period', 'No stock movements were recorded between ' + esc(d.range.from) + ' and ' + esc(d.range.to) + '. Try a wider date range.');
-    return '<div class="rs-kpis">' + card('Stock in', peso(t.inValue), 'at cost') + card('Stock out', peso(t.outValue), 'at cost') +
-      card('Net change', (net >= 0 ? '+' : '\u2212') + peso(Math.abs(net)), 'in minus out', net < 0 ? 'warn' : '') + card('Movements', num(t.movements), 'ledger entries') +
-      card('Produced', num(prodUnits), num(d.production.batches) + ' production batch' + (d.production.batches === 1 ? '' : 'es')) + card('Restocked returns', num(restocked), 'approved returns / refunds') + '</div>' +
+    // Produced and Restocked returns are shown (once) in their own sections below, so they are not repeated here.
+    return '<div class="rs-kpis four">' + card('Stock in', peso(t.inValue), 'at cost') + card('Stock out', peso(t.outValue), 'at cost') +
+      card('Net change', (net >= 0 ? '+' : '\u2212') + peso(Math.abs(net)), 'in minus out', net < 0 ? 'warn' : '') + card('Movements', num(t.movements), 'ledger entries') + '</div>' +
       '<div class="rs-grid">' + trend(d) + deptPanel(d) + '</div>' + groupsPanel(d);
   }
 

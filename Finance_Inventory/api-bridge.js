@@ -2144,7 +2144,7 @@
     if (!host) return false;
     const div = document.createElement('div');
     div.className = 'panel report-detail-panel'; div.id = 'reportCashPanel';
-    div.innerHTML = '<div class="panel-title">Cash Shifts &amp; Collections Report</div><div class="panel-sub report-period-sub" id="reportCashSub">Loading\u2026</div><div id="reportCashBody"></div>';
+    div.innerHTML = '<div class="panel-title">Cash Drawer Shifts Report</div><div class="panel-sub report-period-sub" id="reportCashSub">Loading\u2026</div><div id="reportCashBody"></div>';
     host.insertAdjacentElement('afterend', div);
     return true;
   }
@@ -2158,22 +2158,15 @@
       box.innerHTML = ''; return;
     }
     const t = d.totals, net = t.shortage + t.overage;
-    sub.textContent = range.label + ' \u00B7 ' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + (t.open ? ' (' + t.open + ' still open)' : '') + ' \u00B7 collected ' + money(collectedNet(d)) +
-      ' \u00B7 cash variance ' + (Math.abs(net) < 0.005 ? 'none' : (net < 0 ? '-' : '+') + money(Math.abs(net)));
-    const coll = d.pos.map((x) => '<tr><td>POS walk-in</td><td>' + esc(payLabel(x.method)) + '</td><td>' + num(x.count) + '</td><td>' + esc(money(x.total - (x.returned || 0))) + '</td><td class="dim">' +
-        (x.returned ? esc(money(x.returned)) + ' returned' : '\u2014') + '</td><td class="dim">' + (x.voided ? num(x.voided) + ' voided (' + esc(money(x.voidedTotal)) + ')' : '\u2014') + '</td></tr>')
-      .concat(d.online.map((x) => '<tr><td>Online shop</td><td>' + esc(payLabel(x.method)) + '</td><td>' + num(x.count) + '</td><td>' + esc(money(x.collected - (x.refunded || 0))) + '</td><td class="dim">' +
-        (x.refunded ? esc(money(x.refunded)) + ' refunded' : '\u2014') + '</td><td class="dim">' + [x.awaitingCount ? num(x.awaitingCount) + ' awaiting (' + money(x.awaiting) + ')' : '', x.cancelled ? num(x.cancelled) + ' cancelled' : ''].filter(Boolean).join(' \u00B7 ') + '</td></tr>'));
+    sub.textContent = range.label + ' \u00B7 ' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + (t.open ? ' (' + t.open + ' still open)' : '') +
+      ' \u00B7 cash variance ' + (Math.abs(net) < 0.005 ? 'none' : (net < 0 ? '-' : '+') + money(Math.abs(net))) + ' \u00B7 money received by method is in Sales, Collections & Receivables below';
     const shiftRows = d.shifts.map((x) =>
       '<tr><td>' + esc(x.cashierName || '') + '</td><td class="dim">' + esc(cashWhen(x.openedAt)) + '</td><td class="dim">' + (x.closedAt ? esc(cashWhen(x.closedAt)) : 'Open') + '</td>' +
       '<td>' + esc(money(x.openingCash || 0)) + '</td><td>' + esc(money(x.cashSales || 0)) + '</td><td class="dim">+' + esc(money(x.cashIn || 0)) + ' / -' + esc(money(x.cashOut || 0)) + '</td>' +
       '<td class="dim">' + esc(money(x.cashReturns || 0)) + '</td><td>' + esc(money(x.expectedCash || 0)) + '</td><td>' + (x.closingCash == null ? '\u2014' : esc(money(x.closingCash))) + '</td>' +
       '<td class="' + (x.difference == null ? 'dim' : Math.abs(x.difference) < 0.005 ? 'qty-in' : 'qty-out') + '">' + esc(varText(x)) + '</td></tr>').join('');
     box.innerHTML =
-      '<h4 style="margin:14px 0 6px;font-size:14px">Collections by payment method</h4><div class="table-wrapper"><table><thead><tr><th>Channel</th><th>Method</th><th>Paid transactions</th><th>Collected (net)</th><th>Returns / refunds</th><th>Voided / awaiting / cancelled</th></tr></thead><tbody>' +
-      (coll.length ? coll.join('') : '<tr><td colspan="6" class="report-note">No POS or online payments in this period.</td></tr>') +
-      '</tbody><tfoot>' + (coll.length ? '<tr class="report-foot-row"><td colspan="3">Net collected (POS + online, after returns and refunds)</td><td>' + esc(money(collectedNet(d))) + '</td><td colspan="2"></td></tr>' : '') + '</tfoot></table></div>' +
-      '<h4 style="margin:18px 0 6px;font-size:14px">Cash drawer shifts</h4><div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening cash</th><th>Cash sales</th><th>Added / removed</th><th>Cash refunds</th><th>Expected</th><th>Counted</th><th>Difference</th></tr></thead><tbody>' +
+      '<h4 style="margin:4px 0 6px;font-size:14px">Cash drawer shifts</h4><div class="table-wrapper"><table><thead><tr><th>Cashier</th><th>Opened</th><th>Closed</th><th>Opening cash</th><th>Cash sales</th><th>Added / removed</th><th>Cash refunds</th><th>Expected</th><th>Counted</th><th>Difference</th></tr></thead><tbody>' +
       (shiftRows || '<tr><td colspan="10" class="report-note">No cash shifts in this period.</td></tr>') + '</tbody><tfoot>' +
       (d.shifts.length ? '<tr class="report-foot-row"><td colspan="7">' + t.shifts + ' shift' + (t.shifts === 1 ? '' : 's') + ' \u00B7 ' + t.needsReview + ' need review \u00B7 short ' + esc(money(Math.abs(t.shortage))) + ' \u00B7 over ' + esc(money(t.overage)) + '</td><td>' + esc(money(t.expectedCash)) + '</td><td>' + esc(money(t.countedCash)) + '</td><td>' + (Math.abs(net) < 0.005 ? 'Balanced' : (net < 0 ? 'Short ' : 'Over ') + esc(money(Math.abs(net)))) + '</td></tr>' : '') + '</tfoot></table></div>';
   }

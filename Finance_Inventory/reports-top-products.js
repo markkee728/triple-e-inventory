@@ -124,7 +124,7 @@
     const rows = state.search ? d.rows.filter((r) => String(r.sku).toLowerCase().includes(state.search) || String(r.name).toLowerCase().includes(state.search)) : d.rows;
     const card = (l, v, s) => '<div class="rs-kpi"><div class="rs-kpi-label">' + l + '</div><div class="rs-kpi-value">' + v + '</div><div class="rs-kpi-sub">' + s + '</div></div>';
     const best = d.rows[0]; setTopSeller(best);
-    body.innerHTML = '<div class="rs-kpis three">' + card('Products sold', num(d.totals.products), 'distinct SKUs with sales') + card('Units sold', num(d.totals.units), 'after returns') + card('Product revenue', peso(d.totals.revenue), 'best seller: ' + esc(best.name)) + '</div>' +
+    body.innerHTML = '<div class="rs-kpis two">' + card('Products sold', num(d.totals.products), 'best seller: ' + esc(best.name)) + card('Units sold', num(d.totals.units), 'after returns') + '</div>' +
       table(d, rows);
   }
 

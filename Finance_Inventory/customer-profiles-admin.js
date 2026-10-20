@@ -39,7 +39,7 @@
  const pg=byId('customers');if(pg){let wasActive=pg.classList.contains('active-page');if(wasActive)load();new MutationObserver(()=>{const on=pg.classList.contains('active-page');if(on&&!wasActive)load();wasActive=on;}).observe(pg,{attributes:true,attributeFilter:['class']});}});
  /* ---- edit + disable/enable (uses PATCH /api/users/:id and /api/users/:id/status) ---- */
  let editing=null;
- const toast=(m,bad)=>{try{if(typeof inviteToast==='function')return inviteToast(m,bad);}catch(e){}alert(m);};
+ const toast=(m,bad)=>{try{if(typeof inviteToast==='function')return inviteToast(m,bad);}catch(e){}const t=document.createElement('div');t.className='app-toast'+(bad?' error':'');t.textContent=m;document.body.appendChild(t);setTimeout(()=>t.remove(),5000);};
  async function patch(url,body){const res=await fetch(url,{method:'PATCH',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await res.json().catch(()=>({}));if(!res.ok){throw Object.assign(Error(d.error||'Request failed ('+res.status+')'),{fields:d.fields});}return d;}
  let mounted=false,editLoaded=false;
  async function openEdit(id){const u=customers.find(x=>String(x.id)===String(id));if(!u)return;editing=u;editLoaded=false;lastFocus=document.activeElement;
