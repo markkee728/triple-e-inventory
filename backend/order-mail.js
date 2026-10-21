@@ -27,9 +27,9 @@ function shopInfo() {
 const EVENTS = {
   placed:           { subject: (o) => `We received your order ${o.order_no}`, head: 'Thank you for your order!',
     msg: (o) => /^Cash/.test(o.payment_method) && +o.advance_amount > 0
-      ? `We have your order. To confirm it, pay the ${peso(o.advance_amount)} ${(o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit')} online (My Orders, “Continue Online Payment”). ` +
+      ? `We have your order. To confirm it, pay the ${peso(o.advance_amount)} ${(o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and down payment' : 'down payment') : 'delivery fee') : 'down payment')} online (My Orders, “Continue Online Payment”). ` +
         `The remaining ${peso(+o.total - +o.advance_amount)} is paid in cash ${o.fulfillment === 'Delivery' ? 'to the rider when it arrives' : 'at our counter when you pick it up'}.` +
-        (o.advance_kind === 'deposit' ? ' If the order is not picked up in time, it is cancelled and the deposit is not refunded.' : '')
+        (o.advance_kind === 'deposit' ? ' If the order is not picked up in time, it is cancelled and the down payment is not refunded.' : '')
       : /^Cash/.test(o.payment_method)
       ? `We have your order. Our team will confirm it shortly. You pay in cash when you ${o.fulfillment === 'Delivery' ? 'receive' : 'collect'} it.`
       : 'We have your order. If you have not paid yet, open My Orders and choose “Continue Online Payment”. We start preparing your order once payment is confirmed.' },

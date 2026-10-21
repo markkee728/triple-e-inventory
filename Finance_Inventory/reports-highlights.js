@@ -134,7 +134,7 @@
       const o = s.outcome;
       if (o.cancelled.count > 0) out.push({ tone: o.cancellationRate >= 10 ? 'warn' : 'info', jump: 'repSalesRoot', html: '<b>' + int(o.cancelled.count) + '</b> sale' + (o.cancelled.count === 1 ? ' was' : 's were') + ' cancelled or voided (' + pct(o.cancellationRate) + '% of decided sales).' });
       if (pos.voidPending > 0) out.push({ tone: 'warn', jump: 'repSalesRoot', html: '<b>' + int(pos.voidPending) + '</b> POS sale' + (pos.voidPending === 1 ? ' is' : 's are') + ' waiting for a void decision. They still count as sales until the void is approved.' });
-      if (s.customQuotes && s.customQuotes.received > 0) out.push({ tone: 'info', jump: 'repSalesRoot', html: '<b>' + peso(s.customQuotes.received) + '</b> in custom-quote deposits (' + int(s.customQuotes.quotes) + ' quotation' + (s.customQuotes.quotes === 1 ? '' : 's') + ') was received. It is not in net sales until the quotation becomes an order.' });
+      if (s.customQuotes && s.customQuotes.received > 0) out.push({ tone: 'info', jump: 'repSalesRoot', html: '<b>' + peso(s.customQuotes.received) + '</b> in custom-quote down payments (' + int(s.customQuotes.quotes) + ' quotation' + (s.customQuotes.quotes === 1 ? '' : 's') + ') was received. It is not in net sales until the quotation becomes an order.' });
     } else if (s) {
       out.push({ tone: 'info', jump: 'repSalesRoot', html: 'No completed sales were recorded in this period. Try a wider Report Period.' });
     }

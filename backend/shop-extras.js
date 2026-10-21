@@ -78,6 +78,13 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMPTZ');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS finance_note TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS close_reason TEXT');          // why Finance closed the request (CLOSE_REASONS)
+      // a closed request ALWAYS has a reason, even if something skips the API. Requests closed before reasons existed are marked "other".
+      await pool.query(`DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_closed_needs_reason') THEN
+          UPDATE quote_requests SET close_reason = 'other' WHERE status = 'closed' AND (close_reason IS NULL OR btrim(close_reason) = '');
+          ALTER TABLE quote_requests ADD CONSTRAINT quote_closed_needs_reason
+            CHECK (status <> 'closed' OR (close_reason IS NOT NULL AND btrim(close_reason) <> ''));
+        END IF; END $$`);
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer

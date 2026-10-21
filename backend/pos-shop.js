@@ -1287,7 +1287,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   /* A cancelled order that had money on it owes the customer a refund. It is put in Finance's refund queue (Sales >
      Refund requests) for the amount in the ledger; approving it there writes the refund to the ledger. */
   async function queueCancelRefund(client, o, userId, keep) {
-    const amount = round2(paidIn(o) - (Number(keep) || 0));     // keep: a deposit / delivery fee forfeited by a no-show
+    const amount = round2(paidIn(o) - (Number(keep) || 0));     // keep: a down payment / delivery fee forfeited by a no-show
     if (!(amount > 0)) return 0;
     await client.query(
       `INSERT INTO order_refund_requests (order_id, reason_code, details, amount, requested_by) VALUES ($1,'cancelled',$2,$3,$4)
@@ -1307,7 +1307,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   };
   const isCod = (o) => /^Cash on /.test(o.payment_method || '');
   // an order with something to pay through Xendit: an online-payment order, or a cash order's advance (delivery fee / deposit)
-  const advLabel = (o) => (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit');
+  const advLabel = (o) => (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and down payment' : 'down payment') : 'delivery fee') : 'down payment');
   const paysOnline = (o) => o.payment_method === 'Xendit' || (isCod(o) && Number(o.advance_amount) > 0);
   /* §8 THE money gate for moving an online order, the same for Finance and the counter (payment-terms.releaseDecision):
        Confirm            online orders need the payment due now (full, or the approved initial %) in the ledger; COD is confirmed unpaid
@@ -1472,15 +1472,15 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       // cash on delivery / pickup: within Finance's COD limit, and not for customers who missed too many deliveries or pickups
       // Cash on delivery: the delivery fee is paid online first, the rider collects the goods' price in cash.
-      // Cash on pickup: a reservation deposit is paid online first (taken off the total), the rest in cash at the counter.
+      // Cash on pickup: a down payment is paid online first (taken off the total), the rest in cash at the counter.
       let advKind = null, advance = 0;
       if (method === cashMethod) {
         const c = await cashCheck(client, req.user.id, fulfillment, round2(subtotal + fee)); if (!c.ok) throw bad('method', c.reason);
-        // COD: the delivery fee AND a deposit (taken off what the rider collects) are paid online first
+        // COD: the delivery fee AND a down payment (taken off what the rider collects) are paid online first
         if (fulfillment === 'Delivery') { const dep = round2(Math.min(c.rules.codDeposit, subtotal)); if (fee + dep > 0) { advKind = 'shipping_fee'; advance = round2(fee + dep); } }
         if (fulfillment === 'Pickup' && c.rules.copDeposit > 0) { advKind = 'deposit'; advance = round2(Math.min(c.rules.copDeposit, subtotal)); }
         if (advance > 0 && !process.env.XENDIT_SECRET_KEY)
-          throw bad('method', `${cashMethod} needs the ${advKind === 'shipping_fee' ? 'delivery fee and deposit' : 'reservation deposit'} paid online first, and online payment is not available right now. Please try again later`);
+          throw bad('method', `${cashMethod} needs the ${advKind === 'shipping_fee' ? 'delivery fee and down payment' : 'down payment'} paid online first, and online payment is not available right now. Please try again later`);
       }
       const ins = await client.query(
         `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
@@ -1616,7 +1616,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
         // money flags the screens show; the server applies the same gate again on every move
         awaitingPayment: !!(m && o.payment_method === 'Xendit' && o.payment_status === 'pending' && m.dueNow > 0) || undefined,
-        awaitingAdvance: !!(m && m.advance && !m.advance.paid && !['Cancelled', 'Returned'].includes(o.status)) || undefined,   // cash order: fee / deposit not paid online yet
+        awaitingAdvance: !!(m && m.advance && !m.advance.paid && !['Cancelled', 'Returned'].includes(o.status)) || undefined,   // cash order: fee / down payment not paid online yet
         cashOnHandover: !!(m && isCod(o) && m.outstanding && !FINAL_STATUS.includes(o.status)) || undefined,
         creditException: o.credit_exception_by ? { note: o.credit_exception_note || 'credit exception granted by Finance' } : undefined,
         hold: next && !gate.ok ? gate.reason : undefined,
@@ -1950,12 +1950,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         pickup_hold_days INT NOT NULL DEFAULT 7 CHECK (pickup_hold_days BETWEEN 2 AND 60),
         updated_by INT REFERENCES users(user_id), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('INSERT INTO order_rules (id) VALUES (1) ON CONFLICT DO NOTHING');
-      // cash on pickup: a reservation deposit paid online, kept if the customer does not come within cop_hold_hours of "Ready for Pickup"
+      // cash on pickup: a down payment paid online, kept if the customer does not come within cop_hold_hours of "Ready for Pickup"
       await pool.query('ALTER TABLE order_rules ADD COLUMN IF NOT EXISTS cop_deposit NUMERIC(14,2) NOT NULL DEFAULT 200 CHECK (cop_deposit >= 0)');
       await pool.query('ALTER TABLE order_rules ADD COLUMN IF NOT EXISTS cop_hold_hours INT NOT NULL DEFAULT 48 CHECK (cop_hold_hours BETWEEN 6 AND 336)');
-      // cash on delivery: a deposit paid online together with the delivery fee (taken off what the rider collects)
+      // cash on delivery: a down payment paid online together with the delivery fee (taken off what the rider collects)
       await pool.query('ALTER TABLE order_rules ADD COLUMN IF NOT EXISTS cod_deposit NUMERIC(14,2) NOT NULL DEFAULT 200 CHECK (cod_deposit >= 0)');
-      // the part of a cash order paid online first (delivery fee for COD, deposit for COP), and what was kept when the customer did not show
+      // the part of a cash order paid online first (delivery fee for COD, down payment for COP), and what was kept when the customer did not show
       await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS advance_kind TEXT CHECK (advance_kind IN ('shipping_fee','deposit'))`);
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS advance_amount NUMERIC(14,2) NOT NULL DEFAULT 0');
       await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS forfeited_amount NUMERIC(14,2) NOT NULL DEFAULT 0');
@@ -2007,11 +2007,11 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!Number.isInteger(shows) || shows < 0 || shows > 10) e.maxNoShows = 'Enter a whole number from 0 (off) to 10';
     if (!Number.isInteger(days) || days < 2 || days > 60) e.pickupHoldDays = 'Enter a whole number of days from 2 to 60';
     const before = await getRules();
-    // cash on pickup deposit and how long a cash-on-pickup order is held (older screens do not send them: keep what is set)
+    // cash on pickup down payment and how long a cash-on-pickup order is held (older screens do not send them: keep what is set)
     const depRaw = b.copDeposit == null ? String(before.copDeposit) : String(b.copDeposit).replace(/[,₱\s]/g, '');
-    if (!/^\d{1,6}(\.\d{1,2})?$/.test(depRaw) || Number(depRaw) > 100000) e.copDeposit = 'Enter the deposit in pesos, from 0 (no deposit) to 100,000';
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(depRaw) || Number(depRaw) > 100000) e.copDeposit = 'Enter the down payment in pesos, from 0 (no down payment) to 100,000';
     const codRaw = b.codDeposit == null ? String(before.codDeposit) : String(b.codDeposit).replace(/[,₱\s]/g, '');
-    if (!/^\d{1,6}(\.\d{1,2})?$/.test(codRaw) || Number(codRaw) > 100000) e.codDeposit = 'Enter the deposit in pesos, from 0 (delivery fee only) to 100,000';
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(codRaw) || Number(codRaw) > 100000) e.codDeposit = 'Enter the down payment in pesos, from 0 (delivery fee only) to 100,000';
     const hours = b.copHoldHours == null ? before.copHoldHours : Number(b.copHoldHours);
     if (!Number.isInteger(hours) || hours < 6 || hours > 336) e.copHoldHours = 'Enter a whole number of hours from 6 to 336 (14 days)';
     if (Object.keys(e).length) throw new ValidationError(e);
@@ -2020,8 +2020,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       [round2(Number(money)), shows, days, round2(Number(depRaw)), hours, req.user.id, round2(Number(codRaw))]);
     await audit(pool, req.user, 'Record edited', `Order rules: cash on delivery limit ${peso(before.codLimit)} → ${peso(Number(money))}, ` +
       `missed deliveries/pickups before cash is blocked ${before.maxNoShows} → ${shows}, pickup hold ${before.pickupHoldDays} → ${days} days, ` +
-      `cash on pickup deposit ${peso(before.copDeposit)} → ${peso(Number(depRaw))}, cash on pickup hold ${before.copHoldHours} → ${hours} hours, ` +
-      `cash on delivery deposit ${peso(before.codDeposit)} → ${peso(Number(codRaw))}`);
+      `cash on pickup down payment ${peso(before.copDeposit)} → ${peso(Number(depRaw))}, cash on pickup hold ${before.copHoldHours} → ${hours} hours, ` +
+      `cash on delivery down payment ${peso(before.codDeposit)} → ${peso(Number(codRaw))}`);
     res.json(await getRules());
   }));
   // the checkout asks before showing the cash option, so the customer is never surprised at "Place order"
@@ -2092,8 +2092,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   // pickups nobody collects: a reminder 2 days before the hold ends, then cancelled by itself (same rules as above)
   /* Pickups nobody collects. Two holds:
-       cash on pickup with a reservation deposit  cop_hold_hours after "Ready for Pickup" (default 48): cancelled, the deposit is KEPT
-       every other pickup (paid online, or no deposit) pickup_hold_days (default 7): cancelled, whatever was paid is refunded
+       cash on pickup with a down payment  cop_hold_hours after "Ready for Pickup" (default 48): cancelled, the down payment is KEPT
+       every other pickup (paid online, or no down payment) pickup_hold_days (default 7): cancelled, whatever was paid is refunded
      The customer is reminded once before the hold ends (a quarter of the hold, at most 12 hours, for the short one; 2 days for the long one). */
   const COP_HELD = `o.payment_method = 'Cash on Pickup' AND COALESCE(o.advance_amount, 0) > 0`;
   async function sweepUnclaimedPickups() {
@@ -2110,7 +2110,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         const by = new Date(new Date(o.status_updated_at).getTime() + h.secs * 1000).toLocaleString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
         const n = await pingUser(o.customer_id, { category: 'delivery', title: 'Your order is waiting for pickup',
           body: `Order ${o.order_no} is ready at our shop. Please pick it up by ${by}` + (h.forfeit
-            ? ` and pay the ${asPeso(round2(+o.total - +o.paid_amount))} balance in cash. If you do not come, the order is cancelled and your ${asPeso(o.advance_amount)} deposit is not refunded.`
+            ? ` and pay the ${asPeso(round2(+o.total - +o.paid_amount))} balance in cash. If you do not come, the order is cancelled and your ${asPeso(o.advance_amount)} down payment is not refunded.`
             : ', or it is cancelled automatically.'),
           link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pickup_remind:' + o.order_no }, 'customer');
         out.reminded += n ? 1 : 0;
@@ -2127,14 +2127,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           const owed = await cancelUndelivered(client, o, null, reason + ' (cancelled automatically)', h.forfeit);
           const kept = (await client.query('SELECT forfeited_amount FROM orders WHERE order_id = $1', [o.order_id])).rows[0].forfeited_amount;
           await audit(client, SYSTEM, 'Record edited', `Order ${o.order_no} cancelled automatically: ${reason.toLowerCase()} — stock returned` +
-            (+kept ? `, deposit of ${peso(+kept)} forfeited` : '') + (owed ? `, refund of ${peso(owed)} queued` : ''));
+            (+kept ? `, down payment of ${peso(+kept)} forfeited` : '') + (owed ? `, refund of ${peso(owed)} queued` : ''));
           return { o, kept: +kept };
         });
         if (done) { out.cancelled++; if (done.kept) out.forfeited++;
-          notify(done.o.order_no, 'Cancelled', { reason: reason.toLowerCase() + (done.kept ? `; the ${asPeso(done.kept)} reservation deposit is not refunded` : '') }); }
+          notify(done.o.order_no, 'Cancelled', { reason: reason.toLowerCase() + (done.kept ? `; the ${asPeso(done.kept)} down payment is not refunded` : '') }); }
       }
     }
-    if (out.cancelled) console.log(`[auto] unclaimed pickups: ${out.cancelled} cancelled (${out.forfeited} deposits kept), ${out.reminded} reminded`);
+    if (out.cancelled) console.log(`[auto] unclaimed pickups: ${out.cancelled} cancelled (${out.forfeited} down payments kept), ${out.reminded} reminded`);
     return out;
   }
   (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'unclaimed-pickups', run: sweepUnclaimedPickups });
@@ -2145,7 +2145,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
      "Continue Online Payment", whose time is in xendit_external_id). The customer is reminded once, 12 hours before.
      Before cancelling, Xendit is asked about the open invoice: a payment that arrived late is recorded (and confirms the
      order) instead, and an invoice that is still open is left alone. Nothing was taken from stock yet (that happens on
-     confirm), so nothing has to be restocked. A cash-on-delivery / pickup order whose delivery fee or deposit was never paid
+     confirm), so nothing has to be restocked. A cash-on-delivery / pickup order whose delivery fee or down payment was never paid
      online is treated the same way; one with nothing to pay online first is never touched (the counter handles those).
      Safe with several servers: each order is locked with SKIP LOCKED and checked again before it changes. */
   const PAY_HOURS = Math.max(6, Number(process.env.ORDER_PAY_HOURS) || 48);

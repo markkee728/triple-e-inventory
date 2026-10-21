@@ -89,17 +89,17 @@
     };
     return '<div class="panel" id="ptrCodBox" style="margin-bottom:18px">'
       + '<div class="panel-head"><div><div class="panel-title">Cash on delivery and pickup</div>'
-      + '<div class="panel-sub">Cash on delivery: the customer pays the delivery fee and a deposit online first, the rider collects the rest in cash. '
-      + 'Cash on pickup: a reservation deposit is paid online first (taken off the total), the rest in cash at the counter; a no-show keeps the deposit. '
+      + '<div class="panel-sub">Cash on delivery: the customer pays the delivery fee and a down payment online first, the rider collects the rest in cash. '
+      + 'Cash on pickup: a down payment is paid online first (taken off the total), the rest in cash at the counter; a no-show keeps the down payment. '
       + 'The checkout hides cash when a rule says no, and the server checks again.</div></div></div>'
       + '<div style="display:flex;gap:18px;flex-wrap:wrap;padding:4px 16px 0">'
       + f('codLimit', 'Cash on delivery limit (\u20B1)', 'Bigger delivery orders must be paid online. 0 = no limit.', 'placeholder="10000"')
       + f('codShows', 'Missed deliveries or pickups before cash is blocked', 'The customer can then only pay online. 0 = never block.', 'placeholder="2"')
       + f('codHold', 'Days to hold a paid-online pickup', 'Not collected by then: cancelled, restocked and refunded (reminder 2 days before).', 'placeholder="7"')
       + '</div><div style="display:flex;gap:18px;flex-wrap:wrap;padding:14px 16px 0">'
-      + f('copDeposit', 'Cash on pickup deposit (\u20B1)', 'Paid online to reserve the items; taken off the total. 0 = no deposit (pay everything at the counter).', 'placeholder="200"')
-      + f('copHours', 'Hours to hold a cash-on-pickup order', 'Counted from \u201CReady for pickup\u201D. Not picked up by then: cancelled, restocked, and the deposit is kept.', 'placeholder="48"')
-      + f('codDeposit', 'Cash on delivery deposit (\u20B1)', 'Paid online together with the delivery fee; taken off what the rider collects. 0 = delivery fee only.', 'placeholder="200"')
+      + f('copDeposit', 'Cash on pickup down payment (\u20B1)', 'Paid online to reserve the items; taken off the total. 0 = no down payment (pay everything at the counter).', 'placeholder="200"')
+      + f('copHours', 'Hours to hold a cash-on-pickup order', 'Counted from \u201CReady for pickup\u201D. Not picked up by then: cancelled, restocked, and the down payment is kept.', 'placeholder="48"')
+      + f('codDeposit', 'Cash on delivery down payment (\u20B1)', 'Paid online together with the delivery fee; taken off what the rider collects. 0 = delivery fee only.', 'placeholder="200"')
       + '</div><div style="display:flex;gap:12px;align-items:center;padding:14px 16px 16px"><button type="button" class="btn-primary btn-sm" data-cod-save>Save rules</button>'
       + '<span class="faint" id="codStatus"></span></div></div>';
   }

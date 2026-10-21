@@ -654,7 +654,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       const fromRow = o.terms_amount == null ? null : round2(Number(o.terms_amount));
       initial = fromRow != null && fromRow > 0 ? fromRow : round2(total * (Number(o.terms_percent) || 100) / 100);
     }
-    /* Cash on delivery / pickup with an ADVANCE paid online first: the delivery fee plus a deposit (COD) or the reservation deposit (COP).
+    /* Cash on delivery / pickup with an ADVANCE paid online first: the delivery fee plus a down payment (COD) or the down payment (COP).
        That advance is what is "due now"; the rest is cash at the door or the counter. */
     const advance = /^Cash on /.test(o.payment_method || '') && Number(o.advance_amount) > 0 ? round2(Math.min(Number(o.advance_amount), total)) : 0;
     if (advance && !partial) initial = advance;
@@ -663,9 +663,9 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     return { key: o.terms_key || 'full', percent: o.terms_percent == null ? 100 : +o.terms_percent,
       initial, dueNow, balance, total, paid, state: o.payment_state || 'unpaid',
       advance: advance ? (() => {
-        // COD: delivery fee + deposit; COP: the reservation deposit. The label is what every screen and message calls it.
+        // COD: delivery fee + down payment; COP: the down payment. The label is what every screen and message calls it.
         const fee = o.advance_kind === 'shipping_fee' ? round2(Math.min(Number(o.delivery_fee) || 0, advance)) : 0, deposit = round2(advance - fee);
-        const label = o.advance_kind === 'shipping_fee' ? (deposit > 0 ? (fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit';
+        const label = o.advance_kind === 'shipping_fee' ? (deposit > 0 ? (fee > 0 ? 'delivery fee and down payment' : 'down payment') : 'delivery fee') : 'down payment';
         return { kind: o.advance_kind || 'deposit', amount: advance, fee, deposit, label, paid: cents(paid) >= cents(advance), cash: round2(Math.max(0, total - Math.max(paid, advance))) };
       })() : null,
       condition: advance && !partial ? 'paid in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider on delivery' : 'at the counter on pickup')
@@ -694,7 +694,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     // confirming needs the part the terms ask for up front: everything on Full Payment, the initial % on a partial term
     // (dueNow alone is not enough: once the initial is in, dueNow becomes the balance, which is only due before release)
     const short = m.key === 'full' ? m.balance : round2(Math.max(0, m.initial - m.paid));
-    // cash on delivery / pickup: the advance paid online (delivery fee or reservation deposit) must be in before it is confirmed
+    // cash on delivery / pickup: the advance paid online (delivery fee or down payment) must be in before it is confirmed
     if (cod && m.advance && !m.advance.paid && !(role === 'finance' && credit))
       return { ok: false, field: 'payment', money: m, reason: `The ${peso(round2(m.advance.amount - m.paid))} ${m.advance.label} has not been paid online yet. The order is confirmed when it is` };
     if (cents(short) > 0 && !(role === 'finance' && credit) && !cod)

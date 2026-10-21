@@ -155,7 +155,7 @@ async function salesOverview(q, dx, p, o = {}) {
   const quoteSql = o.hasLedger === false ? null : `SELECT COALESCE(SUM(CASE WHEN p.direction = 'in' THEN p.amount ELSE -p.amount END), 0) AS net, COUNT(DISTINCT q.quote_id) AS quotes
      FROM payments p JOIN quote_requests q ON q.quote_id = p.quote_id
     WHERE p.paid_for = 'quote' AND q.converted_order_id IS NULL AND q.handover_sale_id IS NULL AND ${NOT_A_MOVE} AND ${dx.between('p.created_at', '$1', '$2')}`;
-  // cash orders cancelled because the customer did not show: the delivery fee / reservation deposit paid online was kept (not refunded)
+  // cash orders cancelled because the customer did not show: the delivery fee / down payment paid online was kept (not refunded)
   const keptSql = o.hasForfeit ? `SELECT COALESCE(SUM(forfeited_amount), 0) AS kept, COUNT(*) AS n FROM orders WHERE forfeited_amount > 0 AND ${dx.between('status_updated_at', '$1', '$2')}` : null;
   const [cur, prev, trend, methods, quote, kept] = await Promise.all([
     q(sumSql, [from, to]), q(sumSql, [pFrom, pTo]), q(trendSql, [from, to]), q(methodSql, [from, to]), quoteSql ? q(quoteSql, [from, to]) : Promise.resolve([{ net: 0, quotes: 0 }]),

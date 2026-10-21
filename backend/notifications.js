@@ -240,7 +240,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
         customer: { category: 'orders', title: 'Order confirmation',
           body: 'We received order ' + no + ' for ' + peso(o.total) + ' (' + o.fulfillment + ', ' + o.payment_method + ').' +
             (/^Cash on /.test(o.payment_method || '') && +o.advance_amount > 0
-              ? ' Pay the ' + peso(o.advance_amount) + ' ' + (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit') + ' online to confirm it; the rest (' +
+              ? ' Pay the ' + peso(o.advance_amount) + ' ' + (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and down payment' : 'down payment') : 'delivery fee') : 'down payment') + ' online to confirm it; the rest (' +
                 peso(+o.total - +o.advance_amount) + ') is paid in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.')
               : '') },
         finance: { category: 'orders', title: 'New customer order',
@@ -249,7 +249,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       Paid: {
         customer: { category: 'payment', title: /^Cash on /.test(o.payment_method || '') ? 'Order confirmed' : 'Payment confirmed',
           body: /^Cash on /.test(o.payment_method || '')
-            ? 'Order ' + no + ' is confirmed and your items are reserved.' + (extra && extra.paid > 0 ? ' We received your ' + peso(extra.paid) + ' ' + (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit') + ' online.' : '') +
+            ? 'Order ' + no + ' is confirmed and your items are reserved.' + (extra && extra.paid > 0 ? ' We received your ' + peso(extra.paid) + ' ' + (o.advance_kind === 'shipping_fee' ? (+o.advance_amount - +o.delivery_fee > 0.004 ? (+o.delivery_fee > 0 ? 'delivery fee and down payment' : 'down payment') : 'delivery fee') : 'down payment') + ' online.' : '') +
               ' Please prepare ' + peso(round2c(+o.total - ((extra && extra.paid) || 0))) + ' in cash for when you ' + (o.fulfillment === 'Delivery' ? 'receive it.' : 'pick it up.')
             : extra && extra.balance > 0.004
             ? 'Order ' + no + ' is confirmed. We received your down payment of ' + peso(extra.paid) + '. Balance: ' + peso(extra.balance) + ' (' + (extra.condition || 'due before release') + ').'

@@ -28,26 +28,26 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   sql(`DELETE FROM order_failures WHERE customer_id = 4`);                       // a clean slate for the no-show block
   const rules = await fi('GET', '/api/finance/order-rules');
   console.log('\nRules:', JSON.stringify(rules.body));
-  ok('defaults: ₱200 pickup deposit, 48-hour hold, ₱200 COD deposit', rules.body.copDeposit === 200 && rules.body.copHoldHours === 48 && rules.body.codDeposit === 200, rules.body);
+  ok('defaults: ₱200 pickup down payment, 48-hour hold, ₱200 COD down payment', rules.body.copDeposit === 200 && rules.body.copHoldHours === 48 && rules.body.codDeposit === 200, rules.body);
 
-  console.log('\n1. Cash on Pickup: ₱200 deposit online, the rest in cash at the counter');
+  console.log('\n1. Cash on Pickup: ₱200 down payment online, the rest in cash at the counter');
   let r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Pickup', method: 'Cash on Pickup', phone: '09171234567', items: [{ sku: 'FG-FB02', qty: 20 }] });
   ok('order placed', r.status === 201, r.body);
   const cop = r.body;
-  ok('it asks for a ₱200 deposit now, ₱4,600 in cash later', cop.advance && cop.advance.kind === 'deposit' && cop.advance.amount === 200 && cop.dueNow === 200 && cop.advance.cash === 4600, cop);
+  ok('it asks for a ₱200 down payment now, ₱4,600 in cash later', cop.advance && cop.advance.kind === 'deposit' && cop.advance.amount === 200 && cop.dueNow === 200 && cop.advance.cash === 4600, cop);
   r = await ca('POST', '/api/orders/' + cop.id + '/confirm', {});
-  ok('the counter cannot confirm it before the deposit is paid', r.status === 400 && /deposit has not been paid/.test(JSON.stringify(r.body)), r.body);
+  ok('the counter cannot confirm it before the down payment is paid', r.status === 400 && /down payment has not been paid/.test(JSON.stringify(r.body)), r.body);
   ok('a wrong amount from the gateway is not accepted', (await webhook(cop.id, 4800)) >= 400 || sql(`SELECT paid_amount FROM orders WHERE order_no='${cop.id}'`) === '0.00');
   ok('the ₱200 paid online is recorded', (await webhook(cop.id, 200)) === 200 && sql(`SELECT paid_amount FROM orders WHERE order_no='${cop.id}'`) === '200.00');
   ok('…and the order confirms itself', sql(`SELECT status FROM orders WHERE order_no='${cop.id}'`) === 'Paid');
   r = await cu('POST', '/api/shop/orders/' + cop.id + '/xendit-checkout', {});
-  ok('the rest cannot be paid through the deposit link', r.status === 400 && /already paid/.test(r.body.error || ''), r.body);
+  ok('the rest cannot be paid through the down payment link', r.status === 400 && /already paid/.test(r.body.error || ''), r.body);
   for (const st of ['Packed', 'Ready for Pickup']) await ca('POST', '/api/orders/' + cop.id + '/status', { status: st });
   ok('ready for pickup', sql(`SELECT status FROM orders WHERE order_no='${cop.id}'`) === 'Ready for Pickup');
   sql(`UPDATE orders SET status_updated_at = now() - interval '49 hours' WHERE order_no='${cop.id}'`);
   const a1 = await automation();
   ok('not picked up within 48 hours: cancelled automatically', sql(`SELECT status FROM orders WHERE order_no='${cop.id}'`) === 'Cancelled', a1);
-  ok('…the ₱200 deposit is kept', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cop.id}'`) === '200.00');
+  ok('…the ₱200 down payment is kept', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cop.id}'`) === '200.00');
   ok('…no refund is queued', sql(`SELECT count(*) FROM order_refund_requests r JOIN orders o USING (order_id) WHERE o.order_no='${cop.id}'`) === '0');
   ok('…stock went back', sql(`SELECT stock_deducted FROM orders WHERE order_no='${cop.id}'`) === 'f');
   ok('…and it counts as a no-show', sql(`SELECT count(*) FROM order_failures f JOIN orders o USING (order_id) WHERE o.order_no='${cop.id}' AND f.counts`) === '1');
@@ -66,16 +66,16 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
   ok('COD order placed', r.status === 201, r.body);
   const cod = r.body;
-  ok('the delivery fee + ₱200 deposit are paid now; the rest is cash on delivery', cod.advance && cod.advance.kind === 'shipping_fee' && cod.advance.amount === cod.deliveryFee + 200 && cod.advance.fee === cod.deliveryFee && cod.advance.deposit === 200 && cod.dueNow === cod.deliveryFee + 200 && cod.advance.cash === cod.subtotal - 200 && cod.advance.label === 'delivery fee and deposit', cod);
+  ok('the delivery fee + ₱200 down payment are paid now; the rest is cash on delivery', cod.advance && cod.advance.kind === 'shipping_fee' && cod.advance.amount === cod.deliveryFee + 200 && cod.advance.fee === cod.deliveryFee && cod.advance.deposit === 200 && cod.dueNow === cod.deliveryFee + 200 && cod.advance.cash === cod.subtotal - 200 && cod.advance.label === 'delivery fee and down payment', cod);
   r = await ca('POST', '/api/orders/' + cod.id + '/confirm', {});
-  ok('not confirmed before the fee and deposit are paid', r.status === 400 && /delivery fee and deposit has not been paid/.test(JSON.stringify(r.body)), r.body);
+  ok('not confirmed before the fee and down payment are paid', r.status === 400 && /delivery fee and down payment has not been paid/.test(JSON.stringify(r.body)), r.body);
   await webhook(cod.id, cod.advance.amount);
   ok('fee paid: confirmed by itself', sql(`SELECT status FROM orders WHERE order_no='${cod.id}'`) === 'Paid');
   for (const st of ['Packed']) await ca('POST', '/api/orders/' + cod.id + '/status', { status: st });
   r = await ca('POST', '/api/orders/' + cod.id + '/status', { status: 'Out for Delivery' });
   ok('out for delivery with the goods still to collect', r.status === 200, r.body);
   r = await ca('POST', '/api/orders/' + cod.id + '/status', { status: 'Delivered', receivedBy: 'Carlo Customer', cashReceived: String(cod.subtotal - 200), requestId: rid() });
-  ok('delivered: the rider collected the goods less the deposit (' + (cod.subtotal - 200) + ')', r.status === 200 && r.body.amount === cod.subtotal - 200 && r.body.balance === 0, r.body);
+  ok('delivered: the rider collected the goods less the down payment (' + (cod.subtotal - 200) + ')', r.status === 200 && r.body.amount === cod.subtotal - 200 && r.body.balance === 0, r.body);
 
   console.log('\n4. COD: the customer refuses at the door — the delivery fee is kept');
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
@@ -83,7 +83,7 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   for (const st of ['Packed', 'Out for Delivery']) await ca('POST', '/api/orders/' + cod2.id + '/status', { status: st });
   r = await ca('POST', '/api/orders/' + cod2.id + '/not-completed', { reason: 'refused', action: 'cancel' });
   ok('cancelled', r.status === 200 && !r.body.refundQueued, r.body);
-  ok('…the delivery fee and deposit are kept, nothing refunded', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod2.id}'`) === Number(cod2.advance.amount).toFixed(2));
+  ok('…the delivery fee and down payment are kept, nothing refunded', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod2.id}'`) === Number(cod2.advance.amount).toFixed(2));
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
   ok('after 2 no-shows, cash is blocked for this customer', r.status === 400 && /not available on your account/.test(r.body.error || ''), r.body);
   sql(`DELETE FROM order_failures WHERE customer_id = 4`);
@@ -98,7 +98,7 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   const cop3 = r.body;
   sql(`UPDATE orders SET created_at = now() - interval '49 hours' WHERE order_no='${cop3.id}'`);
   await automation();
-  ok('a cash-on-pickup order whose deposit never came is cancelled like an unpaid online order', sql(`SELECT status FROM orders WHERE order_no='${cop3.id}'`) === 'Cancelled');
+  ok('a cash-on-pickup order whose down payment never came is cancelled like an unpaid online order', sql(`SELECT status FROM orders WHERE order_no='${cop3.id}'`) === 'Cancelled');
 
   console.log('\n6. Finance settings');
   r = await fi('PUT', '/api/finance/order-rules', { codLimit: rules.body.codLimit, maxNoShows: rules.body.maxNoShows, pickupHoldDays: rules.body.pickupHoldDays, copDeposit: '300', copHoldHours: 24 });

@@ -10,7 +10,7 @@
      • customer  on the due date, and again every BALANCE_REPEAT_DAYS (default 3) days while it stays unpaid
      • Finance   the day it becomes overdue, and again every 7 days — so someone decides what to do
 
-   What it will NOT do: cancel the order or refund the deposit by itself. The customer has already paid real money,
+   What it will NOT do: cancel the order or refund the down payment by itself. The customer has already paid real money,
    so cancelling means a refund / forfeiture decision. That stays with Finance, who sees the overdue list below.
    Orders Finance granted a credit exception on are skipped: the balance was agreed to be paid later.
 
@@ -103,7 +103,7 @@ module.exports = function makeBalanceReminders({ app, pool, auth, wrap }) {
           sent += await nc().notifyRole('finance', { category: 'payment', severity: v.overdueDays >= 7 ? 'critical' : 'warn',
             link: 'Finance_Inventory.html#sales', entityType: 'order', entityId: no,
             title: 'Order balance overdue',
-            body: `${no} is ${v.overdueDays} day${v.overdueDays === 1 ? '' : 's'} past its due date (${by}); ${owe} still unpaid of ${peso(v.total)}. Chase the customer, grant a credit exception, or cancel and settle the deposit.`,
+            body: `${no} is ${v.overdueDays} day${v.overdueDays === 1 ? '' : 's'} past its due date (${by}); ${owe} still unpaid of ${peso(v.total)}. Chase the customer, grant a credit exception, or cancel and settle the down payment.`,
             dedupeKey: `balfin:${no}:${Math.floor(v.overdueDays / 7)}` });
         } else if (v.daysLeft <= BEFORE) {
           const when = v.daysLeft <= 1 ? 'tomorrow' : 'in ' + v.daysLeft + ' days';
