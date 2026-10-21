@@ -194,6 +194,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     'Forged part': ['forged', 'forging', 'forge'],
     'Fitting / valve': ['valve', 'fitting', 'elbow', 'tee', 'coupling', 'nipple', 'union', 'bushing', 'adapter', 'adaptor', 'connector', 'reducer', 'plug', 'cap', 'faucet', 'tap', 'hose']
   };
+  // words that only name HOW it is made: a fitting is forged too, so "forged brass valve" is a fitting. They count only when no other word matched.
+  QUOTE_OPTIONS.processWords = ['forged', 'forging', 'forge', 'cast', 'casting'];
   QUOTE_OPTIONS.itemRules = {
     'Die-cast part':   { materials: ALU, sizes: PART_SIZES, typed: 'part', thickness: 'optional', finish: FINISH_ALU, wall: WALL_ALU, units: ['pcs', 'sets'], unit: 'pcs',
                          services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to your drawing. Pick a size range, or type the exact dimensions.' },
@@ -352,6 +354,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     return out;
   }
   // "Forged Brass Elbow" -> Brass, "Die-Cast Aluminum Heat Sink" -> Aluminum. Only when the name points at exactly one material.
+  // the kind of item a catalog product is, read from its name the same way the form does (quote-fields.js):
+  // "Forged Brass Gate Valve" -> Fitting / valve, "Die-Cast Pump Housing" -> Die-cast part. null when the name does not say.
+  function itemTypeFromName(name) {
+    const text = String(name || '').toLowerCase(), has = (w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(e?s)?(?![a-z0-9])', 'i').test(text);
+    const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some(has));
+    const strong = (t) => (QUOTE_OPTIONS.typeWords[t] || []).filter((w) => !QUOTE_OPTIONS.processWords.includes(w)).some(has);
+    let byWord = QUOTE_OPTIONS.itemTypes.filter(strong);
+    if (!byWord.length) byWord = QUOTE_OPTIONS.itemTypes.filter((t) => (QUOTE_OPTIONS.typeWords[t] || []).some(has));
+    const fits = QUOTE_OPTIONS.itemTypes.filter((t) => (!fam || QUOTE_OPTIONS.itemRules[t].materials.some((m) => fam.materials.includes(m))) && (!byWord.length || byWord.includes(t)));
+    return fits.length === 1 ? fits[0] : null;
+  }
   function materialFromName(name) {
     const text = String(name || '').toLowerCase();
     const fam = (QUOTE_OPTIONS.families || []).find((f) => f.words.some((w) => new RegExp('(^|[^a-z0-9])' + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(text)));
@@ -365,6 +378,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!cover || (!place.region && !place.province)) return;
     const q = await cover(place);
     if (q && q.available === false) throw bad(field, `Sorry, we do not deliver to ${place.province || place.region} yet. Choose another area, or switch to Pickup`);
+  }
+  // one detail a catalog product's record leaves out: required, and it must fit the product (its list, or a typed size / thickness of the right shape)
+  function catalogSpec(key, v, mat, ctype, productName) {
+    const label = SPEC_LABEL[key].toLowerCase(), rule = ctype && QUOTE_OPTIONS.itemRules[ctype];
+    if (!v || /^not specified$/i.test(v)) throw bad(key, productName + ' has no ' + label + ' on record. Choose the ' + label);
+    if (allowedFor(key, mat, ctype).includes(v)) return v;
+    if (key === 'size' && rule) {
+      const why = v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) ? 'Type ' + QUOTE_OPTIONS.typedSizes[rule.typed].hint : typedSizeProblem(rule.typed, v);
+      if (why) throw bad(key, why);
+      return v;
+    }
+    if (key === 'thickness' && rule && rule.thickness !== 'none') {
+      const lim = QUOTE_OPTIONS.thicknessLimits[mat] || QUOTE_OPTIONS.thicknessLimits[''], tm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(v);
+      if (!tm) throw bad(key, 'Type the thickness in mm, e.g. 2.5 mm');
+      if (+tm[1] < lim.min || +tm[1] > lim.max) throw bad(key, 'Type a thickness from ' + lim.min + ' to ' + lim.max + ' mm');
+      return v;
+    }
+    throw bad(key, 'Choose the ' + label + ' from the list');
   }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
@@ -431,7 +462,15 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
       // A catalog product is a ready-made finished good: nothing is chosen or customised. Anything its record does not state is saved as
       // "Not specified" (the material is read from the product name when it names one), and it is always sold as is. Same rule as the locked form.
-      if (sku) { specs[key] = key === 'service' ? 'None (as is)' : (key === 'material' && materialFromName(productName)) || 'Not specified'; continue; }
+      // A catalog product is a ready-made finished good: what its record states is locked, and it is sold as is. A detail the record
+      // does NOT state is no longer saved as "Not specified": the customer / cashier must choose it, from the choices that fit the product.
+      if (sku) {
+        if (key === 'service') { specs[key] = 'None (as is)'; continue; }
+        const named = key === 'material' && materialFromName(productName);
+        if (named) { specs[key] = named; continue; }
+        specs[key] = catalogSpec(key, str(inSpecs[key]), specs.material, itemTypeFromName(productName), productName);
+        continue;
+      }
       const v = str(inSpecs[key]);
       if (!v) throw bad(key, 'Choose the ' + SPEC_LABEL[key].toLowerCase());
       const label = SPEC_LABEL[key].toLowerCase(), mat = specs.material, allowed = allowedFor(key, mat, itemType);   // material comes first in SPEC_LABEL
@@ -599,6 +638,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const byId = new Map(cs.map(c => [String(c.quote_id), clarificationJson(c)]));
     return rows.map(q => ({ ...q, clarification: byId.get(String(q.quote_id)) }));
   }
+  // what each requested detail must look like when the customer answers (same rules as Shop_Customer.html)
+  const CLARIFY_LABEL = { dimensions: 'dimensions', thickness: 'thickness', material: 'material', finish: 'finish', quantity: 'quantity' };
+  function clarifyProblem(k, v) {
+    if (!v) return 'Enter the ' + CLARIFY_LABEL[k] + ' the cashier asked for';
+    if (k === 'dimensions' && !/\d/.test(v)) return 'Enter the dimensions with numbers and a unit, e.g. 100 x 60 x 40 mm';
+    if (k === 'dimensions' && !/(mm|cm|m|in|inch|inches|ft|")\s*$/i.test(v)) return 'Add the unit to the dimensions, e.g. mm or inches';
+    if (k === 'thickness' && !/^\d+(\.\d+)?\s*(mm|cm|in|")$/i.test(v)) return 'Enter the thickness as a number with its unit, e.g. 2.5 mm';
+    if (k === 'quantity' && !/^\d[\d,]*(\.\d+)?\s*[a-z]*$/i.test(v)) return 'Enter the quantity as a number, e.g. 200 pcs';
+    if ((k === 'material' || k === 'finish') && (v.length < 2 || !/[a-z]/i.test(v))) return 'Enter the ' + k + ' in words, e.g. ' + (k === 'material' ? 'Brass C37700' : 'Polished');
+    return '';
+  }
   app.post('/api/pos/quotes/:no/clarifications', auth('cashier'), wrap(async (req,res) => {
     const b = req.body || {};
     const fields = Array.isArray(b.fields) ? [...new Set(b.fields)] : [];
@@ -625,13 +675,14 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }));
   app.post('/api/shop/quotes/:no/clarifications/respond', auth('customer'), wrap(async(req,res)=>{
     const b=req.body||{}, response=str(b.response);
-    if (response.length < 10 || response.length > 1500) throw bad('response','Enter a clear response of 10–1500 characters');
     const specs=b.specs && typeof b.specs==='object' && !Array.isArray(b.specs) ? b.specs : {};
     const allowed=['dimensions','thickness','material','finish','quantity','other'];
     if (Object.keys(specs).some(k=>!allowed.includes(k))) throw bad('specs','Unsupported specification field');
     for (const [key,val] of Object.entries(specs)) {
-      if (typeof val!=='string' || !val.trim() || val.length>200) throw bad('specs',`Enter a valid ${key} (maximum 200 characters)`);
+      if (typeof val!=='string' || val.length>200) throw bad('spec_'+key,`Enter a valid ${key} (maximum 200 characters)`);
+      specs[key]=val.trim();
     }
+    if (response.length > 1500) throw bad('response','Keep your note within 1500 characters');
     const result=await tx(async client=>{
       const q=(await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 AND customer_id=$2 FOR UPDATE',[req.params.no,req.user.id])).rows[0];
       if(!q) throw bad('id','Quotation not found');
@@ -639,6 +690,16 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const c=(await client.query("SELECT * FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer' FOR UPDATE",[q.quote_id])).rows[0];
       if(!c) throw bad('status','There is no outstanding clarification');
       if(Object.keys(specs).some(k=>!c.fields.includes(k))) throw bad('specs','Only requested specifications may be updated');
+      // every detail the cashier asked for is required, and must look like that kind of detail; "Other" is answered in the note
+      for (const k of c.fields) {
+        if (k === 'other' || k === 'drawing') {      // no upload yet: a drawing is described (or a link / "sent by email") in the note
+          if (response.length < 10) throw bad('response', k === 'drawing' ? 'The cashier asked for a drawing: describe it, paste a link, or say how you will send it (at least 10 characters)' : 'The cashier asked for other details: explain them in at least 10 characters');
+          continue;
+        }
+        const why = clarifyProblem(k, specs[k] || '');
+        if (why) throw bad('spec_' + k, why);
+      }
+      if (!c.fields.includes('other') && !c.fields.includes('drawing') && response && response.length < 5) throw bad('response', 'Write at least 5 characters, or leave the note empty');
       const row=(await client.query(`UPDATE quote_clarifications SET status='answered',response=$2,submitted_specs=$3::jsonb,answered_at=now()
         WHERE clarification_id=$1 RETURNING *`,[c.clarification_id,response,JSON.stringify(specs)])).rows[0];
       await client.query("UPDATE quote_requests SET status='new',updated_at=now() WHERE quote_id=$1",[q.quote_id]);

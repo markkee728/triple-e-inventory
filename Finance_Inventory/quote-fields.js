@@ -115,7 +115,7 @@
 
   // ---- the item type and the material decide what the other details can be ------------------------------------------------
   var typeVal = function (p) { var e = $(p + 'S_itemType'); return e && !state[p].locked ? e.value : ''; };
-  var typeRule = function (p) { var t = typeVal(p); return t && state[p].options.itemRules ? state[p].options.itemRules[t] || null : null; };
+  var typeRule = function (p) { var t = typeVal(p) || (state[p].locked && state[p].catalogType) || ''; return t && state[p].options.itemRules ? state[p].options.itemRules[t] || null : null; };
   // the unit list follows the item type: a sheet is counted in sheets, a fitting in pcs. A catalog product keeps its own locked unit (setUnit).
   function syncUnits(p) {
     var s = state[p], sel = $(p + 'Unit'); if (!s || !sel || s.locked) return;
@@ -219,7 +219,9 @@
     (o.families || []).some(function (f) { if (f.words.some(function (w) { return hasWord(text, w); })) { fam = f; return true; } });
     (o.forms || []).some(function (f) { if (f.words.some(function (w) { return hasWord(text, w); })) { form = f; return true; } });
     var types = null, wordTypes = [];
-    if (o.typeWords) Object.keys(o.typeWords).forEach(function (t) { if (o.typeWords[t].some(function (w) { return wholeWord(text, w); })) wordTypes.push(t); });
+    // a product word (valve, elbow, housing) beats a process word (forged, cast): fittings are forged too. Same rule as itemTypeFromName on the server.
+    var weak = o.processWords || [], hit = function (strongOnly) { return Object.keys(o.typeWords || {}).filter(function (t) { return o.typeWords[t].some(function (w) { return (!strongOnly || weak.indexOf(w) < 0) && wholeWord(text, w); }); }); };
+    wordTypes = hit(true); if (!wordTypes.length) wordTypes = hit(false);
     if (fam || wordTypes.length) {
       types = (o.itemTypes || []).filter(function (t) {
         var r = o.itemRules && o.itemRules[t]; if (!r) return false;
@@ -238,11 +240,11 @@
   // the words in "Describe the item" just put the likely materials FIRST (stainless sheet -> stainless materials on top).
   function listFor(p, k) {
     var s = state[p], all = s.options[k] || [], h = s.hint, pref = h && (k === 'material' ? h.materials : k === 'size' ? h.sizes : null);
-    if (k === 'material' && !s.locked) {                                                                                // the item type decides the material
+    if (k === 'material' && (!s.locked || s.catalogType)) {                                                             // the item type decides the material
       var r0 = typeRule(p); if (r0 && r0.materials) all = all.filter(function (v) { return r0.materials.indexOf(v) >= 0 || /^Not sure/i.test(v); });
     }
-    if (k !== 'material' && !s.locked) {
-      var t = typeVal(p), m = $(p + 'S_material') ? $(p + 'S_material').value : '', mx = s.options.matrix;
+    if (k !== 'material' && (!s.locked || s.catalogType)) {
+      var t = typeVal(p) || s.catalogType, m = $(p + 'S_material') ? $(p + 'S_material').value : '', mx = s.options.matrix;
       if (t && mx && mx[t]) { var cell = mx[t][m && mx[t][m] ? m : '']; if (cell && cell[k]) return cell[k]; }          // item type + material together
       if (m && s.options.rules && s.options.rules[m] && s.options.rules[m][k]) return s.options.rules[m][k];             // no item type yet: the material alone
     }
@@ -260,7 +262,7 @@
     if (!locked) { sel.disabled = waiting; sel.parentNode.classList.toggle('qx-wait', waiting); }
     sel.value = !waiting && ((cur === OTHER && canType) || list.indexOf(cur) >= 0) ? cur : '';
     sel.removeAttribute('data-auto');
-    if (!sel.value && !waiting && k === 'thickness' && r && r.thickness === 'none' && list.length === 1 && !locked) { sel.value = list[0]; sel.setAttribute('data-auto', list[0]); }   // the only possible answer (dropped again if the item type changes)
+    if (!sel.value && !waiting && k === 'thickness' && r && r.thickness === 'none' && list.length === 1 && !sel.disabled) { sel.value = list[0]; sel.setAttribute('data-auto', list[0]); }   // the only possible answer (dropped again if the item type changes)
     if (!sel.value && !waiting && k === 'size' && !list.length && canType && !locked) sel.value = OTHER;                     // nothing to pick from: go straight to typing it
     if (c) {
       if (sel.value === OTHER) { var bx = $(p + 'X_' + k); if (bx && bx.getAttribute('data-kind') !== typedKind(p, k)) { buildTyped(p, k); if (cur === OTHER && state[p].cleared) state[p].cleared.push({ label: label, value: 'what you typed' }); } }
@@ -468,7 +470,7 @@
   function unlock(p, k) {
     var sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
     var added = sel.getAttribute('data-added');
-    sel.disabled = false; sel.parentNode.classList.remove('qx-locked');
+    sel.disabled = false; sel.parentNode.classList.remove('qx-locked', 'qx-required');
     if (sel.getAttribute('data-filled')) { sel.value = ''; sel.removeAttribute('data-filled'); }
     if (added) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
     if (c) { clearTyped(p, k); typedMode(p, k, false); }
@@ -478,7 +480,7 @@
     var s = state[p]; if (!s) return;
     var banner = $(p + 'Locked'), unit = $(p + 'Unit');
     if (specs === null) {                                                                          // custom item: everything is editable again (a catalog product with no specs object still locks)
-      s.locked = false;
+      s.locked = false; s.catalogType = null;
       FIELDS.forEach(function (f) { unlock(p, f[0]); });
       if (banner) banner.hidden = true;
       if (unit) { unit.disabled = false; unit.title = ''; }
@@ -491,12 +493,21 @@
     specs = specs || {};
     var lower = {}; Object.keys(specs).forEach(function (k) { lower[k.trim().toLowerCase()] = String(specs[k] == null ? '' : specs[k]).trim(); });
     var h = detect(p), fromName = h && (h.pick || h.famName);              // a grade in the name (ADC12) gives the exact material; a name that only says "brass" gives "Brass"
+    // what kind of item the product is (from its name), so a detail its record leaves out offers the right choices
+    s.catalogType = h && h.types && h.types.length === 1 ? h.types[0] : null;
+    var open = [];
     Object.keys(ALIAS).forEach(function (k) {
       var v = ALIAS[k].map(function (a) { return lower[a]; }).filter(Boolean)[0], why = 'From the product record. Locked.';
       if (!v && k === 'material' && fromName) { v = fromName; why = 'Read from the product name. Locked.'; }
-      if (!v) { v = NOT_SET; why = 'Not listed for this product. Locked.'; }
+      if (!v) { open.push(k); return; }                                            // not on the record: it has to be chosen (the server checks the same)
       setLocked(p, k, v, why);
     });
+    open.forEach(function (k) {
+      unlock(p, k); rebuild(p, k);
+      lockNote(p, $(p + 'S_' + k), 'Not on the product record \u2014 required. Choose what the customer needs.');
+      $(p + 'S_' + k).parentNode.classList.add('qx-required');
+    });
+    updateAvailability(p);
     setLocked(p, 'service', AS_IS, 'Ready-made item, sold as is. Locked.');
     if (banner) banner.hidden = false;
     $(p + 'Narrow').hidden = true;
@@ -513,7 +524,7 @@
     '.qx-dims>b{padding-bottom:10px;color:var(--text-faint);font-weight:600}.qx-dim{display:flex;flex-direction:column;gap:4px;flex:1 1 64px;min-width:64px;margin:0}' +
     '.qx-dim span{font-size:11.5px;font-weight:650;color:var(--text-faint);text-transform:none;letter-spacing:0}.qx-dim i{font-style:normal;font-weight:500}.qx-dim input,.qx-dim select{width:100%;min-height:38px}' +
     '.qx-unit{flex:0 0 96px;min-width:96px}.q-grid>.q-field.qx-wide{grid-column:1/-1}.qx-suffix{padding-bottom:10px;font-weight:650;color:var(--text-dim)}.qx-typed .q-hint{display:block;margin-top:6px}' +
-    '.qx-wait select{opacity:.6;cursor:not-allowed}' +
+    '.qx-wait select{opacity:.6;cursor:not-allowed}.qx-required>label:after{content:" *";color:var(--red)}.qx-required .q-hint{color:var(--amber)}' +
     '.qx-narrow{margin:-4px 0 12px;font-size:12.5px;color:var(--text-faint)}.qx-narrow b{color:var(--text-dim);font-weight:600}' +
     '.qx-link{background:transparent;border:1px solid var(--border);border-radius:7px;padding:5px 9px;margin:4px 0 0 6px;font:inherit;font-weight:650;color:var(--blue-bright);cursor:pointer;min-height:30px}.qx-link:hover,.qx-link:focus-visible{background:var(--hover);border-color:var(--blue-bright);outline-offset:2px}.qx-narrow{padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--inset);line-height:1.6}.qx-empty{display:block;margin-top:6px}.q-field select{width:100%;max-width:100%;min-height:40px}.q-grid{min-width:0}.q-field{min-width:0}@media(max-width:600px){.qx-narrow{padding:9px}.qx-link{display:inline-block;margin-left:0}}';
   document.head.appendChild(st);

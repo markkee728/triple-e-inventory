@@ -404,7 +404,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=8"></script>
-<script src="quote-fields.js?v=7"></script>
+<script src="quote-fields.js?v=9"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -1406,7 +1406,7 @@ async function loadQuotes() {
     const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payOnline && q.balance > 0 && ['accepted', 'preparing', 'ready'].includes(q.status) ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.balance)} now</button></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
     const clarification=q.clarification;
-    const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--border,#cbd8e5);border-radius:10px;background:var(--surface,#f6f9fc)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`<form data-clarify-quote="${esc(q.id)}"><label>Response to cashier *<textarea name="response" rows="3" minlength="10" maxlength="1500" required placeholder="Describe the requested dimensions, thickness, finish or other specifications"></textarea></label><p class="dim">Include measurement units and accurate values. Original details are retained for review.</p><button class="btn-primary btn-sm" type="submit">Review & Send Details</button><span data-clarify-error role="alert" style="color:#b32929"></span></form>`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
+    const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--border,#cbd8e5);border-radius:10px;background:var(--surface,#f6f9fc)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`${clarifyFormHtml(q.id, clarification.fields || [])}`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
@@ -1423,7 +1423,47 @@ async function loadQuotes() {
       ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
     : '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>';
 }
-$('quoteList').addEventListener('submit',async e=>{const form=e.target.closest('[data-clarify-quote]');if(!form)return;e.preventDefault();const id=form.dataset.clarifyQuote,response=form.elements.response.value.trim(),err=form.querySelector('[data-clarify-error]');err.textContent='';if(response.length<10||response.length>1500){err.textContent='Enter 10–1500 characters.';return}const q=QUOTES.find(x=>String(x.id)===String(id));tqOpen({title:'Review missing details',subtitle:'Confirm the information you are sending to the cashier.',details:[['Quotation',id],['Product',q?.product||'Custom product'],['Requested information',q?.clarification?.fields?.join(', ')||'See message'],['Your response',response]],disclaimer:'This does not confirm an order, reserve stock or make a payment.',confirm:'Confirm & Send',run:async()=>{await api('/api/shop/quotes/'+encodeURIComponent(id)+'/clarifications/respond',{method:'POST',body:JSON.stringify({response})});toast('Details sent to cashier.');await loadQuotes()}})});
+/* the cashier asked for missing details: one REQUIRED box per detail they asked for (same rules as clarifyProblem in shop-extras.js) */
+const CLARIFY = { dimensions: ['Dimensions', 'e.g. 100 x 60 x 40 mm'], thickness: ['Thickness', 'e.g. 2.5 mm'], material: ['Material', 'e.g. Brass C37700'], finish: ['Finish', 'e.g. Polished'], quantity: ['Quantity', 'e.g. 200 pcs'] };
+(function () { const st = document.createElement('style'); st.textContent = '.cl-f{display:grid;gap:5px;font-weight:600;font-size:13.5px}.cl-f .form-input{width:100%;box-sizing:border-box;font-weight:400}.cl-err{color:#b32929;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-err:empty{display:none}[data-clarify-quote] .is-bad{border-color:#b32929!important;box-shadow:0 0 0 3px rgba(179,41,41,.14)}'; document.head.appendChild(st); })();
+function clarifyFormHtml(id, fields) {
+  const boxes = fields.filter(f => CLARIFY[f]).map(f => `<label class="cl-f">${CLARIFY[f][0]} <b style="color:#b32929">*</b><input class="form-input" name="spec_${f}" maxlength="200" autocomplete="off" placeholder="${CLARIFY[f][1]}"><span class="cl-err" data-err="spec_${f}" role="alert"></span></label>`).join('');
+  const noteNeeded = fields.includes('other') || fields.includes('drawing');
+  const noteLabel = fields.includes('drawing') ? 'About the drawing' : fields.includes('other') ? 'The other details' : 'Note to the cashier';
+  return `<form data-clarify-quote="${esc(id)}" novalidate style="display:grid;gap:10px;margin-top:8px">${boxes}
+    <label class="cl-f">${noteLabel} ${noteNeeded ? '<b style="color:#b32929">*</b>' : '<span class="dim">(optional)</span>'}<textarea class="form-input" name="response" rows="3" maxlength="1500" placeholder="${fields.includes('drawing') ? 'Describe the drawing, paste a link to it, or say how you will send it' : 'Anything else the cashier should know'}"></textarea><span class="cl-err" data-err="response" role="alert"></span></label>
+    <p class="dim" style="margin:0">Every field marked * is required. Include the unit (mm, inches, pcs).</p>
+    <div><button class="btn-primary btn-sm" type="submit">Review & Send Details</button> <span data-clarify-error role="alert" style="color:#b32929"></span></div></form>`;
+}
+function clarifyProblem(k, v) {
+  if (!v) return 'Enter the ' + (CLARIFY[k] ? CLARIFY[k][0].toLowerCase() : k) + ' the cashier asked for.';
+  if (k === 'dimensions' && !/\d/.test(v)) return 'Use numbers and a unit, e.g. 100 x 60 x 40 mm.';
+  if (k === 'dimensions' && !/(mm|cm|m|in|inch|inches|ft|")\s*$/i.test(v)) return 'Add the unit, e.g. mm or inches.';
+  if (k === 'thickness' && !/^\d+(\.\d+)?\s*(mm|cm|in|")$/i.test(v)) return 'A number with its unit, e.g. 2.5 mm.';
+  if (k === 'quantity' && !/^\d[\d,]*(\.\d+)?\s*[a-z]*$/i.test(v)) return 'A number, e.g. 200 pcs.';
+  if ((k === 'material' || k === 'finish') && (v.length < 2 || !/[a-z]/i.test(v))) return 'Write it in words, e.g. ' + CLARIFY[k][1].slice(5) + '.';
+  return '';
+}
+$('quoteList').addEventListener('submit', async e => {
+  const form = e.target.closest('[data-clarify-quote]'); if (!form) return; e.preventDefault();
+  const id = form.dataset.clarifyQuote, q = QUOTES.find(x => String(x.id) === String(id)), fields = (q && q.clarification && q.clarification.fields) || [];
+  const setErr = (k, m) => { const box = form.querySelector('[data-err="' + k + '"]'), inp = form.elements[k]; if (box) box.textContent = m || ''; if (inp) { inp.classList.toggle('is-bad', !!m); inp.setAttribute('aria-invalid', m ? 'true' : 'false'); } };
+  const specs = {}, response = form.elements.response.value.trim(); let first = null;
+  fields.filter(f => CLARIFY[f]).forEach(f => { const v = form.elements['spec_' + f].value.trim(), m = clarifyProblem(f, v); setErr('spec_' + f, m); if (m && !first) first = form.elements['spec_' + f]; specs[f] = v; });
+  const noteNeeded = fields.includes('other') || fields.includes('drawing');
+  const nm = noteNeeded && response.length < 10 ? 'Explain it in at least 10 characters.' : !noteNeeded && response && response.length < 5 ? 'Write at least 5 characters, or leave it empty.' : '';
+  setErr('response', nm); if (nm && !first) first = form.elements.response;
+  const err = form.querySelector('[data-clarify-error]'); err.textContent = first ? 'Please fill in the highlighted fields.' : '';
+  if (first) { first.focus(); return; }
+  tqOpen({ title: 'Review missing details', subtitle: 'Confirm the information you are sending to the cashier.',
+    details: [['Quotation', id], ['Product', q?.product || 'Custom product']].concat(Object.keys(specs).map(k => [CLARIFY[k][0], specs[k]])).concat(response ? [['Note', response]] : []),
+    disclaimer: 'This does not confirm an order, reserve stock or make a payment.', confirm: 'Confirm & Send',
+    run: async () => {
+      try { await api('/api/shop/quotes/' + encodeURIComponent(id) + '/clarifications/respond', { method: 'POST', body: JSON.stringify({ response, specs }) }); }
+      catch (x) { const f = x.fields || x.data?.fields || {}; Object.keys(f).forEach(k => setErr(k, f[k])); err.textContent = x.message || 'Could not send the details.'; throw x; }
+      toast('Details sent to cashier.'); await loadQuotes();
+    } });
+});
 $('quoteList').addEventListener('click', e => {
   const b=e.target.closest('[data-qresp]'); if(!b||b.disabled)return;
   const q=QUOTES.find(x=>String(x.id)===String(b.dataset.qid)); if(!q)return;
