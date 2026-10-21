@@ -1052,6 +1052,37 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }
   setInterval(checkAlerts, 60 * 1000).unref();   // also runs when the shop is opened (below), because Cloud Run may sleep between visits
 
+  /* Quote about to expire: a quote the customer has not answered yet gets ONE reminder (in-app + email) when 2 days or
+     fewer are left before its valid-until date, so fewer quotes lapse just because nobody looked. The row is marked in
+     the same UPDATE that picks it, so two servers never send the same reminder twice. */
+  async function remindExpiringQuotes() {
+    await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS expiry_reminded_at TIMESTAMPTZ');
+    const { rows } = await pool.query(`
+      UPDATE quote_requests q SET expiry_reminded_at = now()
+        FROM (SELECT q2.quote_id FROM quote_requests q2
+               WHERE q2.status = 'quoted' AND q2.valid_until IS NOT NULL AND q2.expiry_reminded_at IS NULL
+                 AND q2.valid_until >= (now() AT TIME ZONE 'Asia/Manila')::date
+                 AND q2.valid_until <= (now() AT TIME ZONE 'Asia/Manila')::date + 2
+               ORDER BY q2.quote_id LIMIT 100 FOR UPDATE SKIP LOCKED) pick
+       WHERE q.quote_id = pick.quote_id
+      RETURNING q.quote_id, q.quote_no, q.customer_id, q.contact_name, q.contact_email, q.product_name, q.quoted_amount,
+                to_char(q.valid_until, 'Mon DD, YYYY') AS until_s, (q.valid_until - (now() AT TIME ZONE 'Asia/Manila')::date) AS days_left`);
+    for (const q of rows) {
+      const left = +q.days_left === 0 ? 'today' : +q.days_left === 1 ? 'tomorrow' : 'in ' + q.days_left + ' days';
+      const u = q.customer_id ? (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0] : null;
+      if (q.customer_id) await pingUser(q.customer_id, { category: 'orders', title: 'Your quote expires ' + left,
+        body: `${q.quote_no} for ${q.product_name || 'your request'} (${peso(q.quoted_amount)}) is valid until ${q.until_s}. Accept it in Request a Quote before then to keep this price.`,
+        link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no, severity: 'warn', dedupeKey: 'quote_expiry:' + q.quote_no }, 'customer');
+      await send((u && u.email) || q.contact_email, `Your quote ${q.quote_no} expires ${left}`, [
+        `Hi ${q.contact_name},`, `Our quote ${q.quote_no} for ${q.product_name || 'your request'} (${peso(q.quoted_amount)}) is valid until ${q.until_s}.`,
+        `To keep this price, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. If you need changes, just reply to this email.`,
+        ...signoff()], 'quote-expiry');
+    }
+    if (rows.length) console.log(`[auto] sent ${rows.length} quote expiry reminder(s)`);
+    return { reminded: rows.length };
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-expiry', run: remindExpiringQuotes });
+
   /* =====================================================
      4. Reviews
   ===================================================== */

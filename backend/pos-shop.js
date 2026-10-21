@@ -399,7 +399,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   async function applyShopInvoice(o, event, invoiceId) {
     if ((event.status === 'PAID' || event.status === 'SETTLED') && !['Cancelled', 'Returned'].includes(o.status)) {
-      let confirmed = false;
+      let confirmed = false, paidInfo = null, stockShort = '';
       await tx(async (client) => {
         const current = (await client.query('SELECT * FROM orders WHERE order_id = $1 FOR UPDATE', [o.order_id])).rows[0];
         if (!current || ['Cancelled', 'Returned'].includes(current.status) || current.xendit_invoice_id !== invoiceId) return;
@@ -423,12 +423,33 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         const fullyPaid = Math.round(Number(result.parent.balance) * 100) === 0;
         await client.query('UPDATE orders SET payment_status = $2 WHERE order_id = $1',
           [current.order_id, fullyPaid ? 'paid' : 'pending']);
-        // A deposit is not a fully paid order: do not release stock or advance fulfilment.
-        if (fullyPaid && current.status === 'Pending Confirmation') await confirmOrder(client, current, { id: null, name: 'Xendit Webhook', roleLabel: 'System' },
-          `Xendit invoice ${invoiceId} received ${amount}; balance ${result.parent.balance}`);
-        confirmed = true;
+        // Confirm the order by itself as soon as the part the payment terms ask for up front is in: the full amount on Full
+        // Payment, the initial % on a down payment. That is the same rule the cashier's Confirm button follows
+        // (payment-terms.js releaseDecision), so nobody has to press Confirm after an online payment.
+        // Confirming reserves the stock; if it ran out in the meantime the payment is still kept and Finance is told.
+        const after = (await client.query('SELECT * FROM orders WHERE order_id = $1', [current.order_id])).rows[0];
+        const m = payment.orderMoney(after);
+        paidInfo = { amount, paid: m.paid, balance: m.balance, condition: m.condition, fullyPaid };
+        if (current.status === 'Pending Confirmation' && payment.releaseDecision(after, { action: 'confirm', role: 'finance', verified: true }).ok) {
+          await client.query('SAVEPOINT auto_confirm');
+          try {
+            await confirmOrder(client, after, { id: null, name: 'Xendit Webhook', roleLabel: 'System' },
+              `Confirmed automatically: Xendit invoice ${invoiceId} received ${amount}; balance ${result.parent.balance}`);
+            await client.query('RELEASE SAVEPOINT auto_confirm');
+            confirmed = true;
+          } catch (err) {
+            await client.query('ROLLBACK TO SAVEPOINT auto_confirm');
+            if (!(err instanceof ValidationError)) throw err;
+            stockShort = Object.values(err.fields || {})[0] || err.message;
+          }
+        }
       });
-      if (confirmed) notify(o.order_no, 'Paid');
+      if (!paidInfo) return;
+      if (confirmed) notify(o.order_no, 'Paid', paidInfo);
+      else notify(o.order_no, paidInfo.fullyPaid ? 'Fully Paid' : 'Partially Paid', paidInfo);
+      if (stockShort) later(() => pingFinance({ category: 'payment', title: 'Paid online, but not confirmed',
+        body: o.order_no + ' — ' + asPeso(paidInfo.amount) + ' was received online, but the order could not be confirmed: ' + stockShort + '. Restock it or contact the customer.',
+        link: 'Finance_Inventory.html#orders', entityType: 'order', entityId: o.order_no, severity: 'critical', dedupeKey: 'pay_noconfirm:' + o.order_no }));
     } else if ((event.status === 'EXPIRED' || event.status === 'FAILED') && o.payment_status !== 'paid') {
       const up = await pool.query("UPDATE orders SET payment_status = 'expired' WHERE order_id = $1 AND payment_status <> 'paid' RETURNING order_id", [o.order_id]);
       if (up.rowCount) later(() => Promise.all([
@@ -1843,7 +1864,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
     });
     res.json({ ok: true, ...(handover || {}) });
-    notify(req.params.no, target);
+    notify(req.params.no, target, target === 'Paid' ? { by: 'finance' } : undefined);   // a person confirmed it: the "confirmed automatically" alert is only for online payments
   }));
 
   // Admin cancels an order directly (reason required). Stock goes back if it was already deducted.
@@ -1871,4 +1892,61 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.json({ ok: true });
     notify(req.params.no, 'Cancelled', { reason });
   }));
+
+  /* ---------- automatic follow-up of online orders nobody paid ----------
+     An online-payment (Xendit) order that is still "Pending Confirmation" with nothing paid is cancelled by itself
+     ORDER_PAY_HOURS (default 48) after the customer's LAST payment attempt (placing the order, or the last
+     "Continue Online Payment", whose time is in xendit_external_id). The customer is reminded once, 12 hours before.
+     Before cancelling, Xendit is asked about the open invoice: a payment that arrived late is recorded (and confirms the
+     order) instead, and an invoice that is still open is left alone. Nothing was taken from stock yet (that happens on
+     confirm), so nothing has to be restocked. Cash-on-delivery / pickup orders are never touched: the counter handles those.
+     Safe with several servers: each order is locked with SKIP LOCKED and checked again before it changes. */
+  const PAY_HOURS = Math.max(6, Number(process.env.ORDER_PAY_HOURS) || 48);
+  const REMIND_HOURS = Math.min(12, PAY_HOURS / 2);
+  const SYSTEM = { id: null, name: 'System', roleLabel: 'System' };
+  const LAST_TRY = `GREATEST(o.created_at, COALESCE(to_timestamp(NULLIF(substring(o.xendit_external_id from '-([0-9]{13})$'), '')::bigint / 1000.0), o.created_at))`;
+  const UNPAID = `o.status = 'Pending Confirmation' AND o.payment_method = 'Xendit' AND COALESCE(o.paid_amount, 0) = 0 AND NOT o.stock_deducted
+                  AND NOT EXISTS (SELECT 1 FROM order_cancel_requests c WHERE c.order_id = o.order_id AND c.status = 'pending')`;
+  async function sweepUnpaidOrders() {
+    const out = { reminded: 0, cancelled: 0, paidLate: 0 };
+    const remind = await pool.query(
+      `SELECT o.order_no, o.customer_id, o.total, ${LAST_TRY} AS last_try FROM orders o
+        WHERE ${UNPAID} AND ${LAST_TRY} < now() - make_interval(secs => $1) AND ${LAST_TRY} >= now() - make_interval(secs => $2) LIMIT 200`,
+      [(PAY_HOURS - REMIND_HOURS) * 3600, PAY_HOURS * 3600]);
+    for (const r of remind.rows) {
+      const by = new Date(new Date(r.last_try).getTime() + PAY_HOURS * 3600000).toLocaleString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+      const n = await pingUser(r.customer_id, { category: 'payment', title: 'Order waiting for payment',
+        body: `Order ${r.order_no} (${asPeso(r.total)}) is not paid yet. Pay by ${by} from My Orders, or it is cancelled automatically.`,
+        link: 'Shop_Customer.html#orders', entityType: 'order', entityId: r.order_no, severity: 'warn',
+        dedupeKey: 'pay_remind:' + r.order_no + ':' + new Date(r.last_try).getTime() }, 'customer');
+      out.reminded += n ? 1 : 0;
+    }
+    const due = await pool.query(`SELECT o.* FROM orders o WHERE ${UNPAID} AND ${LAST_TRY} < now() - make_interval(secs => $1) ORDER BY o.order_id LIMIT 100`, [PAY_HOURS * 3600]);
+    for (const o of due.rows) {
+      if (o.xendit_invoice_id && process.env.XENDIT_SECRET_KEY) {
+        let inv;
+        try { inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`); }
+        catch (err) { console.warn('[auto-cancel] could not ask Xendit about ' + o.order_no + ', trying again later:', err.message); continue; }
+        if (inv.status === 'PAID' || inv.status === 'SETTLED') {
+          try { await applyShopInvoice(o, inv, o.xendit_invoice_id); out.paidLate++; } catch (err) { console.warn('[auto-cancel] late payment for ' + o.order_no + ':', err.message); }
+          continue;
+        }
+        if (inv.status === 'PENDING') continue;          // the customer can still pay this invoice
+      }
+      const reason = `not paid within ${PAY_HOURS} hours`;
+      const done = await tx(async (client) => {
+        const cur = (await client.query(`SELECT o.* FROM orders o WHERE o.order_id = $1 AND ${UNPAID} AND ${LAST_TRY} < now() - make_interval(secs => $2) FOR UPDATE SKIP LOCKED`,
+          [o.order_id, PAY_HOURS * 3600])).rows[0];
+        if (!cur) return false;                            // paid, changed or taken by another server in the meantime
+        await client.query(`UPDATE orders SET status = 'Cancelled', status_updated_at = now() WHERE order_id = $1`, [cur.order_id]);
+        await logStatus(client, cur.order_id, cur.status, 'Cancelled', null, 'Cancelled automatically: ' + reason);
+        await audit(client, SYSTEM, 'Record edited', `Order ${cur.order_no} cancelled automatically: ${reason} (online payment, nothing received)`);
+        return true;
+      });
+      if (done) { out.cancelled++; notify(o.order_no, 'Cancelled', { reason: 'it was ' + reason }); }
+    }
+    if (out.cancelled || out.paidLate) console.log(`[auto] unpaid online orders: ${out.cancelled} cancelled, ${out.paidLate} paid late, ${out.reminded} reminded`);
+    return out;
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'unpaid-orders', run: sweepUnpaidOrders });
 };

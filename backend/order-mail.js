@@ -30,7 +30,10 @@ const EVENTS = {
       ? `We have your order. Our team will confirm it shortly. You pay in cash when you ${o.fulfillment === 'Delivery' ? 'receive' : 'collect'} it.`
       : 'We have your order. If you have not paid yet, open My Orders and choose “Continue Online Payment”. We start preparing your order once payment is confirmed.' },
   Paid:             { subject: (o) => `Order ${o.order_no} confirmed`, head: 'Your order is confirmed',
-    msg: () => 'Your order is confirmed and your items are reserved. We will start packing it next.' },
+    msg: (o, d) => 'Your order is confirmed and your items are reserved. We will start packing it next.'
+      + (d && d.balance > 0.004 ? ` We received ${peso(d.paid)}. Balance: ${peso(d.balance)} (${d.condition || 'due before the goods are released'}).` : '') },
+  'Fully Paid':     { subject: (o) => `Order ${o.order_no} is fully paid`, head: 'Thank you, your order is fully paid',
+    msg: (o, d) => `We received ${peso(d.amount)} for order ${o.order_no}. Nothing more is owed on this order.` },
   'Partially Paid': { subject: (o) => `We received your payment for order ${o.order_no}`, head: 'Your payment was received',
     msg: (o, d) => `Thank you — we recorded ${peso(d.paid)} on order ${o.order_no}. ${peso(d.balance)} is still outstanding: ${d.condition || 'the balance is due before the goods are released'}.` },
   Packed:           { subject: (o) => `Order ${o.order_no} is packed`, head: 'Your order is packed',
@@ -57,7 +60,8 @@ const EVENTS = {
 // event -> the short text message (kept plain: no peso sign or curly quotes, so it fits in as few SMS parts as possible)
 const SMS_TEXT = {
   placed:           (o) => `Triple E Metal: We received your order ${o.order_no}. We will confirm it shortly.`,
-  Paid:             (o) => `Triple E Metal: Order ${o.order_no} is confirmed. We will start packing it next.`,
+  Paid:             (o, d) => `Triple E Metal: Order ${o.order_no} is confirmed. We will start packing it next.`
+    + (d && d.balance > 0.004 ? ` Balance due: PHP ${Number(d.balance).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.` : ''),
   Packed:           (o) => o.fulfillment === 'Delivery'
     ? `Triple E Metal: Order ${o.order_no} is packed and waiting for the delivery run.`
     : `Triple E Metal: Order ${o.order_no} is packed. We will text you when it is ready for pickup.`,

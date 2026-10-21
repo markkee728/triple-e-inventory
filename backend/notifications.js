@@ -243,10 +243,21 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
       },
       Paid: {
         customer: { category: 'payment', title: 'Payment confirmed',
-          body: 'Order ' + no + ' is confirmed. Payment of ' + peso(o.total) + ' is recorded and we will start packing next.' },
+          body: extra && extra.balance > 0.004
+            ? 'Order ' + no + ' is confirmed. We received your down payment of ' + peso(extra.paid) + '. Balance: ' + peso(extra.balance) + ' (' + (extra.condition || 'due before release') + ').'
+            : 'Order ' + no + ' is confirmed. Payment of ' + peso(o.total) + ' is recorded and we will start packing next.' },
         // Finance is told when a payment arrives by itself (online gateway); not when Finance confirmed the order by hand
-        finance: extra && extra.by === 'finance' ? null : { category: 'payment', title: 'Order payment confirmed',
-          body: no + ' is now Paid (' + peso(o.total) + ', ' + o.payment_method + '). Stock is reserved.' }
+        finance: extra && extra.by === 'finance' ? null : { category: 'payment', title: 'Order confirmed automatically',
+          body: no + ' was paid online and confirmed by itself (' + (extra && extra.balance > 0.004 ? peso(extra.paid) + ' received, ' + peso(extra.balance) + ' balance' : peso(o.total)) + ', ' + o.payment_method + '). Stock is reserved: it is ready to pack.' }
+      },
+      'Partially Paid': {
+        customer: { category: 'payment', title: 'Payment received',
+          body: 'We received ' + amount + ' for order ' + no + '.' + (extra && extra.balance > 0.004 ? ' Balance: ' + peso(extra.balance) + '.' : '') }
+      },
+      'Fully Paid': {
+        customer: { category: 'payment', title: 'Order fully paid',
+          body: 'We received ' + amount + ' for order ' + no + '. Nothing more is owed.' },
+        finance: { category: 'payment', title: 'Balance paid online', body: no + ' — the remaining ' + amount + ' was paid online. The order is fully paid.' }
       },
       Packed: {
         customer: { category: 'delivery', title: 'Order packed',

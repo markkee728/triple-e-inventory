@@ -1557,6 +1557,40 @@ require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, 
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
+
+/* ---------- automation: follow-ups that run by themselves ----------
+   Each module adds its jobs to app.locals.automationJobs (unpaid online orders: reminder + auto-cancel; quotes about to
+   expire: reminder). They run every AUTOMATION_MINUTES (default 15) while the server is up. Cloud Run can sleep when
+   nobody uses the app, so a Cloud Scheduler job should also call
+       POST /api/automation/run    header  x-cron-key: <AUTOMATION_CRON_KEY>
+   Every job is safe to run twice and on several servers at once (rows are locked / marked before anything is sent). */
+{
+  let running = false;
+  async function runAutomation() {
+    if (running) return { skipped: 'already running' };
+    running = true;
+    const out = {};
+    try {
+      for (const job of app.locals.automationJobs || []) {
+        try { out[job.name] = await job.run(); }
+        catch (err) { out[job.name] = { error: err.message }; console.warn('[auto] ' + job.name + ' failed:', err.message); }
+      }
+    } finally { running = false; }
+    return out;
+  }
+  const cron = async (req, res) => {
+    const key = process.env.AUTOMATION_CRON_KEY || process.env.LOW_STOCK_CRON_KEY;
+    if (!key || req.get('x-cron-key') !== key) return res.status(404).json({ error: 'Not found' });
+    res.json(await runAutomation());
+  };
+  app.get('/api/automation/run', cron);
+  app.post('/api/automation/run', cron);
+  const every = Math.max(5, Number(process.env.AUTOMATION_MINUTES) || 15) * 60000;
+  setInterval(runAutomation, every).unref();
+  setTimeout(runAutomation, 45000).unref();      // after the schemas are ready
+  app.locals.runAutomation = runAutomation;
+}
+
 require('./cash-shifts')({ app, pool, auth, wrap, tx, audit, TZ });
 // Finance Reports API: sales overview, top products, low stock, inventory (reports.js + reports-core.js)
 require('./reports')({ app, pool, auth, wrap, TZ });
