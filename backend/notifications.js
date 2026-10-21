@@ -227,6 +227,7 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     });
   }
 
+  const round2c = (n) => Math.round((Number(n) || 0) * 100) / 100;
   function orderSpecs(o, ev, extra) {
     const no = o.order_no;
     const amount = extra && extra.amount != null ? peso(extra.amount) : peso(o.total);
@@ -237,14 +238,19 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
     const map = {
       placed: {
         customer: { category: 'orders', title: 'Order confirmation',
-          body: 'We received order ' + no + ' for ' + peso(o.total) + ' (' + o.fulfillment + ', ' + o.payment_method + ').' },
+          body: 'We received order ' + no + ' for ' + peso(o.total) + ' (' + o.fulfillment + ', ' + o.payment_method + ').' +
+            (/^Cash on /.test(o.payment_method || '') && +o.advance_amount > 0
+              ? ' Pay the ' + peso(o.advance_amount) + ' ' + (o.advance_kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') + ' online to confirm it; the rest (' +
+                peso(+o.total - +o.advance_amount) + ') is paid in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.')
+              : '') },
         finance: { category: 'orders', title: 'New customer order',
           body: no + ' — ' + (o.full_name || 'Customer') + ' placed a ' + o.fulfillment + ' order for ' + peso(o.total) + ' (' + o.payment_method + ').' }
       },
       Paid: {
-        customer: { category: 'payment', title: /^Cash on /.test(o.payment_method || '') && !(extra && extra.paid > 0) ? 'Order confirmed' : 'Payment confirmed',
-          body: /^Cash on /.test(o.payment_method || '') && !(extra && extra.paid > 0)
-            ? 'Order ' + no + ' is confirmed and your items are reserved. Please prepare ' + peso(o.total) + ' in cash for when you ' + (o.fulfillment === 'Delivery' ? 'receive it' : 'pick it up') + '.'
+        customer: { category: 'payment', title: /^Cash on /.test(o.payment_method || '') ? 'Order confirmed' : 'Payment confirmed',
+          body: /^Cash on /.test(o.payment_method || '')
+            ? 'Order ' + no + ' is confirmed and your items are reserved.' + (extra && extra.paid > 0 ? ' We received your ' + peso(extra.paid) + ' ' + (o.advance_kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' online.' : '') +
+              ' Please prepare ' + peso(round2c(+o.total - ((extra && extra.paid) || 0))) + ' in cash for when you ' + (o.fulfillment === 'Delivery' ? 'receive it.' : 'pick it up.')
             : extra && extra.balance > 0.004
             ? 'Order ' + no + ' is confirmed. We received your down payment of ' + peso(extra.paid) + '. Balance: ' + peso(extra.balance) + ' (' + (extra.condition || 'due before release') + ').'
             : 'Order ' + no + ' is confirmed. Payment of ' + peso(o.total) + ' is recorded and we will start packing next.' },

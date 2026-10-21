@@ -155,8 +155,11 @@ async function salesOverview(q, dx, p, o = {}) {
   const quoteSql = o.hasLedger === false ? null : `SELECT COALESCE(SUM(CASE WHEN p.direction = 'in' THEN p.amount ELSE -p.amount END), 0) AS net, COUNT(DISTINCT q.quote_id) AS quotes
      FROM payments p JOIN quote_requests q ON q.quote_id = p.quote_id
     WHERE p.paid_for = 'quote' AND q.converted_order_id IS NULL AND q.handover_sale_id IS NULL AND ${NOT_A_MOVE} AND ${dx.between('p.created_at', '$1', '$2')}`;
-  const [cur, prev, trend, methods, quote] = await Promise.all([
-    q(sumSql, [from, to]), q(sumSql, [pFrom, pTo]), q(trendSql, [from, to]), q(methodSql, [from, to]), quoteSql ? q(quoteSql, [from, to]) : Promise.resolve([{ net: 0, quotes: 0 }])]);
+  // cash orders cancelled because the customer did not show: the delivery fee / reservation deposit paid online was kept (not refunded)
+  const keptSql = o.hasForfeit ? `SELECT COALESCE(SUM(forfeited_amount), 0) AS kept, COUNT(*) AS n FROM orders WHERE forfeited_amount > 0 AND ${dx.between('status_updated_at', '$1', '$2')}` : null;
+  const [cur, prev, trend, methods, quote, kept] = await Promise.all([
+    q(sumSql, [from, to]), q(sumSql, [pFrom, pTo]), q(trendSql, [from, to]), q(methodSql, [from, to]), quoteSql ? q(quoteSql, [from, to]) : Promise.resolve([{ net: 0, quotes: 0 }]),
+    keptSql ? q(keptSql, [from, to]) : Promise.resolve([{ kept: 0, n: 0 }])]);
   const c = foldSales(cur), pv = foldSales(prev);
 
   const keys = bucketList(from, to, grain), idx = new Map(keys.map((k, i) => [k, i]));
@@ -184,7 +187,8 @@ async function salesOverview(q, dx, p, o = {}) {
     statuses, outcome,
     methods: methods.map((m) => ({ channel: m.channel, method: m.method, count: num(m.n), gross: r2(num(m.gross)), refunds: r2(num(m.refunded)), net: r2(num(m.gross) - num(m.refunded)) })),
     trend: buckets,
-    customQuotes: { received: r2(num((quote[0] || {}).net)), quotes: num((quote[0] || {}).quotes) }
+    customQuotes: { received: r2(num((quote[0] || {}).net)), quotes: num((quote[0] || {}).quotes) },
+    keptAdvances: { amount: r2(num((kept[0] || {}).kept)), orders: num((kept[0] || {}).n) }
   };
 }
 

@@ -358,11 +358,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   // Customer starts hosted checkout for an order they own. The total always comes from PostgreSQL.
   app.post('/api/shop/orders/:no/xendit-checkout', auth('customer'), wrap(async (req, res) => {
     const { rows } = await pool.query(
-      'SELECT order_id, order_no, total, paid_amount, payment_state, terms_key, terms_percent, terms_amount, terms_condition, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id FROM orders WHERE order_no = $1 AND customer_id = $2',
+      'SELECT order_id, order_no, total, paid_amount, payment_state, terms_key, terms_percent, terms_amount, terms_condition, status, payment_method, payment_status, xendit_invoice_id, xendit_external_id, fulfillment, advance_kind, advance_amount FROM orders WHERE order_no = $1 AND customer_id = $2',
       [req.params.no, req.user.id]);
     if (!rows.length) throw bad('order', 'Order not found');
     const o = rows[0];
-    if (o.payment_method !== 'Xendit') throw bad('payment', 'This order was not placed with Xendit');
+    const advance = isCod(o) && Number(o.advance_amount) > 0;
+    if (o.payment_method !== 'Xendit' && !advance) throw bad('payment', 'This order is paid in cash, not online');
+    if (advance && Number(o.paid_amount || 0) >= Number(o.advance_amount) - 0.004)
+      throw bad('payment', `The ${o.advance_kind === 'shipping_fee' ? 'delivery fee' : 'deposit'} is already paid. The rest is paid in cash on ${o.fulfillment === 'Delivery' ? 'delivery' : 'pickup'}`);
     if (['Cancelled', 'Returned'].includes(o.status)) throw bad('payment', 'This order is closed');
     if (Number(o.total) - Number(o.paid_amount || 0) < 0.01) throw bad('payment', 'This order has no remaining balance');
     const money = app.locals.paymentTerms && app.locals.paymentTerms.orderMoney(o);
@@ -386,7 +389,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         external_id: externalId,
         amount: dueNow,
         currency: 'PHP',
-        description: `Triple-E Metal Products order ${o.order_no} — ${Number(o.paid_amount || 0) > 0 ? 'remaining balance' : 'initial payment'}`,
+        description: `Triple-E Metal Products order ${o.order_no} — ${advance ? (o.advance_kind === 'shipping_fee' ? 'delivery fee (the rest is cash on delivery)' : 'reservation deposit (the rest is cash on pickup)') : Number(o.paid_amount || 0) > 0 ? 'remaining balance' : 'initial payment'}`,
         success_redirect_url: `${base}/Shop_Customer.html?payment=return`,
         failure_redirect_url: `${base}/Shop_Customer.html?payment=failed`,
         invoice_duration: 86400
@@ -468,7 +471,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const result = await pool.query('SELECT * FROM orders WHERE order_no = $1', [req.params.no]);
     if (!result.rowCount) throw bad('id', 'Order not found');
     const o = result.rows[0];
-    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid') {
+    if (paysOnline(o) && o.xendit_invoice_id && o.payment_status !== 'paid') {
       try {
         const invoice = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
         await applyShopInvoice(o, invoice, o.xendit_invoice_id);
@@ -486,7 +489,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     let paymentError;
     // an invoice the ledger already holds (e.g. the down payment) has nothing left to confirm; asking Xendit again every poll is wasted work
     const booked = o.xendit_invoice_id ? (await pool.query('SELECT 1 FROM payments WHERE provider_ref = $1', [o.xendit_invoice_id])).rowCount > 0 : false;
-    if (o.payment_method === 'Xendit' && o.xendit_invoice_id && o.payment_status !== 'paid' && !booked) {
+    if (paysOnline(o) && o.xendit_invoice_id && o.payment_status !== 'paid' && !booked) {
       try {
         const inv = await xenditRequest(`${xenditBaseUrl}/v2/invoices/${encodeURIComponent(o.xendit_invoice_id)}`);
         await applyShopInvoice(o, inv, o.xendit_invoice_id);
@@ -1283,8 +1286,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   const paidIn = (o) => round2(Number(o.paid_amount) || 0);
   /* A cancelled order that had money on it owes the customer a refund. It is put in Finance's refund queue (Sales >
      Refund requests) for the amount in the ledger; approving it there writes the refund to the ledger. */
-  async function queueCancelRefund(client, o, userId) {
-    const amount = paidIn(o);
+  async function queueCancelRefund(client, o, userId, keep) {
+    const amount = round2(paidIn(o) - (Number(keep) || 0));     // keep: a deposit / delivery fee forfeited by a no-show
     if (!(amount > 0)) return 0;
     await client.query(
       `INSERT INTO order_refund_requests (order_id, reason_code, details, amount, requested_by) VALUES ($1,'cancelled',$2,$3,$4)
@@ -1299,10 +1302,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const pt = app.locals.paymentTerms;
     if (!pt) return {};
     const m = pt.orderMoney(o), t = pt.orderTerms(o);
-    return { paymentState: m.state, paidAmount: m.paid, outstanding: m.balance, dueNow: m.dueNow,
+    return { paymentState: m.state, paidAmount: m.paid, outstanding: m.balance, dueNow: m.dueNow, advance: m.advance || undefined,
       terms: t ? { key: t.key, percent: t.percent, initial: t.initial, dueNow: t.dueNow, balance: t.balance, condition: t.condition } : null };
   };
   const isCod = (o) => /^Cash on /.test(o.payment_method || '');
+  // an order with something to pay through Xendit: an online-payment order, or a cash order's advance (delivery fee / deposit)
+  const paysOnline = (o) => o.payment_method === 'Xendit' || (isCod(o) && Number(o.advance_amount) > 0);
   /* §8 THE money gate for moving an online order, the same for Finance and the counter (payment-terms.releaseDecision):
        Confirm            online orders need the payment due now (full, or the approved initial %) in the ledger; COD is confirmed unpaid
        Out for Delivery   goods leave the shop: an online-payment order must be fully settled; COD is collected at the door
@@ -1326,6 +1331,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     shipTo: o.fulfillment === 'Delivery' && o.city ? { recipient: o.recipient_name, addressLine: o.address_line, landmark: o.landmark || undefined,
       barangay: o.barangay, city: o.city, province: o.province, region: o.region, zip: o.zip_code } : undefined,
     phone: o.phone, method: o.payment_method, subtotal: +o.subtotal, deliveryFee: +o.delivery_fee, total: +o.total, status: o.status, paymentStatus: o.payment_status || 'unpaid',
+    forfeited: +o.forfeited_amount > 0 ? +o.forfeited_amount : undefined,
     delivery: o.fulfillment === 'Delivery' && ['Out for Delivery', 'Delivered'].includes(o.status) ? delivery.customerJson(dlv, o) : undefined,
     cancelRequested: !!cancelPending,
     cancellable: CUSTOMER_CANCELLABLE.includes(o.status) && !cancelPending,
@@ -1437,7 +1443,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   app.post('/api/shop/orders', auth('customer'), wrap(async (req, res) => {
-    await addressSchemaReady;
+    await addressSchemaReady; await rulesReady;
     const b = req.body || {};
     const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
     if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
@@ -1464,13 +1470,23 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         fee = q.fee;
       }
       // cash on delivery / pickup: within Finance's COD limit, and not for customers who missed too many deliveries or pickups
-      if (method === cashMethod) { const c = await cashCheck(client, req.user.id, fulfillment, round2(subtotal + fee)); if (!c.ok) throw bad('method', c.reason); }
+      // Cash on delivery: the delivery fee is paid online first, the rider collects the goods' price in cash.
+      // Cash on pickup: a reservation deposit is paid online first (taken off the total), the rest in cash at the counter.
+      let advKind = null, advance = 0;
+      if (method === cashMethod) {
+        const c = await cashCheck(client, req.user.id, fulfillment, round2(subtotal + fee)); if (!c.ok) throw bad('method', c.reason);
+        if (fulfillment === 'Delivery' && fee > 0) { advKind = 'shipping_fee'; advance = fee; }
+        if (fulfillment === 'Pickup' && c.rules.copDeposit > 0) { advKind = 'deposit'; advance = round2(Math.min(c.rules.copDeposit, subtotal)); }
+        if (advance > 0 && !process.env.XENDIT_SECRET_KEY)
+          throw bad('method', `${cashMethod} needs the ${advKind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit'} paid online first, and online payment is not available right now. Please try again later`);
+      }
       const ins = await client.query(
         `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
-                             recipient_name, address_line, landmark, barangay, city, province, region, zip_code)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+                             recipient_name, address_line, landmark, barangay, city, province, region, zip_code, advance_kind, advance_amount)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
         [req.user.id, fulfillment, ship ? ship.fullAddress + (ship.landmark ? ` (Landmark: ${ship.landmark})` : '') : null, phone, method, subtotal, fee, round2(subtotal + fee),
-         ship && ship.recipient, ship && ship.addressLine, ship && ship.landmark || null, ship && ship.barangay, ship && ship.city, ship && ship.province, ship && ship.region, ship && ship.zip]);
+         ship && ship.recipient, ship && ship.addressLine, ship && ship.landmark || null, ship && ship.barangay, ship && ship.city, ship && ship.province, ship && ship.region, ship && ship.zip,
+         advKind, advance]);
       let o = ins.rows[0];
       // Terms must be selected and validated on the server, using the final database-priced total.
       // Do this inside the order transaction so invalid terms cannot leave orphan orders.
@@ -1598,6 +1614,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       return { ...orderJson(o, items.filter(i => i.order_id === o.order_id), pending.has(o.order_id), refunds.get(String(o.order_id))), customer: o.customer,
         // money flags the screens show; the server applies the same gate again on every move
         awaitingPayment: !!(m && o.payment_method === 'Xendit' && o.payment_status === 'pending' && m.dueNow > 0) || undefined,
+        awaitingAdvance: !!(m && m.advance && !m.advance.paid && !['Cancelled', 'Returned'].includes(o.status)) || undefined,   // cash order: fee / deposit not paid online yet
         cashOnHandover: !!(m && isCod(o) && m.outstanding && !FINAL_STATUS.includes(o.status)) || undefined,
         creditException: o.credit_exception_by ? { note: o.credit_exception_note || 'credit exception granted by Finance' } : undefined,
         hold: next && !gate.ok ? gate.reason : undefined,
@@ -1931,6 +1948,13 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         pickup_hold_days INT NOT NULL DEFAULT 7 CHECK (pickup_hold_days BETWEEN 2 AND 60),
         updated_by INT REFERENCES users(user_id), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
       await pool.query('INSERT INTO order_rules (id) VALUES (1) ON CONFLICT DO NOTHING');
+      // cash on pickup: a reservation deposit paid online, kept if the customer does not come within cop_hold_hours of "Ready for Pickup"
+      await pool.query('ALTER TABLE order_rules ADD COLUMN IF NOT EXISTS cop_deposit NUMERIC(14,2) NOT NULL DEFAULT 200 CHECK (cop_deposit >= 0)');
+      await pool.query('ALTER TABLE order_rules ADD COLUMN IF NOT EXISTS cop_hold_hours INT NOT NULL DEFAULT 48 CHECK (cop_hold_hours BETWEEN 6 AND 336)');
+      // the part of a cash order paid online first (delivery fee for COD, deposit for COP), and what was kept when the customer did not show
+      await pool.query(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS advance_kind TEXT CHECK (advance_kind IN ('shipping_fee','deposit'))`);
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS advance_amount NUMERIC(14,2) NOT NULL DEFAULT 0');
+      await pool.query('ALTER TABLE orders ADD COLUMN IF NOT EXISTS forfeited_amount NUMERIC(14,2) NOT NULL DEFAULT 0');
       await pool.query(`CREATE TABLE IF NOT EXISTS order_failures (
         failure_id  BIGSERIAL PRIMARY KEY,
         order_id    BIGINT NOT NULL REFERENCES orders(order_id),
@@ -1949,9 +1973,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   })();
   async function getRules(db) {
     await rulesReady;
-    const r = (await (db || pool).query('SELECT cod_limit, max_no_shows, pickup_hold_days, updated_at, u.full_name AS updated_by FROM order_rules LEFT JOIN users u ON u.user_id = order_rules.updated_by WHERE id = 1')).rows[0]
-      || { cod_limit: 10000, max_no_shows: 2, pickup_hold_days: 7 };
+    const r = (await (db || pool).query('SELECT cod_limit, max_no_shows, pickup_hold_days, cop_deposit, cop_hold_hours, updated_at, u.full_name AS updated_by FROM order_rules LEFT JOIN users u ON u.user_id = order_rules.updated_by WHERE id = 1')).rows[0]
+      || { cod_limit: 10000, max_no_shows: 2, pickup_hold_days: 7, cop_deposit: 200, cop_hold_hours: 48 };
     return { codLimit: round2(+r.cod_limit), maxNoShows: +r.max_no_shows, pickupHoldDays: +r.pickup_hold_days,
+      copDeposit: round2(+r.cop_deposit), copHoldHours: +r.cop_hold_hours,
       updatedBy: r.updated_by || undefined, updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : undefined };
   }
   async function noShowCount(db, customerId) {
@@ -1977,23 +2002,31 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const shows = Number(b.maxNoShows), days = Number(b.pickupHoldDays);
     if (!Number.isInteger(shows) || shows < 0 || shows > 10) e.maxNoShows = 'Enter a whole number from 0 (off) to 10';
     if (!Number.isInteger(days) || days < 2 || days > 60) e.pickupHoldDays = 'Enter a whole number of days from 2 to 60';
-    if (Object.keys(e).length) throw new ValidationError(e);
     const before = await getRules();
+    // cash on pickup deposit and how long a cash-on-pickup order is held (older screens do not send them: keep what is set)
+    const depRaw = b.copDeposit == null ? String(before.copDeposit) : String(b.copDeposit).replace(/[,₱\s]/g, '');
+    if (!/^\d{1,6}(\.\d{1,2})?$/.test(depRaw) || Number(depRaw) > 100000) e.copDeposit = 'Enter the deposit in pesos, from 0 (no deposit) to 100,000';
+    const hours = b.copHoldHours == null ? before.copHoldHours : Number(b.copHoldHours);
+    if (!Number.isInteger(hours) || hours < 6 || hours > 336) e.copHoldHours = 'Enter a whole number of hours from 6 to 336 (14 days)';
+    if (Object.keys(e).length) throw new ValidationError(e);
     await rulesReady;
-    await pool.query('UPDATE order_rules SET cod_limit = $1, max_no_shows = $2, pickup_hold_days = $3, updated_by = $4, updated_at = now() WHERE id = 1',
-      [round2(Number(money)), shows, days, req.user.id]);
+    await pool.query('UPDATE order_rules SET cod_limit = $1, max_no_shows = $2, pickup_hold_days = $3, cop_deposit = $4, cop_hold_hours = $5, updated_by = $6, updated_at = now() WHERE id = 1',
+      [round2(Number(money)), shows, days, round2(Number(depRaw)), hours, req.user.id]);
     await audit(pool, req.user, 'Record edited', `Order rules: cash on delivery limit ${peso(before.codLimit)} → ${peso(Number(money))}, ` +
-      `missed deliveries/pickups before cash is blocked ${before.maxNoShows} → ${shows}, pickup hold ${before.pickupHoldDays} → ${days} days`);
+      `missed deliveries/pickups before cash is blocked ${before.maxNoShows} → ${shows}, pickup hold ${before.pickupHoldDays} → ${days} days, ` +
+      `cash on pickup deposit ${peso(before.copDeposit)} → ${peso(Number(depRaw))}, cash on pickup hold ${before.copHoldHours} → ${hours} hours`);
     res.json(await getRules());
   }));
   // the checkout asks before showing the cash option, so the customer is never surprised at "Place order"
   app.get('/api/shop/cash-options', auth('customer'), wrap(async (req, res) => {
     const rules = await getRules(), n = await noShowCount(null, req.user.id);
-    res.json({ codLimit: rules.codLimit, maxNoShows: rules.maxNoShows, noShows: n, cashBlocked: rules.maxNoShows > 0 && n >= rules.maxNoShows, pickupHoldDays: rules.pickupHoldDays });
+    res.json({ codLimit: rules.codLimit, maxNoShows: rules.maxNoShows, noShows: n, cashBlocked: rules.maxNoShows > 0 && n >= rules.maxNoShows, pickupHoldDays: rules.pickupHoldDays,
+      copDeposit: rules.copDeposit, copHoldHours: rules.copHoldHours, onlineReady: !!process.env.XENDIT_SECRET_KEY });
   }));
 
   // cancel an order that never reached the customer: stock back on sale, any money received queued for refund
-  async function cancelUndelivered(client, o, userId, reason) {
+  // forfeit: the customer did not show (no-show pickup, refused / not home on delivery): the advance paid online is kept, not refunded
+  async function cancelUndelivered(client, o, userId, reason, forfeit) {
     if (o.stock_deducted) {
       const { rows: items } = await client.query('SELECT product_id, qty FROM order_items WHERE order_id = $1 ORDER BY product_id', [o.order_id]);
       for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'refund', qty: +i.qty,
@@ -2001,8 +2034,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     }
     await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
     await client.query(`UPDATE order_cancel_requests SET status = 'approved', decided_by = $2, decided_at = now() WHERE order_id = $1 AND status = 'pending'`, [o.order_id, userId]);
-    const owed = await queueCancelRefund(client, o, userId);
-    await logStatus(client, o.order_id, o.status, 'Cancelled', userId, reason + (owed ? ` — refund of ${peso(owed)} queued` : ''));
+    const kept = forfeit && isCod(o) && Number(o.advance_amount) > 0 ? round2(Math.min(paidIn(o), Number(o.advance_amount))) : 0;
+    if (kept > 0) await client.query('UPDATE orders SET forfeited_amount = $2 WHERE order_id = $1', [o.order_id, kept]);
+    const owed = await queueCancelRefund(client, o, userId, kept);
+    await logStatus(client, o.order_id, o.status, 'Cancelled', userId, reason + (kept ? ` — ${o.advance_kind === 'shipping_fee' ? 'delivery fee' : 'deposit'} of ${peso(kept)} forfeited` : '') + (owed ? ` — refund of ${peso(owed)} queued` : ''));
     return owed;
   }
 
@@ -2035,7 +2070,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         await client.query(`UPDATE orders SET status = 'Packed', status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
         await logStatus(client, o.order_id, o.status, 'Packed', req.user.id, `Delivery attempt ${tries} failed: ${words}. Back to Packed for another try`);
       } else {
-        owed = await cancelUndelivered(client, o, req.user.id, (o.fulfillment === 'Delivery' ? 'Not delivered: ' : 'Not picked up: ') + words);
+        owed = await cancelUndelivered(client, o, req.user.id, (o.fulfillment === 'Delivery' ? 'Not delivered: ' : 'Not picked up: ') + words, r[1]);
       }
       await audit(client, req.user, 'Record edited', `Order ${o.order_no} ${o.fulfillment === 'Delivery' ? 'not delivered' : 'not picked up'} — ${words}; ` +
         (act === 'retry' ? 'back to Packed for another try' : 'cancelled, stock returned' + (owed ? `, refund of ${peso(owed)} queued` : '')) + (r[1] ? ' (counts as a customer no-show)' : ''));
@@ -2049,35 +2084,50 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   }));
 
   // pickups nobody collects: a reminder 2 days before the hold ends, then cancelled by itself (same rules as above)
+  /* Pickups nobody collects. Two holds:
+       cash on pickup with a reservation deposit  cop_hold_hours after "Ready for Pickup" (default 48): cancelled, the deposit is KEPT
+       every other pickup (paid online, or no deposit) pickup_hold_days (default 7): cancelled, whatever was paid is refunded
+     The customer is reminded once before the hold ends (a quarter of the hold, at most 12 hours, for the short one; 2 days for the long one). */
+  const COP_HELD = `o.payment_method = 'Cash on Pickup' AND COALESCE(o.advance_amount, 0) > 0`;
   async function sweepUnclaimedPickups() {
-    const rules = await getRules(), out = { reminded: 0, cancelled: 0 };
-    const holdSecs = rules.pickupHoldDays * 86400, remindSecs = Math.max(1, rules.pickupHoldDays - 2) * 86400;
-    const soon = await pool.query(
-      `SELECT order_no, customer_id, status_updated_at FROM orders WHERE status = 'Ready for Pickup'
-         AND status_updated_at < now() - make_interval(secs => $1) AND status_updated_at >= now() - make_interval(secs => $2) LIMIT 200`, [remindSecs, holdSecs]);
-    for (const o of soon.rows) {
-      const by = new Date(new Date(o.status_updated_at).getTime() + holdSecs * 1000).toLocaleDateString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric' });
-      const n = await pingUser(o.customer_id, { category: 'delivery', title: 'Your order is waiting for pickup',
-        body: `Order ${o.order_no} is ready at our shop. Please pick it up by ${by}, or it is cancelled automatically.`,
-        link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pickup_remind:' + o.order_no }, 'customer');
-      out.reminded += n ? 1 : 0;
+    const rules = await getRules(), out = { reminded: 0, cancelled: 0, forfeited: 0 };
+    const holds = [
+      { where: COP_HELD, secs: rules.copHoldHours * 3600, remind: Math.min(12 * 3600, rules.copHoldHours * 900), forfeit: true, words: `within ${rules.copHoldHours} hours` },
+      { where: `NOT (${COP_HELD})`, secs: rules.pickupHoldDays * 86400, remind: Math.min(2, rules.pickupHoldDays - 1) * 86400, forfeit: false, words: `within ${rules.pickupHoldDays} days` }
+    ];
+    for (const h of holds) {
+      const soon = await pool.query(
+        `SELECT o.order_no, o.customer_id, o.status_updated_at, o.advance_amount, o.total, o.paid_amount FROM orders o WHERE o.status = 'Ready for Pickup' AND ${h.where}
+           AND o.status_updated_at < now() - make_interval(secs => $1) AND o.status_updated_at >= now() - make_interval(secs => $2) LIMIT 200`, [h.secs - h.remind, h.secs]);
+      for (const o of soon.rows) {
+        const by = new Date(new Date(o.status_updated_at).getTime() + h.secs * 1000).toLocaleString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        const n = await pingUser(o.customer_id, { category: 'delivery', title: 'Your order is waiting for pickup',
+          body: `Order ${o.order_no} is ready at our shop. Please pick it up by ${by}` + (h.forfeit
+            ? ` and pay the ${asPeso(round2(+o.total - +o.paid_amount))} balance in cash. If you do not come, the order is cancelled and your ${asPeso(o.advance_amount)} deposit is not refunded.`
+            : ', or it is cancelled automatically.'),
+          link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pickup_remind:' + o.order_no }, 'customer');
+        out.reminded += n ? 1 : 0;
+      }
+      const due = await pool.query(`SELECT o.order_id, o.order_no FROM orders o WHERE o.status = 'Ready for Pickup' AND ${h.where} AND o.status_updated_at < now() - make_interval(secs => $1) ORDER BY o.order_id LIMIT 100`, [h.secs]);
+      for (const row of due.rows) {
+        const reason = `Not picked up ${h.words}`;
+        const done = await tx(async (client) => {
+          const o = (await client.query(`SELECT o.* FROM orders o WHERE o.order_id = $1 AND o.status = 'Ready for Pickup' AND ${h.where} AND o.status_updated_at < now() - make_interval(secs => $2) FOR UPDATE SKIP LOCKED`,
+            [row.order_id, h.secs])).rows[0];
+          if (!o) return null;
+          await client.query(`INSERT INTO order_failures (order_id, customer_id, kind, reason, note, outcome, counts) VALUES ($1,$2,'Pickup','not_picked_up',$3,'cancelled',TRUE)`,
+            [o.order_id, o.customer_id, 'Cancelled automatically']);
+          const owed = await cancelUndelivered(client, o, null, reason + ' (cancelled automatically)', h.forfeit);
+          const kept = (await client.query('SELECT forfeited_amount FROM orders WHERE order_id = $1', [o.order_id])).rows[0].forfeited_amount;
+          await audit(client, SYSTEM, 'Record edited', `Order ${o.order_no} cancelled automatically: ${reason.toLowerCase()} — stock returned` +
+            (+kept ? `, deposit of ${peso(+kept)} forfeited` : '') + (owed ? `, refund of ${peso(owed)} queued` : ''));
+          return { o, kept: +kept };
+        });
+        if (done) { out.cancelled++; if (done.kept) out.forfeited++;
+          notify(done.o.order_no, 'Cancelled', { reason: reason.toLowerCase() + (done.kept ? `; the ${asPeso(done.kept)} reservation deposit is not refunded` : '') }); }
+      }
     }
-    const due = await pool.query(`SELECT order_id, order_no FROM orders WHERE status = 'Ready for Pickup' AND status_updated_at < now() - make_interval(secs => $1) ORDER BY order_id LIMIT 100`, [holdSecs]);
-    for (const row of due.rows) {
-      const reason = `Not picked up within ${rules.pickupHoldDays} days`;
-      const done = await tx(async (client) => {
-        const o = (await client.query(`SELECT * FROM orders WHERE order_id = $1 AND status = 'Ready for Pickup' AND status_updated_at < now() - make_interval(secs => $2) FOR UPDATE SKIP LOCKED`,
-          [row.order_id, holdSecs])).rows[0];
-        if (!o) return null;
-        await client.query(`INSERT INTO order_failures (order_id, customer_id, kind, reason, note, outcome, counts) VALUES ($1,$2,'Pickup','not_picked_up',$3,'cancelled',TRUE)`,
-          [o.order_id, o.customer_id, 'Cancelled automatically']);
-        const owed = await cancelUndelivered(client, o, null, reason + ' (cancelled automatically)');
-        await audit(client, SYSTEM, 'Record edited', `Order ${o.order_no} cancelled automatically: ${reason.toLowerCase()} — stock returned` + (owed ? `, refund of ${peso(owed)} queued` : ''));
-        return o;
-      });
-      if (done) { out.cancelled++; notify(done.order_no, 'Cancelled', { reason: reason.toLowerCase() }); }
-    }
-    if (out.cancelled) console.log(`[auto] unclaimed pickups: ${out.cancelled} cancelled, ${out.reminded} reminded`);
+    if (out.cancelled) console.log(`[auto] unclaimed pickups: ${out.cancelled} cancelled (${out.forfeited} deposits kept), ${out.reminded} reminded`);
     return out;
   }
   (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'unclaimed-pickups', run: sweepUnclaimedPickups });
@@ -2088,12 +2138,14 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
      "Continue Online Payment", whose time is in xendit_external_id). The customer is reminded once, 12 hours before.
      Before cancelling, Xendit is asked about the open invoice: a payment that arrived late is recorded (and confirms the
      order) instead, and an invoice that is still open is left alone. Nothing was taken from stock yet (that happens on
-     confirm), so nothing has to be restocked. Cash-on-delivery / pickup orders are never touched: the counter handles those.
+     confirm), so nothing has to be restocked. A cash-on-delivery / pickup order whose delivery fee or deposit was never paid
+     online is treated the same way; one with nothing to pay online first is never touched (the counter handles those).
      Safe with several servers: each order is locked with SKIP LOCKED and checked again before it changes. */
   const PAY_HOURS = Math.max(6, Number(process.env.ORDER_PAY_HOURS) || 48);
   const REMIND_HOURS = Math.min(12, PAY_HOURS / 2);
   const LAST_TRY = `GREATEST(o.created_at, COALESCE(to_timestamp(NULLIF(substring(o.xendit_external_id from '-([0-9]{13})$'), '')::bigint / 1000.0), o.created_at))`;
-  const UNPAID = `o.status = 'Pending Confirmation' AND o.payment_method = 'Xendit' AND COALESCE(o.paid_amount, 0) = 0 AND NOT o.stock_deducted
+  const UNPAID = `o.status = 'Pending Confirmation' AND (o.payment_method = 'Xendit' OR (o.payment_method LIKE 'Cash on %' AND COALESCE(o.advance_amount, 0) > 0))
+                  AND COALESCE(o.paid_amount, 0) = 0 AND NOT o.stock_deducted
                   AND NOT EXISTS (SELECT 1 FROM order_cancel_requests c WHERE c.order_id = o.order_id AND c.status = 'pending')`;
   async function sweepUnpaidOrders() {
     const out = { reminded: 0, cancelled: 0, paidLate: 0 };
@@ -2128,7 +2180,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         if (!cur) return false;                            // paid, changed or taken by another server in the meantime
         await client.query(`UPDATE orders SET status = 'Cancelled', status_updated_at = now() WHERE order_id = $1`, [cur.order_id]);
         await logStatus(client, cur.order_id, cur.status, 'Cancelled', null, 'Cancelled automatically: ' + reason);
-        await audit(client, SYSTEM, 'Record edited', `Order ${cur.order_no} cancelled automatically: ${reason} (online payment, nothing received)`);
+        await audit(client, SYSTEM, 'Record edited', `Order ${cur.order_no} cancelled automatically: ${reason} (${cur.payment_method === 'Xendit' ? 'online payment' : cur.advance_kind === 'shipping_fee' ? 'cash on delivery, delivery fee' : 'cash on pickup, deposit'} never paid)`);
         return true;
       });
       if (done) { out.cancelled++; notify(o.order_no, 'Cancelled', { reason: 'it was ' + reason }); }

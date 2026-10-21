@@ -26,7 +26,11 @@ function shopInfo() {
 // event -> what the customer is told
 const EVENTS = {
   placed:           { subject: (o) => `We received your order ${o.order_no}`, head: 'Thank you for your order!',
-    msg: (o) => /^Cash/.test(o.payment_method)
+    msg: (o) => /^Cash/.test(o.payment_method) && +o.advance_amount > 0
+      ? `We have your order. To confirm it, pay the ${peso(o.advance_amount)} ${o.advance_kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit'} online (My Orders, “Continue Online Payment”). ` +
+        `The remaining ${peso(+o.total - +o.advance_amount)} is paid in cash ${o.fulfillment === 'Delivery' ? 'to the rider when it arrives' : 'at our counter when you pick it up'}.` +
+        (o.advance_kind === 'deposit' ? ' If the order is not picked up in time, it is cancelled and the deposit is not refunded.' : '')
+      : /^Cash/.test(o.payment_method)
       ? `We have your order. Our team will confirm it shortly. You pay in cash when you ${o.fulfillment === 'Delivery' ? 'receive' : 'collect'} it.`
       : 'We have your order. If you have not paid yet, open My Orders and choose “Continue Online Payment”. We start preparing your order once payment is confirmed.' },
   Paid:             { subject: (o) => `Order ${o.order_no} confirmed`, head: 'Your order is confirmed',

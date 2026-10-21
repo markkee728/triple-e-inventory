@@ -650,11 +650,17 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       const fromRow = o.terms_amount == null ? null : round2(Number(o.terms_amount));
       initial = fromRow != null && fromRow > 0 ? fromRow : round2(total * (Number(o.terms_percent) || 100) / 100);
     }
+    /* Cash on delivery / pickup with an ADVANCE paid online first: the delivery fee (COD) or the reservation deposit (COP).
+       That advance is what is "due now"; the rest is cash at the door or the counter. */
+    const advance = /^Cash on /.test(o.payment_method || '') && Number(o.advance_amount) > 0 ? round2(Math.min(Number(o.advance_amount), total)) : 0;
+    if (advance && !partial) initial = advance;
     initial = round2(Math.min(Math.max(initial, 0), total));
     const dueNow = cents(paid) < cents(initial) ? round2(initial - paid) : balance;
     return { key: o.terms_key || 'full', percent: o.terms_percent == null ? 100 : +o.terms_percent,
       initial, dueNow, balance, total, paid, state: o.payment_state || 'unpaid',
-      condition: o.terms_condition || (partial ? 'balance due before release' : 'nothing further to pay'),
+      advance: advance ? { kind: o.advance_kind || 'deposit', amount: advance, paid: cents(paid) >= cents(advance), cash: round2(Math.max(0, total - Math.max(paid, advance))) } : null,
+      condition: advance && !partial ? 'paid in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider on delivery' : 'at the counter on pickup')
+        : o.terms_condition || (partial ? 'balance due before release' : 'nothing further to pay'),
       outstanding: cents(balance) > 0 };
   }
   const owedOnOrder = (o) => { const m = orderMoney(o); return m ? m.dueNow : 0; };
@@ -679,6 +685,9 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     // confirming needs the part the terms ask for up front: everything on Full Payment, the initial % on a partial term
     // (dueNow alone is not enough: once the initial is in, dueNow becomes the balance, which is only due before release)
     const short = m.key === 'full' ? m.balance : round2(Math.max(0, m.initial - m.paid));
+    // cash on delivery / pickup: the advance paid online (delivery fee or reservation deposit) must be in before it is confirmed
+    if (cod && m.advance && !m.advance.paid && !(role === 'finance' && credit))
+      return { ok: false, field: 'payment', money: m, reason: `The ${peso(round2(m.advance.amount - m.paid))} ${m.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit'} has not been paid online yet. The order is confirmed when it is` };
     if (cents(short) > 0 && !(role === 'finance' && credit) && !cod)
       return { ok: false, field: 'payment', money: m, reason: `${peso(short)} ${m.key === 'full' ? '(full payment)' : `(${m.percent}% initial payment)`} has not been received yet. Record it with Collect payment, or wait for the online payment, before confirming` };
     if (role === 'cashier' && !cod && !verified && cents(m.paid) <= 0)

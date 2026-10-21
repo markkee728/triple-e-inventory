@@ -47,6 +47,8 @@ function payLabel(o) {
   if (o.paymentState === 'paid') return 'Paid';
   if (o.paymentState === 'partially_paid') return 'Partially paid \u00B7 ' + peso(dueOf(o)) + ' due';
   if (o.paymentState === 'partially_refunded' || o.paymentState === 'refunded') return STATE_LABEL[o.paymentState];
+  if (o.advance && !o.advance.paid) return 'Waiting for the ' + (o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' online';
+  if (o.advance) return (o.advance.kind === 'shipping_fee' ? 'Fee paid' : 'Deposit paid') + ' \u00B7 ' + peso(dueOf(o)) + ' cash';
   if (isCash(o)) return o.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at counter';
   if (o.paymentStatus === 'expired') return 'Payment expired';
   return 'Awaiting payment';
@@ -91,8 +93,10 @@ function flagsFor(o) {
   const out = [];
   if (o.cancelRequested) out.push('<div class="co-flag bad">The customer asked to cancel this order. Finance must approve or reject it before it can move.</div>');
   else if (o.awaitingPayment) out.push('<div class="co-flag">Waiting for the customer\u2019s online payment (' + esc(o.method) + '). It cannot be confirmed until it is paid.</div>');
+  else if (o.awaitingAdvance) out.push(`<div class="co-flag">Waiting for the customer to pay the <b>${peso(o.advance.amount)}</b> ${o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit'} online. The order confirms itself when it is paid; then <b>${peso(o.advance.cash)}</b> is collected in cash ${o.fulfillment === 'Delivery' ? 'on delivery' : 'at pickup'}.</div>`);
   else if (o.cashOnHandover) out.push(`<div class="co-flag">Collect <b>${peso(dueOf(o))}</b> in cash when the order is ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.${paidOf(o) ? ' ' + peso(paidOf(o)) + ' is already recorded against it.' : ''}</div>`);
-  if (o.hold && !o.cancelRequested && !o.awaitingPayment) out.push(`<div class="co-flag bad">${esc(o.hold)}</div>`);
+  if (o.forfeited) out.push(`<div class="co-flag">${o.fulfillment === 'Delivery' ? 'Delivery fee' : 'Deposit'} of <b>${peso(o.forfeited)}</b> kept: the customer did not ${o.fulfillment === 'Delivery' ? 'receive' : 'pick up'} the order.</div>`);
+  if (o.hold && !o.cancelRequested && !o.awaitingPayment && !o.awaitingAdvance) out.push(`<div class="co-flag bad">${esc(o.hold)}</div>`);
   if (o.failedAttempts && !['Cancelled', 'Delivered', 'Picked Up'].includes(o.status)) out.push(`<div class="co-flag bad">${o.failedAttempts} failed ${o.fulfillment === 'Delivery' ? 'delivery attempt' : 'pickup'}${o.failedAttempts === 1 ? '' : 's'} on this order. See its history in Details.</div>`);
   if (o.creditException) out.push(`<div class="co-flag">Finance granted a credit exception: ${peso(dueOf(o))} may stay outstanding. ${esc(o.creditException.note)}</div>`);
   return out.join('');

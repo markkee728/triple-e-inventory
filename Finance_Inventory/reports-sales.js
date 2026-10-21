@@ -200,6 +200,7 @@
   function notes(d) {
     let h = '';
     if (d.customQuotes && d.customQuotes.received > 0) h += '<div class="rs-note">Custom-quote deposits of <strong>' + peso(d.customQuotes.received) + '</strong> (' + int(d.customQuotes.quotes) + ' quotation' + (d.customQuotes.quotes === 1 ? '' : 's') + ' not yet converted) were received in this period. They are not in net sales; once a quotation becomes an order or POS receipt, its money is counted there, once.</div>';
+    if (d.keptAdvances && d.keptAdvances.amount > 0) h += '<div class="rs-note">Kept from cash orders the customer did not receive or pick up: <strong>' + peso(d.keptAdvances.amount) + '</strong> (' + int(d.keptAdvances.orders) + ' order' + (d.keptAdvances.orders === 1 ? '' : 's') + ', delivery fees and reservation deposits paid online). These orders are cancelled, so this money is not in the sales totals above.</div>';
     h += '<div class="rs-note faint">Refunds are deducted from the day of the original sale, so each period stays consistent with the product ranking. Delivery fees of ' + peso(d.kpis.deliveryFees) + ' are included in net sales.</div>';
     return '<div class="rs-notes">' + h + '</div>';
   }

@@ -20,6 +20,7 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
       const has = async (sql) => (await pool.query(sql)).rows.length > 0;
       opts.hasPaidAt = await has(`SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'paid_at'`);
       opts.hasLedger = await has(`SELECT 1 FROM information_schema.tables WHERE table_name = 'payments'`);
+      opts.hasForfeit = await has(`SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'forfeited_amount'`);
     } catch (err) { console.warn('[reports] schema check failed:', err.message); }
   })();
 
@@ -34,6 +35,8 @@ module.exports = function mountReports({ app, pool, auth, wrap }) {
   app.get('/api/reports/sales-overview', auth('finance'), wrap(async (req, res) => {
     const p = range(req, res); if (!p) return;
     await ready;
+    // the column is added by pos-shop.js at start-up, possibly after the check above ran: look again until it is there
+    if (!opts.hasForfeit) opts.hasForfeit = (await q(`SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'forfeited_amount'`).catch(() => [])).length > 0;
     res.set('Cache-Control', 'no-store');
     res.json(await core.salesOverview(q, core.PG, p, opts));
   }));

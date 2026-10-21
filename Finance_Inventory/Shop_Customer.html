@@ -122,7 +122,7 @@ a.nav-item{text-decoration:none}
     <!-- ===== CATALOG ===== -->
     <section class="page active-page" id="catalog">
       <div class="hero">
-        <div><h1>Die-cast aluminum &amp; forged brass.</h1><p>Ready stock at clear prices, or request a quote for a part made to your drawing.</p></div>
+        <div><h1>Die-cast aluminum &amp; forged brass.</h1><p>Ready stock at clear prices, or request a quote for a part made to your specifications.</p></div>
         <div class="hero-perks">
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery <span data-fee>₱150</span></span>
           <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
@@ -404,7 +404,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=8"></script>
-<script src="quote-fields.js?v=9"></script>
+<script src="quote-fields.js?v=10"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -487,8 +487,18 @@ async function loadCash() {
   if (cashLoading) return; cashLoading = true;
   try { CASH = await api('/api/shop/cash-options'); renderCheckout(); } catch (e) { CASH = { codLimit: 0, cashBlocked: false }; } finally { cashLoading = false; }
 }
+/* Cash on delivery: the delivery fee is paid online first, the rider collects the goods' price in cash.
+   Cash on pickup: a reservation deposit (Finance sets it, e.g. ₱200) is paid online first and taken off the total; the rest is cash at the counter. */
+function cashAdvance() {
+  if (fulfil === 'Delivery') { const f = shipFee == null ? null : fee(); return { kind: 'shipping_fee', amount: f, cash: subtotal(), known: f != null }; }
+  const dep = CASH && CASH.copDeposit > 0 ? Math.min(CASH.copDeposit, subtotal()) : 0;
+  return { kind: 'deposit', amount: dep, cash: Math.max(0, subtotal() - dep), known: !!CASH };
+}
 function cashBlockReason() {
   if (!CASH) return '';
+  const adv = cashAdvance();
+  if (CASH.onlineReady === false && (adv.kind === 'shipping_fee' ? adv.amount !== 0 : adv.amount > 0))
+    return 'Not available right now: the ' + (adv.kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' is paid online first, and online payment is down. Please try again later.';
   if (CASH.cashBlocked) return 'Not available on your account after ' + CASH.noShows + ' missed deliveries or pickups. Please pay online.';
   if (fulfil === 'Delivery' && CASH.codLimit > 0 && orderTotal() > CASH.codLimit + 0.004) return 'Available for orders up to ' + peso(CASH.codLimit) + '. Pay online, or choose Pickup.';
   return '';
@@ -661,7 +671,7 @@ function renderCheckout() {
   // cash: Finance's limit for cash on delivery, and no cash for a customer with too many missed deliveries or pickups (the server checks the same)
   const cashWhy = cashBlockReason(); if (cashWhy && pay === cashMethod()) pay = ONLINE[0];
   $('payOpts').innerHTML = methods.map(m => { const off = m === cashMethod() && !!cashWhy;
-    return `<label class="opt ${m === pay ? 'on' : ''}${off ? ' off' : ''}" ${off ? 'aria-disabled="true"' : `data-pay="${m}"`}><input type="radio" name="p" ${m === pay ? 'checked' : ''}${off ? ' disabled' : ''}><span>${payLabel(m)}<small>${off ? esc(cashWhy) : ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`; }).join('');
+    return `<label class="opt ${m === pay ? 'on' : ''}${off ? ' off' : ''}" ${off ? 'aria-disabled="true"' : `data-pay="${m}"`}><input type="radio" name="p" ${m === pay ? 'checked' : ''}${off ? ' disabled' : ''}><span>${payLabel(m)}<small>${off ? esc(cashWhy) : ONLINE.includes(m) ? 'Pay now through our secure gateway' : cashHint()}</small></span></label>`; }).join('');
   if (CASH === null) loadCash();
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
   $('s1').textContent = peso(subtotal()); renderFeeRow(); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
@@ -702,23 +712,43 @@ function renderPaymentTerms() {
   const activeKey = online ? termKey : 'full';
   $('termOpts').innerHTML = list.map(t => `<label class="opt ${t.key === activeKey ? 'on' : ''}" data-term="${esc(t.key)}"><input type="radio" name="t" ${t.key === activeKey ? 'checked' : ''} ${!online ? 'disabled' : ''}><span><strong>${esc(t.label)}</strong><small>${+t.percent >= 100 ? '100% · ' + peso(total) + ' total' : peso(t.dueNow) + ' due now (' + t.percent + '%) · ' + peso(t.balance) + ' remaining'}${t.balance > 0 ? ' · ' + esc(t.balanceCondition || 'Balance due before release') : ''}</small></span></label>`).join('');
   let note = '';
-  if (!online) note = 'Cash on ' + (fulfil === 'Delivery' ? 'delivery' : 'pickup') + ': the full amount is collected when the order is handed over. To select an approved partial payment, choose an online payment method.';
+  if (!online) note = 'Cash on ' + (fulfil === 'Delivery' ? 'delivery: the delivery fee is paid online first and the rest in cash to the rider.' : 'pickup: a reservation deposit is paid online first and the rest in cash at our counter.') + ' To select an approved partial payment, choose an online payment method.';
   else if (TERMS_OPTS === null) note = 'Could not load approved payment terms. Full payment is shown for reference; please retry before placing your order.';
   else if (opts.length <= 1) note = 'Only Full Payment is currently available. Finance/Admin can enable Half Payment or Down Payment in Payment Terms settings.';
   const nb = $('termNote'); nb.hidden = !note; nb.textContent = note;
   renderPayPlan();
 }
+function cashHint() {
+  const a = cashAdvance(), hrs = CASH ? CASH.copHoldHours : 48;
+  if (fulfil === 'Delivery') return a.known && a.amount > 0 ? 'Pay the ' + peso(a.amount) + ' delivery fee online now, then ' + peso(a.cash) + ' in cash to the rider'
+    : a.known ? 'Pay ' + peso(a.cash) + ' in cash to the rider' : 'Pay the delivery fee online now, the rest in cash to the rider';
+  return a.amount > 0 ? 'Pay a ' + peso(a.amount) + ' deposit online now, then ' + peso(a.cash) + ' in cash at our counter. Not picked up within ' + hrs + ' hours: cancelled, deposit not refunded'
+    : 'Pay in cash when you collect it';
+}
 function renderPayPlan() {
   const total = orderTotal(), t = chosenTerm(), box = $('payPlan');
   if (!(total > 0) || view !== 'checkout') { box.hidden = true; $('place').textContent = 'Place order'; return; }
-  const online = ONLINE.includes(pay), due = t ? t.dueNow : total, bal = t ? t.balance : 0;
+  const online = ONLINE.includes(pay), adv = !online ? cashAdvance() : null, advOn = adv && adv.amount > 0;
+  if (adv && adv.kind === 'shipping_fee' && !adv.known) {        // cash on delivery before the address: the fee is not known yet
+    box.hidden = false;
+    $('ppNowLabel').textContent = 'Pay online now (delivery fee)'; $('ppNow').textContent = 'after you choose the address';
+    $('ppBalRow').hidden = false; $('ppBal').textContent = peso(adv.cash);
+    const bl = document.querySelector('#ppBalRow .dim'); if (bl) bl.textContent = 'Cash to the rider';
+    $('ppCond').hidden = false; $('ppCond').textContent = 'The delivery fee depends on your province; it is paid online to confirm the order. The goods are paid in cash when they arrive.';
+    $('place').textContent = 'Place order'; return;
+  }
+  const due = advOn ? adv.amount : t ? t.dueNow : total, bal = advOn ? adv.cash : t ? t.balance : 0;
   box.hidden = false;
-  $('ppNowLabel').textContent = online ? (t ? t.percent + '% initial payment' : 'Pay now') : (fulfil === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
+  $('ppNowLabel').textContent = online ? (t ? t.percent + '% initial payment' : 'Pay now') : advOn ? 'Pay online now (' + (adv.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') + ')' : (fulfil === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
   $('ppNow').textContent = peso(due);
   $('ppBalRow').hidden = !(bal > 0); $('ppBal').textContent = peso(bal);
+  const balLabel = document.querySelector('#ppBalRow .dim'); if (balLabel) balLabel.textContent = advOn ? (fulfil === 'Delivery' ? 'Cash to the rider' : 'Cash at our counter') : 'Balance later';
   const cond = $('ppCond'); cond.hidden = !(bal > 0);
-  if (bal > 0) cond.textContent = 'The ' + peso(bal) + ' balance is ' + ((t && t.balanceCondition) || 'due before your order is released') + '.';
-  $('place').textContent = online && bal > 0 ? 'Place order \u00B7 pay ' + peso(due) + ' now' : 'Place order';
+  if (bal > 0) cond.textContent = advOn
+    ? (adv.kind === 'shipping_fee' ? 'Your order is confirmed once the delivery fee is paid. Prepare ' + peso(bal) + ' in cash for the rider.'
+      : 'Your order is confirmed once the deposit is paid; it is taken off your total. Pick it up within ' + ((CASH && CASH.copHoldHours) || 48) + ' hours of our "ready for pickup" message and pay ' + peso(bal) + ' in cash, or the order is cancelled and the deposit is not refunded.')
+    : 'The ' + peso(bal) + ' balance is ' + ((t && t.balanceCondition) || 'due before your order is released') + '.';
+  $('place').textContent = (online || advOn) && bal > 0 ? 'Place order \u00B7 pay ' + peso(due) + ' now' : 'Place order';
 }
 /* Delivery line of the order summary: the amount, plus a note saying which rate applies and whether it changed when the address changed. */
 let feeShown = null, feeShownRate = '';      // last fee the customer saw for an address (to tell them when it changes)
@@ -834,7 +864,8 @@ function openPayModal(order, url, payment) {
   payBase = payment && payment.base != null ? Number(payment.base) : Number(order.paidAmount || 0);
   if (url && payInvoice) { try { sessionStorage.setItem('payInv:' + order.id, JSON.stringify({ base: payBase, amount: payInvoice.amount })); } catch (e) {} }
   $('payTitle').textContent = 'Complete your payment';
-  $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + ' due now' + (payInvoice.terms && payInvoice.terms.balance > 0 ? ' · balance ' + peso(payInvoice.terms.balance) + ' later' : '') : peso(order.total));
+  $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + (order.advance ? ' ' + (order.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') : '') + ' due now' +
+    (order.advance ? ' · ' + peso(order.advance.cash) + ' in cash ' + (order.fulfillment === 'Delivery' ? 'to the rider' : 'at pickup') : payInvoice.terms && payInvoice.terms.balance > 0 ? ' · balance ' + peso(payInvoice.terms.balance) + ' later' : '') : peso(order.total));
   $('payWait').hidden = false; $('payDone').hidden = true; $('payQR').replaceChildren();
   if (url) {
     $('payLink').href = url; $('payLink').hidden = false; $('payHint').hidden = false; $('payState').textContent = 'Waiting for your payment…';
@@ -1032,6 +1063,9 @@ function renderOrders() {
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
+    ${o.advance && !['Cancelled', 'Returned'].includes(o.status) ? `<div class="dim" style="margin-top:8px">${o.advance.paid ? '✓ ' + peso(o.advance.amount) + ' ' + (o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' paid online.' : peso(o.advance.amount) + ' ' + (o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') + ' to pay online to confirm this order.'} ${Number(o.outstanding || 0) > 0.005 ? peso(o.advance.paid ? o.outstanding : o.advance.cash) + ' in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.') : ''}</div>` : ''}
+    ${o.forfeited ? `<div class="dim" style="margin-top:8px;color:#b32929">The ${peso(o.forfeited)} ${o.fulfillment === 'Delivery' ? 'delivery fee' : 'reservation deposit'} was not refunded because the order was not ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.</div>` : ''}
+    ${o.advance && !o.advance.paid && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Pay ${peso(o.dueNow)} ${o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'deposit'} online</button>` : ''}
     ${o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005 && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.paidAmount || 0) > 0 ? 'Pay remaining ' + peso(o.outstanding) : Number(o.dueNow) > 0 ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
@@ -1076,7 +1110,7 @@ async function placeOrder() {
   syncCounts();
   renderCart();
   renderCatalog();
-  if (pay === 'Xendit') {
+  if (pay === 'Xendit' || (order.advance && !order.advance.paid)) {
     try {
       const payment = await api('/api/shop/orders/' + encodeURIComponent(order.id) + '/xendit-checkout', { method: 'POST', body: '{}' });
       if (!payment.checkoutUrl) throw new Error('Online payment provider did not return a checkout URL.');
@@ -1428,10 +1462,10 @@ const CLARIFY = { dimensions: ['Dimensions', 'e.g. 100 x 60 x 40 mm'], thickness
 (function () { const st = document.createElement('style'); st.textContent = '.cl-f{display:grid;gap:5px;font-weight:600;font-size:13.5px}.cl-f .form-input{width:100%;box-sizing:border-box;font-weight:400}.cl-err{color:#b32929;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-err:empty{display:none}[data-clarify-quote] .is-bad{border-color:#b32929!important;box-shadow:0 0 0 3px rgba(179,41,41,.14)}'; document.head.appendChild(st); })();
 function clarifyFormHtml(id, fields) {
   const boxes = fields.filter(f => CLARIFY[f]).map(f => `<label class="cl-f">${CLARIFY[f][0]} <b style="color:#b32929">*</b><input class="form-input" name="spec_${f}" maxlength="200" autocomplete="off" placeholder="${CLARIFY[f][1]}"><span class="cl-err" data-err="spec_${f}" role="alert"></span></label>`).join('');
-  const noteNeeded = fields.includes('other') || fields.includes('drawing');
-  const noteLabel = fields.includes('drawing') ? 'About the drawing' : fields.includes('other') ? 'The other details' : 'Note to the cashier';
+  const noteNeeded = fields.includes('other') || fields.includes('drawing');   // 'drawing' is no longer offered; an older request that asked for it is answered in the note
+  const noteLabel = noteNeeded ? 'The other details' : 'Note to the cashier';
   return `<form data-clarify-quote="${esc(id)}" novalidate style="display:grid;gap:10px;margin-top:8px">${boxes}
-    <label class="cl-f">${noteLabel} ${noteNeeded ? '<b style="color:#b32929">*</b>' : '<span class="dim">(optional)</span>'}<textarea class="form-input" name="response" rows="3" maxlength="1500" placeholder="${fields.includes('drawing') ? 'Describe the drawing, paste a link to it, or say how you will send it' : 'Anything else the cashier should know'}"></textarea><span class="cl-err" data-err="response" role="alert"></span></label>
+    <label class="cl-f">${noteLabel} ${noteNeeded ? '<b style="color:#b32929">*</b>' : '<span class="dim">(optional)</span>'}<textarea class="form-input" name="response" rows="3" maxlength="1500" placeholder="${noteNeeded ? 'Explain the details the cashier asked for' : 'Anything else the cashier should know'}"></textarea><span class="cl-err" data-err="response" role="alert"></span></label>
     <p class="dim" style="margin:0">Every field marked * is required. Include the unit (mm, inches, pcs).</p>
     <div><button class="btn-primary btn-sm" type="submit">Review & Send Details</button> <span data-clarify-error role="alert" style="color:#b32929"></span></div></form>`;
 }
