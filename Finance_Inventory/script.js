@@ -4526,14 +4526,25 @@ function renderAccountsTable() {
 
     const roleSel = document.getElementById("accountRoleFilter");
     const roleWanted = roleSel ? roleSel.value : "all";
+    // status filter: active accounts, or disabled ones (anything that is not active cannot sign in)
+    const statusSel = document.getElementById("accountStatusFilter");
+    const statusWanted = statusSel ? statusSel.value : "all";
+    const isActive = (u) => u.status === "active";
+    if (statusSel) {
+        const act = userAccountsData.filter(isActive).length, dis = userAccountsData.length - act;
+        statusSel.options[0].textContent = `All statuses (${userAccountsData.length})`;
+        statusSel.options[1].textContent = `Active accounts (${act})`;
+        statusSel.options[2].textContent = `Disabled accounts (${dis})`;
+    }
     const visible = userAccountsData
         .map((user, index) => ({ user, index }))
         .filter(x => roleWanted === "all" || (roleWanted === "staff" ? x.user.roleKey !== "customer" : x.user.roleKey === roleWanted))
+        .filter(x => statusWanted === "all" || (statusWanted === "active" ? isActive(x.user) : !isActive(x.user)))
         // latest sign-in on top; accounts that have never signed in go to the bottom (then by name)
         .sort((a, b) => (userLoginTime(b.user) - userLoginTime(a.user)) ||
             String(a.user.name || "").localeCompare(String(b.user.name || "")));
 
-    if (count && roleWanted !== "all") {
+    if (count && (roleWanted !== "all" || statusWanted !== "all")) {
         count.textContent = `${visible.length} of ${userAccountsData.length} accounts`;
     }
 
@@ -4541,7 +4552,7 @@ function renderAccountsTable() {
 
         tableBody.innerHTML = `
             <tr class="no-results-row">
-                <td colspan="6">No accounts found.</td>
+                <td colspan="6">${statusWanted === "disabled" ? "No disabled accounts." : statusWanted === "active" ? "No active accounts match this filter." : "No accounts found."}</td>
             </tr>
         `;
 
@@ -4877,6 +4888,8 @@ function initUserManagement() {
 
     const accountRoleFilter = document.getElementById("accountRoleFilter");
     if (accountRoleFilter) accountRoleFilter.addEventListener("change", renderAccountsTable);
+    const accountStatusFilter = document.getElementById("accountStatusFilter");
+    if (accountStatusFilter) accountStatusFilter.addEventListener("change", renderAccountsTable);
 
     const pendingBody =
         document.getElementById("pendingInvitesTableBody");
