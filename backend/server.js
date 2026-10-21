@@ -57,8 +57,15 @@ const REASONS = {
     other: 'Other (explain in note)'
   }
 };
-// Labels for reasons that are no longer offered but may exist on older ledger rows
-const LEGACY_REASON_LABELS = { production_output: 'Produced in-house' };
+// Labels for reasons the system writes by itself (sales, orders, returns) and for older ledger rows,
+// so the movement log, reports and the printed PDF never show a raw code such as "online_order"
+const LEGACY_REASON_LABELS = {
+  production_output: 'Produced in-house',
+  sale: 'Sold at the POS counter',
+  online_order: 'Online shop order',
+  return: 'Returned by customer',
+  refund: 'Order cancelled, restocked'
+};
 const ALL_DEPTS = DEPARTMENTS;
 // Which product departments each reason applies to (the product's department comes from the database).
 //  Stock In : supplier deliveries are raw materials / finishing supplies only (finished goods are made in-house),

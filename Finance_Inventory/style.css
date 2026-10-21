@@ -4302,6 +4302,8 @@ html[data-theme="light"] ::selection { background: rgba(29, 99, 171, 0.25); }
 }
 
 @media print {
+    /* color-scheme: light, otherwise dark mode paints the page margins (and the footer area) black in the PDF */
+    html { color-scheme: light !important; }
     html, body { background: #fff !important; color: #000 !important; display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
     body.printing-report > *:not(#printReport) { display: none !important; }
     body.printing-report #printReport { display: block !important; }
@@ -4351,6 +4353,12 @@ html[data-theme="light"] ::selection { background: rgba(29, 99, 171, 0.25); }
     #printReport .pd-sub { font: 700 9.5pt Arial, sans-serif; margin: 10px 0 4px; color: #1b3a5c; }
     #printReport .pd-small td { padding: 3px 6px; }
     #printReport .r { text-align: right; white-space: nowrap; }
+    #printReport .nw { white-space: nowrap; }
+    /* short tables stay on one page so a total is never left alone at the top of the next page */
+    #printReport .pd-keep, #printReport .pd-dept-t { break-inside: avoid; page-break-inside: avoid; }
+    #printReport tfoot tr { break-before: avoid; page-break-before: avoid; }
+    #printReport .pd-dim { color: #666; }
+    #printReport .pd-note { margin: 5px 0 0; font-size: 8pt; color: #444; font-style: italic; }
     #printReport thead { display: table-header-group; }
     #printReport tfoot { display: table-row-group; }
     #printReport tr { break-inside: avoid; page-break-inside: avoid; }

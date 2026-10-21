@@ -252,15 +252,40 @@ function ledgerHtml(l) {
 }
 
 function printSlip(o) {
-  const rows = (o.items || []).map((i) => `<tr><td>${esc(i.name)}</td><td style="text-align:right">${esc(i.qty)} ${esc(i.unit || '')}</td><td style="text-align:right">${peso(i.qty * i.price)}</td></tr>`).join('');
-  const html = `<!doctype html><html><head><title>${esc(o.id)}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
-    <h1>Triple E Metal Products \u2014 ${o.fulfillment === 'Delivery' ? 'Delivery' : 'Pickup'} slip</h1>
-    <div><b>${esc(o.id)}</b> \u00B7 ${esc(when(o.createdAt))}</div><div>Customer: ${esc(o.customer)} ${esc(o.phone || '')}</div>
-    ${o.fulfillment === 'Delivery' ? `<div>Deliver to: ${esc(o.recipient || o.customer)}, ${esc(o.address || '')}</div>` : ''}
-    <table><thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-    <div><b>Total ${peso(o.total)}</b> \u00B7 ${esc(o.method)} \u00B7 ${o.paymentState === 'paid' ? 'PAID' : 'TO COLLECT ' + peso(dueOf(o))}</div>
-    ${o.cashTendered != null ? `<div>Cash received ${peso(o.cashTendered)} \u00B7 change ${peso(o.cashChange || 0)}</div>` : ''}
-    <div class="sig">Received by (signature over printed name)</div></body></html>`;
+  const del = o.fulfillment === 'Delivery', ship = o.shipTo;
+  const where = ship ? [ship.addressLine, ship.barangay, ship.city, ship.province, ship.zip].filter(Boolean).join(', ') : (o.address || '');
+  const rows = (o.items || []).map((i) => `<tr><td>${esc(i.name)}</td><td class="r">${esc(i.qty)} ${esc(i.unit || '')}</td><td class="r">${peso(i.price)}</td><td class="r">${peso(i.qty * i.price)}</td></tr>`).join('')
+    || '<tr><td colspan="4" class="muted">No items on this order.</td></tr>';
+  const paid = paidOf(o), due = dueOf(o);
+  const tot = [['Subtotal', peso(o.subtotal != null ? o.subtotal : o.total)]]
+    .concat(Number(o.deliveryFee) > 0 ? [['Delivery fee', peso(o.deliveryFee)]] : [])
+    .concat([['Total', peso(o.total)]])
+    .concat(paid > 0 ? [[o.advance && o.advance.paid ? 'Paid online (' + o.advance.label + ')' : 'Already paid', '\u2212' + peso(paid)]] : []);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(o.id)}</title><style>
+    @page{size:A4;margin:14mm} html{color-scheme:light} body{font:12.5px Arial,Helvetica,sans-serif;margin:0;color:#111;background:#fff}
+    .head{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1b3a5c;padding-bottom:8px}
+    .co{font:700 17px Georgia,serif;letter-spacing:.5px;color:#1b3a5c} .kind{font:700 13px Arial;text-transform:uppercase;letter-spacing:1px;color:#1b3a5c}
+    .meta{text-align:right;font-size:12px} .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 24px;margin:14px 0}
+    .grid small{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#555} .grid b{font-weight:600}
+    table{width:100%;border-collapse:collapse;margin:6px 0 0} th{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;text-align:left;border-bottom:1.5px solid #1b3a5c;padding:5px 4px;color:#1b3a5c}
+    td{border-bottom:1px solid #ccd3da;padding:6px 4px;vertical-align:top} .r{text-align:right;white-space:nowrap} .muted{color:#666;font-style:italic}
+    .tot{margin:8px 0 0 auto;width:340px} .tot div{display:flex;justify-content:space-between;gap:12px;padding:3px 0} .tot div span:last-child{white-space:nowrap}
+    .due{margin-top:6px;border:2px solid #1b3a5c;padding:8px 10px;font:700 15px Arial;display:flex;justify-content:space-between}
+    .sigs{display:grid;grid-template-columns:1fr 1fr;gap:40px;margin-top:46px} .sig{border-top:1px solid #000;padding-top:4px;font-size:11px}
+    </style></head><body>
+    <div class="head"><div><div class="co">TRIPLE E METAL PRODUCTS</div><div class="kind">${del ? 'Delivery' : 'Pickup'} slip</div></div>
+      <div class="meta"><b>${esc(o.id)}</b><br>${esc(when(o.createdAt))}</div></div>
+    <div class="grid">
+      <div><small>Customer</small><b>${esc(o.customer || '')}</b>${o.phone ? ' \u00B7 ' + esc(o.phone) : ''}</div>
+      <div><small>Payment</small><b>${esc(o.method || '')}</b> \u00B7 ${esc(STATE_LABEL[o.paymentState] || 'Unpaid')}</div>
+      ${del ? `<div style="grid-column:1/-1"><small>Deliver to</small><b>${esc(o.recipient || o.customer || '')}</b>${o.recipientPhone ? ' \u00B7 ' + esc(o.recipientPhone) : ''}<br>${esc(where || 'No address on record')}${ship && ship.landmark ? '<br>Landmark: ' + esc(ship.landmark) : ''}</div>` : ''}
+    </div>
+    <table><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="tot">${tot.map((t) => `<div><span>${esc(t[0])}</span><span>${t[1]}</span></div>`).join('')}
+      <div class="due"><span>${o.paymentState === 'paid' || due <= 0 ? 'PAID IN FULL' : 'TO COLLECT'}</span><span>${o.paymentState === 'paid' || due <= 0 ? '' : peso(due)}</span></div></div>
+    ${o.cashTendered != null ? `<p>Cash received ${peso(o.cashTendered)} \u00B7 change ${peso(o.cashChange || 0)}</p>` : ''}
+    <div class="sigs"><div class="sig">Released by (staff)</div><div class="sig">Received by (signature over printed name) / date</div></div>
+    </body></html>`;
   printFrame(html, o.id);
 }
 
@@ -269,7 +294,11 @@ function printSlip(o) {
 function printFrame(html, label) {
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
   const d = f.contentWindow.document; d.open(); d.write(html); d.close();
-  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { say('Could not open the print dialog for ' + label + '.', true); } setTimeout(() => f.remove(), 1500); }, 250);
+  // the frame is removed only after printing ends (some browsers print in the background; removing it early prints a blank page)
+  const done = () => setTimeout(() => f.remove(), 500);
+  try { f.contentWindow.addEventListener('afterprint', done); } catch { /* ignore */ }
+  setTimeout(() => f.remove(), 60000);
+  setTimeout(() => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch { say('Could not open the print dialog for ' + label + '.', true); f.remove(); } }, 250);
 }
 
 /* ---------- collecting a payment (§4), reviewed before anything is written (§7) ----------

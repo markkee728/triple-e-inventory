@@ -986,8 +986,9 @@ function printReceipt(id) {
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(o.id)}</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap">
     <style>body{margin:0;padding:24px 14px;background:#eef1f5}.sheet{max-width:580px;margin:0 auto}
-    @media print{body{background:#fff;padding:0}.rcpt{box-shadow:none;border:1px solid #cfd7e0}}
-    .rcpt,.rcpt *{-webkit-print-color-adjust:exact;print-color-adjust:exact}${RCPT_CSS}</style></head>
+    .rcpt,.rcpt *{-webkit-print-color-adjust:exact;print-color-adjust:exact}${RCPT_CSS}
+    @page{size:A4;margin:14mm}
+    @media print{html{color-scheme:light}body{background:#fff;padding:0}.rcpt{box-shadow:none!important;border:1px solid #cfd7e0;break-inside:avoid}}</style></head>
     <body><div class="sheet">${receiptHtml(o)}</div></body></html>`);
   w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
 }
