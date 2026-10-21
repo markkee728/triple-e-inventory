@@ -122,6 +122,8 @@
     const box = $(id); let raw = box ? box.value : '';
     if (box && box.hasAttribute('data-money') && window.MoneyInput) raw = MoneyInput.raw(raw);     // money boxes show commas (2,000.00)
     if (raw === '' || raw == null) { if (o.required) errs[id] = label + ' is required'; return null; }
+    // a quantity typed with a leading zero (05, 007, 00.5) is refused: type 5, 7 or 0.5. A plain 0 or 0.5 is fine.
+    if (o.noLeadingZero && /^\s*0\d/.test(String(raw))) { errs[id] = label + ' cannot start with 0. Type ' + String(Number(raw)) + ', not ' + String(raw).trim(); return null; }
     const n = Number(raw);
     if (!Number.isFinite(n)) { errs[id] = label + ' must be a number'; return null; }
     if (o.gt ? n <= o.min : n < o.min) { errs[id] = o.gt ? label + ' must be greater than ' + o.min : label + ' cannot be negative'; return null; }
@@ -731,8 +733,8 @@
       const unitCost = vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
       const listPrice = sellsNow() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : 0;
       const reorderManual = $('npReorderManual').checked;
-      const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level') : null;
-      const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand');
+      const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level', { noLeadingZero: true }) : null;
+      const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand', { noLeadingZero: true });
       const location = chosenLocation(errs);
       let supplierCode = '';
       if (!editing && NEEDS_SUPPLIER.indexOf(department) >= 0) { supplierCode = $('npSupplier').value; if (!supplierCode) errs.npSupplier = 'Choose the supplier for this material'; }
@@ -1704,8 +1706,8 @@
       npCategoryNew: textRule('npCategoryNew', 'Category name', { min: 2, max: 60 }),
       npUnit: selectRule('npUnit', 'Choose a unit'),
       npUnitCost: numRule('npUnitCost', 'Unit cost', { max: 1e7 }),
-      npOnHand: () => $('npOnHand').readOnly ? '' : numRule('npOnHand', 'On hand')(),
-      npReorder: () => ($('npReorderManual') && $('npReorderManual').checked ? numRule('npReorder', 'Reorder level')() : ''),   // automatic = nothing to type
+      npOnHand: () => $('npOnHand').readOnly ? '' : numRule('npOnHand', 'On hand', { noLeadingZero: true })(),
+      npReorder: () => ($('npReorderManual') && $('npReorderManual').checked ? numRule('npReorder', 'Reorder level', { noLeadingZero: true })() : ''),   // automatic = nothing to type
       npListPrice: () => sellsNow() ? numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })() : '',
       npLocation: selectRule('npLocation', 'Choose the storage location'),
       npLocationNew: textRule('npLocationNew', 'Storage location', { min: 2, max: 100 }),

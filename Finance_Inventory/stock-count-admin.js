@@ -44,6 +44,8 @@
       '.sc-row-diff td{background:rgba(217,164,65,.07)}' +
       '.sc-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 14px}' +
       '.sc-bar .sp{flex:1}' +
+      '.sc-acts{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;margin-left:auto}.sc-acts>button{height:40px;white-space:nowrap}' +
+      '@media (max-width:640px){.sc-acts{flex-wrap:wrap;width:100%}.sc-acts>button{flex:1 1 auto}}' +
       '.sc-sum{display:flex;gap:10px 22px;flex-wrap:wrap;margin:0 0 14px;font-size:14.5px}.sc-sum b{font-size:17px}' +
       '.sc-err{display:none;margin:10px 0;padding:9px 12px;border-radius:6px;font-size:13.5px;color:var(--red);background:rgba(227,91,91,.1);border:1px solid rgba(227,91,91,.35)}.sc-err.show{display:block}' +
       '.sc-chk{display:flex;gap:8px;align-items:center;font-size:14px;cursor:pointer}.sc-chk input{width:auto}' +
@@ -122,7 +124,7 @@
       '<select id="scFilter" class="inv-select"><option value="all">All products</option><option value="todo">Not counted yet</option><option value="diff">Differences only</option></select>' +
       (open ? '<label class="sc-chk"><input type="checkbox" id="scBlind"' + (blind ? ' checked' : '') + '> Hide system quantity (blind count)</label>' : '') +
       '<span class="sp"></span>' +
-      (open ? '<button class="btn-secondary" id="scSave">Save progress</button><button class="btn-primary" id="scPost">Review &amp; post…</button><button class="btn-danger btn-sm" id="scCancel">Cancel count</button>' : '') + '</div>' +
+      (open ? '<span class="sc-acts"><button class="btn-danger" id="scCancel">Cancel count</button><button class="btn-secondary" id="scSave">Save progress</button><button class="btn-primary" id="scPost">Review &amp; post…</button></span>' : '') + '</div>' +
       '<div class="sc-err" id="scErr"></div>' +
       '<div class="table-wrapper"><table class="sc-sheet"><thead><tr><th>SKU</th><th>Product</th><th>Location</th>' + (blind && open ? '' : '<th class="r">System</th>') +
       '<th class="r">Counted</th><th class="r">Difference</th><th class="r">Value</th><th>Note</th></tr></thead><tbody id="scRows"></tbody></table></div></div>';
