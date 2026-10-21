@@ -38,7 +38,7 @@ async function call(role, method, p, body) {
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 const state = () => call('cashier', 'GET', '/__harness/state').then((r) => r.body);
-const walkIn = () => ({ contactName: 'Walk-in Buyer', phone: '0917 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'length',
+const walkIn = () => ({ contactName: 'Walk-in Buyer', phone: '0917 123 4567', sku: 'ANG-0203', quantity: 4, quantityUnit: 'pcs',
   fulfillment: 'Pickup', flexibleDate: true,
   specs: { material: 'Not sure (advise me)', size: '2"', thickness: '3.0 mm', finish: 'Not sure (advise me)', service: 'None (as is)' }, });
 
@@ -55,10 +55,13 @@ async function main() {
     ok('no order or POS sale appeared', before.orders.length === 0 && before.sales.length === 0, before);
 
     const price = (amount, extra) => Object.assign({ amount, leadTime: '1 to 3 working days', validDays: 7, note: 'Counter price' }, extra);
-    const tooThin = await call('cashier', 'POST', '/api/pos/quotes/' + no + '/price', price('5000.00', { reason: 'why' }));
-    ok('a cashier price with no real justification is refused', tooThin.status === 400 && tooThin.body.fields.reason, tooThin);
-    const asked = await call('cashier', 'POST', '/api/pos/quotes/' + no + '/price', price('5000.00', { reason: 'Above the cashier limit, Finance must approve' }));
-    ok('with a CASHIER_QUOTE_LIMIT_PHP of 0 the price goes to Finance, not straight out', asked.status === 200 && asked.body.status === 'pending_approval', asked);
+    const tooThin = await call('cashier', 'POST', '/api/pos/quotes/' + no + '/price', price('5000.00', { customManufacturing: true, reason: 'why' }));
+    ok('a cashier who ticks "needs Finance approval" must say why', tooThin.status === 400 && tooThin.body.fields.reason, tooThin);
+    const opts = await call('cashier', 'GET', '/api/pos/quote-options');
+    ok('the cashier screen is told the pricing limit (0 = none set)', opts.status === 200 && opts.body.cashierQuoteLimit === 0, opts.body && opts.body.cashierQuoteLimit);
+    const asked = await call('cashier', 'POST', '/api/pos/quotes/' + no + '/price', price('5000.00'));
+    ok('with a CASHIER_QUOTE_LIMIT_PHP of 0 the price goes to Finance without the cashier writing a reason', asked.status === 200 && asked.body.status === 'pending_approval', asked);
+    ok('…and the system writes the reason itself', /no cashier pricing limit/i.test(asked.body.quote.approvalReason || ''), asked.body.quote);
 
     const approved = await call('finance', 'POST', '/api/finance/quotes/' + no + '/approve-price', {});
     ok('Finance approval turns it into a quotation', approved.status === 200 && approved.body.quote.status === 'quoted' && +approved.body.quote.quotedAmount === 5000, approved.body);
@@ -127,8 +130,24 @@ async function main() {
     ok('under the configured ceiling the cashier can issue the quotation directly', routine.status === 200 && routine.body.status === 'quoted', routine);
     const b = await call('cashier', 'POST', '/api/pos/quotes', walkIn());
     const over = await call('cashier', 'POST', '/api/pos/quotes/' + b.body.id + '/price',
-      { amount: '60000.00', leadTime: '1 to 3 working days', validDays: 7, note: 'Big order', reason: 'Above the ceiling, Finance must approve' });
-    ok('only one peso above the same ceiling sends it to Finance instead', over.status === 200 && over.body.status === 'pending_approval', over);
+      { amount: '60000.00', leadTime: '1 to 3 working days', validDays: 7, note: 'Big order' });
+    ok('above the same ceiling it goes to Finance instead, with no reason asked of the cashier', over.status === 200 && over.body.status === 'pending_approval', over);
+    ok('…and the automatic reason names the ceiling', /50,000/.test(over.body.quote.approvalReason || ''), over.body.quote);
+    const fq = await call('finance', 'GET', '/api/finance/quotes');
+    const mine = (fq.body || []).find((x) => x.id === b.body.id);
+    ok('Finance sees who sent the price, the lead time and the validity', mine && mine.proposedBy && mine.proposedLeadTime && mine.proposedValidDays === 7 && fq.body[0].status === 'pending_approval', mine);
+    const thin = await call('finance', 'POST', '/api/finance/quotes/' + b.body.id + '/return-price', { note: 'no' });
+    ok('sending a price back needs a real note', thin.status === 400 && thin.body.fields.note, thin.body);
+    const back = await call('finance', 'POST', '/api/finance/quotes/' + b.body.id + '/return-price', { note: 'Too high, use the 2026 brass price list' });
+    ok('Finance can send the price back to the cashier', back.status === 200 && back.body.quote.status === 'new' && /brass price list/.test(back.body.quote.financeNote || ''), back.body);
+    const desk = await call('cashier', 'GET', '/api/pos/quote-desk/' + b.body.id);
+    ok('…and the cashier desk shows Finance\'s note', desk.status === 200 && /brass price list/.test(JSON.stringify(desk.body)), desk.body && desk.body.financeNote);
+    const again = await call('finance', 'POST', '/api/finance/quotes/' + b.body.id + '/return-price', { note: 'Too high, use the 2026 brass price list' });
+    ok('a price that is not waiting cannot be sent back twice', again.status === 400, again.body);
+    const c = await call('cashier', 'POST', '/api/pos/quotes', walkIn());
+    const flagged = await call('cashier', 'POST', '/api/pos/quotes/' + c.body.id + '/price',
+      { amount: '5000.00', leadTime: '1 to 3 working days', validDays: 7, note: 'Custom', customManufacturing: true, reason: 'Custom die, costing needs Finance' });
+    ok('under the ceiling, a ticked custom-manufacturing price still goes to Finance with the cashier\'s reason', flagged.status === 200 && flagged.body.status === 'pending_approval' && /custom die/i.test(flagged.body.quote.approvalReason || ''), flagged.body);
   } finally {
     second.kill();
   }

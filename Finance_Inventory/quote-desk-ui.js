@@ -84,7 +84,7 @@
       '<td>' + neededText(r) + '</td>' +
       '<td class="qd-num">' + (amt || (r.proposedAmount != null ? 'proposed ' + money(r.proposedAmount) : '—')) + '</td>' +
       '<td>' + day(r.requestDate) + '</td>' +
-      '<td><span class="qd-pill ' + pillClass(r) + '">' + esc(r.statusLabel || r.status) + '</span></td>' +
+      '<td><span class="qd-pill ' + pillClass(r) + '">' + esc(r.statusLabel || r.status) + '</span>' + (r.financeNote && r.status === 'new' ? '<small class="qd-back">Sent back by Finance</small>' : '') + '</td>' +
       '<td><span class="qd-src ' + (r.source === 'pos' ? 'pos' : '') + '">' + (r.source === 'pos' ? 'Walk-in' : 'Online') + '</span></td>' +
       '<td class="is-right"><button type="button" class="qd-open" data-open="' + esc(r.id) + '">Open</button></td>';
   }
@@ -99,7 +99,7 @@
   }
   function renderList() {
     const bar = el('qdChips');
-    if (bar) bar.innerHTML = FILTERS.map(([k, label]) => '<button type="button" class="qd-chip' + (S.filter === k ? ' on' : '') + ' data-filter="' + k + '" aria-pressed="' + (S.filter === k) + '">' +
+    if (bar) bar.innerHTML = FILTERS.map(([k, label]) => '<button type="button" class="qd-chip' + (S.filter === k ? ' on' : '') + '" data-filter="' + k + '" aria-pressed="' + (S.filter === k) + '">' +
       label + '<em>' + (S.counts[k] != null ? S.counts[k] : 0) + '</em></button>').join('');
     const head = el('qdHead'); if (head) head.innerHTML = tableHeads();
     const body = el('qdBody'), cards = el('qdCards');
@@ -186,8 +186,11 @@
         row('Estimated availability', esc(d.leadTime || '—')),
         row('Estimated ready date', d.estimatedReady ? '<b>' + esc(day(d.estimatedReady)) + '</b> <span class="dim">· ' + (d.readyFromAcceptance ? 'counted from the day the customer accepted' : 'if the customer accepts today') + '</span>' + (d.lateForNeededBy ? ' <span class="qd-pill warn">later than the date they need it</span>' : '') : '—'),
         row('Price valid until', d.validUntil ? day(d.validUntil) + (d.expired ? ' <span class="qd-pill bad">expired</span>' : '') : '—'),
-        row('Approval status', d.approvalReason ? '<span class="qd-pill warn">Finance asked</span> ' + esc(d.approvalReason)
-          : d.status === 'pending_approval' ? 'waiting for Finance' : '—'),
+        row('Finance approval', d.status === 'pending_approval'
+            ? '<span class="qd-pill warn">Waiting for Finance</span> ' + (d.proposedAmount != null ? 'your price ' + money(d.proposedAmount) + ' · ' : '') + esc(d.approvalReason || '')
+          : d.financeNote && d.status === 'new' ? '<span class="qd-pill bad">Sent back by Finance</span> ' + esc(d.financeNote) + (d.proposedAmount != null ? ' <span class="dim">· your price was ' + money(d.proposedAmount) + '</span>' : '')
+          : d.approvalReason && d.amount != null ? '<span class="qd-pill ok">Approved by Finance</span> ' + esc(d.approvalReason)
+          : 'not needed'),
         row('Note to customer', d.replyNote ? noteBox(d.replyNote) : ''),
         row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
 
@@ -204,6 +207,7 @@
       const form = el('qdPriceForm'), unit = form && form.querySelector('[name=unit]');
       const total = unit && unit.value && q ? Number(unit.value) * q.qty : (d.proposedAmount != null ? d.proposedAmount : d.amount);
       loadTermOptions(form, total, (d.terms || {}).key);
+      if (form && unit && unit.value && q) { const t = form.querySelector('[data-total]'); if (t) t.textContent = peso(total); syncRoute(form, total); }
     }
     if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
   }
@@ -225,11 +229,13 @@
       ? '<button type="button" class="btn-secondary" data-act="price">' + (d.status === 'pending_approval' ? 'Edit and resubmit the price' : 'Prepare a price') + '</button>'
       : '<p class="q-hint">Pricing is only possible while the request is pending cashier review or waiting for Finance; ' + esc(d.statusLabel || d.status) + ' requests are handled from the buttons below.</p>';
     const o = window.PQ_OPTIONS || {}, q = qtyParts(d.quantity) || {};
+    const back = d.financeNote && d.status === 'new' ? '<div class="qd-callout warn">Finance sent your price back: <b>' + esc(d.financeNote) + '</b>. Change the price and send it again.</div>' : '';
     const unit = d.proposedAmount != null && q.qty ? (d.proposedAmount / q.qty).toFixed(2) : '';
-    return '<form class="qd-price" id="qdPriceForm" novalidate>' +
+    return back + '<form class="qd-price" id="qdPriceForm" novalidate>' +
       '<label>Unit price (PHP)<input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '" required></label>' +
       '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
+      '<div class="qd-callout wide" data-route role="status" hidden></div>' +
       '<label>Estimated availability<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></label>' +
       '<div class="qd-calc" data-ready hidden role="status"><span>Estimated ready date <span class="dim">(working days, if accepted today)</span></span><strong data-ready-date>—</strong></div>' +
       '<div class="qd-callout warn wide" data-ready-late hidden>That is later than the date the customer needs it' + (d.neededBy ? ' (' + esc(shortDay(d.neededBy)) + ')' : '') + '. Choose a shorter time, or say in your remarks when you can deliver.</div>' +
@@ -243,7 +249,7 @@
       '<div class="err-text wide" data-price-err role="alert"></div>' +
       '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelprice">Cancel</button>' +
       '<button type="submit" class="btn-primary">' + (d.status === 'pending_approval' ? 'Resubmit for approval' : 'Review & send price') + '</button></div></form>' +
-      '<p class="q-hint">Approval status: ' + esc(d.status === 'pending_approval' ? 'waiting for Finance' : 'a cashier may price routine requests up to the limit management set in CASHIER_QUOTE_LIMIT_PHP; anything above it goes to Finance automatically.') + '</p>';
+      '<p class="q-hint">Approval status: ' + esc(d.status === 'pending_approval' ? 'waiting for Finance' : limitHint()) + '</p>';
   }
   /* ---- payment terms. The policy table, the allowed scope per item type and every peso figure come from the
      backend; this screen only renders what GET /api/pos/payment-terms returns for the total being quoted. ---- */
@@ -470,6 +476,24 @@
     out.textContent = day(iso); box.hidden = false; late.hidden = !(d.neededBy && iso > d.neededBy);
   }
 
+  /* Whether a price goes to Finance is decided by the server's cashier ceiling (GET /api/pos/quote-options).
+     Going over it is automatic and needs no written reason; only the "custom manufacturing" tick asks for one. */
+  const cashierLimit = () => { const n = Number((window.PQ_OPTIONS || {}).cashierQuoteLimit || 0); return n > 0 ? n : 0; };
+  const overLimit = (total) => { const lim = cashierLimit(); return lim <= 0 || total > lim; };
+  function limitHint() {
+    const lim = cashierLimit();
+    return lim > 0 ? 'you can send prices up to ' + peso(lim) + ' straight to the customer; a higher price goes to Finance automatically, no reason needed.'
+      : 'no cashier pricing limit is set yet, so every counter price is checked by Finance before the customer sees it. You do not need to write a reason for that.';
+  }
+  function syncRoute(form, total) {
+    const box = form && form.querySelector('[data-route]'); if (!box) return;
+    if (!(total > 0) || !overLimit(total)) { box.hidden = true; box.textContent = ''; return; }
+    const lim = cashierLimit();
+    box.hidden = false;
+    box.textContent = (lim > 0 ? peso(total) + ' is above your ' + peso(lim) + ' pricing limit' : 'No cashier pricing limit is set')
+      + ', so Finance approves this price before the customer sees it. This is automatic; you do not need to tick the box below or write a reason.';
+  }
+
   async function submitPrice(form) {
     const d = S.detail; if (!d) return;
     const err = form.querySelector('[data-price-err]'), f = new FormData(form);
@@ -483,18 +507,20 @@
     const exception = f.has('exception'), reason = String(f.get('reason') || '').trim();
     if (!leadTime || !validDays) { err.textContent = 'Choose the preparation time and how long the price is valid.'; return; }
     if (exception && reason.length < 10) { err.textContent = 'Explain why Finance must approve it (at least 10 characters).'; return; }
+    const auto = !exception && overLimit(total), toFinance = exception || auto;
+    const autoWhy = cashierLimit() > 0 ? 'above your ' + peso(cashierLimit()) + ' pricing limit' : 'no cashier pricing limit is set';
     const termKey = f.get('term') || 'full';
     const termOpt = (S.termOpts || []).find((x) => x.key === termKey) || {};
     const dueNow = termOpt.dueNow != null ? money(termOpt.dueNow) : peso(total);
     const balance = termOpt.balance != null ? money(termOpt.balance) : '₱0.00';
     const go = await pqConfirm({ title: 'Review the quotation price',
-      description: exception ? 'This goes to Finance for approval before the customer is told anything.' : 'The customer is told this price as soon as it is saved.',
+      description: toFinance ? 'This goes to Finance for approval before the customer is told anything.' : 'The customer is told this price as soon as it is saved.',
       rows: [['Quotation', d.id], ['Customer', d.customer + ' · ' + (d.phone || '')], ['Item', (d.product || 'Custom item') + ' · ' + d.quantity],
         ['Unit price', peso(Number(unit))], ['Calculated total', peso(total)], ['Ready in', leadTime], ['Price valid', validDays + ' days'],
         ['Payment term', (termOpt.label || TERM_NAME[termKey] || termKey) + ' — pay ' + dueNow + ' now, balance ' + balance],
         ['Where they pay', d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')],
-        ['Needs Finance approval', exception ? 'Yes — ' + reason : 'No'], ['Remarks', note || 'none']],
-      acknowledgment: 'I checked the specifications, the quantity and the arithmetic before sending this price.', confirmLabel: exception ? 'Send to Finance' : 'Approve & tell customer' });
+        ['Needs Finance approval', exception ? 'Yes — ' + reason : auto ? 'Yes, automatically — ' + autoWhy : 'No'], ['Remarks', note || 'none']],
+      acknowledgment: 'I checked the specifications, the quantity and the arithmetic before sending this price.', confirmLabel: toFinance ? 'Send to Finance' : 'Approve & tell customer' });
     if (!go) return;
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
@@ -608,7 +634,7 @@
   function renderPosQuoteForm() {
     const sel = el('pqProduct'); if (!sel) return;
     const keep = sel.value;
-    sel.innerHTML = '<option value="">Other / custom product…</option>' + PRODUCTS.map((p) => '<option value="' + esc(p.sku) + '">' + esc(p.name) + (p.spec ? ' — ' + esc(p.spec) : '') + ' (' + esc(p.sku) + ')</option>').join('');
+    sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map((p) => '<option value="' + esc(p.sku) + '">' + esc(p.name) + (p.spec ? ' — ' + esc(p.spec) : '') + ' (' + esc(p.sku) + ')</option>').join('');
     if (keep && prod(keep)) sel.value = keep;
     ensureFields(); pqProductChanged();
   }
@@ -622,8 +648,9 @@
     if (pqMounted) return;
     QuoteFields.mount(el('pqFields'), { prefix: 'pq', options: o, flexible: isFlexible });
     pqMounted = true;
-    const dateField = el('pqNeeded') && el('pqNeeded').closest('.q-field'), grid = el('pqDateGrid');
-    if (dateField && grid) { const lab = dateField.querySelector('label'); if (lab) lab.textContent = 'Preferred date needed'; grid.insertBefore(dateField, grid.firstChild); }   // one date control only, and it belongs in Customer Preferences
+    // the date stays next to Quantity, exactly where the online form has it; the counter-only "No fixed date" switch sits under it
+    const dateField = el('pqNeeded') && el('pqNeeded').closest('.q-field'), flex = el('pqFlexible') && el('pqFlexible').closest('label');
+    if (dateField && flex) { dateField.appendChild(flex); const holder = el('pqFlexHolder'); if (holder) holder.remove(); }
     pqProductChanged(); buildReview();
   }
   function pqProductChanged() {
@@ -644,17 +671,20 @@
   function buildReview() {
     const box = el('qdReview'); if (!box) return;
     const d = collectForm(), sp = d.specs || {}, p = prod(d.sku);
-    const rows = [['Customer', d.contactName || '—'], ['Mobile', d.phone || '—'], ['Email', d.contactEmail || 'not given'], ['Company', d.company || '—'],
-      ['Product', p ? p.name + ' (' + p.sku + ')' : d.productName || '—'], ['Item type', p ? 'Ready-made catalog product' : d.itemType || '—'], ['Material', sp.material || '—'], ['Size', sp.size || '—'],
-      ['Thickness', sp.thickness || '—'], ['Finish', sp.finish || '—'], ['Machining / secondary work', sp.service || '—'],
-      ['Quantity', (d.quantity || '—') + ' ' + (d.quantityUnit || '')], ['Needed by', d.neededBy ? day(d.neededBy) : d.flexibleDate ? 'Flexible' : '—'],
-      ['Fulfilment', d.fulfillment], ['Delivery area', d.fulfillment === 'Delivery' ? [d.street, d.barangay, d.city, d.province, d.region].filter(Boolean).join(', ') : 'not needed'],
-      ['Extra notes', d.notes || '—']];
-    box.innerHTML = '<div class="qd-review"><h3>Section 4 — Review before saving</h3><p>Check this with the customer standing at the counter. Saving creates a request only: nothing is priced, paid or reserved.</p>' +
+    // the same rows, order and labels as the customer's review in the online shop; optional details left empty are not listed
+    const spec = (v) => v || 'Not specified';
+    const rows = [['Product', p ? p.name + ' (' + p.sku + ')' : d.productName], ['Item type', p ? '' : d.itemType || sp.itemType],
+      ['Material', spec(sp.material)], ['Size', spec(sp.size)], ['Thickness', spec(sp.thickness)], ['Finish', spec(sp.finish)], ['Machining / secondary work', spec(sp.service)],
+      ['Quantity', [d.quantity, d.quantityUnit].filter(Boolean).join(' ')], ['Needed by', d.neededBy ? day(d.neededBy) : d.flexibleDate ? 'No fixed date' : ''],
+      ['Extra notes', d.notes || sp.notes], ['Receive by', d.fulfillment],
+      ['Delivery area', d.fulfillment === 'Delivery' ? [d.street, d.barangay, d.city, d.province, d.region].filter(Boolean).join(', ') : ''],
+      ['Contact name', d.contactName], ['Mobile number', d.phone], ['Email', d.contactEmail], ['Company', d.company]].filter(([, v]) => v);
+    box.innerHTML = '<div class="qd-review"><h3>Review quotation request</h3><p>Please double-check the specifications and contact details with the customer.</p>' +
       rows.map(([k, v]) => '<div class="qd-review-row"><span>' + esc(k) + '</span><strong>' + esc(String(v)) + '</strong></div>').join('') +
-      '<div class="qd-review-actions"><button type="button" class="btn-secondary" data-act="edit">Edit details</button><button type="button" class="btn-primary" id="qdConfirmSave">Confirm &amp; save quotation</button></div></div>';
+      '<p class="qd-review-note">This is only a request for pricing and availability. No stock is reserved and no payment is taken.</p>' +
+      '<div class="qd-review-actions"><button type="button" class="btn-secondary" data-act="edit">Edit details</button><button type="button" class="btn-primary" id="qdConfirmSave">Confirm &amp; save</button></div></div>';
   }
-  function showFormStep() { const box = el('qdReview'); box.innerHTML = ''; box.hidden = true; el('qdFormSections').hidden = false; el('pqName').focus(); }
+  function showFormStep() { const box = el('qdReview'); box.innerHTML = ''; box.hidden = true; el('qdFormSections').hidden = false; el('pqProduct').focus(); }
   let saving = false;
   async function saveWalkIn() {
     if (saving) return;                                             // a double click must never make two requests
@@ -703,8 +733,9 @@
     el('qdSource').addEventListener('change', (e) => { S.source = e.target.value; S.page = 1; loadDesk(); });
     el('qdSize').addEventListener('change', (e) => { S.pageSize = Number(e.target.value); S.page = 1; loadDesk(); });
     el('qdRefresh').addEventListener('click', loadDesk);
+    // the chip bar sits in the toolbar, outside #qdDesk, so it needs its own listener
+    el('qdChips').addEventListener('click', (e) => { const chip = e.target.closest('[data-filter]'); if (chip && chip.dataset.filter !== S.filter) { S.filter = chip.dataset.filter; S.page = 1; loadDesk(); } });
     el('qdDesk').addEventListener('click', (e) => {
-      const chip = e.target.closest('[data-filter]'); if (chip) { S.filter = chip.dataset.filter; S.page = 1; loadDesk(); return; }
       const th = e.target.closest('th[data-sort]'); if (th) { const k = th.dataset.sort; if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc'; else { S.sort = k; S.dir = 'desc'; } S.page = 1; loadDesk(); return; }
       const pg = e.target.closest('[data-page]'); if (pg) { S.page = Math.min(S.pageCount, Math.max(1, S.page + (pg.dataset.page === 'next' ? 1 : -1))); loadDesk(); return; }
       if (e.target.closest('[data-retry]')) { loadDesk(); return; }
@@ -719,6 +750,7 @@
       if (e.target.name === 'unit') { const d = S.detail, q = qtyParts(d.quantity), out = e.target.form.querySelector('[data-total]');
         const okNum = /^\d+(\.\d{1,2})?$/.test(e.target.value.trim());
         if (out) out.textContent = q && okNum ? peso(Number(e.target.value) * q.qty) : '—';
+        syncRoute(e.target.form, q && okNum ? Number(e.target.value) * q.qty : 0);
         clearTimeout(termTimer);
         termTimer = setTimeout(() => loadTermOptions(e.target.form, q && okNum ? Number(e.target.value) * q.qty : 0, (d.terms || {}).key), 350); }
     });

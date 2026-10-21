@@ -25,8 +25,12 @@ function phaseA(w, options) {
   const has = (id, v) => vals(id).includes(v);
   const canType = (id) => [...$(id).options].some((o) => o.value === '__other__');
   const units = () => [...$('qUnit').options].map((o) => o.value).join('|');
-  const typeSize = (t) => { pick('qS_size', '__other__'); $('qC_size').value = t; $('qC_size').dispatchEvent(new w.Event('blur')); return $('qE_size').textContent; };
-  const typeThick = (t) => { pick('qS_thickness', '__other__'); $('qC_thickness').value = t; $('qC_thickness').dispatchEvent(new w.Event('blur')); return $('qE_thickness').textContent; };
+  // typed values go into small boxes now: length / width / height + unit for a part, a number + unit for a pipe, a number in mm for a wall
+  const fill = (id, v) => { const e = $(id); if (!e) return; e.value = v; e.dispatchEvent(new w.Event(e.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true })); };
+  const blurBox = (k) => { $('qX_' + k).dispatchEvent(new w.FocusEvent('focusout', { bubbles: true, relatedTarget: null })); return $('qE_' + k).textContent; };
+  const typeDims = (L, W, H, u) => { pick('qS_size', '__other__'); fill('qXL_size', L); fill('qXW_size', W); fill('qXH_size', H || ''); fill('qXU_size', u || 'mm'); return blurBox('size'); };
+  const typePipe = (v, u) => { pick('qS_size', '__other__'); fill('qXL_size', v); fill('qXU_size', u); return blurBox('size'); };
+  const typeThick = (t) => { pick('qS_thickness', '__other__'); fill('qXL_thickness', t); return blurBox('thickness'); };
 
   title('1. item type first');
   ok('the form asks for the kind of item: die-cast, forged, fitting', !!$('qS_itemType') && vals('qS_itemType').join('|') === 'Die-cast part|Forged part|Fitting / valve', vals('qS_itemType'));
@@ -37,13 +41,15 @@ function phaseA(w, options) {
   title('2. die-cast part: aluminum only, dimensions typed, counted in pcs');
   pick('qS_itemType', 'Die-cast part');
   ok('only aluminum grades are offered', vals('qS_material').join('|') === 'Aluminum ADC12|Aluminum A380|Not sure (advise me)', vals('qS_material'));
-  ok('there is no standard size: typing is chosen for you, with a hint', vals('qS_size').length === 0 && $('qS_size').value === '__other__' && !$('qC_size').hidden && /Made to your drawing/.test($('qS_size').parentNode.textContent), $('qS_size').parentNode.textContent);
-  ok('the size box shows an example of the right shape', /100 x 60 x 40 mm/.test($('qC_size').placeholder), $('qC_size').placeholder);
+  ok('a part offers size ranges by its longest side, up to 1000 mm', vals('qS_size').length === 4 && /up to 50 mm/.test(vals('qS_size')[0]) && /1000 mm/.test(vals('qS_size')[3]), vals('qS_size'));
+  ok('"Exact dimensions" opens length / width / height boxes with a unit', (pick('qS_size', '__other__'), !$('qX_size').hidden && !!$('qXL_size') && !!$('qXW_size') && !!$('qXH_size') && [...$('qXU_size').options].map((o) => o.value).join('|') === 'mm|cm|in'));
   ok('the unit list is pcs / sets and defaults to pcs', units() === 'pcs|sets' && $('qUnit').value === 'pcs', units());
-  ok('a pipe size is not a part size', /overall dimensions/.test(typeSize('2 inch')), $('qE_size').textContent);
-  ok('100 x 60 x 40 mm is accepted', typeSize('100 x 60 x 40 mm') === '');
-  ok('a diameter is accepted', typeSize('Ø50 mm') === '');
-  ok('dimensions without a unit are not', typeSize('100 x 60') !== '');
+  ok('a length alone is not enough: the width is asked for', /width/.test(typeDims('100', '')), $('qE_size').textContent);
+  ok('letters are not dimensions', /number/.test(typeDims('abc', '60')) || $('qXL_size').value === '', $('qE_size').textContent);
+  ok('100 x 60 x 40 mm is accepted and sent in that form', typeDims('100', '60', '40', 'mm') === '' && $('qC_size').value === '100 x 60 x 40 mm', $('qC_size').value);
+  ok('the height can be left out, and cm works', typeDims('12', '6', '', 'cm') === '' && $('qC_size').value === '12 x 6 cm', $('qC_size').value);
+  ok('a part longer than 1000 mm goes to staff', /1000 mm/.test(typeDims('1200', '60', '40', 'mm')), $('qE_size').textContent);
+  typeDims('100', '60', '40', 'mm');
   ok('"Not applicable" stays available as the wall thickness (optional)', has('qS_thickness', 'Not applicable'));
 
   title('3. the material narrows finish and wall thickness');
@@ -52,8 +58,8 @@ function phaseA(w, options) {
   ok('aluminum walls stop at 6 mm in the list', has('qS_thickness', '2.5 mm') && has('qS_thickness', '6.0 mm') && !has('qS_thickness', '12.0 mm'), vals('qS_thickness'));
   ok('secondary work for a casting: none / deburring / drilling / CNC', vals('qS_service').join('|') === 'None (as is)|Deburring|Drilling / tapping|CNC machining', vals('qS_service'));
   ok('a typed wall above the range is refused with the range', /1 to 8 mm/.test(typeThick('9 mm')), $('qE_thickness').textContent);
-  ok('a typed wall needs mm', /in mm/.test(typeThick('2.2')), $('qE_thickness').textContent);
-  ok('2.2 mm is accepted', typeThick('2.2 mm') === '');
+  ok('a typed wall must be a number', /number/.test(typeThick('2..2')) || $('qXL_thickness').value === '2..2', $('qE_thickness').textContent);
+  ok('2.2 mm is accepted', typeThick('2.2') === '' && $('qC_thickness').value === '2.2 mm', $('qC_thickness').value);
   pick('qS_finish', 'Powder Coated'); pick('qS_material', 'Aluminum A380');
   ok('A380 takes the same finish: the choice stays', $('qS_finish').value === 'Powder Coated' && $('qCleared').hidden, $('qCleared').textContent);
 
@@ -71,13 +77,16 @@ function phaseA(w, options) {
 
   title('4. fitting / valve');
   pick('qS_itemType', 'Fitting / valve');
+  ok('a part size was typed before: switching to a fitting clears it and says why', $('qS_size').value === '' && /measured differently/.test($('qCleared').textContent), $('qCleared').textContent);
   ok('the "not sure" choice survives the change of item type (it fits)', $('qS_material').value === 'Not sure (advise me)', $('qS_material').value);
   pick('qS_material', 'Brass C36000');
   ok('a fitting offers pipe sizes 1/4" to 2" only', vals('qS_size').join('|') === '1/4"|3/8"|1/2"|3/4"|1"|1-1/4"|1-1/2"|2"' && !has('qS_size', '2-1/2"'), vals('qS_size'));
   ok('a fitting has "Not applicable" as its only thickness, picked for you, and cannot type one', vals('qS_thickness').join('|') === 'Not applicable' && $('qS_thickness').value === 'Not applicable' && !canType('qS_thickness'), vals('qS_thickness'));
   ok('a fitting is not CNC machined online', vals('qS_service').join('|') === 'None (as is)|Deburring|Drilling / tapping|Threading (BSP / NPT)', vals('qS_service'));
   ok('it is sold by pcs / sets / boxes and defaults to pcs', units() === 'pcs|sets|boxes' && $('qUnit').value === 'pcs', units());
-  ok('a typed pipe size is checked against the pipe pattern', typeSize('4 x 8 ft') !== '' && typeSize('1 inch') === '');
+  ok('a fitting\'s typed size is one pipe size with in / mm', typePipe('25', 'mm') === '' && $('qC_size').value === '25 mm' && [...$('qXU_size').options].map((o) => o.value).join('|') === 'mm|in', $('qC_size').value);
+  ok('a typed size that is already in the list is sent back to the list', /choose 1" from the list/.test(typePipe('1', 'in')), $('qE_size').textContent);
+  ok('a fitting above 2" goes to staff', /up to 2"/.test(typePipe('3', 'in')), $('qE_size').textContent);
 
   title('5. the browser sends what the server accepts');
   $('qQty').value = '19'; ok('the form refuses 19 (minimum order 20) before sending', w.QuoteFields.validate('q').ok === false && /minimum order/.test($('qE_quantity').textContent), $('qE_quantity').textContent);
@@ -87,11 +96,36 @@ function phaseA(w, options) {
   ok('read() carries the item type, the unit and the specs', body.itemType === 'Fitting / valve' && body.quantityUnit === 'pcs' && body.specs.material === 'Brass C36000' && body.specs.size === '3/4"', body);
   return { out, body };
 }
+async function phaseLink(w) {
+  const out = [], ok = (label, cond, detail) => out.push([label, !!cond, detail]), title = (t) => out.push(['\n' + t, null]);
+  const $ = (id) => w.document.getElementById(id);
+  const wait = (ms) => new Promise((r) => w.setTimeout(r, ms));
+  const say = async (t) => { $('qItem').value = t; $('qItem').dispatchEvent(new w.Event('input', { bubbles: true })); await wait(400); };
+  const offTypes = () => [...$('qS_itemType').options].filter((o) => o.disabled).map((o) => o.value);
+  title('5b. the description and the item type are connected');
+  w.QuoteFields.reset('q');
+  ok('before the item type, material and sizes wait for it', $('qS_material').disabled && $('qS_size').disabled && /item type first/.test($('qS_size').options[0].textContent));
+  ok('only "choose the item type" is asked until then', w.QuoteFields.validate('q').ok === false && !$('qE_material').textContent && !$('qE_size').textContent && !!$('qE_itemType').textContent);
+  await say('brass');
+  ok('"brass" switches off die-cast parts (aluminum) and keeps forged parts and fittings', offTypes().join('|') === 'Die-cast part' && $('qS_itemType').value === '', offTypes());
+  ok('…and says why', /Forged part or Fitting/.test($('qNarrow').textContent), $('qNarrow').textContent);
+  await say('brass valve');
+  ok('"brass valve" picks Fitting / valve for them', $('qS_itemType').value === 'Fitting / valve' && !$('qS_material').disabled, $('qS_itemType').value);
+  ok('…and only brass grades and pipe sizes follow', [...$('qS_material').options].filter((o) => /Aluminum/.test(o.value)).length === 0 && [...$('qS_size').options].some((o) => o.value === '3/4"'));
+  await say('aluminum valve');
+  ok('"aluminum valve" is something we do not make, and the note says so', /do not make/.test($('qNarrow').textContent), $('qNarrow').textContent);
+  await say('aluminum housing');
+  ok('"aluminum housing" picks Die-cast part', $('qS_itemType').value === 'Die-cast part', $('qS_itemType').value);
+  $('qNarrow').querySelector('[data-showall]').click(); await wait(50);
+  ok('"Show all item types" turns every type back on', offTypes().length === 0, offTypes());
+  $('qItem').value = ''; w.QuoteFields.reset('q');
+  $('qS_itemType').value = 'Fitting / valve'; $('qS_itemType').dispatchEvent(new w.Event('change', { bubbles: true }));   // phase B starts from a fitting, as before
+  return { out };
+}
 function phaseB(w, options) {
   const out = [], ok = (label, cond, detail) => out.push([label, !!cond, detail]), title = (t) => out.push(['\n' + t, null]);
   const $ = (id) => w.document.getElementById(id);
   const units = () => [...$('qUnit').options].map((o) => o.value).join('|');
-
   title('6. a ready-made catalog product (finished good) is sold by pcs');
   w.QuoteFields.autofill('q', { material: 'Brass', size: '3/4 in' }); w.QuoteFields.setUnit('q', 'pcs');
   ok('the item type is hidden: nothing to choose', $('qTypeWrap').hidden === true);
@@ -138,6 +172,8 @@ async function main() {
     // the server accepts exactly what the form built
     const res = await (await fetch(BASE + '/api/pos/quotes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ contactName: 'Walk-in Buyer', phone: '0917 123 4567', productName: 'Brass elbow', fulfillment: 'Pickup', flexibleDate: true }, a.body)) })).json();
     report([['the server accepts exactly what the form built', res.quantity === '200 pcs' && /Item type: Fitting \/ valve/.test(res.details || '') && /Material: Brass C36000/.test(res.details || ''), res]]);
+    const l = await run(phaseLink);
+    l.out.forEach((row) => (row[1] === null ? console.log(row[0]) : report([row])));
     const b = await run(phaseB);
     b.out.forEach((row) => (row[1] === null ? console.log(row[0]) : report([row])));
   } finally { if (browser) await browser.close(); child.kill(); }

@@ -12,6 +12,11 @@ const stars = n => '<span class="cm-stars" aria-label="' + n + ' out of 5">' + '
 const day = ms => (ms ? new Date(ms).toLocaleDateString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric' }) : '');
 
 let people = [], reviewList = [], lastFocus = null, token = 0;
+let peopleFilter = 'all', reviewFilter = 'all', peopleLoaded = false, reviewsLoaded = false;
+const listStars = n => '<span class="cmx-stars" aria-label="' + n + ' out of 5">' + '\u2605'.repeat(n) + '<i>' + '\u2605'.repeat(5 - n) + '</i></span>';
+const busy = (id, on) => { const b = el(id); if (b) b.classList.toggle('spin', !!on); };
+const chipBar = (id, list, cur, attr) => { const bar = el(id); if (bar) bar.innerHTML = list.map(([k, label, n]) => '<button type="button" class="cmx-chip' + (cur === k ? ' on' : '') + '" ' + attr + '="' + k + '" aria-pressed="' + (cur === k) + '">' + esc(label) + '<em>' + n + '</em></button>').join(''); };
+const stateBox = (box, title, text, error) => { box.hidden = false; box.className = 'cmx-state' + (error ? ' error' : ''); box.innerHTML = '<strong>' + esc(title) + '</strong>' + esc(text || ''); };
 
 async function request(url, opts) {
   const r = await fetch(url, { credentials: 'include', ...opts });
@@ -78,16 +83,30 @@ const loadReviewList = () => request('/api/finance/reviews');
 /* ---------- customers ---------- */
 function renderPeople() {
   const q = (el('cmSearch').value || '').toLowerCase().trim();
-  const list = people.filter(u => (u.name + ' ' + u.email).toLowerCase().includes(q));
-  el('cmRows').innerHTML = list.map(u => '<tr class="cm-row" tabindex="0" role="button" aria-label="View details for ' + esc(u.name) + '" data-profile="' + Number(u.id) + '">' +
-    '<td>' + esc(u.name) + '</td><td>' + esc(u.email) + '</td><td>' + esc(u.phone || '\u2014') + '</td>' +
-    '<td><span class="cm-pill ' + (isActive(u.status) ? 'on' : 'off') + '">' + (isActive(u.status) ? 'Active' : 'Disabled') + '</span></td>' +
-    '<td><button type="button" class="btn-secondary btn-sm" data-profile="' + Number(u.id) + '">View</button></td></tr>').join('') || '<tr><td colspan="5">No matching customers.</td></tr>';
+  const active = people.filter(u => isActive(u.status)).length;
+  chipBar('cmChips', [['all', 'All', people.length], ['active', 'Active', active], ['disabled', 'Disabled', people.length - active], ['reviewers', 'Wrote reviews', people.filter(u => u.reviews > 0).length]], peopleFilter, 'data-cm-filter');
+  const list = people.filter(u => (peopleFilter === 'all' || (peopleFilter === 'active' ? isActive(u.status) : peopleFilter === 'disabled' ? !isActive(u.status) : u.reviews > 0)) &&
+    (!q || (u.name + ' ' + u.email + ' ' + (u.phone || '') + ' ' + (u.username || '')).toLowerCase().includes(q)));
+  const pill = u => '<span class="cmx-pill ' + (isActive(u.status) ? 'ok' : 'bad') + '">' + (isActive(u.status) ? 'Active' : 'Disabled') + '</span>';
+  el('cmRows').innerHTML = list.map(u => '<tr tabindex="0" aria-label="View details for ' + esc(u.name) + '" data-profile="' + Number(u.id) + '">' +
+    '<td><div class="cmx-who"><span class="cmx-av" aria-hidden="true">' + esc(initials(u.name)) + '</span><div><b>' + esc(u.name) + '</b><small>' + esc(u.email) + '</small></div></div></td>' +
+    '<td class="cmx-num">' + esc(u.phone || '\u2014') + '</td><td>' + esc(u.joined || '\u2014') + '</td><td>' + (u.lastLogin ? esc(u.lastLogin) : '<span class="cmx-sub">Never</span>') + '</td>' +
+    '<td class="is-right cmx-num">' + (u.orders || 0) + '</td><td class="is-right cmx-num">' + (u.reviews || 0) + '</td><td>' + pill(u) + '</td>' +
+    '<td class="is-right"><button type="button" class="cmx-btn" data-profile="' + Number(u.id) + '">View</button></td></tr>').join('');
+  el('cmCards').innerHTML = list.map(u => '<div class="cmx-card" tabindex="0" role="button" aria-label="View details for ' + esc(u.name) + '" data-profile="' + Number(u.id) + '">' +
+    '<div class="cmx-line"><div class="cmx-who"><span class="cmx-av" aria-hidden="true">' + esc(initials(u.name)) + '</span><div><b>' + esc(u.name) + '</b><small>' + esc(u.email) + '</small></div></div>' + pill(u) + '</div>' +
+    '<div class="cmx-line cmx-mut"><span>' + esc(u.phone || 'No phone') + '</span><span>' + (u.orders || 0) + ' orders \u00B7 ' + (u.reviews || 0) + ' reviews</span></div></div>').join('');
+  const empty = el('cmEmpty'), has = list.length > 0;
+  el('cmTableWrap').style.display = has ? '' : 'none'; el('cmCards').style.display = has ? '' : 'none';
+  if (!has) stateBox(empty, people.length ? 'No customer matches' : 'No registered customers yet', people.length ? 'Try another name, or clear the filter.' : 'Customers appear here once they sign up in the online shop.');
+  else empty.hidden = true;
+  el('cmMessage').textContent = has ? 'Showing ' + list.length + ' of ' + people.length + ' customer' + (people.length === 1 ? '' : 's') + '. Click a row for the full profile and their reviews.' : '';
 }
 async function loadPeople() {
-  el('cmMessage').textContent = 'Loading\u2026';
-  try { people = await request('/api/pos/customer-directory'); renderPeople(); el('cmMessage').textContent = people.length + ' registered customers'; }
-  catch (e) { el('cmMessage').textContent = e.message; }
+  busy('cmRefresh', true); if (!peopleLoaded) el('cmMessage').textContent = 'Loading customers\u2026';
+  try { people = await request('/api/pos/customer-directory'); peopleLoaded = true; renderPeople(); }
+  catch (e) { el('cmMessage').textContent = ''; el('cmTableWrap').style.display = 'none'; el('cmCards').style.display = 'none'; stateBox(el('cmEmpty'), 'Could not load customers', e.message, true); }
+  finally { busy('cmRefresh', false); }
 }
 function reviewsHtml(list) {
   if (!list.length) return '<p class="cm-note" style="margin-top:14px">This customer has not reviewed any product yet.</p>';
@@ -117,24 +136,54 @@ async function openProfile(id) {
 }
 
 /* ---------- product reviews ---------- */
+function renderReviewKpis() {
+  const box = el('cmReviewKpis'); if (!box) return;
+  const vis = reviewList.filter(r => r.status !== 'hidden'), hidden = reviewList.length - vis.length;
+  const avg = vis.length ? vis.reduce((t, r) => t + r.rating, 0) / vis.length : 0, low = vis.filter(r => r.rating <= 2).length;
+  const mix = [5, 4, 3, 2, 1].map(n => { const c = vis.filter(r => r.rating === n).length; return '<div><span>' + n + '\u2605</span><i><b style="width:' + (vis.length ? Math.round(c * 100 / vis.length) : 0) + '%"></b></i><span>' + c + '</span></div>'; }).join('');
+  box.innerHTML = '<div class="cmx-kpi ok"><span>Average rating</span><strong>' + (vis.length ? avg.toFixed(1) : '\u2014') + '</strong><small>' + (vis.length ? listStars(Math.round(avg)) + ' from ' + vis.length + ' visible' : 'No visible reviews yet') + '</small></div>' +
+    '<div class="cmx-kpi"><span>Rating mix</span><div class="cmx-mix">' + mix + '</div></div>' +
+    '<div class="cmx-kpi' + (low ? ' warn' : '') + '"><span>Needs attention (1\u20132 stars)</span><strong>' + low + '</strong>' + (low ? '<button type="button" data-cm-rfilter="low">Show them</button>' : '<small>Nothing to follow up</small>') + '</div>' +
+    '<div class="cmx-kpi"><span>Hidden from the shop</span><strong>' + hidden + '</strong>' + (hidden ? '<button type="button" data-cm-rfilter="hidden">Show them</button>' : '<small>of ' + reviewList.length + ' reviews</small>') + '</div>';
+}
 function renderReviews() {
-  el('cmReviewMessage').textContent = reviewList.length + ' review' + (reviewList.length === 1 ? '' : 's') + ' \u00B7 ' + reviewList.filter(r => r.status === 'hidden').length + ' hidden';
-  el('cmReviews').innerHTML = reviewList.length ? '<div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Product</th><th>Rating</th><th>Customer</th><th>Date</th><th>Status</th></tr></thead><tbody>' +
-    reviewList.map(r => '<tr class="cm-row" tabindex="0" role="button" aria-label="View review and customer details for ' + esc(r.customer) + '" data-review-row="' + Number(r.id) + '">' +
-      '<td>' + esc(r.product) + '<div class="faint" style="font-size:12px">' + esc(r.sku) + '</div></td><td>' + stars(r.rating) + '</td><td>' + esc(r.customer) + '</td><td>' + esc(day(r.createdAt)) + '</td>' +
-      '<td><span class="cm-pill ' + (r.status === 'hidden' ? 'off' : 'on') + '">' + (r.status === 'hidden' ? 'Hidden' : 'Visible') + '</span></td></tr>').join('') + '</tbody></table></div>' : 'No reviews found.';
+  renderReviewKpis();
+  const q = (el('cmReviewSearch').value || '').toLowerCase().trim(), rt = el('cmReviewRating').value;
+  const vis = reviewList.filter(r => r.status !== 'hidden');
+  chipBar('cmReviewChips', [['all', 'All', reviewList.length], ['visible', 'Visible', vis.length], ['low', 'Needs attention', vis.filter(r => r.rating <= 2).length], ['hidden', 'Hidden', reviewList.length - vis.length]], reviewFilter, 'data-cm-rfilter');
+  const list = reviewList.filter(r => (reviewFilter === 'all' || (reviewFilter === 'low' ? r.status !== 'hidden' && r.rating <= 2 : r.status === reviewFilter)) &&
+    (rt === 'all' || String(r.rating) === rt) && (!q || (r.product + ' ' + r.sku + ' ' + r.customer + ' ' + (r.body || '')).toLowerCase().includes(q)));
+  const pill = r => '<span class="cmx-pill ' + (r.status === 'hidden' ? 'bad' : 'ok') + '">' + (r.status === 'hidden' ? 'Hidden' : 'Visible') + '</span>';
+  const act = r => '<button type="button" class="cmx-btn' + (r.status === 'hidden' ? '' : ' danger') + '" data-review-act="' + Number(r.id) + '">' + (r.status === 'hidden' ? 'Restore' : 'Hide') + '</button>';
+  const text = r => r.body ? '<div class="cmx-text">' + esc(r.body) + '</div>' : '<div class="cmx-text none">No comment, rating only</div>';
+  el('cmReviewRows').innerHTML = list.map(r => '<tr tabindex="0" aria-label="View review by ' + esc(r.customer) + '" data-review-row="' + Number(r.id) + '">' +
+    '<td><div class="cmx-who"><div><b>' + esc(r.product) + '</b><small>' + esc(r.sku) + (r.orderNo ? ' \u00B7 ' + esc(r.orderNo) : '') + '</small></div></div></td>' +
+    '<td>' + listStars(r.rating) + '<small>' + r.rating + '/5</small></td><td>' + text(r) + (r.status === 'hidden' && r.hiddenReason ? '<small class="cmx-sub" style="max-width:42ch">Hidden: ' + esc(r.hiddenReason) + '</small>' : '') + '</td>' +
+    '<td><div class="cmx-who"><span class="cmx-av" aria-hidden="true">' + esc(initials(r.customer)) + '</span><div><b>' + esc(r.customer) + '</b></div></div></td>' +
+    '<td style="white-space:nowrap">' + esc(day(r.createdAt)) + '</td><td>' + pill(r) + '</td><td class="is-right">' + act(r) + '</td></tr>').join('');
+  el('cmReviewCards').innerHTML = list.map(r => '<div class="cmx-card" tabindex="0" role="button" aria-label="View review by ' + esc(r.customer) + '" data-review-row="' + Number(r.id) + '">' +
+    '<div class="cmx-line"><b>' + esc(r.product) + '</b>' + pill(r) + '</div><div class="cmx-line">' + listStars(r.rating) + '<span class="cmx-mut">' + esc(r.customer) + ' \u00B7 ' + esc(day(r.createdAt)) + '</span></div>' + text(r) +
+    '<div class="cmx-line"><span class="cmx-mut">' + esc(r.sku) + '</span>' + act(r) + '</div></div>').join('');
+  const box = el('cmReviews'), has = list.length > 0;
+  el('cmReviewTable').style.display = has ? '' : 'none'; el('cmReviewCards').style.display = has ? '' : 'none';
+  if (!has) stateBox(box, reviewList.length ? 'No review matches' : 'No reviews yet', reviewList.length ? 'Try another search, rating or filter.' : 'Reviews appear here after customers rate products they received.');
+  else box.hidden = true;
+  el('cmReviewMessage').textContent = has ? 'Showing ' + list.length + ' of ' + reviewList.length + '. Click a review to see who wrote it.' : '';
 }
 async function loadReviews() {
-  el('cmReviewMessage').textContent = 'Loading\u2026';
-  try { reviewList = await loadReviewList(); renderReviews(); } catch (e) { el('cmReviewMessage').textContent = e.message; }
+  busy('cmReviewRefresh', true); if (!reviewsLoaded) el('cmReviewMessage').textContent = 'Loading reviews\u2026';
+  try { reviewList = await loadReviewList(); reviewsLoaded = true; renderReviews(); }
+  catch (e) { el('cmReviewMessage').textContent = ''; el('cmReviewTable').style.display = 'none'; el('cmReviewCards').style.display = 'none'; stateBox(el('cmReviews'), 'Could not load reviews', e.message, true); }
+  finally { busy('cmReviewRefresh', false); }
 }
 async function setVisibility(rv, hide, reason, errBox, btn) {
   try { if (btn) btn.disabled = true;
     await request('/api/finance/reviews/' + rv.id + '/visibility', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hidden: hide, reason: reason || '' }) });
     closeModal(); await loadReviews();
+    el('cmReviewMessage').textContent = (hide ? 'Hidden: ' : 'Restored: ') + rv.customer + '\u2019s review of ' + rv.product + (hide ? '. Customers no longer see it.' : '. It shows in the shop again.');
   } catch (e) { if (errBox) errBox.textContent = e.message; if (btn) btn.disabled = false; }
 }
-async function openReview(id) {
+async function openReview(id, hideNow) {
   const rv = reviewList.find(x => x.id === Number(id)); if (!rv) return;
   const tok = ++token; openModal('Review details');
   function paint(d, note) {
@@ -155,23 +204,36 @@ async function openReview(id) {
     };
   }
   paint(null, 'Loading customer details\u2026');
-  try { if (!rv.userId) throw Error('Customer details unavailable.'); paint(await request('/api/pos/customers/' + encodeURIComponent(rv.userId) + '/profile')); }
-  catch (e) { paint(null, e.message); }
+  if (hideNow && rv.status !== 'hidden') el('cmAct').click();
+  try { if (!rv.userId) throw Error('Customer details unavailable.'); const d = await request('/api/pos/customers/' + encodeURIComponent(rv.userId) + '/profile');
+    const typed = el('cmReason') ? el('cmReason').value : null; paint(d); if (typed !== null && el('cmAct')) { el('cmAct').click(); el('cmReason').value = typed; } }
+  catch (e) { paint(null, e.message); if (hideNow && rv.status !== 'hidden' && el('cmAct')) el('cmAct').click(); }
 }
 
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-cm-tab]');
   if (t) { const box = el('cmBody'); box.querySelectorAll('[data-cm-tab]').forEach(x => x.classList.toggle('active', x === t)); box.querySelectorAll('[data-cm-pane]').forEach(p => p.hidden = p.dataset.cmPane !== t.dataset.cmTab); return; }
+  const cf = e.target.closest('[data-cm-filter]'); if (cf) { peopleFilter = cf.dataset.cmFilter; return renderPeople(); }
+  const rf = e.target.closest('[data-cm-rfilter]'); if (rf) { reviewFilter = rf.dataset.cmRfilter; return renderReviews(); }
+  const ra = e.target.closest('[data-review-act]');
+  if (ra) {                                                                  // Hide asks for a reason in the review window; Restore is one click
+    const rv = reviewList.find(x => x.id === Number(ra.dataset.reviewAct)); if (!rv) return;
+    if (rv.status === 'hidden') { ra.disabled = true; return setVisibility(rv, false, '', null, ra); }
+    return openReview(rv.id, true);
+  }
   const p = e.target.closest('[data-profile]'); if (p) return openProfile(p.dataset.profile);
   const r = e.target.closest('[data-review-row]'); if (r) openReview(r.dataset.reviewRow);
 });
 document.addEventListener('keydown', e => {
-  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('tr.cm-row')) { e.preventDefault(); e.target.click(); }
+  if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('#page-customers tr[tabindex], #page-reviews tr[tabindex], .cmx-card')) { e.preventDefault(); e.target.click(); }
 });
 document.addEventListener('DOMContentLoaded', () => {
+  addStyles();                                                              // the review / profile window styles, before anything opens
   el('cmSearch')?.addEventListener('input', renderPeople);
   el('cmRefresh')?.addEventListener('click', loadPeople);
   el('cmReviewRefresh')?.addEventListener('click', loadReviews);
+  el('cmReviewSearch')?.addEventListener('input', renderReviews);
+  el('cmReviewRating')?.addEventListener('change', renderReviews);
 });
 window.cashierCustomers = { load: loadPeople, reviews: loadReviews };
 })();

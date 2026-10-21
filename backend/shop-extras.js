@@ -73,6 +73,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_amount NUMERIC(14,2)');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_lead_time TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_valid_days INT');
+      // who sent the price to Finance, when, and Finance's note when it sends the price back to the cashier
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_by INT REFERENCES users(user_id)');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMPTZ');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS finance_note TEXT');
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
@@ -145,6 +149,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
   const ALU = ['Aluminum ADC12', 'Aluminum A380'], BRASS = ['Brass C37700', 'Brass C36000'];
   const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"'];
+  // A part is made to the customer's drawing, so it has no catalog size. The dropdown offers size RANGES (by the longest side),
+  // which is enough for a first price; "Exact dimensions" lets them type length x width x height instead.
+  const PART_SIZES = ['Small: longest side up to 50 mm', 'Medium: 51 to 150 mm', 'Large: 151 to 300 mm', 'Extra large: 301 to 1000 mm'];
   const FINISH_ALU = ['Raw / Unfinished', 'Shot Blasted', 'Powder Coated', 'Painted', 'Chromate Conversion', 'Polished'];
   const FINISH_BRASS = ['Raw / Unfinished', 'Polished', 'Satin / Brushed', 'Nickel Plated', 'Chrome Plated'];
   const WALL_ALU = mm(1, 1.5, 2, 2.5, 3, 4, 5, 6), WALL_BRASS = mm(1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12);
@@ -181,11 +188,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   ];
   QUOTE_OPTIONS.forms = [];
   QUOTE_OPTIONS.itemTypes = ['Die-cast part', 'Forged part', 'Fitting / valve'];
+  // words in "Describe the item" that name the KIND of item, so the form can suggest the item type (brass valve -> Fitting / valve)
+  QUOTE_OPTIONS.typeWords = {
+    'Die-cast part': ['die-cast', 'die cast', 'diecast', 'casting', 'cast', 'housing', 'bracket', 'cover', 'enclosure'],
+    'Forged part': ['forged', 'forging', 'forge'],
+    'Fitting / valve': ['valve', 'fitting', 'elbow', 'tee', 'coupling', 'nipple', 'union', 'bushing', 'adapter', 'adaptor', 'connector', 'reducer', 'plug', 'cap', 'faucet', 'tap', 'hose']
+  };
   QUOTE_OPTIONS.itemRules = {
-    'Die-cast part':   { materials: ALU, sizes: [], typed: 'part', thickness: 'optional', finish: FINISH_ALU, wall: WALL_ALU, units: ['pcs', 'sets'], unit: 'pcs',
-                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to your drawing. Type the overall size.' },
-    'Forged part':     { materials: BRASS, sizes: [], typed: 'part', thickness: 'optional', finish: FINISH_BRASS, wall: WALL_BRASS, units: ['pcs', 'sets'], unit: 'pcs',
-                         services: SERVICE, label: 'a forged part', note: 'Brass, forged to your drawing. Type the overall size.' },
+    'Die-cast part':   { materials: ALU, sizes: PART_SIZES, typed: 'part', thickness: 'optional', finish: FINISH_ALU, wall: WALL_ALU, units: ['pcs', 'sets'], unit: 'pcs',
+                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to your drawing. Pick a size range, or type the exact dimensions.' },
+    'Forged part':     { materials: BRASS, sizes: PART_SIZES, typed: 'part', thickness: 'optional', finish: FINISH_BRASS, wall: WALL_BRASS, units: ['pcs', 'sets'], unit: 'pcs',
+                         services: SERVICE, label: 'a forged part', note: 'Brass, forged to your drawing. Pick a size range, or type the exact dimensions.' },
     'Fitting / valve': { materials: BRASS, sizes: PIPE_SIZES, typed: 'pipe', thickness: 'none', finish: FINISH_BRASS, wall: [], units: ['pcs', 'sets', 'boxes'], unit: 'pcs',
                          services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'Threading (BSP / NPT)'], label: 'a fitting or valve', note: 'Forged brass, standard pipe sizes up to 2".' }
   };
@@ -236,6 +249,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const listText = (a) => a.length < 2 ? a.join('') : a.slice(0, -1).join(', ') + ' or ' + a[a.length - 1];
 
   // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
+  // 0 / unset means "no cashier ceiling was set", and then every counter price goes to Finance.
+  const cashierLimitNow = () => { const n = Number(process.env.CASHIER_QUOTE_LIMIT_PHP || 0); return Number.isFinite(n) && n > 0 ? n : 0; };
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
@@ -289,7 +304,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       flexibleDate: q.flexible_date === true || undefined, contactEmail: q.contact_email || undefined, company: q.company_name || undefined,
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
-      proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
+      proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined,
+      proposedLeadTime: q.proposed_lead_time || undefined, proposedValidDays: q.proposed_valid_days || undefined,
+      proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
       lateForNeededBy: (() => { const r = quoteReadyBy(q), n = dateStr(q.needed_by); return !!(r && n && r > n) || undefined; })(),
@@ -320,7 +337,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const pingUser = (id, n, role) => (nc() && id ? nc().notifyUser(id, n, role) : null);
 
   app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(quoteOptionsNow()));
-  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json(quoteOptionsNow()));
+  // the cashier screen also needs the pricing ceiling, so it can say before saving whether a price goes to Finance
+  app.get('/api/pos/quote-options', auth('cashier'), (req, res) => res.json({ ...quoteOptionsNow(), cashierQuoteLimit: cashierLimitNow() }));
   app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(quoteOptionsNow()));
 
   // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
@@ -424,7 +442,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
           throw bad(key, v + ' is not used for ' + itemRule.label + '. Choose ' + listText(itemRule.materials));
         }
         if (key === 'size') {                                            // standard sizes of that item, or a typed one that looks like it
-          if (master || v === NA) throw bad(key, 'That size does not go with ' + itemRule.label + '. ' + (itemRule.sizes.length ? 'Choose ' + itemRule.sizes[0] + ' to ' + itemRule.sizes[itemRule.sizes.length - 1] + ', or type ' : 'Type ') + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint);
+          if (master || v === NA) throw bad(key, 'That size does not go with ' + itemRule.label + '. ' + (itemRule.typed === 'pipe' ? 'Choose ' + itemRule.sizes[0] + ' to ' + itemRule.sizes[itemRule.sizes.length - 1] + ', or type ' : 'Choose a size range, or type ') + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint);
           const why = v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) ? 'Type ' + QUOTE_OPTIONS.typedSizes[itemRule.typed].hint : typedSizeProblem(itemRule.typed, v);
           if (why) throw bad(key, why);
         } else if (key === 'thickness') {
@@ -669,7 +687,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   // Cashier prices routine requests. Custom manufacturing and exceptions require Finance review.
   // The monetary ceiling is intentionally configurable; no unapproved company policy is assumed.
-  const cashierQuoteLimit = () => Number(process.env.CASHIER_QUOTE_LIMIT_PHP || 0);
+  const cashierQuoteLimit = cashierLimitNow;
   const readPrice = (b) => {
     const raw = String(b.amount ?? '').trim();
     if (!/^(?:\d{1,9})(?:\.\d{1,2})?$/.test(raw)) throw bad('amount', 'Enter a positive peso amount with up to two decimal places');
@@ -689,18 +707,32 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quotation not found');
       if (!['new','pending_approval'].includes(cur.status)) throw bad('status', 'Only new or pending quotations can be priced');
-      const exceptional = b.customManufacturing === true || b.exception === true || !Number.isFinite(cashierQuoteLimit()) || cashierQuoteLimit() <= 0 || v.amount > cashierQuoteLimit();
-      if (exceptional && reason.length < 10) throw bad('reason', 'Explain why Finance approval is required (at least 10 characters)');
+      // Two separate routes to Finance. The cashier ticking "custom manufacturing / needs approval" is their own call,
+      // so they must say why. Going over the pricing ceiling is automatic: the system writes the reason itself and
+      // the cashier is never asked to justify a rule they did not choose.
+      const flagged = b.customManufacturing === true || b.exception === true;
+      const limit = cashierQuoteLimit();
+      const overLimit = limit <= 0 || v.amount > limit;
+      if (flagged && reason.length < 10) throw bad('reason', 'Explain why Finance approval is required (at least 10 characters)');
+      const exceptional = flagged || overLimit;
+      const autoReason = limit <= 0 ? 'No cashier pricing limit is set, so every counter price is approved by Finance'
+        : 'Above the cashier pricing limit of PHP ' + limit.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+      const approvalReason = flagged ? reason : (reason.length >= 10 ? reason + ' (' + autoReason + ')' : autoReason);
       const result = await client.query(`UPDATE quote_requests SET status=$2, proposed_amount=$3, proposed_lead_time=$4, proposed_valid_days=$5,
         approval_reason=$6, quoted_amount=CASE WHEN $2='quoted' THEN $3 ELSE quoted_amount END,
         lead_time=CASE WHEN $2='quoted' THEN $4 ELSE lead_time END,
         valid_until=CASE WHEN $2='quoted' THEN $7::date ELSE valid_until END,
-        reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now()
+        reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now(),
+        proposed_by=$9, proposed_at=now(), finance_note=NULL
         WHERE quote_id=$1 RETURNING *`, [cur.quote_id, exceptional?'pending_approval':'quoted', v.amount, v.leadTime, v.days,
-          exceptional?reason:null, addDays(todayPH(),v.days),v.note||null,req.user.id]);
+          exceptional?approvalReason:null, addDays(todayPH(),v.days),v.note||null,req.user.id]);
       await audit(client,req.user,'Record edited',`Cashier ${exceptional?'requested approval for':'priced'} quote ${cur.quote_no}`);
       return result.rows[0];
     });
+    if (q.status === 'pending_approval')
+      Promise.resolve(pingFinance({ category: 'orders', severity: 'warn', title: 'Cashier price waiting for your approval',
+        body: `${req.user.name || 'A cashier'} priced ${q.quote_no} at ${peso(q.proposed_amount)} for ${q.contact_name}. Reason: ${q.approval_reason || 'not given'}.`,
+        link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no, dedupeKey: 'qapprove:' + q.quote_no + ':' + Date.now() })).catch(() => {});
     res.json({ok:true, status:q.status, quote:quoteJson(q)});
   }));
   app.post('/api/finance/quotes/:no/approve-price', auth('finance'), wrap(async (req,res) => {
@@ -709,22 +741,43 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (!cur) throw bad('id','Quotation not found');
       if (cur.status !== 'pending_approval' || !cur.proposed_amount || !cur.proposed_lead_time || !cur.proposed_valid_days) throw bad('status','No pending price proposal');
       const r = await client.query(`UPDATE quote_requests SET status='quoted', quoted_amount=proposed_amount,
-        lead_time=proposed_lead_time,valid_until=$2::date,handled_by=$3,updated_at=now() WHERE quote_id=$1 RETURNING *`,
+        lead_time=proposed_lead_time,valid_until=$2::date,handled_by=$3,updated_at=now(),finance_note=NULL WHERE quote_id=$1 RETURNING *`,
         [cur.quote_id,addDays(todayPH(),cur.proposed_valid_days),req.user.id]);
       await audit(client,req.user,'Record edited',`Finance approved quotation ${cur.quote_no}`);
       return r.rows[0];
     });
+    Promise.resolve(pingUser(q.proposed_by, { category: 'orders', title: 'Finance approved your price', body: `${q.quote_no}: ${peso(q.quoted_amount)} is approved. Tell ${q.contact_name} the price.`,
+      link: 'POS_Cashier.html#quotes', entityType: 'quote', entityId: q.quote_no }, 'cashier')).catch(() => {});
     res.json({ok:true,quote:quoteJson(q)});
+  }));
+  // Finance does not agree with the cashier's price: it goes back to the cashier with a note (the proposal stays on record)
+  app.post('/api/finance/quotes/:no/return-price', auth('finance'), wrap(async (req, res) => {
+    const note = str((req.body || {}).note).replace(/\s+/g, ' ');
+    if (note.length < 10) throw bad('note', 'Tell the cashier what to change (at least 10 characters)');
+    if (note.length > 500) throw bad('note', 'Keep the note within 500 characters');
+    const q = await tx(async client => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quotation not found');
+      if (cur.status !== 'pending_approval') throw bad('status', 'Only a price waiting for approval can be sent back');
+      const r = await client.query(`UPDATE quote_requests SET status='new', finance_note=$2, handled_by=$3, updated_at=now() WHERE quote_id=$1 RETURNING *`,
+        [cur.quote_id, note, req.user.id]);
+      await audit(client, req.user, 'Record edited', `Finance sent the cashier price of ${cur.quote_no} back: ${note}`);
+      return r.rows[0];
+    });
+    Promise.resolve(pingUser(q.proposed_by, { category: 'orders', severity: 'warn', title: 'Finance sent your price back', body: `${q.quote_no}: ${note}`,
+      link: 'POS_Cashier.html#quotes', entityType: 'quote', entityId: q.quote_no }, 'cashier')).catch(() => {});
+    res.json({ ok: true, quote: quoteJson(q) });
   }));
 
   app.get('/api/finance/quotes', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(
       `SELECT q.*, u.email AS customer_email, h.full_name AS handled_by_name, d.full_name AS terms_decided_by_name,
-              conv.order_no AS converted_order_no
+              conv.order_no AS converted_order_no, pb.full_name AS proposed_by_name
          FROM quote_requests q LEFT JOIN users u ON u.user_id = q.customer_id LEFT JOIN users h ON h.user_id = q.handled_by
+         LEFT JOIN users pb ON pb.user_id = q.proposed_by
          LEFT JOIN users d ON d.user_id = q.terms_decided_by
          LEFT JOIN orders conv ON conv.order_id = q.converted_order_id
-        ORDER BY (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
+        ORDER BY (q.status = 'pending_approval') DESC, (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
     // convertedOrder tells the Sales report that this quotation's money belongs to an order it already lists (§10)
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email,
       handledBy: q.handled_by_name || undefined, convertedOrder: q.converted_order_no || undefined })));

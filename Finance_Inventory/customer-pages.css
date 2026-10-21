@@ -1,0 +1,84 @@
+/* customer-pages.css — Cashier > Customers: "Customer Profiles" and "Product Reviews" (POS_Cashier.html).
+   Same look as the Quotation Desk (quotes.css): a toolbar card, chips, a full-width table on desktop and cards on phones.
+   Uses the shared app-ui.css tokens, so light and dark themes work without extra rules. Built by cashier-customers.js. */
+
+.cmx{display:block;margin-top:14px}
+.cmx input,.cmx select{font-family:Inter,sans-serif}
+.cmx input,.cmx select{background:var(--field);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 11px;font-size:14px}
+.cmx input:focus,.cmx select:focus{outline:none;border-color:var(--blue-bright);box-shadow:0 0 0 3px rgba(74,144,217,.18)}
+
+/* ---------- summary tiles ---------- */
+.cmx-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:4px 0 14px}
+.cmx-kpi{padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--card);min-width:0}
+.cmx-kpi span{display:block;font-size:12px;font-weight:600;color:var(--text-faint);margin-bottom:6px}
+.cmx-kpi strong{display:block;font:600 24px/1.1 "IBM Plex Mono",monospace;color:var(--text)}
+.cmx-kpi small{display:block;margin-top:5px;font-size:12px;color:var(--text-faint)}
+.cmx-kpi.warn strong{color:var(--amber)}.cmx-kpi.bad strong{color:var(--red)}.cmx-kpi.ok strong{color:var(--green)}
+.cmx-kpi button{all:unset;cursor:pointer;color:var(--blue-bright);font-size:12px;font-weight:600;margin-top:5px;display:inline-block}
+.cmx-kpi button:focus-visible{outline:2px solid var(--blue-bright);outline-offset:2px;border-radius:3px}
+.cmx-mix{display:grid;gap:4px;margin-top:2px}
+.cmx-mix div{display:grid;grid-template-columns:20px 1fr 22px;gap:7px;align-items:center;font:500 11.5px "IBM Plex Mono",monospace;color:var(--text-dim)}
+.cmx-mix i{display:block;height:6px;border-radius:99px;background:var(--inset);overflow:hidden}
+.cmx-mix i b{display:block;height:100%;background:var(--amber);border-radius:99px}
+
+/* ---------- toolbar ---------- */
+.cmx-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--card);margin-bottom:10px}
+.cmx-search{position:relative;flex:1 1 240px;min-width:190px}
+.cmx-search input{width:100%;box-sizing:border-box;padding-left:34px}
+.cmx-search svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);width:16px;height:16px;fill:none;stroke:var(--text-faint);stroke-width:2;pointer-events:none}
+.cmx-chips{display:flex;flex-wrap:wrap;gap:6px}
+.cmx-chip{border:1px solid var(--border);background:transparent;color:var(--text-dim);font:600 12.5px Inter,sans-serif;padding:6px 11px;border-radius:999px;cursor:pointer;transition:.15s}
+.cmx-chip:hover{border-color:var(--blue-bright);color:var(--text)}
+.cmx-chip.on{background:rgba(74,144,217,.16);border-color:var(--blue-bright);color:var(--blue-bright)}
+.cmx-chip em{font-style:normal;opacity:.8;margin-left:4px;font-family:"IBM Plex Mono",monospace}
+.cmx-bar select{width:auto;flex:0 0 auto;min-width:130px;padding:8px 10px;font-size:13px}
+.cmx-bar .cmx-icon{flex:none}
+.cmx-icon{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;border:1px solid var(--border);border-radius:8px;background:transparent;color:var(--text-dim);cursor:pointer}
+.cmx-icon:hover{color:var(--text);border-color:var(--blue-bright)}
+.cmx-icon svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2}
+.cmx-icon.spin svg{animation:cmxspin .8s linear infinite}@keyframes cmxspin{to{transform:rotate(360deg)}}
+.cmx-note{margin:0 0 10px;font-size:12.5px;color:var(--text-faint)}
+
+/* ---------- table ---------- */
+.cmx-tablewrap{border:1px solid var(--border);border-radius:12px;background:var(--card);overflow-x:auto}
+.cmx-table{width:100%;border-collapse:collapse;font-size:13.5px}
+.cmx-table th{background:var(--inset);text-align:left;padding:10px 12px;font:600 11.5px Inter,sans-serif;letter-spacing:.5px;text-transform:uppercase;color:var(--text-dim);white-space:nowrap;border-bottom:1px solid var(--border)}
+.cmx-table td{padding:11px 12px;border-bottom:1px solid var(--row-line,var(--border));vertical-align:middle}
+.cmx-table tbody tr{cursor:pointer;transition:background .12s}
+.cmx-table tbody tr:hover{background:var(--hover)}
+.cmx-table tbody tr:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}
+.cmx-table tbody tr:last-child td{border-bottom:0}
+.cmx-table .is-right{text-align:right}
+.cmx-num{font-family:"IBM Plex Mono",monospace;white-space:nowrap}
+.cmx-who{display:flex;align-items:center;gap:10px;min-width:0}
+.cmx-av{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(74,144,217,.14);border:1px solid rgba(74,144,217,.35);color:var(--blue-bright);font:700 12.5px Inter,sans-serif}
+.cmx-who b{display:block;font-weight:600;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cmx-who small,.cmx-sub{display:block;font-size:12px;color:var(--text-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:30ch}
+.cmx-text{max-width:42ch;color:var(--text-dim);line-height:1.45;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.cmx-text.none{color:var(--text-faint);font-style:italic}
+.cmx-stars{color:var(--amber);letter-spacing:1px;white-space:nowrap;font-size:14px}
+.cmx-stars i{font-style:normal;color:var(--border)}
+.cmx-stars + small{display:block;font:500 11.5px "IBM Plex Mono",monospace;color:var(--text-faint)}
+.cmx-pill{display:inline-block;padding:3px 9px;border-radius:999px;font:600 11.5px Inter,sans-serif;white-space:nowrap;border:1px solid var(--border);color:var(--text-dim)}
+.cmx-pill.ok{background:rgba(67,196,122,.14);border-color:rgba(67,196,122,.4);color:var(--green)}
+.cmx-pill.warn{background:rgba(217,164,65,.14);border-color:rgba(217,164,65,.4);color:var(--amber)}
+.cmx-pill.bad{background:rgba(227,91,91,.14);border-color:rgba(227,91,91,.4);color:var(--red)}
+.cmx-btn{border:1px solid var(--border);background:transparent;color:var(--blue-bright);font:600 12px Inter,sans-serif;border-radius:7px;padding:6px 10px;cursor:pointer;white-space:nowrap}
+.cmx-btn:hover{background:rgba(74,144,217,.12);border-color:var(--blue-bright)}
+.cmx-btn.danger{color:var(--red)}.cmx-btn.danger:hover{background:rgba(227,91,91,.1);border-color:var(--red)}
+.cmx-btn:disabled{opacity:.5;cursor:wait}
+.cmx-state{padding:28px 18px;text-align:center;color:var(--text-faint);border:1px dashed var(--border);border-radius:12px;background:var(--card)}
+.cmx-state strong{display:block;color:var(--text);margin-bottom:4px}
+.cmx-state.error strong{color:var(--red)}
+.cmx-flag{display:inline-block;margin-left:6px;font:700 10px Inter,sans-serif;letter-spacing:.4px;text-transform:uppercase;color:var(--red)}
+
+/* ---------- phone cards ---------- */
+.cmx-cards{display:grid;gap:10px}
+.cmx-card{border:1px solid var(--border);border-radius:11px;background:var(--card);padding:12px 14px;display:grid;gap:8px;cursor:pointer}
+.cmx-card:hover,.cmx-card:focus-visible{border-color:var(--blue-bright);outline:none}
+.cmx-card .cmx-line{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0}
+.cmx-card .cmx-text{max-width:none}
+.cmx-card .cmx-mut{font-size:12.5px;color:var(--text-faint)}
+@media(min-width:900px){.cmx-cards{display:none}}
+@media(max-width:899px){.cmx-tablewrap{display:none}.cmx-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:480px){.cmx-bar{padding:10px}.cmx-kpi strong{font-size:20px}}

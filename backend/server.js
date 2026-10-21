@@ -61,12 +61,13 @@ const REASONS = {
 const LEGACY_REASON_LABELS = { production_output: 'Produced in-house' };
 const ALL_DEPTS = DEPARTMENTS;
 // Which product departments each reason applies to (the product's department comes from the database).
-//  Stock In : supplier deliveries are raw materials / finishing supplies, customer returns are finished goods,
+//  Stock In : supplier deliveries are raw materials / finishing supplies only (finished goods are made in-house),
+//             produced batches and customer returns are finished goods,
 //             count corrections and "other" can be any department.
 //  Stock Out: reasons are matched to the departments where they can really happen.
 const REASON_DEPTS = {
   in: {
-    supplier_receipt: ALL_DEPTS,                       // finished goods can be bought in ready-made too
+    supplier_receipt: ['Raw Materials', 'Finishing Supplies'], // finished goods are produced in-house, never bought in
     customer_return: ['Finished Goods'],
     produced_batch: ['Finished Goods'],
     count_correction_up: ALL_DEPTS,
@@ -1316,6 +1317,8 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
     if (!p.rowCount) throw new ValidationError({ sku: 'That product does not exist' });
     const prod = p.rows[0];
     const allowedDepts = REASON_DEPTS[m.type][m.reason];
+    if (m.type === 'in' && m.reason === 'supplier_receipt' && prod.department === 'Finished Goods')
+      throw new ValidationError({ reason: `${prod.name} is a finished good. Finished goods are produced in-house, so record it with "Produced Internally" (or "Returned by customer"), not as a supplier delivery` });
     if (!allowedDepts.includes(prod.department))
       throw new ValidationError({ sku: `"${REASONS[m.type][m.reason]}" applies to ${allowedDepts.join(' / ')} products — ${prod.name} is ${prod.department}` });
     if (m.type === 'out' && +prod.on_hand < m.quantity)
@@ -1364,8 +1367,12 @@ productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, Vali
 
 /* Customer directory belongs to the cashier, not Finance. Never expose other staff accounts. */
 app.get('/api/pos/customer-directory', auth('cashier'), wrap(async (req, res) => {
-  const { rows } = await pool.query(`SELECT u.user_id AS id, u.full_name AS name, u.email, u.phone, u.status,
-    to_char(u.last_login AT TIME ZONE $1, 'Mon DD, YYYY HH12:MI AM') AS "lastLogin"
+  // the directory also says when they joined and how much they have done in the shop, so the cashier can tell regulars apart
+  const { rows } = await pool.query(`SELECT u.user_id AS id, u.full_name AS name, u.email, u.phone, u.status, u.username,
+    to_char(u.last_login AT TIME ZONE $1, 'Mon DD, YYYY HH12:MI AM') AS "lastLogin",
+    to_char(u.created_at AT TIME ZONE $1, 'Mon DD, YYYY') AS joined, (EXTRACT(EPOCH FROM u.created_at) * 1000)::bigint AS "joinedAt",
+    (SELECT count(*)::int FROM orders o WHERE o.customer_id = u.user_id) AS orders,
+    (SELECT count(*)::int FROM product_reviews pr WHERE pr.user_id = u.user_id) AS reviews
     FROM users u JOIN roles r ON r.role_id=u.role_id WHERE r.role_key='customer' ORDER BY u.full_name`, [TZ]);
   res.json(rows);
 }));

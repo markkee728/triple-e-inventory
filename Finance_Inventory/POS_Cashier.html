@@ -13,8 +13,9 @@
 <link rel="stylesheet" href="cash-shift.css?v=2">
 <link rel="stylesheet" href="cashier-orders.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
-<link rel="stylesheet" href="quotes.css?v=5">
+<link rel="stylesheet" href="quotes.css?v=6">
 <link rel="stylesheet" href="quote-fields.css?v=2">
+<link rel="stylesheet" href="customer-pages.css?v=2">
 <style>
 .fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
 .cust-err{min-height:0;margin-top:4px;font-size:12.5px;color:var(--red,#e35b5b)}.cust-err:empty{display:none}.cust-grid input.is-bad{border-color:var(--red,#e35b5b)!important}
@@ -246,8 +247,26 @@
     </section>
 
     <!-- ===== Quotations: full-width desk (quote-desk-ui.js + quotes.css) ===== -->
-    <section class="page" id="page-customers"><div class="welcome"><h1>Customer Profiles</h1><p>Registered customers and their contact information.</p></div><div class="panel" style="padding:20px"><div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px"><input id="cmSearch" type="search" placeholder="Search name or email" aria-label="Search customers"><button class="btn-secondary" id="cmRefresh" type="button">Refresh</button></div><div id="cmMessage" role="status"></div><div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Status</th><th>Details</th></tr></thead><tbody id="cmRows"></tbody></table></div><div id="cmDetail" class="panel" hidden style="padding:18px;margin-top:16px"></div></div></section>
-    <section class="page" id="page-reviews"><div class="welcome"><h1>Product Reviews</h1><p>Review customer feedback and moderate visibility.</p></div><div class="panel" style="padding:20px"><button type="button" class="btn-secondary" id="cmReviewRefresh">Refresh reviews</button><div id="cmReviewMessage" role="status"></div><div id="cmReviews" style="margin-top:15px"></div></div></section>
+    <section class="page" id="page-customers"><div class="welcome"><h1>Customer Profiles</h1><p>Registered shop customers: find someone, check their contact details and what they reviewed.</p></div>
+      <div class="cmx">
+        <div class="cmx-bar"><label class="cmx-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="cmSearch" type="search" placeholder="Search name, email or phone" aria-label="Search customers" autocomplete="off"></label>
+          <div class="cmx-chips" id="cmChips" role="group" aria-label="Filter by account status"></div>
+          <button class="cmx-icon" id="cmRefresh" type="button" title="Refresh" aria-label="Refresh customers"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button></div>
+        <p class="cmx-note" id="cmMessage" role="status"></p>
+        <div class="cmx-tablewrap" id="cmTableWrap"><table class="cmx-table"><thead><tr><th>Customer</th><th>Phone</th><th>Joined</th><th>Last sign-in</th><th class="is-right">Orders</th><th class="is-right">Reviews</th><th>Status</th><th></th></tr></thead><tbody id="cmRows"></tbody></table></div>
+        <div class="cmx-cards" id="cmCards"></div><div id="cmEmpty" hidden></div>
+      </div></section>
+    <section class="page" id="page-reviews"><div class="welcome"><h1>Product Reviews</h1><p>What customers say about the products they received. Hide a review that breaks the rules; restore it any time.</p></div>
+      <div class="cmx">
+        <div class="cmx-kpis" id="cmReviewKpis"></div>
+        <div class="cmx-bar"><label class="cmx-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="cmReviewSearch" type="search" placeholder="Search product, customer or review text" aria-label="Search reviews" autocomplete="off"></label>
+          <div class="cmx-chips" id="cmReviewChips" role="group" aria-label="Filter reviews"></div>
+          <select id="cmReviewRating" aria-label="Filter by rating"><option value="all">All ratings</option><option value="5">5 stars</option><option value="4">4 stars</option><option value="3">3 stars</option><option value="2">2 stars</option><option value="1">1 star</option></select>
+          <button class="cmx-icon" id="cmReviewRefresh" type="button" title="Refresh" aria-label="Refresh reviews"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 4v5h-5"/></svg></button></div>
+        <p class="cmx-note" id="cmReviewMessage" role="status"></p>
+        <div class="cmx-tablewrap" id="cmReviewTable"><table class="cmx-table"><thead><tr><th>Product</th><th>Rating</th><th>Review</th><th>Customer</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody id="cmReviewRows"></tbody></table></div>
+        <div class="cmx-cards" id="cmReviewCards"></div><div id="cmReviews" hidden></div>
+      </div></section>
     <section class="page" id="page-quotes">
       <div class="welcome"><h1>Quotation Desk</h1><p>Review requests, price them, and turn accepted quotes into orders.</p></div>
 
@@ -452,12 +471,12 @@
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
-<script src="cashier-customers.js?v=2"></script>
+<script src="cashier-customers.js?v=3"></script>
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
-<script src="quote-fields.js?v=6"></script>
-<script src="quote-desk-ui.js?v=5"></script>
+<script src="quote-fields.js?v=7"></script>
+<script src="quote-desk-ui.js?v=8"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>

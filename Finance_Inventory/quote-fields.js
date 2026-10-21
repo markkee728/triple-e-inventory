@@ -26,6 +26,7 @@
   var opts = function (list, first) { return '<option value="">' + esc(first) + '</option>' + list.map(function (v) { return '<option value="' + esc(v) + '">' + esc(v) + '</option>'; }).join(''); };
   var escRe = function (s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); };
   var hasWord = function (text, w) { return new RegExp('(^|[^a-z0-9])' + escRe(w), 'i').test(text); };   // word start, so "steel" never matches "tee"
+  var wholeWord = function (text, w) { return new RegExp('(^|[^a-z0-9])' + escRe(w) + '(e?s)?(?![a-z0-9])', 'i').test(text); };   // "valves" yes, "capacity" no
   var isCustom = function (o, k) { return (o.customAllowed || []).indexOf(k) >= 0; };
   var ymd = function (d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   var dayText = function (s) { return new Date(s + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); };
@@ -55,7 +56,8 @@
         var k = f[0], custom = isCustom(o, k);
         return '<div class="q-field"><label for="' + p + 'S_' + k + '">' + f[1] + '</label>' +
           '<select id="' + p + 'S_' + k + '">' + opts(o[k] || [], 'Choose ' + f[1].toLowerCase()) + (custom ? '<option value="' + OTHER + '">Other (type it)</option>' : '') + '</select>' +
-          (custom ? '<input id="' + p + 'C_' + k + '" type="text" maxlength="40" class="qx-custom" placeholder="' + CUSTOM_HINT[k] + '" hidden>' : '') +
+          // the typed value is built from the small boxes below it (length x width x height + unit, a pipe size + unit, a thickness in mm)
+          (custom ? '<input id="' + p + 'C_' + k + '" type="hidden" hidden><div class="qx-typed" id="' + p + 'X_' + k + '" hidden></div>' : '') +
           '<div class="err-text" id="' + p + 'E_' + k + '"></div></div>';
       }).join('') + '</div>' +
       '<div class="q-grid">' +
@@ -73,26 +75,40 @@
     FIELDS.forEach(function (f) {
       var k = f[0], sel = $(p + 'S_' + k), c = $(p + 'C_' + k);
       sel.addEventListener('change', function () {
-        if (c) { c.hidden = sel.value !== OTHER; if (!c.hidden) c.focus(); }
-        if (k === 'material') { state[p].picked = true; $(p + 'Narrow').hidden = true; }      // the person chose it, so the "pre-selected" note no longer applies
+        if (c) { typedMode(p, k, sel.value === OTHER); var first = $(p + 'X_' + k) && $(p + 'X_' + k).querySelector('input'); if (sel.value === OTHER && first) first.focus(); }
+        if (k === 'material') { state[p].picked = true; describeNote(p); }                     // the person chose it, so the "pre-selected" note no longer applies
         var fn = $(p + 'A_' + k); if (fn) { fn.hidden = true; fn.textContent = ''; }
-        sel.removeAttribute('data-filled');
+        sel.removeAttribute('data-filled'); sel.removeAttribute('data-auto');
+        if (k !== 'material') { var cl = $(p + 'Cleared'); if (cl && sel.value) { cl.hidden = true; cl.innerHTML = ''; } }     // they chose again: the "cleared" note has done its job
         if (k === 'material' && !state[p].locked) cascade(p, sel.value ? 'the material ' + sel.value : '');     // finish, thickness and cutting that do not go with it are dropped
         check(p, k);
       });
       if (c) { c.addEventListener('input', function () { if (c.classList.contains('is-bad')) check(p, k); }); c.addEventListener('blur', function () { check(p, k); }); }
+      var box = $(p + 'X_' + k);
+      if (box) {
+        box.addEventListener('input', function (e) {
+          if (e.target.matches('input[data-n]')) { var t = e.target, clean = t.value.replace(t.getAttribute('data-n') === 'pipe' ? /[^\d.\/\- ]/g : /[^\d.]/g, ''); if (clean !== t.value) t.value = clean; }
+          compose(p, k); if (sel.classList.contains('is-bad') || box.querySelector('.is-bad')) check(p, k);
+        });
+        box.addEventListener('change', function () { compose(p, k); if (box.querySelector('input[data-n]').value) check(p, k); });
+        box.addEventListener('focusout', function (e) { if (!box.contains(e.relatedTarget)) { compose(p, k); check(p, k); } });
+      }
     });
     var ity = $(p + 'S_itemType');
     if (ity) ity.addEventListener('change', function () {
       var r = ity.value && o.itemRules[ity.value]; var tn = $(p + 'TypeNote'); if (tn) tn.textContent = r ? r.note : '';
-      cascade(p, r ? r.label : '', true); check(p, 'itemType');
+      if (!state[p].autoChange) { state[p].typePicked = !!ity.value; state[p].typeAuto = null; }
+      var kind = r ? r.typed : '', sz = $(p + 'S_size');
+      if (sz && sz.value === OTHER && state[p].typedKind && state[p].typedKind !== kind) { clearTyped(p, 'size'); sz.value = ''; state[p].clearedTyped = true; }
+      state[p].typedKind = kind;
+      cascade(p, r ? r.label : '', true); check(p, 'itemType'); describeNote(p);
     });
     $(p + 'Qty').addEventListener('blur', function () { check(p, 'quantity'); });
     $(p + 'Qty').addEventListener('input', function () { var el = $(p + 'Qty'), d = el.value.replace(wholeUnit(p) ? /[^\d,]/g : /[^\d.,]/g, ''); if (d !== el.value) el.value = d; if (el.classList.contains('is-bad')) check(p, 'quantity'); });
     $(p + 'Unit').addEventListener('change', function () { state[p].unitTouched = true; var el = $(p + 'Qty'); if (wholeUnit(p)) el.value = el.value.replace(/\..*$/, ''); if (el.value) check(p, 'quantity'); });
     $(p + 'Needed').addEventListener('change', function () { check(p, 'neededBy'); neededNote(p); });
     $(p + 'Notes').addEventListener('input', function () { $(p + 'NotesCount').textContent = $(p + 'Notes').value.length + ' / 1000'; });
-    $(p + 'Narrow').addEventListener('click', function (e) { if (e.target.closest('[data-showall]')) { state[p].offKey = state[p].hintKey; refresh(p); } });
+    $(p + 'Narrow').addEventListener('click', function (e) { if (e.target.closest('[data-showall]')) { state[p].offKey = state[p].hint && state[p].hint.key; refresh(p); } });
     var item = itemInput(p); if (item) item.addEventListener('input', function () { clearTimeout(state[p].timer); state[p].timer = setTimeout(function () { refresh(p); }, 250); });
     refresh(p); syncUnits(p);
   }
@@ -116,6 +132,7 @@
     var s = state[p]; s.cleared = [];
     if (withMaterial) rebuild(p, 'material');                              // a die-cast part is aluminum, a forged part or fitting is brass: a material that does not go with the new item type is dropped
     rebuildAll(p, true); syncUnits(p); updateAvailability(p);
+    if (s.clearedTyped) { s.clearedTyped = false; s.cleared.unshift({ label: 'Size', value: 'the typed size, which is measured differently' }); }
     var box = $(p + 'Cleared');
     if (box) {
       if (s.cleared.length) { box.innerHTML = '<span>Cleared because ' + (why ? 'it does not go with <b>' + esc(why) + '</b>' : 'the choices changed') + ': ' +
@@ -128,6 +145,63 @@
   function typedRule(p, field) {
     var r = typeRule(p), o = state[p].options; if (field !== 'size' || !r || !o.typedSizes || !o.typedSizes[r.typed]) return null;
     var t = o.typedSizes[r.typed]; return { re: new RegExp(t.pattern, t.flags), hint: t.hint, maxMm: t.maxMm, maxIn: t.maxIn };
+  }
+
+  // ---- typed values: small boxes instead of one free-text box -----------------------------------------------------------
+  // part size: length x width x height (height optional) + mm / cm / in; pipe size: one number + in / mm; thickness: a number in mm.
+  // The boxes write the same text the server checks ("100 x 60 x 40 mm", "25 mm", "2.5 mm") into the hidden p+'C_'+field input.
+  function typedKind(p, k) { if (k === 'thickness') return 'thick'; var r = typeRule(p); return r && r.typed === 'pipe' ? 'pipe' : 'part'; }
+  function buildTyped(p, k) {
+    var box = $(p + 'X_' + k); if (!box) return;
+    var kind = typedKind(p, k); if (box.getAttribute('data-kind') === kind) return;
+    box.setAttribute('data-kind', kind);
+    var num = function (id, label, ph, opt) { return '<label class="qx-dim"><span>' + label + (opt ? ' <i>(optional)</i>' : '') + '</span><input id="' + p + id + '" data-n="' + (kind === 'pipe' ? 'pipe' : 'num') + '" type="text" inputmode="decimal" maxlength="9" autocomplete="off" placeholder="' + ph + '"></label>'; };
+    var unit = function (list) { return '<label class="qx-dim qx-unit"><span>Unit</span><select id="' + p + 'XU_' + k + '">' + list.map(function (u) { return '<option value="' + u + '">' + u + '</option>'; }).join('') + '</select></label>'; };
+    if (kind === 'part') box.innerHTML = '<div class="qx-dims">' + num('XL_' + k, 'Length', '100') + '<b aria-hidden="true">\u00D7</b>' + num('XW_' + k, 'Width', '60') + '<b aria-hidden="true">\u00D7</b>' + num('XH_' + k, 'Height', '40', true) + unit(['mm', 'cm', 'in']) + '</div><small class="q-hint">The overall size of the part, up to 1000 mm on the longest side.</small>';
+    else if (kind === 'pipe') box.innerHTML = '<div class="qx-dims">' + num('XL_' + k, 'Pipe size', '25 or 1-1/4') + unit(['mm', 'in']) + '</div><small class="q-hint">Up to 50 mm (2 in). The standard sizes are in the list above.</small>';
+    else box.innerHTML = '<div class="qx-dims">' + num('XL_' + k, 'Thickness', '2.5') + '<span class="qx-suffix">mm</span></div>';
+    var c = $(p + 'C_' + k); if (c) c.value = '';
+  }
+  function typedMode(p, k, on) {
+    var c = $(p + 'C_' + k), box = $(p + 'X_' + k); if (!c) return;
+    if (on) buildTyped(p, k);
+    c.hidden = !on; if (box) box.hidden = !on;
+    if (box) box.parentNode.classList.toggle('qx-wide', on && box.getAttribute('data-kind') === 'part');      // three boxes need the full row
+    if (!on) setErr(p, k, $(p + 'E_' + k) && $(p + 'E_' + k).textContent && $(p + 'S_' + k).value ? rule(p, k) : '');
+  }
+  function clearTyped(p, k) { var box = $(p + 'X_' + k), c = $(p + 'C_' + k); if (box) Array.prototype.forEach.call(box.querySelectorAll('input'), function (i) { i.value = ''; }); if (c) c.value = ''; }
+  var boxVal = function (p, id) { var e = $(p + id); return e ? e.value.trim() : ''; };
+  function compose(p, k) {
+    var c = $(p + 'C_' + k), box = $(p + 'X_' + k); if (!c || !box || box.hidden) return;
+    var kind = box.getAttribute('data-kind'), u = boxVal(p, 'XU_' + k);
+    if (kind === 'part') { var d = [boxVal(p, 'XL_' + k), boxVal(p, 'XW_' + k), boxVal(p, 'XH_' + k)].filter(Boolean); c.value = d.length ? d.join(' x ') + ' ' + u : ''; }
+    else if (kind === 'pipe') { var v = boxVal(p, 'XL_' + k); c.value = v ? v + ' ' + u : ''; }
+    else { var t = boxVal(p, 'XL_' + k); c.value = t ? t + ' mm' : ''; }
+  }
+  // which box is wrong, with a message about THAT box (null = the boxes are fine, check the whole value)
+  var NUM_RE = /^\d+(?:\.\d{1,2})?$/, PIPE_RE = /^\d+(?:[-\s]\d+\/\d+|\/\d+|\.\d{1,2})?$/;
+  function boxProblem(p, k) {
+    var box = $(p + 'X_' + k); if (!box || box.hidden) return null;
+    var kind = box.getAttribute('data-kind'), bad = function (id, msg) { var e = $(p + id); return { id: id, msg: msg, el: e }; };
+    if (kind === 'part') {
+      var L = boxVal(p, 'XL_' + k), W = boxVal(p, 'XW_' + k), H = boxVal(p, 'XH_' + k);
+      if (!L) return bad('XL_' + k, 'Enter the length of the part.');
+      if (!NUM_RE.test(L) || !(+L > 0)) return bad('XL_' + k, 'The length must be a number above 0, e.g. 100.');
+      if (!W) return bad('XW_' + k, 'Enter the width of the part (for a round part, its diameter).');
+      if (!NUM_RE.test(W) || !(+W > 0)) return bad('XW_' + k, 'The width must be a number above 0, e.g. 60.');
+      if (H && (!NUM_RE.test(H) || !(+H > 0))) return bad('XH_' + k, 'The height must be a number above 0, or leave it empty.');
+      return null;
+    }
+    if (kind === 'pipe') {
+      var v = boxVal(p, 'XL_' + k);
+      if (!v) return bad('XL_' + k, 'Enter the pipe size.');
+      if (!PIPE_RE.test(v) || !(sizeMm(v + ' mm')[0] > 0)) return bad('XL_' + k, 'Type the pipe size as a number, e.g. 25 or 1-1/4.');
+      return null;
+    }
+    var t = boxVal(p, 'XL_' + k);
+    if (!t) return bad('XL_' + k, 'Enter the thickness in mm.');
+    if (!NUM_RE.test(t) || !(+t > 0)) return bad('XL_' + k, 'The thickness must be a number above 0, e.g. 2.5.');
+    return null;
   }
 
   // ---- the options follow the item --------------------------------------------------------------------------------------
@@ -144,11 +218,21 @@
     var o = state[p].options, text = itemText(p), fam = null, form = null;
     (o.families || []).some(function (f) { if (f.words.some(function (w) { return hasWord(text, w); })) { fam = f; return true; } });
     (o.forms || []).some(function (f) { if (f.words.some(function (w) { return hasWord(text, w); })) { form = f; return true; } });
-    if (!fam && !form) return null;
+    var types = null, wordTypes = [];
+    if (o.typeWords) Object.keys(o.typeWords).forEach(function (t) { if (o.typeWords[t].some(function (w) { return wholeWord(text, w); })) wordTypes.push(t); });
+    if (fam || wordTypes.length) {
+      types = (o.itemTypes || []).filter(function (t) {
+        var r = o.itemRules && o.itemRules[t]; if (!r) return false;
+        var famOk = !fam || r.materials.some(function (m) { return fam.materials.indexOf(m) >= 0; });
+        return famOk && (!wordTypes.length || wordTypes.indexOf(t) >= 0);
+      });
+    }
+    if (!fam && !form && !types) return null;
     var mats = fam ? fam.materials : null, pick = null;
     if (fam && fam.grades) Object.keys(fam.grades).forEach(function (g) { if (!pick && text.indexOf(g) >= 0) pick = fam.grades[g]; });   // "SS 316" -> Stainless Steel 316
     if (!pick && mats && mats.length === 1) pick = mats[0];
-    return { key: (fam ? fam.label : '') + '|' + (form ? form.label : ''), famLabel: fam && fam.label, famName: fam && fam.name, formLabel: form && form.label, materials: mats, sizes: form && form.sizes, pick: pick };
+    return { key: (fam ? fam.label : '') + '|' + (form ? form.label : '') + '|' + wordTypes.join(','), famLabel: fam && fam.label, famName: fam && fam.name, formLabel: form && form.label, materials: mats, sizes: form && form.sizes, pick: pick,
+      types: types, wordTypes: wordTypes };
   }
   // The item type and the material narrow size / thickness / finish / cutting (see the matrix above). Only the MATERIAL list itself is never narrowed:
   // the words in "Describe the item" just put the likely materials FIRST (stainless sheet -> stainless materials on top).
@@ -167,18 +251,54 @@
   }
   function rebuild(p, k) {
     var o = state[p].options, sel = $(p + 'S_' + k), c = $(p + 'C_' + k); if (!sel) return;
-    var cur = sel.value, list = listFor(p, k).slice(), label = FIELDS.filter(function (f) { return f[0] === k; })[0][1], r = typeRule(p);
+    var cur = sel.getAttribute('data-auto') && sel.getAttribute('data-auto') === sel.value ? '' : sel.value, list = listFor(p, k).slice(), label = FIELDS.filter(function (f) { return f[0] === k; })[0][1], r = typeRule(p);
     if (cur && cur !== OTHER && list.indexOf(cur) < 0 && cur === sel.getAttribute('data-added')) list.push(cur);      // a value taken from the product record stays selectable
     var canType = isCustom(o, k) && !(k === 'thickness' && r && r.thickness === 'none');                               // a fitting has no thickness to type
-    sel.innerHTML = opts(list, 'Choose ' + label.toLowerCase()) + (canType ? '<option value="' + OTHER + '">Other (type it)</option>' : '');
-    sel.value = (cur === OTHER && canType) || list.indexOf(cur) >= 0 ? cur : '';
-    if (!sel.value && k === 'thickness' && r && r.thickness === 'none' && list.length === 1 && !sel.disabled) sel.value = list[0];       // the only possible answer
-    if (!sel.value && k === 'size' && !list.length && canType && !sel.disabled) sel.value = OTHER;                        // a part is made to the customer's drawing: there is no standard size, so go straight to typing it
+    var locked = state[p].locked, waiting = !locked && !!state[p].options.itemTypes && !typeVal(p);                    // nothing below the item type can be chosen before it
+    var otherText = k === 'thickness' ? 'Other thickness (type it)' : k === 'size' ? (r && r.typed === 'pipe' ? 'Other pipe size (type it)' : 'Exact dimensions (type them)') : 'Other (type it)';
+    sel.innerHTML = opts(list, waiting ? 'Choose the item type first' : 'Choose ' + label.toLowerCase()) + (canType ? '<option value="' + OTHER + '">' + otherText + '</option>' : '');
+    if (!locked) { sel.disabled = waiting; sel.parentNode.classList.toggle('qx-wait', waiting); }
+    sel.value = !waiting && ((cur === OTHER && canType) || list.indexOf(cur) >= 0) ? cur : '';
+    sel.removeAttribute('data-auto');
+    if (!sel.value && !waiting && k === 'thickness' && r && r.thickness === 'none' && list.length === 1 && !locked) { sel.value = list[0]; sel.setAttribute('data-auto', list[0]); }   // the only possible answer (dropped again if the item type changes)
+    if (!sel.value && !waiting && k === 'size' && !list.length && canType && !locked) sel.value = OTHER;                     // nothing to pick from: go straight to typing it
     if (c) {
-      c.hidden = sel.value !== OTHER;
-      var tr = k === 'size' ? typedRule(p, 'size') : null; c.placeholder = tr ? tr.hint.replace(/^.*?(e\.g\. )/, 'e.g. ') : CUSTOM_HINT[k];
+      if (sel.value === OTHER) { var bx = $(p + 'X_' + k); if (bx && bx.getAttribute('data-kind') !== typedKind(p, k)) { buildTyped(p, k); if (cur === OTHER && state[p].cleared) state[p].cleared.push({ label: label, value: 'what you typed' }); } }
+      typedMode(p, k, sel.value === OTHER);
     }
-    if (cur && sel.value !== cur) { setErr(p, k, ''); if (!sel.disabled && state[p].cleared) state[p].cleared.push({ label: label, value: cur === OTHER ? 'what you typed' : cur }); }
+    if (cur && sel.value !== cur) { setErr(p, k, ''); if (!locked && !waiting && state[p].cleared) state[p].cleared.push({ label: label, value: cur === OTHER ? 'what you typed' : cur }); }
+  }
+  // the item type list follows the description: "brass" leaves forged parts and fittings, "valve" leaves fittings. The others are
+  // switched off (not hidden) with the reason, and "Show all item types" turns them back on. One possible type is picked for them.
+  function rebuildType(p) {
+    var s = state[p], sel = $(p + 'S_itemType'); if (!sel || s.locked) return;
+    var o = s.options, h = s.hint, showAll = h && s.offKey === h.key, fit = h && h.types && h.types.length && !showAll ? h.types : null;
+    var famOf = function (t) { var r = o.itemRules[t], f = (o.families || []).filter(function (x) { return r && x.materials.indexOf(r.materials[0]) >= 0; })[0]; return f ? f.name.toLowerCase() : ''; };
+    var cur = sel.value;
+    sel.innerHTML = '<option value="">Choose the kind of item</option>' + o.itemTypes.map(function (t) {
+      var off = fit && fit.indexOf(t) < 0 && !(t === cur && s.typePicked);                  // their own choice stays; the note says it does not match
+      return '<option value="' + esc(t) + '"' + (off ? ' disabled' : '') + '>' + esc(t) + (off ? ' \u2014 not ' + (h.famName && famOf(t) !== h.famName.toLowerCase() ? h.famName.toLowerCase() + ' (' + famOf(t) + ' only)' : 'what you described') : '') + '</option>';
+    }).join('');
+    sel.value = cur && (!fit || fit.indexOf(cur) >= 0 || s.typePicked) ? cur : '';
+    var fire = function (v) { sel.value = v; s.typeAuto = v || null; s.autoChange = true; try { sel.dispatchEvent(new Event('change')); } finally { s.autoChange = false; } return true; };
+    if (!sel.value && fit && fit.length === 1) return fire(fit[0]);                        // only one kind fits the description: pick it
+    if (cur && !sel.value) return fire('');                                                // the type we picked earlier no longer fits
+    return false;
+  }
+  // the note under the description: what it suggested, or why it does not fit what was chosen
+  function describeNote(p) {
+    var s = state[p], h = s.hint, note = $(p + 'Narrow'); if (!note) return;
+    if (s.locked || !h) { note.innerHTML = ''; note.hidden = true; return; }
+    var t = typeVal(p), r = typeRule(p), parts = [];
+    var showAll = s.offKey === h.key;
+    if (h.types && !h.types.length) parts.push('We do not make ' + esc([h.famName && h.famName.toLowerCase(), h.wordTypes.length ? h.wordTypes.map(function (x) { return x.toLowerCase(); }).join(' / ') : 'that item'].filter(Boolean).join(' ')) + ': die-cast parts are aluminum, forged parts and fittings / valves are brass. Choose what fits, or ask our staff.');
+    else if (h.types && t && h.types.indexOf(t) < 0) parts.push('Your description says <b>' + esc(h.famName || h.wordTypes.join(', ')) + '</b>, but <b>' + esc(t) + '</b> is ' + esc(r && r.materials[0] ? r.materials[0].split(' ')[0].toLowerCase() : 'different') + '. Check the description or the item type.');
+    else if (h.types && h.types.length) parts.push((s.typeAuto && t === s.typeAuto && !s.typePicked ? 'Item type picked from your description: <b>' + esc(t) + '</b>. ' : '') +
+      'Your description fits <b>' + esc(h.types.join(' or ')) + '</b>' + (h.types.length < (s.options.itemTypes || []).length && !showAll ? '; the other item types are switched off.' : '.'));
+    if (h.pick && $(p + 'S_material').value === h.pick && !s.picked) parts.push('Material pre-selected: <b>' + esc(h.pick) + '</b>.');
+    var canWiden = h.types && h.types.length && h.types.length < (s.options.itemTypes || []).length && !showAll;
+    note.innerHTML = parts.length ? '<span>' + parts.join(' ') + ' You can change any of it.</span>' + (canWiden ? '<button type="button" class="qx-link" data-showall>Show all item types</button>' : '') : '';
+    note.hidden = !parts.length;
   }
   function rebuildAll(p, dependentsOnly) {
     FIELDS.forEach(function (f) { if (!dependentsOnly || ['size', 'thickness', 'finish', 'service'].indexOf(f[0]) >= 0) rebuild(p, f[0]); });
@@ -200,13 +320,13 @@
     var h = detect(p), changed = (s.hint && s.hint.key) !== (h && h.key); s.hint = h;
     var msel = $(p + 'S_material'), note = $(p + 'Narrow'), pre = '';
     if (changed) s.picked = false;                                                            // a new description starts afresh
+    if (rebuildType(p)) return;                                                               // the item type changed: its change handler rebuilt everything
     rebuild(p, 'material');
     if (h && h.pick && !s.picked && !msel.getAttribute('data-filled') && msel.value !== h.pick && Array.prototype.some.call(msel.options, function (x) { return x.value === h.pick; })) { msel.value = h.pick; pre = h.pick; }
     else if (h && h.pick && !s.picked && msel.value === h.pick && !msel.getAttribute('data-filled')) pre = h.pick;       // only until the person picks a material themselves
     rebuildAll(p, false);
-    if (pre) { note.innerHTML = '<span>Material pre-selected from your description: <b>' + esc(pre) + '</b>. You can change it, and every other detail below, or type your own.</span>'; note.hidden = false; }
-    else if (h && ((h.materials && h.materials.length) || (h.sizes && h.sizes.length))) { note.innerHTML = '<span>Suggested for <b>' + esc([h.famLabel, h.formLabel].filter(Boolean).join(' \u00B7 ')) + '</b>: the likely choices are listed first. Everything else is still available, or type your own.</span>'; note.hidden = false; }
-    else { note.innerHTML = ''; note.hidden = true; }
+    void note; void pre;
+    describeNote(p);
     updateAvailability(p);
   }
 
@@ -221,7 +341,12 @@
     var box = $(p + 'E_' + field); if (box) box.textContent = msg || '';
     var el = field === 'quantity' ? $(p + 'Qty') : field === 'neededBy' ? $(p + 'Needed') : field === 'notes' ? $(p + 'Notes') : $(p + 'S_' + field);
     if (el) el.classList.toggle('is-bad', !!msg);
-    var c = $(p + 'C_' + field); if (c) c.classList.toggle('is-bad', !!msg && !c.hidden);
+    var bx = $(p + 'X_' + field);
+    if (bx) {
+      Array.prototype.forEach.call(bx.querySelectorAll('input'), function (i) { i.classList.remove('is-bad'); i.removeAttribute('aria-invalid'); });
+      if (msg && !bx.hidden) { var bp = boxProblem(p, field), bad = bp && bp.el; Array.prototype.forEach.call(bad ? [bad] : bx.querySelectorAll('input[data-n]'), function (i) { if (!bp && !i.value.trim()) return; i.classList.add('is-bad'); i.setAttribute('aria-invalid', 'true'); }); }
+      if (el && msg && !bx.hidden) el.classList.remove('is-bad');                         // the dropdown is right; it is what was typed
+    }
     return !msg;
   }
   function rule(p, field) {
@@ -244,10 +369,13 @@
     }
     if (field === 'notes') return $(p + 'Notes').value.length > 1000 ? 'Keep notes within 1,000 characters.' : '';
     var label = FIELDS.filter(function (f) { return f[0] === field; })[0][1].toLowerCase(), v2 = $(p + 'S_' + field).value;
+    if (!state[p].locked && state[p].options.itemTypes && !typeVal(p)) return '';           // "choose the item type" is the one message until then
     if (!v2) return 'Choose the ' + label + '.';
-    if (v2 === OTHER) { var t = $(p + 'C_' + field).value.trim(), tr = typedRule(p, field);
+    if (v2 === OTHER) { compose(p, field); var bp = boxProblem(p, field); if (bp) return bp.msg;
+      var t = $(p + 'C_' + field).value.trim(), tr = typedRule(p, field);
       if (tr) {
         if (!(t.length >= 2 && t.length <= 40 && CUSTOM_RE.test(t) && tr.re.test(t))) return 'Type the size as ' + tr.hint + '.';
+        if (/^Fitting/.test(typeVal(p)) && PIPE_SIZES_IN(t, state[p].options)) return 'That is a standard size: choose ' + PIPE_SIZES_IN(t, state[p].options) + ' from the list above.';
         var n = sizeMm(t);                                                           // same limits as the server
         if (n.some(function (x) { return !(x > 0); })) return 'Each dimension must be more than 0.';
         if (tr.maxMm && n.some(function (x) { return x > tr.maxMm; })) return 'Parts larger than ' + tr.maxMm + ' mm are quoted by our staff.';
@@ -264,6 +392,12 @@
     return '';
   }
   function check(p, field) { return setErr(p, field, rule(p, field)); }
+  // a typed pipe size that is already in the list ("1 in" -> 1") — pick it from the list instead, so the request is not "custom"
+  function PIPE_SIZES_IN(t, o) {
+    var m = /^\s*([\d.\/\- ]+?)\s*(in|inch|inches|")\s*$/i.exec(t); if (!m) return '';
+    var v = m[1].trim().replace(/\s+/, '-'), r = o.itemRules && o.itemRules['Fitting / valve'];
+    return r && r.sizes.indexOf(v + '"') >= 0 ? v + '"' : '';
+  }
   // the numbers inside a typed size, in mm ("1-1/4 in" -> 31.75); mirrors sizeNumbersMm in shop-extras.js
   function sizeMm(v) {
     var u = (/(mm|cm|inches|inch|in|")\s*$/i.exec(v) || [])[1] || 'mm', f = /^mm$/i.test(u) ? 1 : /^cm$/i.test(u) ? 10 : 25.4;
@@ -281,7 +415,7 @@
   }
   function read(p) {
     var specs = {};
-    FIELDS.forEach(function (f) { var v = $(p + 'S_' + f[0]).value; specs[f[0]] = v === OTHER ? $(p + 'C_' + f[0]).value.trim() : v; });
+    FIELDS.forEach(function (f) { var v = $(p + 'S_' + f[0]).value; if (v === OTHER) compose(p, f[0]); specs[f[0]] = v === OTHER ? $(p + 'C_' + f[0]).value.trim() : v; });
     return { itemType: typeVal(p) || undefined, quantity: $(p + 'Qty').value.replace(/,/g, '').trim(), quantityUnit: $(p + 'Unit').value, neededBy: $(p + 'Needed').value || undefined, specs: specs, notes: $(p + 'Notes').value.trim() || undefined };
   }
   function reset(p) {
@@ -291,8 +425,8 @@
     autofill(p, null);
     var ity = $(p + 'S_itemType'); if (ity) { ity.value = ''; var tn = $(p + 'TypeNote'); if (tn) tn.textContent = ''; }
     var cl = $(p + 'Cleared'); if (cl) { cl.innerHTML = ''; cl.hidden = true; }
-    FIELDS.forEach(function (f) { $(p + 'S_' + f[0]).value = ''; var c = $(p + 'C_' + f[0]); if (c) { c.value = ''; c.hidden = true; } });
-    s.picked = false; s.offKey = null; s.unitTouched = false; refresh(p); syncUnits(p);
+    FIELDS.forEach(function (f) { $(p + 'S_' + f[0]).value = ''; var c = $(p + 'C_' + f[0]); if (c) { clearTyped(p, f[0]); typedMode(p, f[0], false); } });
+    s.picked = false; s.offKey = null; s.unitTouched = false; s.typePicked = false; s.typeAuto = null; s.typedKind = ''; refresh(p); syncUnits(p);
     ['quantity', 'neededBy', 'itemType'].concat(FIELDS.map(function (f) { return f[0]; })).forEach(function (k) { setErr(p, k, ''); });
   }
   // show the server's message under the matching field; returns true if it belonged here
@@ -327,8 +461,8 @@
     if (added && added !== v) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
     if (!has) { var o = document.createElement('option'); o.value = v; o.textContent = v; sel.appendChild(o); sel.setAttribute('data-added', v); }
     sel.value = v; sel.setAttribute('data-filled', '1'); sel.disabled = true;
-    if (c) { c.hidden = true; c.value = ''; }
-    sel.parentNode.classList.add('qx-locked');
+    if (c) { clearTyped(p, k); typedMode(p, k, false); }
+    sel.parentNode.classList.remove('qx-wait'); sel.parentNode.classList.add('qx-locked');
     lockNote(p, sel, why); setErr(p, k, '');
   }
   function unlock(p, k) {
@@ -337,7 +471,7 @@
     sel.disabled = false; sel.parentNode.classList.remove('qx-locked');
     if (sel.getAttribute('data-filled')) { sel.value = ''; sel.removeAttribute('data-filled'); }
     if (added) { Array.prototype.forEach.call(sel.options, function (x) { if (x.value === added) x.remove(); }); sel.removeAttribute('data-added'); }
-    if (c) { c.hidden = true; c.value = ''; }
+    if (c) { clearTyped(p, k); typedMode(p, k, false); }
     lockNote(p, sel, ''); setErr(p, k, '');
   }
   function autofill(p, specs) {
@@ -375,6 +509,11 @@
   var st = document.createElement('style');
   st.textContent = '.qx-row{display:flex;gap:8px}.qx-row input{flex:1 1 auto;min-width:0}.qx-row select{flex:0 0 38%;min-width:0}' +
     '.qx-title{margin:6px 0 10px;font-size:13.5px;font-weight:700;color:var(--text-dim)}.qx-custom{margin-top:8px}' +
+    '.qx-typed{margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:9px;background:var(--inset)}.qx-dims{display:flex;align-items:flex-end;gap:6px;flex-wrap:wrap}' +
+    '.qx-dims>b{padding-bottom:10px;color:var(--text-faint);font-weight:600}.qx-dim{display:flex;flex-direction:column;gap:4px;flex:1 1 64px;min-width:64px;margin:0}' +
+    '.qx-dim span{font-size:11.5px;font-weight:650;color:var(--text-faint);text-transform:none;letter-spacing:0}.qx-dim i{font-style:normal;font-weight:500}.qx-dim input,.qx-dim select{width:100%;min-height:38px}' +
+    '.qx-unit{flex:0 0 96px;min-width:96px}.q-grid>.q-field.qx-wide{grid-column:1/-1}.qx-suffix{padding-bottom:10px;font-weight:650;color:var(--text-dim)}.qx-typed .q-hint{display:block;margin-top:6px}' +
+    '.qx-wait select{opacity:.6;cursor:not-allowed}' +
     '.qx-narrow{margin:-4px 0 12px;font-size:12.5px;color:var(--text-faint)}.qx-narrow b{color:var(--text-dim);font-weight:600}' +
     '.qx-link{background:transparent;border:1px solid var(--border);border-radius:7px;padding:5px 9px;margin:4px 0 0 6px;font:inherit;font-weight:650;color:var(--blue-bright);cursor:pointer;min-height:30px}.qx-link:hover,.qx-link:focus-visible{background:var(--hover);border-color:var(--blue-bright);outline-offset:2px}.qx-narrow{padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--inset);line-height:1.6}.qx-empty{display:block;margin-top:6px}.q-field select{width:100%;max-width:100%;min-height:40px}.q-grid{min-width:0}.q-field{min-width:0}@media(max-width:600px){.qx-narrow{padding:9px}.qx-link{display:inline-block;margin-left:0}}';
   document.head.appendChild(st);

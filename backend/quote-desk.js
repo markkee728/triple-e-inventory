@@ -97,7 +97,8 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       // both come from the payment ledger trigger in PostgreSQL, never worked out here
       paymentState: q.payment_state || (+q.paid_amount > 0 && total != null && +q.paid_amount >= total ? 'paid' : +q.paid_amount > 0 ? 'partially_paid' : 'unpaid'),
       clarificationStatus: q.clarification_status || null,
-      orderNo: q.order_no || null, converted: !!q.converted_order_id, handoverAt: ms(q.handover_at) || null, createdBy: q.created_by_name || null
+      orderNo: q.order_no || null, converted: !!q.converted_order_id, handoverAt: ms(q.handover_at) || null, createdBy: q.created_by_name || null,
+      financeNote: q.finance_note || null
     };
   };
   const detailJson = (q, clarifications, notes) => ({
@@ -155,8 +156,8 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
         [...params, pageSize, (page - 1) * pageSize]),
       pool.query(
         `SELECT q.status, count(*)::int AS n FROM quote_requests q
-          WHERE ${SOURCES[source].length ? SOURCES[source].join(' AND ') : '1=1'}
-          GROUP BY q.status`),
+          WHERE ${clauseBase}
+          GROUP BY q.status`, params),                         // same search + source as "All", so the chip numbers add up
       pool.query(`SELECT count(*)::int AS n FROM quote_requests q WHERE ${clause}`, params),
       pool.query(`SELECT count(*)::int AS n FROM quote_requests q WHERE ${clauseBase}`, params)
     ]);

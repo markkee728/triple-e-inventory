@@ -86,8 +86,8 @@ const pageInformation = {
     },
 
     quotes: {
-        title: "Quote Requests",
-        subtitle: "Bulk orders and custom sizes"
+        title: "Quote Approvals",
+        subtitle: "Cashier prices waiting for Finance, and every quotation for reference"
     },
 
     "payment-terms": {

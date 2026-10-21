@@ -46,6 +46,11 @@
       '.sx-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}' +
       '.sx-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.sx-sub{margin:16px 0 4px;font-weight:700;font-size:14px}' +
       '.sx-empty{padding:22px;text-align:center;color:var(--text-faint)}' +
+      '.sx-approve{margin:0 0 14px;padding:14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--amber) 55%,var(--border));background:color-mix(in srgb,var(--amber) 8%,transparent)}' +
+      '.sx-approve-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline;margin-bottom:10px}.sx-approve-head span{font-size:12.5px;color:var(--text-faint)}' +
+      '.sx-approve-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px;margin-bottom:10px}.sx-approve-grid div{padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}' +
+      '.sx-approve-grid span,.sx-approve p span{display:block;font-size:11.5px;color:var(--text-faint);margin-bottom:3px}.sx-approve-grid strong{font-size:16px}.sx-approve-grid small{display:block;font-size:12px;color:var(--text-dim);margin-top:2px}' +
+      '.sx-approve p{margin:6px 0 0;font-size:14px;overflow-wrap:anywhere}@media(max-width:560px){.sx-approve-grid{grid-template-columns:1fr}}' +
       '.sx-text{max-width:340px;overflow-wrap:anywhere;white-space:pre-line}' +
       '.sxr-row{cursor:pointer;transition:background .15s}.sxr-row:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}.sxr-row:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}' +
       '.sxr-who{display:flex;align-items:center;gap:10px;min-width:0}.sxr-av{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#16283b;border:1px solid rgba(74,144,217,.35);color:var(--blue-bright);font:600 13px Oswald,sans-serif}html[data-theme="light"] .sxr-av{background:#dbe6f0;color:var(--blue)}' +
@@ -74,11 +79,11 @@
   function build() {
     var q = $('quotes'), r = $('reviews');
     if (q) q.innerHTML =
-      '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Quote Requests</h1>' +
+      '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Quote Approvals</h1><p class="faint" style="margin:4px 0 0;max-width:70ch">The cashiers price quotations at the counter. A price above their limit, or one they flag as custom, waits here until you approve it or send it back.</p>' +
       '</div>' +
       '<button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
-      '<div class="inv-filters"><select id="sxqFilter" class="inv-select"><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
+      '<div class="inv-filters"><select id="sxqFilter" class="inv-select" aria-label="Show"><option value="approval">Cashier prices to approve</option><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
@@ -92,7 +97,7 @@
       '<div class="table-wrapper"><table><thead><tr><th>Product</th><th>Rating</th><th>Customer</th><th>Review</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody id="sxrBody"></tbody></table></div></div>';
     if (q) {
       $('sxqRefresh').addEventListener('click', loadQuotes);
-      $('sxqFilter').addEventListener('change', renderQuotes);
+      $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
       $('sxqBody').addEventListener('click', function (e) { var b = e.target.closest('[data-sxq]'); if (b) openQ(b.dataset.sxq); });
     }
     if (r) {
@@ -118,34 +123,39 @@
 
   /* ---------------- quotes ---------------- */
   var IN_FLOW = ['accepted', 'preparing', 'ready'];
-  var needsAction = function (x) { return x.status === 'new' || IN_FLOW.indexOf(x.status) >= 0; };
+  var needsAction = function (x) { return x.status === 'new' || x.status === 'pending_approval' || IN_FLOW.indexOf(x.status) >= 0; };
+  var approvalCount = function () { return quotes.filter(function (x) { return x.status === 'pending_approval'; }).length; };
+  var pickedFilter = false;                                                // the first load opens on the approvals when some are waiting
   var newCount = function () { return quotes.filter(needsAction).length; };
+  // the sidebar badge counts only what Finance alone can do: approve a cashier's price (the cashiers answer new requests)
   function renderQuotes() {
     if (!$('sxqBody')) return;
     var f = $('sxqFilter').value, n = newCount();
-    var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? needsAction(x) : x.status === f); });
-    $('sxqSub').textContent = quotes.length ? (n ? n + ' need your action (new requests to price, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
+    var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? needsAction(x) : f === 'approval' ? x.status === 'pending_approval' : x.status === f); });
+    var ap = approvalCount(), opt = $('sxqFilter').querySelector('option[value="approval"]'); if (opt) opt.textContent = 'Cashier prices to approve (' + ap + ')';
+    $('sxqSub').textContent = quotes.length ? (ap ? ap + ' cashier price' + (ap === 1 ? '' : 's') + ' waiting for your approval \u00B7 ' : '') + (n ? n + ' need your action (prices to approve, new requests to price, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
-        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + '</td>' +
-        '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
+        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
+        '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'pending_approval' ? 'Review price' : x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
   }
   function paintBadge() {
     var nav = document.querySelector('.nav-item[data-page="quotes"]'); if (!nav) return;
-    var n = newCount(), b = nav.querySelector('.sx-badge');
+    var n = approvalCount(), b = nav.querySelector('.sx-badge');
     if (!n) { if (b) b.remove(); return; }
     if (!b) { b = document.createElement('span'); b.className = 'sx-badge'; nav.appendChild(b); }
-    b.textContent = n > 99 ? '99+' : String(n); b.title = n + ' quote request(s) need your action';
+    b.textContent = n > 99 ? '99+' : String(n); b.title = n + ' cashier price(s) waiting for your approval';
   }
   async function loadQuotes() {
     if (loadingQ) return; loadingQ = true;
     try {
       if (!qopts) { try { qopts = await api('/finance/quote-options'); } catch (e) { /* the reply form shows a message if this is still missing */ } }
       var d = await api('/finance/quotes'); quotes = Array.isArray(d) ? d : [];
+      if (!pickedFilter && $('sxqFilter')) { pickedFilter = true; $('sxqFilter').value = approvalCount() ? 'approval' : 'open'; }
       if (!(openQuote && busy)) renderQuotes();
       if (openQuote && !busy) paintQuote();
     } catch (e) { if (e.message !== 'Not signed in' && $('sxqSub') && !quotes.length) $('sxqSub').textContent = 'Could not load quote requests: ' + e.message; }
@@ -177,14 +187,21 @@
       info('Quantity', x.quantity) + info('Needed by', x.neededBy ? day(x.neededBy) : (x.neededMonths ? 'within ' + months(x.neededMonths) : '')) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     var inFlow = IN_FLOW.indexOf(x.status) >= 0;
-    if (x.status !== 'new') {
+    if (['new', 'pending_approval', 'awaiting_details'].indexOf(x.status) < 0) {           // nothing was sent to the customer yet in these
       var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed', completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
       h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
         (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (collect the payment, then record it below)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + '\n' : '') +
         (x.handledBy ? 'Handled by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
         (x.respondedAt && x.status !== 'quoted' ? '\nAnswered: ' + esc(when(x.respondedAt)) + (x.responseNote ? ' \u2014 ' + esc(x.responseNote) : '') : '') + '</div>';
     }
-    if (x.status === 'pending_approval') h += '<div class="sx-box"><b>Cashier pricing requires approval</b><p>Proposed total: ' + peso(x.proposedAmount || 0) + '</p><p>Reason: ' + esc(x.approvalReason || 'Not provided') + '</p></div>';
+    var qn = parseFloat(String(x.quantity || '').replace(/,/g, '')) || 0, ap = '';
+    if (x.status === 'pending_approval') ap = '<div class="sx-approve"><div class="sx-approve-head"><b>Cashier price waiting for your approval</b><span>' + esc(x.proposedBy ? 'from ' + x.proposedBy : 'from the counter') + (x.proposedAt ? ' \u00B7 ' + esc(when(x.proposedAt)) : '') + '</span></div>' +
+      '<div class="sx-approve-grid"><div><span>Proposed total</span><strong>' + peso(x.proposedAmount || 0) + '</strong>' + (qn ? '<small>' + peso((x.proposedAmount || 0) / qn) + ' each \u00D7 ' + esc(x.quantity) + '</small>' : '') + '</div>' +
+      '<div><span>Ready in</span><strong>' + esc(x.proposedLeadTime || '\u2014') + '</strong></div><div><span>Price valid</span><strong>' + esc(x.proposedValidDays ? x.proposedValidDays + ' days' : '\u2014') + '</strong></div></div>' +
+      '<p><span>Why it needs you</span>' + esc(x.approvalReason || 'Not given') + '</p>' +
+      '<p class="faint">Approve to send this price to the customer, or send it back to the cashier with a note on what to change. You can also type your own price below.</p></div>';
+    if (ap) h = h.replace('<dl class="sx-info">', ap + '<dl class="sx-info">');                       // first thing Finance sees
+    else if (x.financeNote && x.status === 'new') h += '<div class="sx-box"><b>You sent the cashier\u2019s price back</b>' + esc(x.financeNote) + (x.proposedAmount ? '\nTheir price was ' + peso(x.proposedAmount) + '.' : '') + '</div>';
     if (inFlow || x.status === 'completed') {
       var steps = (x.progress || []).map(function (e) { return '\u2022 ' + esc(e.label) + ' \u2014 ' + esc(when(e.at)) + (e.note ? ' (' + esc(e.note) + ')' : ''); }).join('\n');
       h += '<div class="sx-box"><b>Progress</b>' + steps + '</div>';
@@ -208,16 +225,21 @@
         '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>';
       if (!qopts) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
     }
-    if (x.status !== 'completed') h += '<label for="sxNote">' + (inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(optional' + (inFlow ? ', saved with the step or the cancellation' : '') + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
+    if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? 'needed when you send the price back' : 'optional' + (inFlow ? ', saved with the step or the cancellation' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
     h += '<div class="sx-err" id="sxErr" role="alert"></div><div class="sx-actions">';
-    if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve cashier price</button>';
+    if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve ' + peso(x.proposedAmount || 0) + '</button><button type="button" class="btn-secondary" id="sxReturnPrice">Send back to cashier</button>';
     if (inFlow && x.next) h += '<button type="button" class="btn-primary" id="sxStep">' + esc(x.nextLabel === 'Preparing' ? 'Start preparing' : x.next === 'completed' ? 'Mark ' + String(x.nextLabel).toLowerCase() : 'Mark ' + String(x.nextLabel).toLowerCase()) + '</button>';
-    if (!inFlow && x.status !== 'completed') h += '<button type="button" class="btn-primary" id="sxSend">' + (x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
+    if (!inFlow && x.status !== 'completed') h += '<button type="button" class="' + (x.status === 'pending_approval' ? 'btn-secondary' : 'btn-primary') + '" id="sxSend">' + (x.status === 'pending_approval' ? 'Send my own price instead' : x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
     if (x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : inFlow ? 'Cancel this quote' : 'Close request') + '</button>';
     if (x.status !== 'new' && !inFlow && x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxReopen">Reopen</button>';
     h += '</div></div>';
     $('sxBody').innerHTML = h;
-    if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Cashier price approved.'); });
+    if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Approved: ' + x.id + ' is sent to the customer at ' + peso(x.proposedAmount || 0) + '.'); });
+    if ($('sxReturnPrice')) $('sxReturnPrice').addEventListener('click', function () {
+      var note = $('sxNote').value.trim(); $('sxErr').classList.remove('show');
+      if (note.length < 10) { showErr('Write what the cashier should change (at least 10 characters) in the note box, then press Send back.'); $('sxNote').focus(); return; }
+      post(x, '/return-price', { note: note }, x.id + ' was sent back to the cashier.');
+    });
     if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
     if ($('sxStep')) $('sxStep').addEventListener('click', function () { submitStep(x); });
     if ($('sxPay')) $('sxPay').addEventListener('click', function () { submitPayment(x); });
