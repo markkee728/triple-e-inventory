@@ -893,13 +893,8 @@ function renderInvPriority(items) {
     const low = sortByStockPriority(items.filter(i => getStockStatus(i) === "low"));
     const lowCard = document.getElementById("invBelowReorder");
     const card = lowCard ? lowCard.closest(".stat-card") : null;
-    if (card) {
-        card.classList.toggle("inv-stat-low", low.length > 0);
-        card.dataset.invFilter = "low";
-        card.setAttribute("role", "button");
-        card.setAttribute("tabindex", "0");
-        card.title = "Show only low-stock products";
-    }
+    if (card) card.classList.toggle("inv-stat-low", low.length > 0);
+    setupInvKpiCards();
     if (!items.length) { box.hidden = true; return; }
     box.hidden = false;
     if (!low.length) {
@@ -923,12 +918,61 @@ function renderInvPriority(items) {
         '<div class="inv-chips">' + chips + (low.length > 6 ? '<span class="inv-more">+' + (low.length - 6) + ' more in the table below</span>' : '') + '</div>';
 }
 
-function showLowStockOnly() {
-    const f = document.getElementById("invStatusFilter");
-    if (f) { f.value = f.value === "low" ? "all" : "low"; applyInventoryFilters(); }
-    const p = document.getElementById("invPanelSub");
-    if (p) p.scrollIntoView({ behavior: "smooth", block: "start" });
+/* KPI cards: each one opens the Stock levels table filtered to what it counts.
+   Total SKUs = everything (filters cleared) · Below Reorder = Low · Near Reorder = Watch · Healthy Stock = OK.
+   Clicking the active card again goes back to all products. */
+const INV_KPI_CARDS = [
+    { id: "invTotalSkus", filter: "all", title: "Show every product (clears the filters)" },
+    { id: "invBelowReorder", filter: "low", title: "Show only products at or below their reorder level" },
+    { id: "invNearReorder", filter: "watch", title: "Show only products close to their reorder level" },
+    { id: "invHealthyStock", filter: "ok", title: "Show only products with a healthy stock buffer" }
+];
+const INV_STATUS_NAMES = { low: "Below reorder", watch: "Near reorder", ok: "Healthy stock" };
+
+function setupInvKpiCards() {
+    INV_KPI_CARDS.forEach(k => {
+        const v = document.getElementById(k.id);
+        const card = v ? v.closest(".stat-card") : null;
+        if (!card || card.dataset.invFilter) return;
+        card.dataset.invFilter = k.filter;
+        card.classList.add("inv-kpi");
+        card.setAttribute("role", "button");
+        card.setAttribute("tabindex", "0");
+        card.title = k.title;
+    });
+    syncInvKpiCards();
 }
+
+function syncInvKpiCards() {
+    const f = document.getElementById("invStatusFilter"), d = document.getElementById("invDeptFilter"), s = document.getElementById("invSearch");
+    const status = f ? f.value : "all";
+    const clear = status === "all" && (!d || d.value === "all") && (!s || !s.value.trim());
+    document.querySelectorAll("#inventory .stat-card[data-inv-filter]").forEach(card => {
+        const on = card.dataset.invFilter === "all" ? clear : card.dataset.invFilter === status;
+        card.classList.toggle("is-active", on);
+        card.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+}
+
+function showInvKpi(filter) {
+    const f = document.getElementById("invStatusFilter"), d = document.getElementById("invDeptFilter"), s = document.getElementById("invSearch");
+    if (filter === "all" || (f && f.value === filter)) {
+        if (f) f.value = "all";
+        if (filter === "all") { if (d) d.value = "all"; if (s) s.value = ""; }
+    } else {
+        if (f) f.value = filter;
+        if (s) s.value = "";                     // a search would hide part of the list the card counts
+    }
+    applyInventoryFilters();
+    const p = document.getElementById("invPanelSub");
+    const panel = p ? p.closest(".panel") : null;
+    if (panel) {
+        panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        panel.classList.remove("inv-panel-flash"); void panel.offsetWidth; panel.classList.add("inv-panel-flash");
+    }
+}
+
+function showLowStockOnly() { showInvKpi("low"); }
 
 function initInvPriorityClicks() {
     const page = document.getElementById("inventory");
@@ -937,7 +981,8 @@ function initInvPriorityClicks() {
     page.addEventListener("click", (e) => {
         if (e.target.closest('[data-act="show-low"]')) return showLowStockOnly();
         const card = e.target.closest(".stat-card[data-inv-filter]");
-        if (card) return showLowStockOnly();
+        if (card) return showInvKpi(card.dataset.invFilter);
+        if (e.target.closest('[data-act="inv-clear"]')) return showInvKpi("all");
         const chip = e.target.closest(".inv-chip");
         if (chip) {
             const f = document.getElementById("invStatusFilter"), s = document.getElementById("invSearch");
@@ -949,7 +994,7 @@ function initInvPriorityClicks() {
         }
     });
     page.addEventListener("keydown", (e) => {
-        if ((e.key === "Enter" || e.key === " ") && e.target.matches(".stat-card[data-inv-filter]")) { e.preventDefault(); showLowStockOnly(); }
+        if ((e.key === "Enter" || e.key === " ") && e.target.matches(".stat-card[data-inv-filter]")) { e.preventDefault(); showInvKpi(e.target.dataset.invFilter); }
     });
 }
 
@@ -1204,12 +1249,20 @@ function applyInventoryFilters() {
 
     if (panelSub) {
 
-        panelSub.textContent =
+        const shown = [];
+        if (status !== "all") shown.push(INV_STATUS_NAMES[status] || status);
+        if (department !== "all") shown.push(department);
+        if (searchTerm) shown.push(`"${searchTerm}"`);
+        panelSub.innerHTML =
             `${filtered.length} SKU${
                 filtered.length === 1 ? "" : "s"
-            } · Sorted by stock status`;
+            }` + (shown.length
+                ? ` · Showing: <strong>${escapeHTML(shown.join(" · "))}</strong> <button type="button" class="inv-clear" data-act="inv-clear">Show all</button>`
+                : " · Sorted by stock status");
 
     }
+
+    syncInvKpiCards();
 
     renderStockLevelsTable(filtered);
 
@@ -1910,6 +1963,7 @@ function openProductDetails(sku) {
             ${p.grade || p.form ? row("Grade / form", escapeHTML([p.grade, p.form].filter(Boolean).join(" · "))) : ""}
             ${row("Source", renderProductSuppliers(p))}
         </dl>
+        <div id="pdMaterials"></div>
         <div class="modal-actions pd-actions">
             <button type="button" class="btn-secondary" data-pd="close">Close</button>
             ${archived
@@ -1920,6 +1974,7 @@ function openProductDetails(sku) {
     overlay.classList.add("open");
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
+    if (window.TripleEBom) window.TripleEBom.renderDetails(p);
 }
 
 function closeProductDetails() {

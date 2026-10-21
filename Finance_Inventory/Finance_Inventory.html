@@ -10,7 +10,7 @@
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
     <link rel="stylesheet" href="style.css?v=4">
-    <link rel="stylesheet" href="production.css?v=1">
+    <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
     <link rel="stylesheet" href="sidebar.css?v=2">
     <link rel="stylesheet" href="customers.css?v=6">
@@ -610,6 +610,9 @@
                                     Raw Materials
                                 </option>
 
+                                <option value="Finishing Supplies">
+                                    Finishing Supplies
+                                </option>
 
                                 <option value="Finished Goods">
                                     Finished Goods
@@ -1043,20 +1046,6 @@
 
                     </div>
 
-                </div>
-
-                <!-- MATERIAL REQUIREMENTS (what one finished unit needs) -->
-                <div class="panel prod-panel" id="prodReqPanel">
-                    <div class="panel-head">
-                        <div>
-                            <div class="panel-title">Material requirements</div>
-                            <div class="panel-sub">Raw Materials and Finishing Supplies needed to make ONE unit of a finished product. Saved once, reused for every production.</div>
-                        </div>
-                        <div class="inv-filters">
-                            <select id="reqProduct" class="inv-select"></select>
-                        </div>
-                    </div>
-                    <div id="reqBody" class="prod-body"><div class="dim">Choose a finished product to set up its materials.</div></div>
                 </div>
 
                 <!-- PRODUCTION HISTORY -->
@@ -3563,6 +3552,15 @@
                 </div>
 
 
+                <!-- FINISHED GOODS: MATERIALS NEEDED (bill of materials, per 1 unit) -->
+                <div id="npBomSection" class="np-bom-section" hidden>
+                    <div class="form-section-label">Materials Needed &middot; Finished Goods Only <span class="required-mark">*</span></div>
+                    <p class="field-hint" id="npBomHint">The Raw Materials and Finishing Supplies needed to make 1 unit of this product.</p>
+                    <div class="form-group">
+                        <div id="npBomList" class="np-bom-list"></div>
+                    </div>
+                </div>
+
                 <!-- FINISHED GOODS ONLINE SHOP DETAILS -->
                 <div id="npShopSection" class="np-shop-section" hidden>
                     <div class="form-section-label">Online Shop Details · Finished Goods Only</div>
@@ -3639,13 +3637,13 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
-    <script src="script.js?v=25"></script>
-    <script src="api-bridge.js?v=28"></script>
+    <script src="script.js?v=26"></script>
+    <script src="api-bridge.js?v=29"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
     <link rel="stylesheet" href="quick-stock.css?v=2">
-    <link rel="stylesheet" href="inventory-priority.css?v=3">
+    <link rel="stylesheet" href="inventory-priority.css?v=4">
     <link rel="stylesheet" href="product-details.css?v=2">
     <script src="sales-admin.js?v=12"></script>
     <script src="reports-tabs.js?v=3"></script>
@@ -3659,8 +3657,9 @@
 
     <script src="refund-admin.js?v=2"></script>
     <script src="stock-count-admin.js?v=3"></script>
-    <script src="production-admin.js?v=3"></script>
-    <script src="quick-stock.js?v=2"></script>
+    <script src="production-admin.js?v=4"></script>
+    <script src="product-materials.js?v=1"></script>
+    <script src="quick-stock.js?v=3"></script>
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=12"></script>
     <script src="delivery-rates-admin.js?v=2"></script>

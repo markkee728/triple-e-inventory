@@ -136,7 +136,7 @@
     const d = prod.data, box = $('qsProd'); if (!d || !box) return;
     let html = '<h4>Materials used for ' + esc(fmt(d.quantity)) + ' ' + esc(d.unit) + ' of ' + esc(d.name) + '</h4>';
     if (!d.hasRequirements) {
-      box.innerHTML = html + '<div class="prod-warn">No material requirements are saved for this product yet, so the materials cannot be calculated. Set them up first on the Stock In / Out page.</div>';
+      box.innerHTML = html + '<div class="prod-warn">No materials are set for this product yet, so the materials used cannot be calculated. Add them first in Products > Edit product > Materials Needed.</div>';
       $('qsNext').disabled = true; return;
     }
     html += '<div class="prod-scroll"><table class="prod-table"><thead><tr><th>Material</th><th>Calculated</th><th>Actual used</th><th>Available</th><th>Status</th></tr></thead><tbody>' +
@@ -160,7 +160,7 @@
       if (!inp || !cell) { bad = true; return; }
       const raw = inp.value, n = Number(raw); let msg = 'OK', cls = 'prod-ok';
       if (m.archived) { msg = 'Archived material'; cls = 'prod-bad'; }
-      else if (m.unitChanged) { msg = 'Unit changed — re-save requirements'; cls = 'prod-bad'; }
+      else if (m.unitChanged) { msg = 'Unit changed — save the product\'s materials again'; cls = 'prod-bad'; }
       else if (raw === '' || !Number.isFinite(n) || n < 0) { msg = 'Enter 0 or more'; cls = 'prod-bad'; }
       else if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) { msg = 'Max 2 decimals'; cls = 'prod-bad'; }
       else if (n > m.onHand) { msg = 'Short by ' + fmt(n - m.onHand) + ' ' + m.unit; cls = 'prod-bad'; short.push(m.name); }
@@ -186,7 +186,7 @@
     if (v.produced) {
       if (!prodQtyOk(v.qty)) return ['qsQty', 'Quantity produced can have at most 2 decimals.'];
       if (!prod.data || !prod.key || prod.data.quantity !== v.qty) return ['qsQty', 'Wait for the materials to be calculated.'];
-      if (!prod.data.hasRequirements) return ['qsReason', 'Set up the material requirements first (Stock In / Out page).'];
+      if (!prod.data.hasRequirements) return ['qsReason', 'Add the materials needed first (Products > Edit product).'];
       if (!prodStatus().ok) return ['qsReason', 'Fix the highlighted material quantities first.'];
     }
     if (type === 'out' && v.qty > item.onHand) return ['qsQty', 'Only ' + num(item.onHand) + ' ' + item.unit + ' on hand — cannot take out ' + num(v.qty) + '.'];

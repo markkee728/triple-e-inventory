@@ -24,11 +24,23 @@
 .inv-chip-short { font-size: 12px; color: var(--text-dim); }
 .inv-more { align-self: center; font-size: 13px; color: var(--text-dim); }
 
-/* the Below Reorder card lights up and filters the table when clicked */
+/* every KPI card opens the Stock levels table filtered to what it counts (script.js showInvKpi) */
+.stat-card.inv-kpi { cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s; }
+.stat-card.inv-kpi:hover { border-color: var(--blue-bright); }
+.stat-card.inv-kpi.is-active { border-color: var(--blue-bright); box-shadow: 0 0 0 1px var(--blue-bright), inset 0 -3px 0 var(--blue-bright); }
+.stat-card.inv-kpi:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: 2px; }
+.inv-clear { margin-left: 6px; background: none; border: 1px solid var(--border); border-radius: 999px; padding: 1px 10px; color: var(--blue-bright); font: inherit; font-size: 12px; cursor: pointer; }
+.inv-clear:hover { border-color: var(--blue-bright); }
+#invPanelSub strong { color: var(--text); font-weight: 600; }
+.panel.inv-panel-flash { animation: invPanelFlash 1.2s ease-out; }
+@keyframes invPanelFlash { 0% { box-shadow: 0 0 0 2px var(--blue-bright); } 100% { box-shadow: 0 0 0 0 transparent; } }
+@media (prefers-reduced-motion: reduce) { .panel.inv-panel-flash { animation: none; } }
+
+/* the Below Reorder card lights up red when something needs restocking */
 .stat-card.inv-stat-low { cursor: pointer; border-color: var(--red); box-shadow: inset 4px 0 0 var(--red), 0 0 0 1px rgba(227,91,91,.25); background: linear-gradient(0deg, rgba(227,91,91,.08), rgba(227,91,91,.08)), var(--card); }
 .stat-card.inv-stat-low .stat-value { color: var(--red); }
 .stat-card.inv-stat-low:hover { background: linear-gradient(0deg, rgba(227,91,91,.14), rgba(227,91,91,.14)), var(--card); }
-.stat-card[data-inv-filter]:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.stat-card.inv-stat-low.is-active { box-shadow: inset 4px 0 0 var(--red), 0 0 0 1px var(--red), inset 0 -3px 0 var(--red); }
 
 /* table rows */
 #stockLevelsTableBody tr.inv-row.low { background: rgba(227,91,91,.09); box-shadow: inset 4px 0 0 var(--red); }

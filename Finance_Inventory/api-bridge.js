@@ -736,6 +736,9 @@
       const location = chosenLocation(errs);
       let supplierCode = '';
       if (!editing && NEEDS_SUPPLIER.indexOf(department) >= 0) { supplierCode = $('npSupplier').value; if (!supplierCode) errs.npSupplier = 'Choose the supplier for this material'; }
+      // Finished Goods: the materials needed to make one unit (product-materials.js)
+      const bomProblem = department === 'Finished Goods' && window.TripleEBom ? window.TripleEBom.problem() : '';
+      if (bomProblem) errs.npBomList = bomProblem;
       if (Object.keys(errs).length) return showErrors(form, banner, errs);
 
       clearErrors(form); hideBanner(banner);
@@ -745,10 +748,13 @@
       try {
         if (editing) await api('/products/' + encodeURIComponent(editing), { method: 'PUT', body: JSON.stringify(payload) });
         else await api('/products', { method: 'POST', body: JSON.stringify(payload) });
+        let bomMsg = '';
+        try { const n = window.TripleEBom ? await window.TripleEBom.saveWithProduct(sku) : 0; if (n) bomMsg = ' · ' + n + ' material' + (n === 1 ? '' : 's') + ' saved'; }
+        catch (bomErr) { toast('Product saved, but the materials needed were NOT saved: ' + bomErr.message + ' Open Edit to add them again.', 'error'); closeNewProductModal(); await load(); return; }
         let shopMsg = '';
         try { if (window.TripleEShop && await window.TripleEShop.saveWithProduct(sku)) shopMsg = ' · online shop details saved'; }
         catch (shopErr) { toast('Product saved, but the online shop details were NOT saved: ' + shopErr.message, 'error'); await load(); return; }
-        toast((editing ? 'Product updated' : 'Product added') + shopMsg);
+        toast((editing ? 'Product updated' : 'Product added') + bomMsg + shopMsg);
         closeNewProductModal();
         await load();
       } catch (err) {

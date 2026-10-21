@@ -109,7 +109,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
   }
   async function requirementRows(client, finishedId) {
     const { rows } = await client.query(
-      `SELECT m.product_id, m.sku, m.name, m.department, m.unit, m.on_hand, m.is_archived, pm.qty_per_unit, pm.unit AS req_unit
+      `SELECT m.product_id, m.sku, m.name, m.department, m.unit, m.on_hand, m.unit_cost, m.is_archived, pm.qty_per_unit, pm.unit AS req_unit
          FROM product_materials pm JOIN products m ON m.product_id = pm.material_product_id
         WHERE pm.finished_product_id = $1 ORDER BY m.department, m.name`, [finishedId]);
     return rows;
@@ -132,7 +132,20 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const rows = await requirementRows(pool, fg.product_id);
     res.json({ sku: fg.sku, name: fg.name, unit: fg.unit,
       materials: rows.map((r) => ({ sku: r.sku, name: r.name, department: r.department, unit: r.unit, onHand: +r.on_hand,
-        qtyPerUnit: +r.qty_per_unit, archived: r.is_archived, unitChanged: r.req_unit !== r.unit })) });
+        unitCost: +r.unit_cost, qtyPerUnit: +r.qty_per_unit, archived: r.is_archived, unitChanged: r.req_unit !== r.unit })) });
+  }));
+
+  // where-used: the finished goods that need this raw material / finishing supply (shown in the product details)
+  app.get('/api/production/where-used/:sku', auth('finance'), wrap(async (req, res) => {
+    await needReady();
+    const m = await pool.query(`SELECT product_id, sku, name, department, unit FROM products WHERE sku = $1`, [str(req.params.sku).toUpperCase()]);
+    if (!m.rowCount) throw new ValidationError({ sku: 'That product does not exist' });
+    const { rows } = await pool.query(
+      `SELECT fg.sku, fg.name, fg.unit, fg.is_archived, pm.qty_per_unit
+         FROM product_materials pm JOIN products fg ON fg.product_id = pm.finished_product_id
+        WHERE pm.material_product_id = $1 ORDER BY fg.is_archived, fg.name`, [m.rows[0].product_id]);
+    res.json({ sku: m.rows[0].sku, name: m.rows[0].name, unit: m.rows[0].unit,
+      usedIn: rows.map((r) => ({ sku: r.sku, name: r.name, unit: r.unit, qtyPerUnit: +r.qty_per_unit, archived: r.is_archived })) });
   }));
 
   // replaces the whole list for one finished product. Past production records keep their own copy, so they do not change.
