@@ -11,9 +11,9 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css?v=3">
 <link rel="stylesheet" href="cash-shift.css?v=2">
-<link rel="stylesheet" href="cashier-orders.css?v=1">
+<link rel="stylesheet" href="cashier-orders.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
-<link rel="stylesheet" href="quotes.css?v=4">
+<link rel="stylesheet" href="quotes.css?v=5">
 <link rel="stylesheet" href="quote-fields.css?v=2">
 <style>
 .fseg{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}.fseg-btn{padding:10px 8px;border-radius:10px;border:1px solid var(--border,#2a2f3a);background:transparent;color:inherit;font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;line-height:1.2}.fseg-btn small{display:block;font-weight:500;font-size:11px;opacity:.75;margin-top:2px}.fseg-btn.on{background:var(--accent,#d4a24c);border-color:var(--accent,#d4a24c);color:#111}
@@ -293,65 +293,64 @@
         <div class="qd-walkin">
         <form class="panel qd-form" id="pqForm" autocomplete="off" novalidate>
           <div id="qdFormSections">
+            <!-- Same three steps, wording and order as the customer's "Request a quote" form in the online shop -->
             <section class="qd-fsec first">
-              <div class="qd-fsec-head"><span class="qd-num-badge">1</span><div><h3>Customer information</h3><p>How the counter reaches them after the price is ready.</p></div></div>
-              <div class="q-grid">
-                <div class="q-field"><label for="pqName">Customer name *</label><input id="pqName" maxlength="80" placeholder="e.g. Juan dela Cruz"><div class="err-text" id="pqE_contactName" role="alert"></div></div>
-                <div class="q-field"><label for="pqPhone">Mobile number *</label><input id="pqPhone" type="tel" inputmode="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="pqE_phone" role="alert"></div><small class="q-hint">We call or text this number with the price.</small></div>
-              </div>
-              <div class="q-grid">
-                <div class="q-field"><label for="pqEmail">Email <span class="q-optional">(optional)</span></label><input id="pqEmail" type="email" maxlength="120" placeholder="name@example.com"><div class="err-text" id="pqE_email" role="alert"></div><small class="q-hint">Only used if they also have an online account.</small></div>
-                <div class="q-field"><label for="pqCompany">Company <span class="q-optional">(optional)</span></label><input id="pqCompany" maxlength="80" placeholder="e.g. RS Construction"><div class="err-text" id="pqE_company" role="alert"></div></div>
+              <div class="qd-fsec-head"><span class="qd-num-badge">1</span><div><h3>What does the customer need?</h3><p>Pick a product from the catalog, or choose “Other” and describe it.</p></div></div>
+              <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select></div>
+              <div class="q-field" id="pqNameWrap"><label for="pqItem">Describe the item</label><input id="pqItem" maxlength="120" placeholder="e.g. Die-cast aluminum housing, ADC12, powder coated"><div class="err-text" id="pqE_productName" role="alert"></div></div>
+              <div id="pqFields"><p class="dim">Loading the form…</p></div>
+              <!-- moved under the "Needed by" date once the fields are built (counter only: an online customer always picks a date) -->
+              <div id="pqFlexHolder">
+                <label class="qd-flex" for="pqFlexible"><input type="checkbox" id="pqFlexible"> <span><b>No fixed date</b>The customer can wait until it is ready. Leave the date empty.</span></label>
               </div>
             </section>
 
             <section class="qd-fsec">
-              <div class="qd-fsec-head"><span class="qd-num-badge">2</span><div><h3>Product information</h3><p>Pick a catalog product to fill the specifications, or choose “Other / custom product” and describe it.</p></div></div>
-              <div class="q-field"><label for="pqProduct">Product</label><select id="pqProduct"></select><small class="q-hint">Catalog products (forged brass, die-cast aluminum) come with their material, size, thickness and finish already filled in and locked. Pick “Other / custom product” only for something we do not list.</small></div>
-              <div class="q-field" id="pqNameWrap"><label for="pqItem">Product name or description *</label><input id="pqItem" maxlength="120" placeholder="e.g. Brass elbow, 3/4 inch, threaded"><div class="err-text" id="pqE_productName" role="alert"></div></div>
-              <div id="pqFields"><p class="dim">Loading the product specifications…</p></div>
-              <p class="q-hint">Reference drawings or product photos are attached after saving: open the new request in the list and use “Choose file” (JPG, PNG, WEBP or PDF, up to 3 files, 5 MB each, stored in the database).</p>
-            </section>
-
-            <section class="qd-fsec">
-              <div class="qd-fsec-head"><span class="qd-num-badge">3</span><div><h3>Customer preferences</h3><p>When they need it and how it gets to them.</p></div></div>
-              <div class="q-grid" id="pqDateGrid">
-                <!-- the "Needed by" date that QuoteFields.mount() builds moves in here from section 2, so the server's date limits and one single date control apply -->
-                <div class="q-field"><label for="pqFlexible">Date flexibility</label>
-                  <label class="qd-flex" for="pqFlexible"><input type="checkbox" id="pqFlexible"> <span><b>Flexible date</b>We can quote whatever is convenient for production. Leave the date empty when you switch this on.</span></label>
-                </div>
-              </div>
-              <div class="qd-seg" role="radiogroup" aria-label="Pickup or delivery">
-                <label class="qd-opt"><input type="radio" name="pqFulfil" value="Pickup" checked><span class="qd-opt-body"><svg class="qd-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9.5 20v-6h5v6"/></svg><span class="qd-opt-txt"><b>Pickup</b><small>Customer collects at the shop</small></span></span></label>
-                <label class="qd-opt"><input type="radio" name="pqFulfil" value="Delivery"><span class="qd-opt-body"><svg class="qd-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/></svg><span class="qd-opt-txt"><b>Delivery</b><small>We bring it to them</small></span></span></label>
+              <div class="qd-fsec-head"><span class="qd-num-badge">2</span><div><h3>How will they receive it?</h3><p>Delivery quotes only need the area, not the full address.</p></div></div>
+              <div class="qd-seg" role="radiogroup" aria-label="Delivery or pickup">
+                <label class="qd-opt"><input type="radio" name="pqFulfil" value="Delivery"><span class="qd-opt-body"><svg class="qd-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/></svg><span class="qd-opt-txt"><b>Delivery</b><small>We bring it to their address</small></span></span></label>
+                <label class="qd-opt"><input type="radio" name="pqFulfil" value="Pickup" checked><span class="qd-opt-body"><svg class="qd-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9l1.5-5h13L20 9M4 9v11h16V9M4 9h16M9.5 20v-6h5v6"/></svg><span class="qd-opt-txt"><b>Pickup</b><small>They collect it at our shop</small></span></span></label>
               </div>
               <div class="qd-area" id="pqArea" hidden>
+                <div class="q-sub">Deliver to</div>
                 <div class="q-grid">
-                  <div class="q-field"><label for="pqRegion">Region *</label><select id="pqRegion"><option value="">Loading regions…</option></select><div class="err-text" id="pqE_region" role="alert"></div></div>
-                  <div class="q-field"><label for="pqProvince">Province *</label><select id="pqProvince" disabled><option value="">Choose a region first</option></select><div class="err-text" id="pqE_province" role="alert"></div></div>
+                  <div class="q-field"><label for="pqRegion">Region</label><select id="pqRegion"><option value="">Loading regions…</option></select><div class="err-text" id="pqE_region" role="alert"></div></div>
+                  <div class="q-field"><label for="pqProvince">Province</label><select id="pqProvince" disabled><option value="">Choose a region first</option></select><div class="err-text" id="pqE_province" role="alert"></div></div>
                 </div>
                 <div class="q-grid">
-                  <div class="q-field"><label for="pqCity">City / municipality *</label><input id="pqCity" list="pqCityList" maxlength="60" autocomplete="off" disabled placeholder="Choose a province first"><datalist id="pqCityList"></datalist><div class="err-text" id="pqE_city" role="alert"></div></div>
-                  <div class="q-field"><label for="pqBrgy">Barangay *</label><input id="pqBrgy" list="pqBgyList" maxlength="60" autocomplete="off" disabled placeholder="Choose a city first"><datalist id="pqBgyList"></datalist><div class="err-text" id="pqE_barangay" role="alert"></div></div>
+                  <div class="q-field"><label for="pqCity">City / Municipality</label><input id="pqCity" list="pqCityList" maxlength="60" autocomplete="off" disabled placeholder="Choose a province first"><datalist id="pqCityList"></datalist><div class="err-text" id="pqE_city" role="alert"></div></div>
+                  <div class="q-field"><label for="pqBrgy">Barangay</label><input id="pqBrgy" list="pqBgyList" maxlength="60" autocomplete="off" disabled placeholder="Choose a city first"><datalist id="pqBgyList"></datalist><div class="err-text" id="pqE_barangay" role="alert"></div></div>
                 </div>
                 <div class="q-field"><label for="pqStreet">House no. and street <span class="q-optional">(optional)</span></label><input id="pqStreet" maxlength="100" placeholder="e.g. Blk 5 Lot 12 Sampaguita St."><div class="err-text" id="pqE_street" role="alert"></div></div>
               </div>
             </section>
 
+            <section class="qd-fsec">
+              <div class="qd-fsec-head"><span class="qd-num-badge">3</span><div><h3>Customer contact details</h3><p>We call or text this number with the price.</p></div></div>
+              <div class="q-grid">
+                <div class="q-field"><label for="pqName">Customer name</label><input id="pqName" maxlength="80" placeholder="Full name"><div class="err-text" id="pqE_contactName" role="alert"></div></div>
+                <div class="q-field"><label for="pqPhone">Mobile number</label><input id="pqPhone" type="tel" inputmode="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="pqE_phone" role="alert"></div></div>
+              </div>
+              <div class="q-grid">
+                <div class="q-field"><label for="pqEmail">Email <span class="q-optional">(optional)</span></label><input id="pqEmail" type="email" maxlength="120" placeholder="name@example.com"><div class="err-text" id="pqE_email" role="alert"></div><small class="q-hint">Links the quote to their online account, if they have one.</small></div>
+                <div class="q-field"><label for="pqCompany">Company <span class="q-optional">(optional)</span></label><input id="pqCompany" maxlength="80" placeholder="e.g. RS Construction"><div class="err-text" id="pqE_company" role="alert"></div></div>
+              </div>
+            </section>
+
             <div class="qd-form-foot">
               <div class="err-text" id="pqErr" role="alert"></div>
-              <button type="submit" class="btn-primary">Review &amp; save quotation</button>
-              <p>The next screen shows everything you entered before it is written. Saving twice by mistake is blocked.</p>
+              <button type="submit" class="btn-primary">Review request</button>
+              <p>You will see a summary to check before it is saved. This records a request for a price only, not an order.</p>
             </div>
           </div>
           <div id="qdReview" hidden></div>
         </form>
-        <aside class="qd-aside" aria-label="Before you save">
-          <h3>Before you save</h3>
+        <aside class="qd-aside" aria-label="How it works">
+          <h3>How it works</h3>
           <ol class="qd-steps">
-            <li><b>Fill in what the customer told you.</b><span>Name and mobile number are the only customer details needed.</span></li>
-            <li><b>Describe the product.</b><span>Pick a catalog item, or choose “Other / custom product” and describe it.</span></li>
-            <li><b>Review, then save.</b><span>You see everything again before it is written. Saving twice by mistake is blocked.</span></li>
+            <li><b>Write down the request</b><span>Product, size and quantity, then pickup or delivery and how to reach them. Same steps as the online form.</span></li>
+            <li><b>Price it</b><span>It appears under Customer requests, where you price it or send it to Finance.</span></li>
+            <li><b>Customer accepts or declines</b><span>An accepted quote is turned into an order.</span></li>
           </ol>
           <p class="qd-aside-note">A quotation never reserves stock and never takes payment.</p>
         </aside>
@@ -458,7 +457,7 @@
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
 <script src="quote-fields.js?v=6"></script>
-<script src="quote-desk-ui.js?v=4"></script>
+<script src="quote-desk-ui.js?v=5"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -1105,6 +1104,6 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
 <script src="cash-shift-ui.js?v=7"></script>
 <script src="notification-center.js?v=8"></script>
 <script src="page-memory.js?v=1"></script>
-<script src="cashier-orders.js?v=4"></script>
+<script src="cashier-orders.js?v=6"></script>
 </body>
 </html>

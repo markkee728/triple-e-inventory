@@ -9,11 +9,11 @@ const db = new DatabaseSync(':memory:');
 db.exec(`
 CREATE TABLE products (product_id INTEGER PRIMARY KEY, sku TEXT, department TEXT, unit_cost REAL DEFAULT 0);
 CREATE TABLE pos_sales (sale_id INTEGER PRIMARY KEY, receipt_no TEXT, status TEXT, method TEXT, total REAL, delivery_fee REAL DEFAULT 0, cash_shift_id INT, created_at TEXT);
-CREATE TABLE pos_sale_items (item_id INTEGER PRIMARY KEY, sale_id INT, sku TEXT, name TEXT, unit TEXT, qty REAL, price REAL);
+CREATE TABLE pos_sale_items (item_id INTEGER PRIMARY KEY, sale_id INT, sku TEXT, name TEXT, unit TEXT, qty REAL, price REAL, unit_cost REAL);
 CREATE TABLE pos_return_requests (return_id INTEGER PRIMARY KEY, sale_id INT, amount REAL, status TEXT, refund_method TEXT, refund_shift_id INT, restock INT, created_at TEXT, decided_at TEXT);
 CREATE TABLE pos_return_items (return_item_id INTEGER PRIMARY KEY, return_id INT, sale_item_id INT, qty REAL, amount REAL);
 CREATE TABLE orders (order_id INTEGER PRIMARY KEY, order_no TEXT, status TEXT, payment_method TEXT, payment_status TEXT, total REAL, delivery_fee REAL DEFAULT 0, paid_amount REAL DEFAULT 0, paid_at TEXT, created_at TEXT, cash_shift_id INT);
-CREATE TABLE order_items (item_id INTEGER PRIMARY KEY, order_id INT, sku TEXT, name TEXT, unit TEXT, qty REAL, price REAL);
+CREATE TABLE order_items (item_id INTEGER PRIMARY KEY, order_id INT, sku TEXT, name TEXT, unit TEXT, qty REAL, price REAL, unit_cost REAL);
 CREATE TABLE order_refund_requests (request_id INTEGER PRIMARY KEY, order_id INT, amount REAL, status TEXT, restocked INT, created_at TEXT, decided_at TEXT);
 CREATE TABLE payments (payment_id INTEGER PRIMARY KEY, paid_for TEXT, order_id INT, quote_id INT, direction TEXT, amount REAL, method TEXT, purpose TEXT, request_id TEXT, cash_shift_id INT, created_at TEXT);
 CREATE TABLE quote_requests (quote_id INTEGER PRIMARY KEY, quote_no TEXT, converted_order_id INT, handover_sale_id INT, created_at TEXT);
@@ -25,6 +25,7 @@ const item = (t, id, parent, sku, qty, price) => ins(t, { item_id: id, [t === 'p
 // POS
 ins('pos_sales', { sale_id: 1, receipt_no: 'R1', status: 'Completed', method: 'Cash', total: 1000, created_at: '2026-10-10 02:00:00' });
 item('pos_sale_items', 1, 1, 'A', 2, 300); item('pos_sale_items', 2, 1, 'B', 1, 400);
+db.prepare('UPDATE pos_sale_items SET unit_cost = 80 WHERE item_id = 1').run();                     // cost saved on that sale (A costs 100 today)
 ins('pos_sales', { sale_id: 2, receipt_no: 'R2', status: 'Completed', method: 'Card', total: 500, created_at: '2026-10-10 03:00:00' });
 item('pos_sale_items', 3, 2, 'A', 1, 300); item('pos_sale_items', 4, 2, 'C', 1, 200);
 ins('pos_return_requests', { return_id: 1, sale_id: 2, amount: 200, status: 'approved', created_at: '2026-10-10 05:00:00' });
@@ -64,7 +65,7 @@ const P = { from: '2026-10-10', to: '2026-10-12' };
   ok('Totals: 4 products, revenue 4050, 12 units, shares sum to ~100%', () => { assert.deepEqual([t.totals.products, t.totals.revenue, t.totals.units], [4, 4050, 12]); assert.ok(Math.abs(t.rows.reduce((n, r) => n + r.sharePct, 0) - 100) < 0.1); });
   const o = await core.salesOverview(q, core.LITE, P);
   ok('Product revenue total equals Sales Overview net sales (4050): the two reports never double count', () => assert.equal(o.kpis.netSales, t.totals.revenue));
-  ok('Estimated profit only where a cost is recorded (A: 900 - 3 x 100 = 600; B has no cost -> null)', () => assert.deepEqual([by.A.estProfit, by.B.estProfit], [600, null]));
+  ok('Profit uses the cost saved on each sale, today\'s cost only where none was saved (A: 900 - 2 x 80 - 1 x 100 = 640; B has no cost -> null)', () => assert.deepEqual([by.A.estProfit, by.B.estProfit], [640, null]));
   const u = await core.topProducts(q, core.LITE, { ...P, sort: 'units' });
   ok('Sort by units: B, A, then D before C on the revenue tie-break', () => assert.deepEqual(u.rows.map((r) => r.sku), ['B', 'A', 'D', 'C']));
   const pos = await core.topProducts(q, core.LITE, { ...P, channel: 'pos' });

@@ -319,8 +319,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
          dl ? 'Delivery' : 'Walk-in', dl ? +dl.fee : 0, dl&&dl.recipient, dl&&dl.line, dl&&dl.landmark, dl&&dl.barangay, dl&&dl.city, dl&&dl.province, dl&&dl.region, dl&&dl.zip, dl&&dl.full]);
       const sale = sales[0];
       for(const i of items) {
-        await client.query(`INSERT INTO pos_sale_items (sale_id,product_id,sku,name,unit,qty,price,list_price,override_by)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL)`,[sale.sale_id,i.product_id,i.sku,i.name,i.unit,i.qty,i.price,i.price]);
+        await client.query(`INSERT INTO pos_sale_items (sale_id,product_id,sku,name,unit,qty,price,list_price,override_by,unit_cost)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NULL,(SELECT unit_cost FROM products WHERE product_id = $2))`,[sale.sale_id,i.product_id,i.sku,i.name,i.unit,i.qty,i.price,i.price]);
         await postMovement(client,{productId:i.product_id,type:'out',reason:'sale',qty:i.qty,userId:p.cashier_id,sourceType:'pos_sale',sourceId:sale.sale_id,note:sale.receipt_no});
       }
       await client.query("UPDATE pos_xendit_payments SET status='paid',sale_id=$1 WHERE payment_id=$2",[sale.sale_id,p.payment_id]);
@@ -770,8 +770,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   async function postMovement(client, { productId, type, reason, qty, userId, sourceType, sourceId, note }) {
     await client.query(
-      `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, [productId, type, reason, qty, userId, sourceType, sourceId, note || null]);
+      `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note, unit_cost)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,(SELECT unit_cost FROM products WHERE product_id = $1))`, [productId, type, reason, qty, userId, sourceType, sourceId, note || null]);   // cost at this moment
   }
 
   const logStatus = (client, orderId, from, to, userId, note) => client.query(
@@ -788,6 +788,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (+l.on_hand < +l.qty) throw bad('stock', `Not enough stock for ${l.name}: ${+l.on_hand} ${l.unit} on hand, this order needs ${+l.qty}`);
     for (const l of lines) await postMovement(client, { productId: l.product_id, type: 'out', reason: 'online_order', qty: +l.qty,
       userId: user.id, sourceType: 'order', sourceId: o.order_id, note: o.order_no });
+    // the cost of goods is fixed at the moment the stock leaves, so a later cost change never rewrites this order's profit
+    await client.query('UPDATE order_items i SET unit_cost = p.unit_cost FROM products p WHERE p.product_id = i.product_id AND i.order_id = $1', [o.order_id]);
     await client.query(`UPDATE orders SET status = 'Paid', stock_deducted = TRUE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
     await logStatus(client, o.order_id, o.status, 'Paid', user.id, ['Payment confirmed — stock deducted', note].filter(Boolean).join(' — '));
     await audit(client, user, 'Record edited', `Order ${o.order_no} confirmed and paid — stock deducted`);
@@ -950,7 +952,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const s = ins.rows[0];
       for (const i of items) {
         const li = await client.query(
-          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price, list_price, override_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING item_id`,
+          `INSERT INTO pos_sale_items (sale_id, product_id, sku, name, unit, qty, price, list_price, override_by, unit_cost)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,(SELECT unit_cost FROM products WHERE product_id = $2)) RETURNING item_id`,   // cost at the moment of the sale
           [s.sale_id, i.product_id, i.sku, i.name, i.unit, i.qty, i.price, i.list_price, i.override_by || null]);
         i.item_id = li.rows[0].item_id;
         await postMovement(client, { productId: i.product_id, type: 'out', reason: 'sale', qty: i.qty, userId: req.user.id,
@@ -1460,6 +1463,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         if (!q.available) throw bad('region', `Sorry, we do not deliver to ${ship.province || ship.region} yet. Choose another address or pick up in store.`);
         fee = q.fee;
       }
+      // cash on delivery / pickup: within Finance's COD limit, and not for customers who missed too many deliveries or pickups
+      if (method === cashMethod) { const c = await cashCheck(client, req.user.id, fulfillment, round2(subtotal + fee)); if (!c.ok) throw bad('method', c.reason); }
       const ins = await client.query(
         `INSERT INTO orders (customer_id, fulfillment, address, phone, payment_method, subtotal, delivery_fee, total,
                              recipient_name, address_line, landmark, barangay, city, province, region, zip_code)
@@ -1583,6 +1588,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
          LEFT JOIN users u ON u.user_id = h.changed_by WHERE h.order_id = ANY($1) ORDER BY h.created_at, h.history_id`, [ids]) : { rows: [] };
     const histBy = new Map();
     for (const h of hist) { const k = String(h.order_id); if (!histBy.has(k)) histBy.set(k, []); histBy.get(k).push({ to: h.to_status, note: h.note || undefined, by: h.by_name || 'System', at: new Date(h.created_at).getTime() }); }
+    await rulesReady;
+    const { rows: fails } = ids.length ? await pool.query('SELECT order_id, reason, created_at FROM order_failures WHERE order_id = ANY($1) ORDER BY created_at', [ids]) : { rows: [] };
+    const failBy = new Map(); for (const f of fails) { const k = String(f.order_id); failBy.set(k, (failBy.get(k) || 0) + 1); }
     const pt = app.locals.paymentTerms;
     res.json(orders.map(o => {
       const flow = FLOW[o.fulfillment] || [], at = flow.indexOf(o.status), isDelivery = o.fulfillment === 'Delivery';
@@ -1594,6 +1602,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         creditException: o.credit_exception_by ? { note: o.credit_exception_note || 'credit exception granted by Finance' } : undefined,
         hold: next && !gate.ok ? gate.reason : undefined,
         paymentRef: o.xendit_invoice_id || undefined, history: histBy.get(String(o.order_id)) || [],
+        failedAttempts: failBy.get(String(o.order_id)) || undefined,
         // Finance sees everything: rider phone, internal notes, proof photo ids (the photos themselves are fetched one by one)
         delivery: isDelivery ? delivery.financeJson(dl.rows.get(String(o.order_id)), dl.proofs.get(String(o.order_id))) : undefined,
         receivedBy: o.received_by || undefined, proofRequired: isDelivery ? delivery.proofRequired() : undefined,
@@ -1730,9 +1739,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const refundBy = await refundsFor(ordIds);
     await posReturnsReady;
     const [posItems, ordItems, voids, cancels, hist, posReturns, posReturnLines] = await Promise.all([
-      q(`SELECT i.sale_id, i.item_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
+      q(`SELECT i.sale_id, i.item_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(i.unit_cost, p.unit_cost, 0) AS cost
            FROM pos_sale_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.sale_id = ANY($1) ORDER BY i.item_id`, posIds),
-      q(`SELECT i.order_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(p.unit_cost, 0) AS cost
+      q(`SELECT i.order_id, i.sku, i.name, i.unit, i.qty, i.price, COALESCE(i.unit_cost, p.unit_cost, 0) AS cost
            FROM order_items i LEFT JOIN products p ON p.product_id = i.product_id WHERE i.order_id = ANY($1) ORDER BY i.item_id`, ordIds),
       q(`SELECT request_id, sale_id, reason FROM void_requests WHERE status = 'pending' AND sale_id = ANY($1)`, posIds),
       q(`SELECT order_id, reason FROM order_cancel_requests WHERE status = 'pending' AND order_id = ANY($1)`, ordIds),
@@ -1893,6 +1902,186 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     notify(req.params.no, 'Cancelled', { reason });
   }));
 
+  /* ---------- deliveries and pickups that did not happen + cash rules ----------
+     A delivery that fails (nobody home, refused, unreachable, wrong address, or a problem on our side) is either tried
+     again (the order goes back to Packed, the stock stays reserved) or cancelled (the stock goes back on sale and any
+     money received is queued for refund). A pickup nobody collects is cancelled the same way: by staff, or by itself
+     PICKUP_HOLD_DAYS after it became Ready for Pickup, with a reminder 2 days before.
+     Every failure is recorded in order_failures. Those caused by the customer count as a "no-show"; a customer with
+     max_no_shows of them can no longer choose cash, and cash on delivery is limited to cod_limit per order.
+     Finance sets the three numbers (order_rules, Payment Terms page). */
+  const SYSTEM = { id: null, name: 'System', roleLabel: 'System' };
+  const FAIL_REASONS = {
+    Delivery: { not_home: ['Nobody home to receive it', true], refused: ['Customer refused the order or the cash payment', true],
+      unreachable: ['Customer could not be reached', true], wrong_address: ['Wrong or incomplete address', true],
+      shop_issue: ['Our side: vehicle, weather or schedule', false], other: ['Other reason', false] },
+    Pickup: { not_picked_up: ['Customer did not pick it up', true], other: ['Other reason', false] }
+  };
+  const rulesReady = (async () => {
+    try {
+      // cost of goods per sale line (see confirmOrder and the POS sale): old lines get today's cost once, as the best estimate available
+      for (const t of ['pos_sale_items', 'order_items']) {
+        await pool.query(`ALTER TABLE ${t} ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(12,2)`);
+        await pool.query(`UPDATE ${t} i SET unit_cost = p.unit_cost FROM products p WHERE p.product_id = i.product_id AND i.unit_cost IS NULL`);
+      }
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_rules (
+        id SMALLINT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        cod_limit NUMERIC(14,2) NOT NULL DEFAULT 10000 CHECK (cod_limit >= 0),
+        max_no_shows INT NOT NULL DEFAULT 2 CHECK (max_no_shows BETWEEN 0 AND 10),
+        pickup_hold_days INT NOT NULL DEFAULT 7 CHECK (pickup_hold_days BETWEEN 2 AND 60),
+        updated_by INT REFERENCES users(user_id), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('INSERT INTO order_rules (id) VALUES (1) ON CONFLICT DO NOTHING');
+      await pool.query(`CREATE TABLE IF NOT EXISTS order_failures (
+        failure_id  BIGSERIAL PRIMARY KEY,
+        order_id    BIGINT NOT NULL REFERENCES orders(order_id),
+        customer_id INT REFERENCES users(user_id),
+        kind        TEXT NOT NULL CHECK (kind IN ('Delivery','Pickup')),
+        reason      TEXT NOT NULL,
+        note        TEXT,
+        outcome     TEXT NOT NULL CHECK (outcome IN ('retry','cancelled')),
+        counts      BOOLEAN NOT NULL,
+        recorded_by INT REFERENCES users(user_id),
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('CREATE INDEX IF NOT EXISTS ix_order_failures_customer ON order_failures (customer_id) WHERE counts');
+      // Supabase: tables made at start-up also get row level security (the app owns them, so its own queries are not affected)
+      for (const t of ['order_rules', 'order_failures']) await pool.query(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`);
+    } catch (err) { console.warn('[db] could not prepare the order rules tables:', err.message); }
+  })();
+  async function getRules(db) {
+    await rulesReady;
+    const r = (await (db || pool).query('SELECT cod_limit, max_no_shows, pickup_hold_days, updated_at, u.full_name AS updated_by FROM order_rules LEFT JOIN users u ON u.user_id = order_rules.updated_by WHERE id = 1')).rows[0]
+      || { cod_limit: 10000, max_no_shows: 2, pickup_hold_days: 7 };
+    return { codLimit: round2(+r.cod_limit), maxNoShows: +r.max_no_shows, pickupHoldDays: +r.pickup_hold_days,
+      updatedBy: r.updated_by || undefined, updatedAt: r.updated_at ? new Date(r.updated_at).getTime() : undefined };
+  }
+  async function noShowCount(db, customerId) {
+    await rulesReady;
+    return (await (db || pool).query('SELECT COUNT(*)::int AS n FROM order_failures WHERE customer_id = $1 AND counts', [customerId])).rows[0].n;
+  }
+  async function cashCheck(db, customerId, fulfillment, total) {
+    const rules = await getRules(db), n = await noShowCount(db, customerId);
+    const cashWord = fulfillment === 'Delivery' ? 'Cash on delivery' : 'Cash on pickup';
+    if (rules.maxNoShows > 0 && n >= rules.maxNoShows)
+      return { ok: false, rules, noShows: n, reason: `${cashWord} is not available on your account after ${n} missed ${n === 1 ? 'delivery or pickup' : 'deliveries or pickups'}. Please pay online.` };
+    if (fulfillment === 'Delivery' && rules.codLimit > 0 && total > rules.codLimit + 0.004)
+      return { ok: false, rules, noShows: n, reason: `Cash on delivery is available for orders up to ${peso(rules.codLimit)}. Please pay online for this order${n ? '' : ', or choose Pickup'}.` };
+    return { ok: true, rules, noShows: n };
+  }
+  app.locals.orderRules = { get: getRules, cashCheck };
+
+  app.get('/api/finance/order-rules', auth('finance'), wrap(async (req, res) => res.json(await getRules())));
+  app.put('/api/finance/order-rules', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {}, e = {};
+    const money = String(b.codLimit == null ? '' : b.codLimit).replace(/[,₱\s]/g, '');
+    if (!/^\d{1,9}(\.\d{1,2})?$/.test(money)) e.codLimit = 'Enter the limit in pesos, e.g. 10000 (0 = no limit)';
+    const shows = Number(b.maxNoShows), days = Number(b.pickupHoldDays);
+    if (!Number.isInteger(shows) || shows < 0 || shows > 10) e.maxNoShows = 'Enter a whole number from 0 (off) to 10';
+    if (!Number.isInteger(days) || days < 2 || days > 60) e.pickupHoldDays = 'Enter a whole number of days from 2 to 60';
+    if (Object.keys(e).length) throw new ValidationError(e);
+    const before = await getRules();
+    await rulesReady;
+    await pool.query('UPDATE order_rules SET cod_limit = $1, max_no_shows = $2, pickup_hold_days = $3, updated_by = $4, updated_at = now() WHERE id = 1',
+      [round2(Number(money)), shows, days, req.user.id]);
+    await audit(pool, req.user, 'Record edited', `Order rules: cash on delivery limit ${peso(before.codLimit)} → ${peso(Number(money))}, ` +
+      `missed deliveries/pickups before cash is blocked ${before.maxNoShows} → ${shows}, pickup hold ${before.pickupHoldDays} → ${days} days`);
+    res.json(await getRules());
+  }));
+  // the checkout asks before showing the cash option, so the customer is never surprised at "Place order"
+  app.get('/api/shop/cash-options', auth('customer'), wrap(async (req, res) => {
+    const rules = await getRules(), n = await noShowCount(null, req.user.id);
+    res.json({ codLimit: rules.codLimit, maxNoShows: rules.maxNoShows, noShows: n, cashBlocked: rules.maxNoShows > 0 && n >= rules.maxNoShows, pickupHoldDays: rules.pickupHoldDays });
+  }));
+
+  // cancel an order that never reached the customer: stock back on sale, any money received queued for refund
+  async function cancelUndelivered(client, o, userId, reason) {
+    if (o.stock_deducted) {
+      const { rows: items } = await client.query('SELECT product_id, qty FROM order_items WHERE order_id = $1 ORDER BY product_id', [o.order_id]);
+      for (const i of items) await postMovement(client, { productId: i.product_id, type: 'in', reason: 'refund', qty: +i.qty,
+        userId, sourceType: 'order', sourceId: o.order_id, note: `Cancelled ${o.order_no}: ${reason}` });
+    }
+    await client.query(`UPDATE orders SET status = 'Cancelled', stock_deducted = FALSE, status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+    await client.query(`UPDATE order_cancel_requests SET status = 'approved', decided_by = $2, decided_at = now() WHERE order_id = $1 AND status = 'pending'`, [o.order_id, userId]);
+    const owed = await queueCancelRefund(client, o, userId);
+    await logStatus(client, o.order_id, o.status, 'Cancelled', userId, reason + (owed ? ` — refund of ${peso(owed)} queued` : ''));
+    return owed;
+  }
+
+  // staff: the delivery did not go through, or the customer did not pick up the order
+  app.post('/api/orders/:no/not-completed', auth('finance', 'cashier'), wrap(async (req, res) => {
+    const b = req.body || {}, code = str(b.reason), note = str(b.note), action = str(b.action);
+    if (note.length > 200) throw bad('note', 'The note must be 200 characters or fewer');
+    await rulesReady;
+    const out = await tx(async (client) => {
+      const o = (await client.query('SELECT * FROM orders WHERE order_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!o) throw bad('id', 'Order not found');
+      const at = o.fulfillment === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup';
+      if (o.status !== at) throw bad('status', o.fulfillment === 'Delivery'
+        ? 'Only an order that is Out for Delivery can be marked as not delivered' : 'Only an order that is Ready for Pickup can be marked as not picked up');
+      const reasons = FAIL_REASONS[o.fulfillment], r = reasons[code];
+      if (!r) throw bad('reason', 'Choose what happened');
+      if (code === 'other' && note.length < 5) throw bad('note', 'Describe what happened (at least 5 characters)');
+      const act = o.fulfillment === 'Pickup' ? 'cancel' : action;
+      if (!['retry', 'cancel'].includes(act)) throw bad('action', 'Choose whether to try the delivery again or cancel the order');
+      if (act === 'retry') {
+        const pend = await client.query(`SELECT 1 FROM order_cancel_requests WHERE order_id = $1 AND status = 'pending'`, [o.order_id]);
+        if (pend.rowCount) throw bad('action', 'The customer asked to cancel this order: cancel it instead of trying again');
+      }
+      const words = r[0] + (note ? ` \u2014 ${note}` : '');
+      await client.query(`INSERT INTO order_failures (order_id, customer_id, kind, reason, note, outcome, counts, recorded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [o.order_id, o.customer_id, o.fulfillment, code, note || null, act === 'retry' ? 'retry' : 'cancelled', r[1], req.user.id]);
+      const tries = (await client.query(`SELECT COUNT(*)::int AS n FROM order_failures WHERE order_id = $1 AND kind = 'Delivery'`, [o.order_id])).rows[0].n;
+      let owed = 0;
+      if (act === 'retry') {
+        await client.query(`UPDATE orders SET status = 'Packed', status_updated_at = now() WHERE order_id = $1`, [o.order_id]);
+        await logStatus(client, o.order_id, o.status, 'Packed', req.user.id, `Delivery attempt ${tries} failed: ${words}. Back to Packed for another try`);
+      } else {
+        owed = await cancelUndelivered(client, o, req.user.id, (o.fulfillment === 'Delivery' ? 'Not delivered: ' : 'Not picked up: ') + words);
+      }
+      await audit(client, req.user, 'Record edited', `Order ${o.order_no} ${o.fulfillment === 'Delivery' ? 'not delivered' : 'not picked up'} — ${words}; ` +
+        (act === 'retry' ? 'back to Packed for another try' : 'cancelled, stock returned' + (owed ? `, refund of ${peso(owed)} queued` : '')) + (r[1] ? ' (counts as a customer no-show)' : ''));
+      return { o, act, words, tries, owed };
+    });
+    res.json({ ok: true, status: out.act === 'retry' ? 'Packed' : 'Cancelled', refundQueued: out.owed || undefined });
+    if (out.act === 'retry') later(() => pingUser(out.o.customer_id, { category: 'delivery', title: 'We could not deliver your order',
+      body: `We tried to deliver ${out.o.order_no} but could not complete it (${out.words}). We will contact you to arrange another delivery.`,
+      link: 'Shop_Customer.html#orders', entityType: 'order', entityId: out.o.order_no, severity: 'warn', dedupeKey: 'deliv_fail:' + out.o.order_no + ':' + out.tries }, 'customer'));
+    else notify(out.o.order_no, 'Cancelled', { reason: out.words });
+  }));
+
+  // pickups nobody collects: a reminder 2 days before the hold ends, then cancelled by itself (same rules as above)
+  async function sweepUnclaimedPickups() {
+    const rules = await getRules(), out = { reminded: 0, cancelled: 0 };
+    const holdSecs = rules.pickupHoldDays * 86400, remindSecs = Math.max(1, rules.pickupHoldDays - 2) * 86400;
+    const soon = await pool.query(
+      `SELECT order_no, customer_id, status_updated_at FROM orders WHERE status = 'Ready for Pickup'
+         AND status_updated_at < now() - make_interval(secs => $1) AND status_updated_at >= now() - make_interval(secs => $2) LIMIT 200`, [remindSecs, holdSecs]);
+    for (const o of soon.rows) {
+      const by = new Date(new Date(o.status_updated_at).getTime() + holdSecs * 1000).toLocaleDateString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric' });
+      const n = await pingUser(o.customer_id, { category: 'delivery', title: 'Your order is waiting for pickup',
+        body: `Order ${o.order_no} is ready at our shop. Please pick it up by ${by}, or it is cancelled automatically.`,
+        link: 'Shop_Customer.html#orders', entityType: 'order', entityId: o.order_no, severity: 'warn', dedupeKey: 'pickup_remind:' + o.order_no }, 'customer');
+      out.reminded += n ? 1 : 0;
+    }
+    const due = await pool.query(`SELECT order_id, order_no FROM orders WHERE status = 'Ready for Pickup' AND status_updated_at < now() - make_interval(secs => $1) ORDER BY order_id LIMIT 100`, [holdSecs]);
+    for (const row of due.rows) {
+      const reason = `Not picked up within ${rules.pickupHoldDays} days`;
+      const done = await tx(async (client) => {
+        const o = (await client.query(`SELECT * FROM orders WHERE order_id = $1 AND status = 'Ready for Pickup' AND status_updated_at < now() - make_interval(secs => $2) FOR UPDATE SKIP LOCKED`,
+          [row.order_id, holdSecs])).rows[0];
+        if (!o) return null;
+        await client.query(`INSERT INTO order_failures (order_id, customer_id, kind, reason, note, outcome, counts) VALUES ($1,$2,'Pickup','not_picked_up',$3,'cancelled',TRUE)`,
+          [o.order_id, o.customer_id, 'Cancelled automatically']);
+        const owed = await cancelUndelivered(client, o, null, reason + ' (cancelled automatically)');
+        await audit(client, SYSTEM, 'Record edited', `Order ${o.order_no} cancelled automatically: ${reason.toLowerCase()} — stock returned` + (owed ? `, refund of ${peso(owed)} queued` : ''));
+        return o;
+      });
+      if (done) { out.cancelled++; notify(done.order_no, 'Cancelled', { reason: reason.toLowerCase() }); }
+    }
+    if (out.cancelled) console.log(`[auto] unclaimed pickups: ${out.cancelled} cancelled, ${out.reminded} reminded`);
+    return out;
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'unclaimed-pickups', run: sweepUnclaimedPickups });
+
   /* ---------- automatic follow-up of online orders nobody paid ----------
      An online-payment (Xendit) order that is still "Pending Confirmation" with nothing paid is cancelled by itself
      ORDER_PAY_HOURS (default 48) after the customer's LAST payment attempt (placing the order, or the last
@@ -1903,7 +2092,6 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
      Safe with several servers: each order is locked with SKIP LOCKED and checked again before it changes. */
   const PAY_HOURS = Math.max(6, Number(process.env.ORDER_PAY_HOURS) || 48);
   const REMIND_HOURS = Math.min(12, PAY_HOURS / 2);
-  const SYSTEM = { id: null, name: 'System', roleLabel: 'System' };
   const LAST_TRY = `GREATEST(o.created_at, COALESCE(to_timestamp(NULLIF(substring(o.xendit_external_id from '-([0-9]{13})$'), '')::bigint / 1000.0), o.created_at))`;
   const UNPAID = `o.status = 'Pending Confirmation' AND o.payment_method = 'Xendit' AND COALESCE(o.paid_amount, 0) = 0 AND NOT o.stock_deducted
                   AND NOT EXISTS (SELECT 1 FROM order_cancel_requests c WHERE c.order_id = o.order_id AND c.status = 'pending')`;

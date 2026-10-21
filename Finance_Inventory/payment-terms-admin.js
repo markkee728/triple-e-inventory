@@ -75,6 +75,44 @@
           + '<div class="table-wrapper"><table><thead><tr>' + p[3] + '</tr></thead>'
           + '<tbody id="' + p[0] + 'Body"><tr><td class="faint">Loading\u2026</td></tr></tbody></table></div></div>';
       }).join('');
+    // cash on delivery / pickup rules sit right under the terms they go with
+    var pol = $('ptrPolicyBox'); if (pol) pol.insertAdjacentHTML('afterend', codPanel());
+  }
+
+  /* ---------------- cash on delivery / pickup rules (order_rules) ---------------- */
+  var RULES = null;
+  function codPanel() {
+    var f = function (id, label, hint, attrs) {
+      return '<div style="flex:1 1 200px;min-width:180px;display:flex;flex-direction:column"><label for="' + id + '" style="display:flex;align-items:flex-end;min-height:40px;margin-bottom:6px">' + label + '</label>'
+        + '<input id="' + id + '" class="mono" inputmode="numeric" autocomplete="off" ' + attrs + ' style="width:100%">'
+        + '<div class="faint" style="margin-top:5px">' + hint + '</div><div class="faint" data-coderr="' + id + '" role="alert" style="color:var(--red,#c0392b)"></div></div>';
+    };
+    return '<div class="panel" id="ptrCodBox" style="margin-bottom:18px">'
+      + '<div class="panel-head"><div><div class="panel-title">Cash on delivery and pickup</div>'
+      + '<div class="panel-sub">Limits that keep unpaid orders from holding stock. The checkout hides cash when a rule says no, and the server checks again.</div></div></div>'
+      + '<div style="display:flex;gap:18px;flex-wrap:wrap;padding:4px 16px 0">'
+      + f('codLimit', 'Cash on delivery limit (\u20B1)', 'Bigger delivery orders must be paid online. 0 = no limit.', 'placeholder="10000"')
+      + f('codShows', 'Missed deliveries or pickups before cash is blocked', 'The customer can then only pay online. 0 = never block.', 'placeholder="2"')
+      + f('codHold', 'Days to hold a ready pickup', 'Not collected by then: cancelled and restocked (reminder 2 days before).', 'placeholder="7"')
+      + '</div><div style="display:flex;gap:12px;align-items:center;padding:14px 16px 16px"><button type="button" class="btn-primary btn-sm" data-cod-save>Save rules</button>'
+      + '<span class="faint" id="codStatus"></span></div></div>';
+  }
+  function renderCod() {
+    if (!RULES || !$('codLimit')) return;
+    $('codLimit').value = RULES.codLimit; $('codShows').value = RULES.maxNoShows; $('codHold').value = RULES.pickupHoldDays;
+    $('codStatus').textContent = RULES.updatedBy ? 'Last changed by ' + RULES.updatedBy + ' \u00B7 ' + when(RULES.updatedAt) : 'Default rules (not changed yet)';
+  }
+  async function saveCod(btn) {
+    document.querySelectorAll('[data-coderr]').forEach(function (x) { x.textContent = ''; });
+    var body = { codLimit: $('codLimit').value.trim(), maxNoShows: Number($('codShows').value), pickupHoldDays: Number($('codHold').value) };
+    btn.disabled = true;
+    try { RULES = await api('/finance/order-rules', { method: 'PUT', body: JSON.stringify(body) }); renderCod(); toast('Cash rules saved.'); }
+    catch (e) {
+      if (e.message === 'Not signed in') return;
+      var map = { codLimit: 'codLimit', maxNoShows: 'codShows', pickupHoldDays: 'codHold' }, shown = false;
+      Object.keys(e.fields || {}).forEach(function (k) { var el = document.querySelector('[data-coderr="' + (map[k] || k) + '"]'); if (el) { el.textContent = e.fields[k]; shown = true; } });
+      if (!shown) toast(e.message, true);
+    } finally { btn.disabled = false; }
   }
 
   /* ---------------- the policy table ---------------- */
@@ -211,15 +249,16 @@
     try {
       var res = await Promise.all([
         api('/finance/payment-terms'), api('/finance/quotes').catch(function () { return []; }),
-        api('/finance/receivables'), api('/finance/payments')
+        api('/finance/receivables'), api('/finance/payments'), api('/finance/order-rules').catch(function () { return null; })
       ]);
+      RULES = res[4];
       POLICY = res[0].terms || []; LEDGER_READY = res[0].ledgerReady !== false;
       QUOTES = Array.isArray(res[1]) ? res[1] : []; DEBT = res[2]; MONEY = res[3];
     } catch (e) {
       if (e.message !== 'Not signed in') toast(e.message || 'The payment-terms screen could not be loaded.', true);
       busy = false; return;
     }
-    renderPolicy(); renderProposed(); renderDebt(); renderMoney();
+    renderPolicy(); renderProposed(); renderDebt(); renderMoney(); renderCod();
     busy = false;
   }
 
@@ -274,6 +313,8 @@
     host.addEventListener('click', function (e) {
       var reload = e.target.closest('[data-reload]');
       if (reload) { e.preventDefault(); loadAll(); return; }
+      var cod = e.target.closest('[data-cod-save]');
+      if (cod) { e.preventDefault(); saveCod(cod); return; }
       var save = e.target.closest('[data-save]');
       if (save) { e.preventDefault(); var tr = save.closest('tr[data-term]'); if (tr) saveTerm(tr); return; }
       var ap = e.target.closest('[data-approve]'), rf = e.target.closest('[data-refuse]');

@@ -639,14 +639,21 @@ function validateMovement(b) {
   const note = text(e, 'note', b.note, 'Note', { max: 300, required: false });
   if (!e.reason && NOTE_REQUIRED.includes(reason) && note.length < 3) e.note = 'Please explain this entry in the note';
   // Deliveries from a supplier: who sent it (required) and the supplier's invoice / delivery receipt number
-  let supplier = null, invoiceNo = null;
+  let supplier = null, invoiceNo = null, unitCost = null;
   if (type === 'in' && reason === 'supplier_receipt') {
     supplier = str(b.supplier);
     if (!supplier) e.supplier = 'Choose the supplier this delivery came from';
     invoiceNo = text(e, 'invoiceNo', b.invoiceNo, 'Invoice / delivery no.', { max: 40, required: false }) || null;
+    // optional: what the supplier charged per unit on this delivery; it updates the product's average cost
+    const raw = String(b.unitCost == null ? '' : b.unitCost).replace(/[,₱\s]/g, '');
+    if (raw !== '') {
+      if (!/^\d{1,8}(\.\d{1,2})?$/.test(raw)) e.unitCost = 'Enter the cost per unit in pesos, e.g. 145.50';
+      else if (!(Number(raw) > 0)) e.unitCost = 'The cost per unit must be more than 0';
+      else unitCost = Number(raw);
+    }
   }
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, type, reason, quantity, note: note || null, supplier, invoiceNo };
+  return { sku, type, reason, quantity, note: note || null, supplier, invoiceNo, unitCost };
 }
 
 const wrap = fn => (req, res) => fn(req, res).catch(err => {
@@ -1305,7 +1312,7 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
   if (m.type === 'in' && m.reason === 'produced_batch')
     throw new ValidationError({ reason: 'Use "Produced Internally" so the materials used are deducted automatically' });
   const result = await tx(async (client) => {
-    const p = await client.query('SELECT product_id, name, department, on_hand, unit FROM products WHERE sku = $1 AND NOT is_archived FOR UPDATE', [m.sku]);
+    const p = await client.query('SELECT product_id, name, department, on_hand, unit, unit_cost FROM products WHERE sku = $1 AND NOT is_archived FOR UPDATE', [m.sku]);
     if (!p.rowCount) throw new ValidationError({ sku: 'That product does not exist' });
     const prod = p.rows[0];
     const allowedDepts = REASON_DEPTS[m.type][m.reason];
@@ -1324,16 +1331,24 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
       }
       supplierId = sp.rows[0].supplier_id; supplierName = sp.rows[0].name;
     }
+    // Moving-average cost: a delivery bought at a different price moves the product's cost by its share of the stock.
+    // new cost = (stock on hand x current cost + quantity received x price paid) / (stock on hand + quantity received)
+    // Every movement keeps the cost it moved at, so stock value and profit history do not change when the cost does later.
+    const oldCost = +prod.unit_cost || 0, onHand = Math.max(0, +prod.on_hand);
+    let newCost = oldCost;
+    if (m.unitCost != null) newCost = Math.round(((onHand * oldCost + m.quantity * m.unitCost) / (onHand + m.quantity)) * 100) / 100;
     const ins = await client.query(
-      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,supplier_id,invoice_no)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ref`,
-      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note, supplierId, m.invoiceNo]);
+      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,supplier_id,invoice_no,unit_cost)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ref`,
+      [prod.product_id, m.type, m.reason, m.quantity, req.user.id, m.note, supplierId, m.invoiceNo, m.unitCost != null ? m.unitCost : oldCost]);
+    if (newCost !== oldCost) await client.query('UPDATE products SET unit_cost = $2 WHERE product_id = $1', [prod.product_id, newCost]);
     await audit(client, req.user, 'Record added',
       `Stock ${m.type === 'in' ? 'In' : 'Out'} — ${ins.rows[0].ref}, ${prod.name}, ${m.type === 'in' ? '+' : '-'}${m.quantity} ${prod.unit} (${REASONS[m.type][m.reason]})` +
-      (supplierName ? `, from ${supplierName}` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : ''));
-    return ins.rows[0].ref;
+      (supplierName ? `, from ${supplierName}` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : '') +
+      (m.unitCost != null ? `, at ₱${m.unitCost.toFixed(2)} each — average cost ₱${oldCost.toFixed(2)} → ₱${newCost.toFixed(2)}` : ''));
+    return { ref: ins.rows[0].ref, unitCost: newCost, previousCost: oldCost };
   });
-  res.status(201).json({ ref: result });
+  res.status(201).json({ ref: result.ref, unitCost: result.unitCost, previousCost: result.previousCost });
 }));
 
 /* ---------- stock count (physical inventory) ---------- */

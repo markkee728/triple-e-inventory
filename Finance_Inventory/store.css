@@ -328,3 +328,12 @@ html[data-theme="light"] .pd-stockmsg.bad{color:#b53a3a}
   #quoteForm .q-opt-body{padding-right:44px}
 }
 .quote-side .quote-row select{width:100%;-webkit-appearance:none;appearance:none;padding:9px 38px 9px 13px;border:1px solid var(--border);background-color:var(--field);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5l5 5 5-5' fill='none' stroke='%238fa1b0' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;font:400 14px/1.3 Inter,system-ui,sans-serif;cursor:pointer}
+
+/* ===== Request a quote: same heading sizes as the walk-in quotation at the counter (2026-10-21) ===== */
+.qf-txt b{font-size:19px}
+.qf-txt small{font-size:13px}
+
+/* a payment option that is not allowed for this order (e.g. cash over Finance's COD limit) */
+.opt.off{cursor:not-allowed;opacity:.6}
+.opt.off:hover{border-color:var(--border)}
+.opt.off small{color:var(--red)}

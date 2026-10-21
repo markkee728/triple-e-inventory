@@ -195,6 +195,7 @@ async function topProducts(q, dx, p, o = {}) {
   const sql = `WITH ${txCtes(dx, o)},
   pos_items AS (
     SELECT 'POS' AS channel, i.sale_id AS src_id, i.sku, i.name, i.unit, i.qty, ROUND(i.qty * i.price, 2) AS line_amount,
+           COALESCE(i.unit_cost, (SELECT p.unit_cost FROM products p WHERE p.sku = i.sku)) AS unit_cost,
            COALESCE((SELECT SUM(ri.qty) FROM pos_return_items ri JOIN pos_return_requests r ON r.return_id = ri.return_id
                       WHERE ri.sale_item_id = i.item_id AND r.status = 'approved'), 0) AS ret_qty,
            COALESCE((SELECT SUM(ri.amount) FROM pos_return_items ri JOIN pos_return_requests r ON r.return_id = ri.return_id
@@ -202,11 +203,12 @@ async function topProducts(q, dx, p, o = {}) {
       FROM pos_sale_items i
   ),
   ord_items AS (
-    SELECT 'Online' AS channel, i.order_id AS src_id, i.sku, i.name, i.unit, i.qty, ROUND(i.qty * i.price, 2) AS line_amount, 0 AS ret_qty, 0 AS ret_amount
+    SELECT 'Online' AS channel, i.order_id AS src_id, i.sku, i.name, i.unit, i.qty, ROUND(i.qty * i.price, 2) AS line_amount,
+           COALESCE(i.unit_cost, (SELECT p.unit_cost FROM products p WHERE p.sku = i.sku)) AS unit_cost, 0 AS ret_qty, 0 AS ret_amount
       FROM order_items i
   ),
   lines AS (
-    SELECT it.channel, it.src_id, it.sku, it.name, it.unit,
+    SELECT it.channel, it.src_id, it.sku, it.name, it.unit, it.unit_cost,
            CASE WHEN it.channel = 'POS' THEN it.qty - it.ret_qty
                 WHEN t.total > 0 AND (t.refunded * 1.0 / t.total) >= 0.995 THEN 0 ELSE it.qty END AS units_net,
            CASE WHEN it.channel = 'POS' THEN it.line_amount - it.ret_amount
@@ -216,6 +218,7 @@ async function topProducts(q, dx, p, o = {}) {
      WHERE t.cls = 'realized' AND ${dx.between('t.ts', '$1', '$2')}${channel === 'all' ? '' : ` AND it.channel = '${channel === 'pos' ? 'POS' : 'Online'}'`}
   )
   SELECT l.sku, MAX(l.name) AS name, MAX(l.unit) AS unit, MAX(pr.department) AS department, MAX(pr.unit_cost) AS unit_cost,
+         SUM(l.units_net * COALESCE(l.unit_cost, 0)) AS cost, MAX(CASE WHEN COALESCE(l.unit_cost, 0) > 0 THEN 1 ELSE 0 END) AS has_cost,
          SUM(l.units_net) AS units, SUM(l.rev_net) AS revenue,
          SUM(CASE WHEN l.channel = 'POS' THEN l.units_net ELSE 0 END) AS pos_units, SUM(CASE WHEN l.channel = 'POS' THEN l.rev_net ELSE 0 END) AS pos_revenue,
          SUM(CASE WHEN l.channel = 'Online' THEN l.units_net ELSE 0 END) AS online_units, SUM(CASE WHEN l.channel = 'Online' THEN l.rev_net ELSE 0 END) AS online_revenue,
@@ -227,7 +230,7 @@ async function topProducts(q, dx, p, o = {}) {
     return { sku: r.sku, name: r.name, unit: r.unit, department: r.department || null, units: r2(units), revenue: r2(rev),
       posUnits: r2(num(r.pos_units)), posRevenue: r2(num(r.pos_revenue)), onlineUnits: r2(num(r.online_units)), onlineRevenue: r2(num(r.online_revenue)),
       transactions: num(r.transactions), avgPrice: units ? r2(rev / units) : 0,
-      estProfit: num(r.unit_cost) > 0 ? r2(rev - units * num(r.unit_cost)) : null };   // null = no cost recorded (a 0 cost would show a false 100% margin)
+      estProfit: num(r.has_cost) > 0 ? r2(rev - num(r.cost)) : null };   // cost saved on each sale line; null = no cost recorded (a 0 cost would show a false 100% margin)   // null = no cost recorded (a 0 cost would show a false 100% margin)
   });
   rows.sort((a, b) => (sort === 'units' ? b.units - a.units || b.revenue - a.revenue : b.revenue - a.revenue || b.units - a.units) || String(a.sku || '').localeCompare(String(b.sku || '')));
   const totalRev = r2(rows.reduce((n, r) => n + r.revenue, 0)), totalUnits = r2(rows.reduce((n, r) => n + r.units, 0));

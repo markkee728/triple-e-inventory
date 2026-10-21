@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css?v=3">
-<link rel="stylesheet" href="store.css">
+<link rel="stylesheet" href="store.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="quote-fields.css?v=2">
 <style>
@@ -481,6 +481,18 @@ const units = () => cart.reduce((n, l) => n + l.qty, 0);
 const subtotal = () => cart.reduce((s, l) => s + prod(l.sku).price * l.qty, 0);
 const fee = () => fulfil === 'Delivery' ? (shipFee == null ? 0 : shipFee) : 0;
 const cashMethod = () => fulfil === 'Delivery' ? 'Cash on Delivery' : 'Cash on Pickup';
+// what Finance allows for cash (GET /api/shop/cash-options), read once per visit to checkout
+let CASH = null, cashLoading = false;
+async function loadCash() {
+  if (cashLoading) return; cashLoading = true;
+  try { CASH = await api('/api/shop/cash-options'); renderCheckout(); } catch (e) { CASH = { codLimit: 0, cashBlocked: false }; } finally { cashLoading = false; }
+}
+function cashBlockReason() {
+  if (!CASH) return '';
+  if (CASH.cashBlocked) return 'Not available on your account after ' + CASH.noShows + ' missed deliveries or pickups. Please pay online.';
+  if (fulfil === 'Delivery' && CASH.codLimit > 0 && orderTotal() > CASH.codLimit + 0.004) return 'Available for orders up to ' + peso(CASH.codLimit) + '. Pay online, or choose Pickup.';
+  return '';
+}
 const CAT_ICON = {
   'Sheets & Plates': '<rect x="3" y="6" width="18" height="12" rx="1"/><path d="M3 10h18"/>',
   'Pipes & Tubes': '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
@@ -646,7 +658,11 @@ function renderCheckout() {
       ? '<b>Delivery</b> · ' + (shipBlock ? '<span style="color:#c0392b;font-weight:600">' + esc(shipBlock) + '</span> ' : shipFee == null ? 'The fee depends on your region / province, so it shows once you choose your address. ' : (shipFee > 0 ? '₱' + shipFee.toLocaleString('en-PH') + ' delivery fee' + (shipRate ? ' (' + esc(shipRate) + ')' : '') + '. ' : 'Free delivery to your area. ')) + (i.deliveryAreas ? esc(i.deliveryAreas) + '. ' : '') + esc(i.deliveryLeadTime || '') + ' <a href="Shop_Info.html#delivery" target="_blank" rel="noopener" style="color:var(--blue-bright)">Delivery details</a>'
       : '<b>Pickup</b> · Free. ' + (i.address ? 'Collect at ' + esc(i.address) + '. ' : '') + (i.hours ? 'Hours: ' + esc(i.hours) + '. ' : '') + esc(i.pickupNote || '') + ' We email you when your order is ready.'; }
   const methods = [...ONLINE, cashMethod()]; if (!methods.includes(pay)) pay = ONLINE[0];
-  $('payOpts').innerHTML = methods.map(m => `<label class="opt ${m === pay ? 'on' : ''}" data-pay="${m}"><input type="radio" name="p" ${m === pay ? 'checked' : ''}><span>${payLabel(m)}<small>${ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`).join('');
+  // cash: Finance's limit for cash on delivery, and no cash for a customer with too many missed deliveries or pickups (the server checks the same)
+  const cashWhy = cashBlockReason(); if (cashWhy && pay === cashMethod()) pay = ONLINE[0];
+  $('payOpts').innerHTML = methods.map(m => { const off = m === cashMethod() && !!cashWhy;
+    return `<label class="opt ${m === pay ? 'on' : ''}${off ? ' off' : ''}" ${off ? 'aria-disabled="true"' : `data-pay="${m}"`}><input type="radio" name="p" ${m === pay ? 'checked' : ''}${off ? ' disabled' : ''}><span>${payLabel(m)}<small>${off ? esc(cashWhy) : ONLINE.includes(m) ? 'Pay now through our secure gateway' : 'Pay in cash when you ' + (fulfil === 'Delivery' ? 'receive it' : 'collect it')}</small></span></label>`; }).join('');
+  if (CASH === null) loadCash();
   $('sumLines').innerHTML = cart.map(l => `<div class="row"><span>${l.qty} × ${esc(prod(l.sku).name)}</span><span class="mono">${peso(prod(l.sku).price * l.qty)}</span></div>`).join('');
   $('s1').textContent = peso(subtotal()); renderFeeRow(); $('s3').textContent = peso(subtotal() + fee()); $('s3').title = fulfil === 'Delivery' && shipFee == null ? 'Delivery fee not included yet' : '';
   syncBlock();

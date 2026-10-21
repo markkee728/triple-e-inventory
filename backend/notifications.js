@@ -242,8 +242,10 @@ module.exports = function ({ app, pool, auth, wrap, TZ }) {
           body: no + ' — ' + (o.full_name || 'Customer') + ' placed a ' + o.fulfillment + ' order for ' + peso(o.total) + ' (' + o.payment_method + ').' }
       },
       Paid: {
-        customer: { category: 'payment', title: 'Payment confirmed',
-          body: extra && extra.balance > 0.004
+        customer: { category: 'payment', title: /^Cash on /.test(o.payment_method || '') && !(extra && extra.paid > 0) ? 'Order confirmed' : 'Payment confirmed',
+          body: /^Cash on /.test(o.payment_method || '') && !(extra && extra.paid > 0)
+            ? 'Order ' + no + ' is confirmed and your items are reserved. Please prepare ' + peso(o.total) + ' in cash for when you ' + (o.fulfillment === 'Delivery' ? 'receive it' : 'pick it up') + '.'
+            : extra && extra.balance > 0.004
             ? 'Order ' + no + ' is confirmed. We received your down payment of ' + peso(extra.paid) + '. Balance: ' + peso(extra.balance) + ' (' + (extra.condition || 'due before release') + ').'
             : 'Order ' + no + ' is confirmed. Payment of ' + peso(o.total) + ' is recorded and we will start packing next.' },
         // Finance is told when a payment arrives by itself (online gateway); not when Finance confirmed the order by hand

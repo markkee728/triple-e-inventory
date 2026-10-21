@@ -93,6 +93,7 @@ function flagsFor(o) {
   else if (o.awaitingPayment) out.push('<div class="co-flag">Waiting for the customer\u2019s online payment (' + esc(o.method) + '). It cannot be confirmed until it is paid.</div>');
   else if (o.cashOnHandover) out.push(`<div class="co-flag">Collect <b>${peso(dueOf(o))}</b> in cash when the order is ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.${paidOf(o) ? ' ' + peso(paidOf(o)) + ' is already recorded against it.' : ''}</div>`);
   if (o.hold && !o.cancelRequested && !o.awaitingPayment) out.push(`<div class="co-flag bad">${esc(o.hold)}</div>`);
+  if (o.failedAttempts && !['Cancelled', 'Delivered', 'Picked Up'].includes(o.status)) out.push(`<div class="co-flag bad">${o.failedAttempts} failed ${o.fulfillment === 'Delivery' ? 'delivery attempt' : 'pickup'}${o.failedAttempts === 1 ? '' : 's'} on this order. See its history in Details.</div>`);
   if (o.creditException) out.push(`<div class="co-flag">Finance granted a credit exception: ${peso(dueOf(o))} may stay outstanding. ${esc(o.creditException.note)}</div>`);
   return out.join('');
 }
@@ -107,6 +108,51 @@ function actionButton(o) {
   // the server's money gate says this step is not allowed yet: show it, but it cannot be pressed (Collect payment comes first)
   if (o.hold) return `<button type="button" class="btn-primary" disabled title="${esc(o.hold)}">${esc(ACTION[o.next] || 'Next step')}</button>`;
   return `<button type="button" class="btn-primary" data-act="${esc(o.id)}">${esc(ACTION[o.next] || 'Next step')}</button>`;
+}
+// the delivery did not go through, or nobody came for the pickup: record it (try again / cancel and restock)
+function failButton(o) {
+  if (o.cancelRequested && o.status === 'Out for Delivery') return '';
+  if (o.status === 'Out for Delivery') return `<button type="button" class="btn-secondary" data-fail="${esc(o.id)}">Not delivered…</button>`;
+  if (o.status === 'Ready for Pickup') return `<button type="button" class="btn-secondary" data-fail="${esc(o.id)}">Not picked up…</button>`;
+  return '';
+}
+const FAIL_REASONS = {
+  Delivery: [['not_home', 'Nobody home to receive it'], ['refused', 'Customer refused the order or the cash payment'], ['unreachable', 'Customer could not be reached'],
+    ['wrong_address', 'Wrong or incomplete address'], ['shop_issue', 'Our side: vehicle, weather or schedule'], ['other', 'Other reason']],
+  Pickup: [['not_picked_up', 'Customer did not pick it up'], ['other', 'Other reason']]
+};
+let failFor = null, failReq = false;
+function openFail(o) {
+  failFor = o; const del = o.fulfillment === 'Delivery';
+  $('coAction').innerHTML = `<form class="co-sheet" id="coFailForm" novalidate>
+    <h2>${del ? 'Delivery did not go through' : 'Order not picked up'}</h2><div class="co-sub">${esc(o.id)} · ${esc(o.customer)} · ${peso(o.total)}</div>
+    ${fld('failReason', 'What happened?', '<select id="co_failReason"><option value="">Choose…</option>' + FAIL_REASONS[o.fulfillment].map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('') + '</select>')}
+    ${del ? fld('failAction', 'What now?', `<div class="co-choice"><label><input type="radio" name="co_failAction" value="retry" checked> <span><b>Try again</b> — back to Packed, the stock stays reserved for the next run</span></label>
+      <label><input type="radio" name="co_failAction" value="cancel"> <span><b>Cancel the order</b> — the stock goes back on sale${paidOf(o) ? ' and the ' + peso(paidOf(o)) + ' received is queued for refund' : ''}</span></label></div>`)
+      : `<div class="co-flag">The order is cancelled and its stock goes back on sale${paidOf(o) ? '; the ' + peso(paidOf(o)) + ' received is queued for refund' : ''}.</div>`}
+    ${fld('failNote', 'Note <span class="faint">(optional, required for “Other”)</span>', '<textarea id="co_failNote" rows="2" maxlength="200" placeholder="e.g. Called twice, no answer"></textarea>')}
+    <p class="faint" style="font-size:12.5px;margin:6px 0 0">Reasons caused by the customer count as a missed delivery or pickup. After too many, the customer can only pay online.</p>
+    <p class="co-err" id="coActErr" role="alert"></p>
+    <div class="co-actions"><button type="button" class="btn-secondary" id="coCancel">Close</button><button type="submit" class="btn-primary" id="coFailGo">${del ? 'Save' : 'Cancel the order'}</button></div></form>`;
+  openModal($('coAction'));
+}
+async function submitFail() {
+  const o = failFor; if (!o || failReq) return; clearErrs();
+  const reason = $('co_failReason').value, note = $('co_failNote').value.trim(), pick = document.querySelector('input[name="co_failAction"]:checked');
+  const action = o.fulfillment === 'Delivery' ? (pick ? pick.value : '') : 'cancel';
+  let ok = true;
+  if (!reason) { setErr('failReason', 'Choose what happened'); ok = false; }
+  if (reason === 'other' && note.length < 5) { setErr('failNote', 'Describe what happened (at least 5 characters)'); ok = false; }
+  if (!ok) return;
+  const btn = $('coFailGo'); failReq = true; btn.disabled = true;
+  try {
+    const r = await request('/orders/' + encodeURIComponent(o.id) + '/not-completed', { method: 'POST', body: JSON.stringify({ reason, note, action }) });
+    closeAction(); await load(true);
+    say(r.status === 'Packed' ? o.id + ' is back in Packed for another delivery.' : o.id + ' was cancelled and its stock returned' + (r.refundQueued ? '; the refund is queued for Finance.' : '.'));
+  } catch (e) {
+    Object.entries(e.fields || {}).forEach(([k, m]) => setErr(k === 'reason' ? 'failReason' : k === 'note' ? 'failNote' : k === 'action' ? 'failAction' : k, m));
+    $('coActErr').textContent = e.message; btn.disabled = false;
+  } finally { failReq = false; }
 }
 /* §4: money is collected against the order from the ledger, separately from moving the order along.
    A released order with an approved balance still takes its balance payments here. */
@@ -129,7 +175,7 @@ function render() {
       ${flagsFor(o)}
       <div class="co-foot">
         ${moneyFoot(o)}
-        <div class="co-btns"><button type="button" class="btn-secondary" data-detail="${esc(o.id)}">Details</button>${payButton(o)}${actionButton(o)}</div>
+        <div class="co-btns"><button type="button" class="btn-secondary" data-detail="${esc(o.id)}">Details</button>${failButton(o)}${payButton(o)}${actionButton(o)}</div>
       </div></article>`;
   }).join('') : `<div class="co-empty">${orders.length ? 'No orders match this view.' : 'No online orders yet.'}</div>`;
 }
@@ -182,7 +228,7 @@ function detailHtml(o) {
     <div id="coLedger" class="co-sub" aria-live="polite">Loading\u2026</div>
     <h3 class="faint" style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:12px">History</h3>
     <ul class="co-line">${hist || '<li>No history yet.</li>'}</ul>
-    <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${payButton(o)}${actionButton(o)}</div></div>`;
+    <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${failButton(o)}${payButton(o)}${actionButton(o)}</div></div>`;
 }
 function openDetail(o) {
   $('coDetail').innerHTML = detailHtml(o); openModal($('coDetail'));
@@ -522,6 +568,7 @@ document.addEventListener('click', (e) => {
   else if (act && (act.closest('#coList') || act.closest('#coDetail'))) { const o = byId(act.dataset.act); if (o) { closeModal($('coDetail')); openAction(o); } }
   else if (pay && (pay.closest('#coList') || pay.closest('#coDetail'))) { const o = byId(pay.dataset.pay); if (o) { closeModal($('coDetail')); openPay(o); } }
   else if (chk && (chk.closest('#coList') || chk.closest('#coDetail'))) checkPayment(chk.dataset.check, chk);
+  else if (t.closest('[data-fail]') && (t.closest('#coList') || t.closest('#coDetail'))) { const o = byId(t.closest('[data-fail]').dataset.fail); if (o) { closeModal($('coDetail')); openFail(o); } }
   else if (slip) { const o = byId(slip.dataset.slip); if (o) printSlip(o); }
   else if (t.closest('[data-payreceipt]')) printPaymentReceipt(payReceipt);
   else if (cash && $('coAction').contains(cash)) { const f = $('co_cashReceived') || $('co_tendered'); if (f) { f.value = cash.dataset.cash; ($('co_cashReceived') ? updateChange : updatePayChange)(); } }
@@ -533,7 +580,7 @@ document.addEventListener('click', (e) => {
   else if (t.id === 'coDone') closeAction();
   else if (t.id === 'coGoShift') { closeAction(); if (typeof showPage === 'function') showPage('shift'); }
 });
-$('coAction').addEventListener('submit', (e) => { if (e.target.id === 'coForm') submit(e); else if (e.target.id === 'coPayForm') { e.preventDefault(); submitPay(); } });
+$('coAction').addEventListener('submit', (e) => { if (e.target.id === 'coForm') submit(e); else if (e.target.id === 'coPayForm') { e.preventDefault(); submitPay(); } else if (e.target.id === 'coFailForm') { e.preventDefault(); submitFail(); } });
 $('coAction').addEventListener('input', (e) => {
   if (e.target.id === 'co_cashReceived') updateChange();
   if (e.target.id === 'co_amount' || e.target.id === 'co_tendered') updatePayChange();

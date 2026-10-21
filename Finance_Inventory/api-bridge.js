@@ -349,7 +349,7 @@
       rg.style.display = isReceipt ? '' : 'none';
       if (isReceipt) fillMovementSuppliers(item);
       else {
-        ['movementSupplier', 'movementInvoice'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
+        ['movementSupplier', 'movementInvoice', 'movementUnitCost'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
         rg.querySelectorAll('.field-msg').forEach((n) => n.remove());
       }
     }
@@ -403,7 +403,18 @@
   }
 
   const MOVE_FIELDS = { sku: 'movementProduct', quantity: 'movementQuantity', reason: 'movementReason', note: 'movementNote',
-    supplier: 'movementSupplier', invoiceNo: 'movementInvoice' };
+    supplier: 'movementSupplier', invoiceNo: 'movementInvoice', unitCost: 'movementUnitCost' };
+  // moving-average cost: show what the cost becomes before saving (the server does the same sum and saves it)
+  function syncCostHint() {
+    const hint = $('movementCostHint'), it = movementItem(); if (!hint) return;
+    const raw = ($('movementUnitCost') && $('movementUnitCost').value || '').replace(/[,\u20B1\s]/g, ''), cost = Number(raw), qty = Number($('movementQuantity').value);
+    if (!it) { hint.textContent = ''; return; }
+    const now = Number(it.unitCost) || 0, peso = (n) => '\u20B1' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!raw || !(cost > 0)) { hint.textContent = 'Current cost ' + peso(now) + ' per ' + it.unit + '. Enter the invoice price to update the average cost; leave it empty to keep it.'; return; }
+    const have = Math.max(0, Number(it.onHand) || 0);
+    const avg = qty > 0 ? Math.round(((have * now + qty * cost) / (have + qty)) * 100) / 100 : now;
+    hint.textContent = 'Average cost ' + peso(now) + ' \u2192 ' + peso(avg) + ' per ' + it.unit + ' (' + (have || 0) + ' on hand at ' + peso(now) + ' + ' + (qty || 0) + ' at ' + peso(cost) + ').';
+  }
 
   function setupMovementForm() {
     const form = $('movementForm');
@@ -422,7 +433,10 @@
       if (wasHidden && NOTE_REQUIRED.indexOf($('movementReason').value) >= 0) $('movementNote').focus();
     });
     $('movementQuantity').addEventListener('input', syncMovementForm);
-    ['movementSupplier', 'movementInvoice'].forEach((id) => {       // clear an old error message as soon as the field is changed
+    $('movementQuantity').addEventListener('input', syncCostHint);
+    $('movementProduct').addEventListener('change', syncCostHint);
+    if ($('movementUnitCost')) $('movementUnitCost').addEventListener('input', syncCostHint);
+    ['movementSupplier', 'movementInvoice', 'movementUnitCost'].forEach((id) => {       // clear an old error message as soon as the field is changed
       const el = $(id); if (!el) return;
       const clear = () => { el.classList.remove('field-invalid'); const g = el.closest('.form-group'); if (g) g.querySelectorAll('.field-msg').forEach((n) => n.remove()); };
       el.addEventListener('input', clear); el.addEventListener('change', clear);
@@ -442,11 +456,13 @@
       const qty = vNum(errs, 'movementQuantity', 'Quantity', { gt: true });
       const note = vText(errs, 'movementNote', 'Note', { required: false, max: 300 });
       const isReceipt = type === 'in' && reason === 'supplier_receipt';
-      let supplier = '', invoiceNo = '';
+      let supplier = '', invoiceNo = '', unitCost = '';
       if (isReceipt) {
         supplier = $('movementSupplier').value;
         if (!supplier) errs.movementSupplier = 'Choose the supplier this delivery came from';
         invoiceNo = vText(errs, 'movementInvoice', 'Invoice / delivery no.', { required: false, max: 40 });
+        unitCost = ($('movementUnitCost') ? $('movementUnitCost').value : '').replace(/[,\u20B1\s]/g, '');
+        if (unitCost && !(/^\d{1,8}(\.\d{1,2})?$/.test(unitCost) && Number(unitCost) > 0)) errs.movementUnitCost = 'Enter the cost per unit in pesos, e.g. 145.50';
       }
       if (reason && NOTE_REQUIRED.indexOf(reason) >= 0 && note.length < 3) errs.movementNote = 'Please explain this entry in the note';
       const item = movementItem();
@@ -460,9 +476,10 @@
       try {
         const r = await api('/movements', {
           method: 'POST',
-          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, invoiceNo: invoiceNo || undefined })
+          body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, invoiceNo: invoiceNo || undefined, unitCost: unitCost || undefined })
         });
-        toast('Saved. Reference no. ' + r.ref);
+        toast('Saved. Reference no. ' + r.ref + (r.previousCost != null && r.unitCost !== r.previousCost ? ' \u00B7 average cost is now \u20B1' + Number(r.unitCost).toFixed(2) : ''));
+        if ($('movementCostHint')) $('movementCostHint').textContent = '';
         form.reset();
         await load();
       } catch (err) {

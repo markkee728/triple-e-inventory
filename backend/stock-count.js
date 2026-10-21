@@ -155,10 +155,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       for (const r of changes) {
         const isUp = r.diff > 0;
         await client.query(
-          `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, note)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+          `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, note, unit_cost)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
           [r.product_id, isUp ? 'in' : 'out', isUp ? 'count_correction_up' : 'count_correction_down', Math.abs(r.diff), req.user.id,
-           `Stock count ${c.rows[0].count_no}: counted ${+r.counted_qty}, system had ${+r.system_qty}` + (r.note ? ` — ${r.note}` : '')]);
+           `Stock count ${c.rows[0].count_no}: counted ${+r.counted_qty}, system had ${+r.system_qty}` + (r.note ? ` — ${r.note}` : ''), +r.unit_cost]);   // cost saved when the count started
         isUp ? up++ : down++; net += r.diff * +r.unit_cost;
       }
       await client.query(`UPDATE stock_counts SET status = 'posted', closed_by = $2, closed_at = now() WHERE count_id = $1`, [req.params.id, req.user.id]);

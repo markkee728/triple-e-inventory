@@ -874,7 +874,12 @@
                                         <label class="form-label" for="movementInvoice">Invoice / delivery no.</label>
                                         <input type="text" id="movementInvoice" class="form-input" maxlength="40" placeholder="Supplier&#8217;s document no." autocomplete="off">
                                     </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="movementUnitCost">Cost per unit (&#8369;) <span class="q-optional" style="font-weight:400;color:var(--text-faint)">(optional)</span></label>
+                                        <input type="text" id="movementUnitCost" class="form-input" inputmode="decimal" maxlength="12" placeholder="Price on the invoice" autocomplete="off">
+                                    </div>
                                 </div>
+                                <div class="field-hint" id="movementCostHint"></div>
                             </div>
 
 <div id="productionPreview" class="prod-preview" style="display:none"></div>
@@ -3626,8 +3631,8 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
-    <script src="script.js?v=22"></script>
-    <script src="api-bridge.js?v=25"></script>
+    <script src="script.js?v=23"></script>
+    <script src="api-bridge.js?v=26"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3651,7 +3656,7 @@
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=8"></script>
     <script src="delivery-rates-admin.js?v=2"></script>
-    <script src="payment-terms-admin.js?v=4"></script>
+    <script src="payment-terms-admin.js?v=6"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=8"></script>

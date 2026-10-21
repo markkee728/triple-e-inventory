@@ -269,8 +269,8 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
         let mref = null;
         if (l.qty > 0) {
           const mv = await client.query(
-            `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note)
-             VALUES ($1,'out','production_use',$2,$3,'production',$4,$5) RETURNING ref`,
+            `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note, unit_cost)
+             VALUES ($1,'out','production_use',$2,$3,'production',$4,$5,(SELECT unit_cost FROM products WHERE product_id = $1)) RETURNING ref`,   // material cost at this moment
             [l.s.product_id, l.qty, req.user.id, prod.production_id, `${prod.ref} — used to make ${quantity} ${fgInfo.unit} of ${fgInfo.name}`]);
           mref = mv.rows[0].ref;
         }
@@ -282,8 +282,9 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
 
       // 5) add the finished goods (Stock In, "Produced")
       const fgMv = await client.query(
-        `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note)
-         VALUES ($1,'in','produced_batch',$2,$3,'production',$4,$5) RETURNING ref`,
+        // the finished good keeps Finance's standard cost: it includes labour and overhead, which the materials alone do not
+        `INSERT INTO stock_movements (product_id, movement_type, reason, quantity, handled_by, source_type, source_id, note, unit_cost)
+         VALUES ($1,'in','produced_batch',$2,$3,'production',$4,$5,(SELECT unit_cost FROM products WHERE product_id = $1)) RETURNING ref`,
         [fgInfo.product_id, quantity, req.user.id, prod.production_id, `${prod.ref} — produced internally`]);
       await client.query('UPDATE production_records SET fg_movement_ref = $1 WHERE production_id = $2', [fgMv.rows[0].ref, prod.production_id]);
 

@@ -257,7 +257,7 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
          ship && ship.province, ship && ship.region, ship && ship.zip]);
       const o = ins.rows[0];
       await client.query(
-        `INSERT INTO order_items (order_id, product_id, sku, name, unit, qty, price) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        `INSERT INTO order_items (order_id, product_id, sku, name, unit, qty, price, unit_cost) VALUES ($1,$2,$3,$4,$5,$6,$7,(SELECT unit_cost FROM products WHERE product_id = $2))`,
         [o.order_id, p.product_id, p.sku, p.name, p.unit, qv.qty, round2(+q.quoted_amount / qv.qty)]);
       await client.query(
         `INSERT INTO order_status_history (order_id, from_status, to_status, changed_by, note) VALUES ($1,$2,$3,$4,$5)`,
