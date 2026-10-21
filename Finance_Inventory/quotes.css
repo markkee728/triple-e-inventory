@@ -450,3 +450,13 @@
 #page-quotes .qd-modal-grid .qd-cl.gap{border-color:rgba(217,164,65,.5)}
 #page-quotes .qd-modal-grid .qd-cl,#page-quotes .qd-modal-grid .qd-cl *{text-transform:none;letter-spacing:0;font-family:Inter,sans-serif}
 #page-quotes .qd-modal-grid .qd-cl b{font-size:13.5px;font-weight:650;color:var(--text)}
+
+/* system price card in the price form (pricing.js) */
+#page-quotes .qd-sys{grid-column:1/-1;padding:11px 13px;border:1px solid var(--blue-bright);border-radius:10px;background:var(--inset);font-size:13px;display:flex;flex-direction:column;gap:5px}
+#page-quotes .qd-sys-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-weight:650;color:var(--text)}
+#page-quotes .qd-sys-head strong{font-size:18px;color:var(--blue-bright)}
+#page-quotes .qd-sys details summary{cursor:pointer;color:var(--blue-bright);font-weight:600}
+#page-quotes .qd-sys ul{list-style:none;margin:6px 0 0;padding:0}
+#page-quotes .qd-sys li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px dashed var(--border)}
+#page-quotes .qd-sys li b{white-space:nowrap;color:var(--text)}
+#page-quotes .qd-sys .btn-sm{align-self:flex-start}

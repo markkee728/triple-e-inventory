@@ -10,10 +10,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css?v=3">
-<link rel="stylesheet" href="cash-shift.css?v=2">
+<link rel="stylesheet" href="cash-shift.css?v=3">
 <link rel="stylesheet" href="cashier-orders.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
-<link rel="stylesheet" href="quotes.css?v=8">
+<link rel="stylesheet" href="quotes.css?v=9">
 <link rel="stylesheet" href="quote-fields.css?v=2">
 <link rel="stylesheet" href="customer-pages.css?v=2">
 <style>
@@ -199,10 +199,10 @@
         <div class="stat-card amber"><div class="stat-ico"><svg class="ico" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></div><div class="stat-label">Cash / Card</div><div class="stat-value" id="stSplit" style="font-size:22px;padding-top:4px">₱0 / ₱0</div><div class="stat-foot">By payment method</div></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><div><div class="panel-title">Receipts</div><div class="panel-sub">Reprint a receipt, return items, or ask admin to void one</div></div>
-          <form id="rcFind" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%" autocomplete="off"><input id="rcFindNo" placeholder="Older receipt no. (e.g. R-1001)" maxlength="30" style="width:230px;max-width:100%;flex:1 1 180px"><button class="btn-secondary btn-sm" type="submit">Return items…</button></form></div>
+        <div class="panel-head"><div><div class="panel-title">Invoices</div><div class="panel-sub">Reprint an invoice, return items, or ask admin to void one</div></div>
+          <form id="rcFind" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;max-width:100%" autocomplete="off"><input id="rcFindNo" placeholder="Older invoice no. (e.g. SI-1001)" maxlength="30" style="width:230px;max-width:100%;flex:1 1 180px"><button class="btn-secondary btn-sm" type="submit">Return items…</button></form></div>
         <div class="table-wrapper"><table>
-          <thead><tr><th>Receipt</th><th>Time</th><th class="r">Items</th><th class="r">Total</th><th>Paid by</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Invoice</th><th>Time</th><th class="r">Items</th><th class="r">Total</th><th>Paid by</th><th>Status</th><th></th></tr></thead>
           <tbody id="saleRows"></tbody></table></div>
         <div class="empty" id="noSales"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>No sales yet today.</div>
       </div>
@@ -437,7 +437,7 @@
 
 <button class="cart-fab" id="cartFab" hidden><span id="fabText">View sale</span><span class="mono" id="fabTotal">₱0.00</span></button>
 
-<div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:380px"><div class="paper" id="receipt" style="padding:0;overflow:hidden"><img id="receiptImg" alt="Receipt" style="display:block;width:100%;height:auto"></div>
+<div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:380px"><div class="paper" id="receipt" style="padding:0;overflow:hidden"><img id="receiptImg" alt="Invoice" style="display:block;width:100%;height:auto"></div>
   <div class="modal-actions"><button class="btn-primary" id="rcPrint">Print</button><button class="btn-secondary" id="rcSave">Save PNG</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
 <div class="modal-overlay" id="voidBg"><div class="modal"><h3>Request void</h3><p class="dim" id="voidFor"></p>
   <label for="voidReason">Reason</label>
@@ -474,8 +474,8 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
-<script src="quote-fields.js?v=10"></script>
-<script src="quote-desk-ui.js?v=11"></script>
+<script src="quote-fields.js?v=11"></script>
+<script src="quote-desk-ui.js?v=12"></script>
 <script src="pos-delivery.js?v=1"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
@@ -519,7 +519,7 @@ async function submitSale(sale) {          // server re-prices from the database
     method: sale.method, tendered: sale.tendered, cardRef: sale.cardRef, requestId: sale.requestId,
     customerName: sale.customerName, customerPhone: sale.customerPhone, fulfillment: sale.fulfillment, shipTo: sale.shipTo,
     quoteNo: window.QUOTE_HANDOVER || undefined }) });
-  if (window.QUOTE_HANDOVER) { window.QUOTE_HANDOVER = ''; loadPosQuotes(); }   // the receipt is linked to the quotation exactly once
+  if (window.QUOTE_HANDOVER) { window.QUOTE_HANDOVER = ''; loadPosQuotes(); }   // the invoice is linked to the quotation exactly once
   return r;
 }
 async function requestApproval(email, password) {   // finance login at the counter -> short-lived token for price overrides
@@ -820,11 +820,11 @@ function renderSales() {
     ${canReturn(s) ? ` <button class="btn-secondary btn-sm" data-return="${s.id}">Return…</button>` : ''}
     ${s.status === 'Completed' && !s.refunded && !s.returnPending ? ` <button class="btn-danger btn-sm" data-void="${s.id}">Void…</button>` : ''}</td></tr>`).join('');
 }
-/* ----- receipt as PNG (prints at 80 mm instead of a full A4 page) ----- */
+/* ----- invoice as PNG (prints at 80 mm instead of a full A4 page) ----- */
 let lastReceipt = null;
 async function receiptPng(s, reprint) {
   const W = 320, SC = 3, PAD = 18, MONO = '"IBM Plex Mono","Courier New",monospace';
-  try { await Promise.race([Promise.all([document.fonts.load('12px "IBM Plex Mono"'), document.fonts.load('700 12px "IBM Plex Mono"')]), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}   // never block the receipt on a slow / offline font
+  try { await Promise.race([Promise.all([document.fonts.load('12px "IBM Plex Mono"'), document.fonts.load('700 12px "IBM Plex Mono"')]), new Promise(r => setTimeout(r, 1500))]); } catch (e) {}   // never block the invoice on a slow / offline font
   const font = (sz, bold) => (bold ? '700 ' : '400 ') + sz + 'px ' + MONO;
   const layout = (c, draw) => {
     let y = PAD;
@@ -845,7 +845,7 @@ async function receiptPng(s, reprint) {
     const gap = n => { y += n; };
 
     center('TRIPLE E METAL PRODUCTS', { bold: true, size: 15 });
-    center('Sales Transaction Record', { size: 12 });
+    center('SALES INVOICE', { bold: true, size: 12 });
     if (s.status === 'Voided') center('*** VOIDED ***', { bold: true, size: 14 });
     else if (s.status === 'Void Pending') center('*** VOID REQUESTED ***', { bold: true, size: 12 });
     else if (s.returnPending) center('*** RETURN PENDING ***', { bold: true, size: 12 });
@@ -867,7 +867,7 @@ async function receiptPng(s, reprint) {
     if (s.method === 'Cash') { row('Cash', peso(s.tendered)); row('Change', peso(s.change || 0)); }
     else if (s.method === 'Xendit') { row('Online payment', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
     else { row('Card / Online', peso(s.total)); row('Ref no.', s.cardRef || '—'); }
-    rule(); gap(2); center('Thank you for your purchase!', { size: 11 }); center('Please keep this receipt.', { size: 10.5, color: '#555' });
+    rule(); gap(2); center('Thank you for your purchase!', { size: 11 }); center('Please keep this invoice.', { size: 10.5, color: '#555' });
     y += PAD; return y;
   };
   const probe = document.createElement('canvas').getContext('2d');
@@ -880,14 +880,14 @@ async function receiptPng(s, reprint) {
 async function showReceipt(s, reprint) {
   if (!s) return;
   try { lastReceipt = { s, url: await receiptPng(s, !!reprint) }; }
-  catch (e) { return toast('Could not draw the receipt.', true); }
+  catch (e) { return toast('Could not draw the invoice.', true); }
   $('receiptImg').src = lastReceipt.url; $('receiptBg').classList.add('show');
 }
 $('rcSave').onclick = () => {
   if (!lastReceipt) return; const a = document.createElement('a');
   a.href = lastReceipt.url; a.download = lastReceipt.s.receiptNo + '.png'; document.body.appendChild(a); a.click(); a.remove();
 };
-$('rcPrint').onclick = () => {                    // prints only the receipt image, 80 mm wide, in a hidden frame (no A4 page of dashboard)
+$('rcPrint').onclick = () => {                    // prints only the invoice image, 80 mm wide, in a hidden frame (no A4 page of dashboard)
   if (!lastReceipt) return;
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(f);
@@ -1016,13 +1016,13 @@ document.addEventListener('click', e => {
   if (d.discard) discardHeld(d.discard);
   if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
   if (d.return) openReturn(d.return);
-  if (d.void) { voidId = d.void; $('voidFor').textContent = 'Receipt ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
+  if (d.void) { voidId = d.void; $('voidFor').textContent = 'Invoice ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
 });
 /* ----- partial return ----- */
 let returnSale = null;
 function openReturn(id, sale) {
   returnSale = sale || sales.find(s => s.id === id); if (!returnSale) return;
-  $('returnFor').textContent = 'Receipt ' + returnSale.receiptNo + ' · choose what the customer is bringing back';
+  $('returnFor').textContent = 'Invoice ' + returnSale.receiptNo + ' · choose what the customer is bringing back';
   $('returnRows').innerHTML = returnSale.items.filter(i => i.itemId).map(i => { const left = leftToReturn(i);
     return `<tr><td>${esc(i.name)}<div class="dim" style="font-size:12px">${esc(i.sku)} · ${peso(i.price)} / ${esc(i.unit)}</div></td><td class="r">${i.qty}</td><td class="r">${left}</td>
     <td class="r"><input type="number" class="ret-qty" data-item="${esc(i.itemId)}" min="0" max="${left}" step="${i.fractional ? '0.01' : '1'}" inputmode="decimal" placeholder="0" ${left > 0 ? '' : 'disabled'} style="width:84px;text-align:right"></td></tr>`; }).join('');
@@ -1055,7 +1055,7 @@ $('returnSend').onclick = async () => {
 };
 $('rcFind').onsubmit = async (e) => {
   e.preventDefault(); const no = $('rcFindNo').value.trim();
-  if (!no) return toast('Type the receipt number first.', true);
+  if (!no) return toast('Type the invoice number first.', true);
   try {
     const s = await lookupReceipt(no);
     if (!canReturn(s)) return toast(s.status !== 'Completed' ? s.receiptNo + ' is ' + s.status.toLowerCase() + ', so nothing can be returned.' : s.returnPending ? s.receiptNo + ' already has a return waiting for Finance.' : 'Everything on ' + s.receiptNo + ' was already returned.', true);
@@ -1119,7 +1119,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   }, 20000);
 })();
 </script>
-<script src="cash-shift-ui.js?v=7"></script>
+<script src="cash-shift-ui.js?v=8"></script>
 <script src="notification-center.js?v=8"></script>
 <script src="page-memory.js?v=1"></script>
 <script src="cashier-orders.js?v=8"></script>

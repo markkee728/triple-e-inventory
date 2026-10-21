@@ -4601,14 +4601,15 @@ function renderAccountsTable() {
                             type="button"
                             class="btn-secondary btn-sm user-edit-btn"
                             data-index="${index}"
+                            title="${user.roleKey === "customer" || user.isYou ? "See the account details (personal details are changed by the owner in My Profile)" : "Change this person\u2019s role"}"
                         >
-                            Edit
+                            ${user.roleKey === "customer" || user.isYou ? "View" : "Change role"}
                         </button>
 
                         ${user.isYou ? `<span class="um-you" title="Another Finance-Admin has to disable your account">You</span>` : `
                         <button
                             type="button"
-                            class="btn-danger-sm user-disable-btn"
+                            class="${user.status === "active" ? "btn-danger-sm" : "btn-secondary btn-sm"} user-disable-btn"
                             data-index="${index}"
                         >
                             ${user.status === "active" ? "Disable" : "Enable"}
@@ -5045,69 +5046,52 @@ let editUserLoaded = false;
 
 function openEditUserModal(index) {
 
-    const overlay =
-        document.getElementById("editUserModalOverlay");
-
-    const user =
-        userAccountsData[index];
-
-    if (!overlay || !user) {
-        return;
-    }
-
+    const overlay = document.getElementById("editUserModalOverlay");
+    const user = userAccountsData[index];
+    if (!overlay || !user) return;
     editingUserIndex = index;
 
-    const role =
-        document.getElementById("editUserRole");
-
-    // the same profile fields the person has in My Profile (name parts, email, mobile, birthdate, gender, company for customers)
-    if (!editUserMounted) {
-        ProfileEdit.mount(document.getElementById("editUserMount"), "eu");
-        editUserMounted = true;
-    }
-
+    // Finance does not edit personal information: the details are shown read-only, only the role can change
     const isCust = user.roleKey === "customer";
-    ProfileEdit.fill("eu", {}, isCust);
-    ProfileEdit.setBusy("eu", true);
-    editUserLoaded = false;
-
+    const canChange = !isCust && !user.isYou;
+    const role = document.getElementById("editUserRole");
+    const info = document.getElementById("editUserInfo");
+    const title = document.getElementById("editUserTitle");
     const saveBtn = document.querySelector("#editUserForm [type=\"submit\"]");
     const err = document.getElementById("editUserFormError");
-    if (saveBtn) saveBtn.disabled = true;
+    if (title) title.textContent = canChange ? "Change role" : "Account details";
+    if (saveBtn) { saveBtn.style.display = canChange ? "" : "none"; saveBtn.disabled = true; saveBtn.textContent = "Save role"; }
     if (err) err.classList.remove("show");
+    editUserLoaded = false;
 
+    const row = (k, v) => `<div class="eu-row"><dt>${k}</dt><dd>${v ? escapeHTML(v) : '<span class="dim">\u2014</span>'}</dd></div>`;
+    if (info) info.innerHTML = '<p class="dim">Loading\u2026</p>';
     fetch("/api/users/" + user.id + "/profile", { credentials: "same-origin" })
         .then(async res => {
             const d = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(d.error || "Could not load this profile");
+            if (!res.ok) throw new Error(d.error || "Could not load this account");
             if (editingUserIndex !== index) return;
-            ProfileEdit.fill("eu", d, isCust);
-            ProfileEdit.setBusy("eu", false);
+            const born = d.birthdate ? new Date(d.birthdate + "T00:00:00").toLocaleDateString("en-PH", { year: "numeric", month: "long", day: "numeric" }) : "";
+            if (info) info.innerHTML = '<dl class="eu-grid">' +
+                row("Name", d.name) + row("Email", d.email) + row("Mobile", d.phone) +
+                row("Status", d.status === "active" ? "Active" : "Disabled") + row("Birthdate", born) + row("Gender", d.gender) +
+                (isCust ? row("Company", d.companyName) + row("Position", d.companyPosition) + row("TIN", d.companyTin) : "") + '</dl>';
             editUserLoaded = true;
-            if (saveBtn) saveBtn.disabled = false;
-            const first = document.getElementById("euFirst");
-            if (first) first.focus();
+            if (saveBtn) saveBtn.disabled = !canChange;
         })
-        .catch(e => {
-            if (err) { err.textContent = e.message; err.classList.add("show"); }
-        });
+        .catch(e => { if (err) { err.textContent = e.message; err.classList.add("show"); } if (info) info.innerHTML = ""; });
 
     if (role) {
-        // a customer stays a customer; staff can only be Finance-Admin or Cashier
-        const isCustomer = user.roleKey === "customer";
-        role.querySelectorAll("option").forEach(o => {
-            o.hidden = o.disabled = isCustomer ? o.value !== "Customer" : o.value === "Customer";
-        });
-        role.value = isCustomer ? "Customer"
-            : user.roleKey === "cashier" ? "Cashier" : "Finance-Admin Officer";
-        role.disabled = isCustomer;
+        // a customer stays a customer; staff can only be Finance-Admin or Cashier; nobody changes their own role
+        role.querySelectorAll("option").forEach(o => { o.hidden = o.disabled = isCust ? o.value !== "Customer" : o.value === "Customer"; });
+        role.value = isCust ? "Customer" : user.roleKey === "cashier" ? "Cashier" : "Finance-Admin Officer";
+        role.disabled = !canChange;
+        role.title = isCust ? "A customer account stays a customer" : user.isYou ? "Another Finance-Admin has to change your role" : "";
     }
 
     overlay.classList.add("open");
-
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
-
 }
 
 
@@ -5208,30 +5192,14 @@ function initEditUserModal() {
             }
 
             const isCust = user.roleKey === "customer";
-            const bad = ProfileEdit.check("eu", isCust);
-
-            if (Object.keys(bad).length) {
-                ProfileEdit.showErrors("eu", bad);
-                if (error) {
-                    error.textContent = "Please fix the highlighted fields.";
-                    error.classList.add("show");
-                }
-                return;
-            }
-
-            if (error) {
-                error.classList.remove("show");
-            }
-
+            if (isCust || user.isYou) return;                       // nothing Finance can change here
+            if (error) error.classList.remove("show");
             const roleSel = document.getElementById("editUserRole");
-            const roleKey = isCust ? "customer"
-                : roleSel.value === "Cashier" ? "cashier" : "finance";
+            const roleKey = roleSel.value === "Cashier" ? "cashier" : "finance";
             const submitBtn = form.querySelector('[type="submit"]');
-
+            if (roleKey === user.roleKey) { closeEditUserModal(); return; }
             if (submitBtn) submitBtn.disabled = true;
-
-            const body = ProfileEdit.read("eu", isCust);
-            body.roleKey = roleKey;
+            const body = { roleKey };                               // role only: personal details are never sent
 
             fetch("/api/users/" + user.id, {
                 method: "PATCH",
@@ -5242,19 +5210,16 @@ function initEditUserModal() {
                 .then(async res => {
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw Object.assign(new Error(data.error || "Request failed"), { fields: data.fields });
-                    user.name = data.name;
-                    user.email = data.email;
                     user.roleKey = roleKey;
                     user.role = roleKey === "finance" ? "Finance-Admin Officer"
                         : roleKey === "cashier" ? "Sales Staff / Cashier" : "Customer";
                     closeEditUserModal();
                     renderAccountsTable();
-                    inviteToast("Account updated" + (data.message ? " \u2014 " + data.message : ""));
+                    inviteToast(user.name + " is now " + user.role + ".");
                 })
                 .catch(err => {
-                    if (ProfileEdit.showErrors("eu", err.fields)) {
-                        if (error) { error.textContent = "Please fix the highlighted fields."; error.classList.add("show"); }
-                    } else if (error) {
+                    if (error) {
+                        err.message = (err.fields && (err.fields.role || err.fields.id)) || err.message;
                         error.textContent = err.message;
                         error.classList.add("show");
                     } else {

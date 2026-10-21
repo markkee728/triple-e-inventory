@@ -13,6 +13,17 @@
  // notes & coins; value in centavos so the total never has floating point errors
  const DENOMS = [['1000', 100000], ['500', 50000], ['200', 20000], ['100', 10000], ['50', 5000], ['20', 2000], ['10', 1000], ['5', 500], ['1', 100], ['0.25', 25], ['0.05', 5]];
  let current = null, ticker = null;
+ // store hours from the server (8:00 AM - 5:00 PM). nowMinutes is moved forward on this screen between refreshes.
+ let HOURS = null, hoursAt = 0, prompted = false;
+ const nowMin = () => HOURS ? HOURS.nowMinutes + Math.floor((Date.now() - hoursAt) / 60000) : null;
+ const left = () => HOURS ? HOURS.closeMinutes - nowMin() : null;
+ const hm = (m) => { m = Math.max(0, Math.round(m)); return (m >= 60 ? Math.floor(m / 60) + 'h ' : '') + (m % 60) + 'm'; };
+ const canOpenNow = () => !HOURS || (nowMin() >= HOURS.openMinutes - HOURS.earlyMinutes && nowMin() < HOURS.closeMinutes);
+ async function loadHours() { try { HOURS = await request('/api/pos/business-hours'); hoursAt = Date.now(); } catch (e) { /* keep the last one */ } }
+ function hoursLine() {
+  if (!HOURS) return '';
+  return 'Store hours ' + HOURS.open + ' \u2013 ' + HOURS.close + '. ' + (canOpenNow() ? '' : nowMin() < HOURS.openMinutes ? 'You can open your shift from ' + HOURS.firstOpen + '.' : 'The store is closed for today.');
+ }
 
  async function request(url, options = {}) {
   const r = await fetch(url, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...options });
@@ -54,24 +65,72 @@
   const b = $('navShiftBadge'); if (!b) return;
   b.hidden = false; b.className = 'count ' + (current ? 'on' : 'off'); b.textContent = current ? 'OPEN' : 'CLOSED';
   const bn = $('shiftBanner'); if (bn) bn.hidden = !!current;
+  side();
+ }
+ /* the shift card in the sidebar (and so in the burger menu on a phone): state + time left until closing */
+ function side() {
+  const bar = $('sidebar'); if (!bar) return;
+  let box = $('shiftSide');
+  if (!box) { box = document.createElement('button'); box.type = 'button'; box.id = 'shiftSide'; box.className = 'cs-side'; const foot = bar.querySelector('.sidebar-foot'); bar.insertBefore(box, foot || null);
+   box.addEventListener('click', () => { if (window.showPage) window.showPage('shift'); const bd = $('sidebarBackdrop'); if (bd && bar.classList.contains('open')) bd.click(); }); }
+  const l = left();
+  if (!current) {
+   box.className = 'cs-side off';
+   box.innerHTML = '<span class="cs-side-t">No cash shift open</span><span class="cs-side-s">' + (canOpenNow() ? 'Tap to open your shift and start selling' : esc(hoursLine())) + '</span>';
+   return;
+  }
+  const late = l != null && l < 0, soon = l != null && l >= 0 && HOURS && l <= HOURS.remindMinutes;
+  const span = HOURS ? Math.max(1, HOURS.closeMinutes - HOURS.openMinutes) : 1, done = HOURS ? Math.min(100, Math.max(0, ((nowMin() - HOURS.openMinutes) / span) * 100)) : 0;
+  box.className = 'cs-side on' + (late ? ' late' : soon ? ' soon' : '');
+  box.innerHTML = '<span class="cs-side-t">Shift #' + esc(current.id) + ' open \u00B7 ' + dur(current.openedAt) + '</span>' +
+   '<span class="cs-side-s">' + (l == null ? '' : late ? 'Past closing (' + esc(HOURS.close) + ') by ' + hm(-l) + ': count &amp; close now' : hm(l) + ' left \u00B7 closes ' + esc(HOURS.close)) + '</span>' +
+   (HOURS ? '<span class="cs-side-bar"><i style="width:' + done.toFixed(1) + '%"></i></span>' : '');
+ }
+ /* right after signing in: no open shift -> ask to open one first (once per visit) */
+ function promptOpen() {
+  if (prompted || current || !$('csApp')) return;
+  try { if (sessionStorage.getItem('shiftPrompted') === '1') { prompted = true; return; } sessionStorage.setItem('shiftPrompted', '1'); } catch (e) { /* private mode: ask once per load */ }
+  prompted = true;
+  const ok = canOpenNow();
+  const d = dialog('<h3>Open your cash shift</h3><p class="lead">' + (ok ? 'Before your first sale, count the cash in your drawer and enter the starting cash (change fund).' : esc(hoursLine())) + '</p>' +
+   (HOURS && ok ? '<p class="cs-hours">Store hours <b>' + esc(HOURS.open) + ' \u2013 ' + esc(HOURS.close) + '</b>. Close your shift before ' + esc(HOURS.close) + '.</p>' : '') +
+   (ok ? '<div class="cs-field"><label for="csPromptCash">Starting cash</label><div class="cs-money"><span>\u20B1</span><input id="csPromptCash" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csPromptCashErr"></div>' +
+    '<div class="cs-chips">' + [100, 500, 1000, 2000, 5000].map(v => '<button type="button" class="cs-chip" data-pfill="' + v + '">+' + fmt(v).replace('.00', '') + '</button>').join('') + '<button type="button" class="cs-chip" data-pfill="clear">Clear</button></div></div>' : '') +
+   '<div class="cs-actions"><button class="btn-secondary" data-later>Not now</button>' + (ok ? '<button class="btn-primary" data-open>Open cash shift</button>' : '') + '</div>');
+  d.q('[data-later]').onclick = d.close;
+  const box = d.q('#csPromptCash');
+  if (box) {
+   d.el.addEventListener('click', e => { const c = e.target.closest('[data-pfill]'); if (!c) return; const now = MoneyInput.parse(box.value) || 0;
+    MoneyInput.set(box, c.dataset.pfill === 'clear' ? '' : ((Math.round(now * 100) + Math.round(Number(c.dataset.pfill) * 100)) / 100).toFixed(2)); fieldErr('csPromptCash', ''); box.focus(); });
+   const go = async () => {
+    const p = parseAmount(box.value); if (!p.ok) return fieldErr('csPromptCash', p.error);
+    const btn = d.q('[data-open]'); btn.disabled = true;
+    try { await request('/api/pos/cash-shifts/open', { method: 'POST', body: JSON.stringify({ openingCash: p.value }) }); d.close(); say('Shift opened. You can start selling.'); await reload(); }
+    catch (e) { fieldErr('csPromptCash', (e.fields && e.fields.openingCash) || e.message); btn.disabled = false; }
+   };
+   d.q('[data-open]').onclick = go; box.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+   setTimeout(() => box.focus(), 50);
+  }
  }
  function render() {
   const app = $('csApp'); if (!app) return;
   badge();
   if (!current) {
-   app.innerHTML = `<div class="cs-hero closed"><div><div class="cs-state"><span class="cs-dot"></span>No open shift</div><div class="cs-meta">Count the cash in your drawer, then enter it below to start selling.</div></div></div>
+   app.innerHTML = `<div class="cs-hero closed"><div><div class="cs-state"><span class="cs-dot"></span>No open shift</div><div class="cs-meta">Count the cash in your drawer, then enter it below to start selling.${HOURS ? ' ' + esc(hoursLine()) : ''}</div></div></div>`
+    + (canOpenNow() ? '' : `<div class="cs-warn"><b>${esc(hoursLine())}</b></div>`) + `
    <div class="cs-grid cs-startgrid"><div class="panel cs-card cs-start"><h3>Start your shift</h3><p>Enter the starting cash (change fund) you put in the drawer.</p>
     <div class="cs-field"><label for="csOpening">Starting cash</label><div class="cs-money"><span>₱</span><input id="csOpening" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csOpeningErr"></div>
      <div class="cs-chips" title="Each tap adds that amount">${[100, 500, 1000, 2000, 5000].map(v => '<button type="button" class="cs-chip" data-fill="' + v + '">+' + fmt(v).replace('.00', '') + '</button>').join('')}<button type="button" class="cs-chip" data-fill="clear">Clear</button></div></div>
-    <button class="btn-primary cs-btn" id="csOpenBtn">Open cash shift</button></div>
+    <button class="btn-primary cs-btn" id="csOpenBtn"${canOpenNow() ? '' : ' disabled'}>Open cash shift</button></div>
     <div class="panel cs-card cs-tips"><h3>Before you open</h3><p>A quick check keeps your end-of-shift count accurate.</p>
      <ol class="cs-steps"><li><b>Count the drawer</b><span>Count every bill and coin currently in the cash drawer.</span></li><li><b>Enter the change fund</b><span>Type the total, or tap the amounts: each tap adds up (e.g. +₱1,000 twice = ₱2,000).</span></li><li><b>Start selling</b><span>Cash sales are tracked automatically and compared to your count when you close.</span></li></ol></div></div>`;
    return;
   }
   const c = current, mv = c.movements || [];
   app.innerHTML = `<div class="cs-hero open"><div><div class="cs-state"><span class="cs-dot"></span>Shift #${esc(c.id)} is open</div>
-    <div class="cs-meta">${esc(c.cashierName)} · opened ${esc(timeOnly(c.openedAt))} · open for <b id="csElapsed">${dur(c.openedAt)}</b></div></div>
+    <div class="cs-meta">${esc(c.cashierName)} · opened ${esc(timeOnly(c.openedAt))} · open for <b id="csElapsed">${dur(c.openedAt)}</b>${HOURS ? ' · store closes ' + esc(HOURS.close) + ' (<b id="csLeft">' + (left() < 0 ? 'past closing' : hm(left()) + ' left') + '</b>)' : ''}</div></div>
     <button class="btn-primary" id="csCloseBtn">Count &amp; close shift</button></div>
+   ${HOURS && left() < 0 ? '<div class="cs-warn"><b>It is past closing time (' + esc(HOURS.close) + ').</b> Count your drawer and close this shift now. Finance is told when a shift stays open.</div>' : HOURS && left() <= HOURS.remindMinutes ? '<div class="cs-warn"><b>Closing soon:</b> the store closes at ' + esc(HOURS.close) + '. Finish your last sales, then count and close your shift.</div>' : ''}
    ${c.pendingVoids ? '<div class="cs-warn"><b>' + c.pendingVoids + ' void request(s) waiting for Finance.</b> Your expected cash may change once they are decided.</div>' : ''}
    ${c.pendingReturns ? '<div class="cs-warn"><b>' + c.pendingReturns + ' return(s) waiting for Finance.</b> Once approved, the cash refund is taken off the cash that should be in your drawer.</div>' : ''}
    <div class="cs-expected"><div class="lab">Cash that should be in your drawer</div><div class="big">${fmt(c.expectedCash)}</div>
@@ -98,12 +157,12 @@
 
  /* ---------- data ---------- */
  async function refresh() {
-  try { current = await request('/api/pos/cash-shifts/current'); }
+  try { current = await request('/api/pos/cash-shifts/current'); if (current && current.hours) { HOURS = current.hours; hoursAt = Date.now(); } }
   catch (e) { const a = $('csApp'); if (a) a.innerHTML = '<div class="panel cs-loading">Could not load your shift: ' + esc(e.message) + ' <button class="btn-secondary btn-sm" id="csRetry">Try again</button></div>'; return; }
   const typing = document.activeElement && $('csApp') && $('csApp').contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
   if (!typing) render(); else badge();   // do not wipe what the cashier is typing when a sale refreshes the shift
   clearInterval(ticker);
-  if (current) ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); }, 30000);
+  ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); const lf = $('csLeft'); if (lf && HOURS) lf.textContent = left() < 0 ? 'past closing' : hm(left()) + ' left'; side(); }, 30000);
  }
  async function history() {
   const body = $('shiftHistory'); if (!body) return;
@@ -117,6 +176,7 @@
   } catch (e) { body.innerHTML = '<tr><td colspan="7" class="cs-none">' + esc(e.message) + '</td></tr>'; }
  }
  const reload = async () => { await refresh(); await history(); };
+ const start = async () => { await loadHours(); await reload(); promptOpen(); };
 
  /* ---------- actions ---------- */
  async function openShift() {
@@ -213,5 +273,5 @@
  if (nav) nav.addEventListener('click', reload);
  window.refreshCashShift = refresh;
  window.addEventListener('focus', refresh);
- reload();
+ start();
 })();

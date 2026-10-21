@@ -14,6 +14,29 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
  // Cash shift events go into the audit log (Finance > Audit Log, action "Cash shift"). Never let a logging problem block the till.
  const log = (client,user,detail) => audit ? audit(client,user,'Cash shift',detail) : Promise.resolve();
 
+ /* ---------- store hours: 8:00 AM to 5:00 PM (BUSINESS_OPEN / BUSINESS_CLOSE, HH:MM, Philippine time) ----------
+    A shift can be opened from SHIFT_EARLY_MINUTES before opening (to count the drawer) until closing time.
+    The automation reminds the cashier SHIFT_REMIND_MINUTES before closing, and tells Finance when a shift is still open
+    SHIFT_OVERDUE_MINUTES after closing. Sales are never blocked by the clock: only opening a new shift is. */
+ const hm = (v, d) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : d; };
+ const OPEN_MIN = hm(process.env.BUSINESS_OPEN, 8 * 60), CLOSE_MIN = hm(process.env.BUSINESS_CLOSE, 17 * 60);
+ const EARLY = Math.max(0, Number(process.env.SHIFT_EARLY_MINUTES) || 30), REMIND = Math.max(5, Number(process.env.SHIFT_REMIND_MINUTES) || 30);
+ const OVERDUE = Math.max(0, Number(process.env.SHIFT_OVERDUE_MINUTES) || 30);
+ const label = (m) => { const h = Math.floor(m / 60), mi = m % 60; return ((h + 11) % 12 + 1) + ':' + String(mi).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM'); };
+ function clock() {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    .formatToParts(new Date()).map((x) => [x.type, x.value]));
+  const minutes = (+parts.hour % 24) * 60 + +parts.minute, date = parts.year + '-' + parts.month + '-' + parts.day;
+  return { minutes, date, state: minutes < OPEN_MIN ? 'before' : minutes < CLOSE_MIN ? 'open' : 'after' };
+ }
+ const hours = () => {
+  const c = clock();
+  return { open: label(OPEN_MIN), close: label(CLOSE_MIN), openMinutes: OPEN_MIN, closeMinutes: CLOSE_MIN, earlyMinutes: EARLY, remindMinutes: REMIND,
+   firstOpen: label(Math.max(0, OPEN_MIN - EARLY)), nowMinutes: c.minutes, date: c.date, state: c.state,
+   canOpenShift: c.minutes >= OPEN_MIN - EARLY && c.minutes < CLOSE_MIN, minutesToClose: CLOSE_MIN - c.minutes };
+ };
+ app.get('/api/pos/business-hours', auth('cashier', 'finance'), wrap(async (req, res) => res.json(hours())));
+
  /* ---------- schema (self-healing: the movements table was never in a migration) ---------- */
  const ready = (async()=>{
   try {
@@ -90,12 +113,17 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);
   const s=r.rows[0]; if(!s) return res.json(null);
   s.movements=(await movementsFor([s.id])).get(String(s.id))||[];
+  s.hours=hours();
   res.json(s);
  }));
 
  app.post('/api/pos/cash-shifts/open',auth('cashier'),wrap(async(req,res)=>{
   const amount=req.body?.openingCash;
   if(!money(amount))return fail(res,400,'Enter a valid opening cash amount (0 or more, up to 2 decimals).','openingCash');
+  const h=hours();
+  if(!h.canOpenShift)return fail(res,409,h.state==='after'
+    ?'The store is closed for today (open '+h.open+' to '+h.close+'). Shifts can be opened again tomorrow from '+h.firstOpen+'.'
+    :'Too early: the store opens at '+h.open+'. You can open your shift from '+h.firstOpen+'.');
   const result=await tx(async client=>{
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
    const old=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL',[req.user.id]);
@@ -214,4 +242,31 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
     FROM orders o WHERE (o.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date GROUP BY o.payment_method ORDER BY o.payment_method`,[TZ,f,t])).rows;
   res.json({from:f,to:t,varianceAlert:VARIANCE_ALERT,totals,shifts,payments:{pos,online}});
  }));
+ /* ---------- automation: close-of-day reminders (runs with the other automation jobs every 15 minutes) ---------- */
+ async function shiftHours() {
+  const nc = app.locals.notifications; if (!nc) return { skipped: 'no notification center' };
+  const c = clock(), out = { reminded: 0, overdue: 0 };
+  const open = (await pool.query('SELECT shift_id, cashier_id, cashier_name, opened_at FROM pos_cash_shifts WHERE closed_at IS NULL')).rows;
+  for (const sh of open) {
+   const openedDay = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(sh.opened_at));
+   const pastDay = openedDay < c.date;                                    // left open since an earlier day
+   if (!pastDay && c.minutes >= CLOSE_MIN - REMIND && c.minutes < CLOSE_MIN) {
+    out.reminded += await nc.notifyUser(sh.cashier_id, { category: 'orders', severity: 'info', title: 'Close your cash shift by ' + label(CLOSE_MIN),
+      body: 'The store closes at ' + label(CLOSE_MIN) + '. Count your drawer and close shift #' + sh.shift_id + ' before you leave.',
+      link: 'POS_Cashier.html#shift', entityType: 'cash_shift', entityId: String(sh.shift_id), dedupeKey: 'shift-remind:' + sh.shift_id + ':' + c.date }, 'cashier') ? 1 : 0;
+   }
+   if (pastDay || c.minutes >= CLOSE_MIN + OVERDUE) {
+    const key = 'shift-overdue:' + sh.shift_id + ':' + c.date;
+    const n = await nc.notifyRole('finance', { category: 'orders', severity: 'warn', title: 'Cash shift still open after closing time',
+      body: (sh.cashier_name || 'A cashier') + "'s shift #" + sh.shift_id + ' is still open' + (pastDay ? ' since ' + openedDay : ' after ' + label(CLOSE_MIN)) + '. Ask them to count and close the drawer.',
+      link: 'Finance_Inventory.html#reports', entityType: 'cash_shift', entityId: String(sh.shift_id), dedupeKey: key });
+    await nc.notifyUser(sh.cashier_id, { category: 'orders', severity: 'warn', title: 'Your cash shift is past closing time',
+      body: 'Shift #' + sh.shift_id + ' is still open. Count your drawer and close it now.', link: 'POS_Cashier.html#shift',
+      entityType: 'cash_shift', entityId: String(sh.shift_id), dedupeKey: key + ':cashier' }, 'cashier');
+    if (n) out.overdue++;
+   }
+  }
+  return out;
+ }
+ (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'shift-hours', run: shiftHours });
 };

@@ -640,14 +640,32 @@
   // Only Finished Goods are sold. Raw Materials and Finishing Supplies have no selling price.
   const SELLS_DEPT = ['Finished Goods'];
   const sellsNow = () => SELLS_DEPT.indexOf(($('npDept') || {}).value) >= 0;
+  // Finished goods are priced automatically: unit cost + the markup (20% by default, Finance > Products > Pricing rules).
+  // The database trigger (pricing.js) applies the same formula on save, so the shown price is exactly what gets stored.
+  let FG_MARKUP = 20;
+  const priceManual = () => !!($('npPriceManual') && $('npPriceManual').checked);
+  function autoPrice() {
+    const raw = window.MoneyInput ? MoneyInput.raw($('npUnitCost').value) : $('npUnitCost').value, c = Number(raw);
+    return raw !== '' && Number.isFinite(c) && c > 0 ? Math.round(c * (1 + FG_MARKUP / 100) * 100) / 100 : null;
+  }
   function syncPriceField() {
     const input = $('npListPrice'); if (!input) return;
-    const sells = sellsNow();
+    const sells = sellsNow(), row = $('npPriceManualRow'), hint = $('npPriceHint');
     const label = document.querySelector('label[for="npListPrice"]');
     if (label) label.innerHTML = 'Selling Price (&#8369;)' + (sells ? ' <span class="required-mark">*</span>' : '');
+    if (row) row.style.display = sells ? '' : 'none';
     input.disabled = !sells;
-    input.placeholder = sells ? 'Required for Finished Goods' : 'Not sold';
-    if (!sells) { input.value = ''; showLive('npListPrice', ''); }
+    if (!sells) { input.value = ''; input.readOnly = false; input.placeholder = 'Not sold'; showLive('npListPrice', ''); if (hint) hint.textContent = ''; return; }
+    const auto = !priceManual();
+    input.readOnly = auto;
+    input.placeholder = auto ? 'Enter the unit cost first' : 'Type the selling price';
+    if (auto) {
+      const v = autoPrice();
+      if (window.MoneyInput) MoneyInput.set(input, v == null ? '' : v.toFixed(2)); else input.value = v == null ? '' : v.toFixed(2);
+      showLive('npListPrice', '');
+      if (hint) hint.textContent = v == null ? 'Automatic: unit cost + ' + FG_MARKUP + '% markup. Enter the unit cost to see the price.'
+        : 'Automatic: unit cost \u20B1' + (v / (1 + FG_MARKUP / 100)).toFixed(2) + ' + ' + FG_MARKUP + '% markup = \u20B1' + v.toFixed(2) + '. It follows the cost by itself. Tick \u201CSet manually\u201D only for a special price.';
+    } else if (hint) hint.textContent = 'Manual price: it no longer follows the unit cost. Untick to go back to unit cost + ' + FG_MARKUP + '%.';
   }
 
   // duplicate checks against the loaded product list (the server re-checks on save)
@@ -677,6 +695,7 @@
     $('npReorderManual').checked = product ? !product.reorderAuto : false;   // new products are automatic; old ones stay manual until someone unticks it
     syncReorderUI(product);
     MoneyInput.set($('npListPrice'), product && product.listPrice ? product.listPrice : '');
+    if ($('npPriceManual')) $('npPriceManual').checked = !!(product && product.department === 'Finished Goods' && product.priceAuto === false);
     syncPriceField();
     // SKU and opening stock are fixed once a product exists (stock only changes through Stock In / Out)
     $('npSku').readOnly = !!product;
@@ -699,6 +718,11 @@
       const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
     });
     $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });
+    if ($('npPriceManual')) $('npPriceManual').addEventListener('change', () => { syncPriceField(); if (priceManual()) $('npListPrice').focus(); });
+    $('npUnitCost').addEventListener('input', () => { if (sellsNow() && !priceManual()) syncPriceField(); });
+    $('npUnitCost').addEventListener('blur', () => { if (sellsNow() && !priceManual()) syncPriceField(); });
+    api('/pricing').then((r) => { if (r && r.fgMarkupPct != null) { FG_MARKUP = +r.fgMarkupPct; syncPriceField(); } }).catch(() => {});
+    document.addEventListener('triplee:pricing-saved', (e) => { if (e.detail && e.detail.fgMarkupPct != null) { FG_MARKUP = +e.detail.fgMarkupPct; syncPriceField(); } });
     $('npReorderManual').addEventListener('change', () => {
       const sku = productModalState(), product = sku ? productCatalogData.find((p) => p.sku === sku) : null;
       if ($('npReorderManual').checked) { if (!product) $('npReorder').value = ''; $('npReorder').focus(); }
@@ -706,7 +730,7 @@
     });
     api('/reorder-settings').then((r) => { if (r && r.leadDays != null) { REORDER = r; syncReorderUI(null); } }).catch(() => {});
     $('npCategory').addEventListener('change', () => { syncCategoryNew(); if ($('npCategory').value === NEW_CATEGORY) $('npCategoryNew').focus(); });
-    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); }, 0));
+    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); if ($('npPriceManual')) $('npPriceManual').checked = false; syncPriceField(); }, 0));
     new MutationObserver(() => { if (overlay.classList.contains('open')) onProductModalOpen(); })
       .observe(overlay, { attributes: true, attributeFilter: ['class'] });
 
@@ -731,7 +755,8 @@
       else if (!/^[A-Za-z][A-Za-z./ ]{0,19}$/.test(unit)) errs.npUnit = 'Unit must be letters only, e.g. kg or pcs';
       else if (department === 'Finished Goods' && unit !== 'pcs') errs.npUnit = 'Finished goods are sold by the piece. Choose pcs';
       const unitCost = vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
-      const listPrice = sellsNow() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : 0;
+      const listPrice = sellsNow() && priceManual() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : sellsNow() ? autoPrice() : 0;
+      if (sellsNow() && !priceManual() && autoPrice() == null && !errs.npUnitCost) errs.npUnitCost = 'Enter the unit cost: the selling price is worked out from it';
       const reorderManual = $('npReorderManual').checked;
       const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level', { noLeadingZero: true }) : null;
       const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand', { noLeadingZero: true });
@@ -745,6 +770,7 @@
 
       clearErrors(form); hideBanner(banner);
       const payload = { sku, name, department, category, unit, unitCost, listPrice, reorderAuto: !reorderManual, location: location || null };
+      if (department === 'Finished Goods') payload.priceAuto = !priceManual();
       if (reorderManual) payload.reorderLevel = reorderLevel;
       if (!editing) { payload.onHand = onHand; if (supplierCode) payload.supplierCode = supplierCode; }
       try {
@@ -1708,7 +1734,7 @@
       npUnitCost: numRule('npUnitCost', 'Unit cost', { max: 1e7 }),
       npOnHand: () => $('npOnHand').readOnly ? '' : numRule('npOnHand', 'On hand', { noLeadingZero: true })(),
       npReorder: () => ($('npReorderManual') && $('npReorderManual').checked ? numRule('npReorder', 'Reorder level', { noLeadingZero: true })() : ''),   // automatic = nothing to type
-      npListPrice: () => sellsNow() ? numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })() : '',
+      npListPrice: () => sellsNow() && priceManual() ? numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })() : '',   // automatic = nothing to type
       npLocation: selectRule('npLocation', 'Choose the storage location'),
       npLocationNew: textRule('npLocationNew', 'Storage location', { min: 2, max: 100 }),
       npSupplier: () => (!productModalState() && NEEDS_SUPPLIER.indexOf($('npDept').value) >= 0 && !$('npSupplier').value ? 'Choose the supplier for this material' : ''),

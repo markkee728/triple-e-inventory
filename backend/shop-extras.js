@@ -77,7 +77,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_by INT REFERENCES users(user_id)');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMPTZ');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS finance_note TEXT');
-      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS close_reason TEXT');          // why Finance closed the request (CLOSE_REASONS)
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS close_reason TEXT');
+      // the system price (pricing.js) saved next to the cashier's price, and the computed cost behind it
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(14,2)');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS suggested_cost NUMERIC(14,2)');          // why Finance closed the request (CLOSE_REASONS)
       // a closed request ALWAYS has a reason, even if something skips the API. Requests closed before reasons existed are marked "other".
       await pool.query(`DO $$ BEGIN
         IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quote_closed_needs_reason') THEN
@@ -319,6 +322,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined,
       proposedLeadTime: q.proposed_lead_time || undefined, proposedValidDays: q.proposed_valid_days || undefined,
       proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined,
+      suggestedAmount: q.suggested_amount == null ? undefined : +q.suggested_amount, suggestedCost: q.suggested_cost == null ? undefined : +q.suggested_cost,
       closeReason: q.close_reason ? (CLOSE_REASON_LABEL[q.close_reason] || q.close_reason) : undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
@@ -807,18 +811,26 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const limit = cashierQuoteLimit();
       const overLimit = limit <= 0 || v.amount > limit;
       if (flagged && reason.length < 10) throw bad('reason', 'Explain why Finance approval is required (at least 10 characters)');
-      const exceptional = flagged || overLimit;
-      const autoReason = limit <= 0 ? 'No cashier pricing limit is set, so every counter price is approved by Finance'
-        : 'Above the cashier pricing limit of PHP ' + limit.toLocaleString('en-PH', { minimumFractionDigits: 2 });
+      // the system works the price out too (pricing.js): it is saved next to the cashier's, and a price below the computed COST
+      // (a sale at a loss) always goes to Finance, whatever the limit
+      let est = null;
+      try { if (app.locals.pricing) est = await app.locals.pricing.estimate({ specs: cur.specs || {}, quantity: cur.quantity, productSku: cur.product_sku }, client); } catch (e) { est = null; }
+      const costTotal = est && est.ok ? (est.catalog ? Math.round(est.costPerPiece * est.quantity * 100) / 100 : est.costTotal) : null;
+      const belowCost = costTotal != null && costTotal > 0 && v.amount < costTotal;
+      const exceptional = flagged || overLimit || belowCost;
+      const php = (n) => 'PHP ' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2 });
+      const autoReason = belowCost ? 'Below the computed cost of ' + php(costTotal) + ' (system price ' + php(est.total) + ')'
+        : limit <= 0 ? 'No cashier pricing limit is set, so every counter price is approved by Finance'
+        : 'Above the cashier pricing limit of ' + php(limit);
       const approvalReason = flagged ? reason : (reason.length >= 10 ? reason + ' (' + autoReason + ')' : autoReason);
       const result = await client.query(`UPDATE quote_requests SET status=$2, proposed_amount=$3, proposed_lead_time=$4, proposed_valid_days=$5,
         approval_reason=$6, quoted_amount=CASE WHEN $2='quoted' THEN $3 ELSE quoted_amount END,
         lead_time=CASE WHEN $2='quoted' THEN $4 ELSE lead_time END,
         valid_until=CASE WHEN $2='quoted' THEN $7::date ELSE valid_until END,
         reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now(),
-        proposed_by=$9, proposed_at=now(), finance_note=NULL
+        proposed_by=$9, proposed_at=now(), finance_note=NULL, suggested_amount=$10, suggested_cost=$11
         WHERE quote_id=$1 RETURNING *`, [cur.quote_id, exceptional?'pending_approval':'quoted', v.amount, v.leadTime, v.days,
-          exceptional?approvalReason:null, addDays(todayPH(),v.days),v.note||null,req.user.id]);
+          exceptional?approvalReason:null, addDays(todayPH(),v.days),v.note||null,req.user.id, est && est.ok ? est.total : null, costTotal]);
       await audit(client,req.user,'Record edited',`Cashier ${exceptional?'requested approval for':'priced'} quote ${cur.quote_no}`);
       return result.rows[0];
     });

@@ -77,7 +77,7 @@ const CANCEL_REASONS = {
   payment_problem: 'Problem with payment',
   other: 'Other'
 };
-// Cashier asks Finance to void a receipt: pick a reason; "Other" needs a written explanation.
+// Cashier asks Finance to void an invoice: pick a reason; "Other" needs a written explanation.
 const VOID_REASONS = {
   wrong_item: 'Wrong item or quantity rung up',
   wrong_price: 'Wrong price',
@@ -86,7 +86,7 @@ const VOID_REASONS = {
   duplicate: 'Duplicate sale',
   other: 'Other'
 };
-// Partial returns at the counter: the customer brings back some of the items on a receipt. The cashier requests it, Finance approves.
+// Partial returns at the counter: the customer brings back some of the items on an invoice. The cashier requests it, Finance approves.
 const RETURN_REASONS = {
   damaged: 'Damaged or defective',
   wrong_item: 'Wrong item given',
@@ -329,10 +329,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (kind && info) later(() => {
       if (kind === 'paid') return Promise.all([
         pingUser(info.cashier_id, { category: 'pos', title: 'Online POS payment completed',
-          body: 'Receipt ' + info.receiptNo + ' for ' + asPeso(info.amount) + ' was recorded.',
+          body: 'Invoice ' + info.receiptNo + ' for ' + asPeso(info.amount) + ' was recorded.',
           link: 'POS_Cashier.html#sales', entityType: 'sale', entityId: info.receiptNo, dedupeKey: 'pos_pay_ok:' + info.payment_id }, 'cashier'),
         pingFinance({ category: 'payment', title: 'POS online payment received',
-          body: 'Cashier ' + (info.cashier_name || '') + ' — receipt ' + info.receiptNo + ' (' + asPeso(info.amount) + ').',
+          body: 'Cashier ' + (info.cashier_name || '') + ' — invoice ' + info.receiptNo + ' (' + asPeso(info.amount) + ').',
           link: 'Finance_Inventory.html#sales', entityType: 'sale', entityId: info.receiptNo, dedupeKey: 'pos_pay_fin:' + info.payment_id })
       ]);
       if (kind === 'review') return Promise.all([
@@ -523,6 +523,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   const posSalesReady = (async () => {
     try {
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS request_id TEXT');
+      // POS documents are sales INVOICES: new numbers are SI-1001, SI-1002 ... (older R- numbers stay as they were and can still be looked up)
+      await pool.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'pos_sales' AND column_name = 'receipt_no' AND column_default LIKE '%''R-''%') THEN ALTER TABLE pos_sales ALTER COLUMN receipt_no SET DEFAULT ('SI-' || nextval('receipt_no_seq')); END IF; END $$`);
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT');
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT');
       // POS delivery mode: 'Walk-in' (taken at the counter) or 'Delivery' (address + fee kept on the sale; the fee is part of total)
@@ -942,7 +944,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         cardRef = str(b.cardRef).toUpperCase();
         if (!/^[A-Z0-9-]{4,30}$/.test(cardRef)) throw bad('cardRef', 'Reference number must be 4-30 letters, numbers or dashes');
         const dup = await client.query(`SELECT receipt_no FROM pos_sales WHERE method = 'Card' AND card_ref = $1 AND status <> 'Voided' LIMIT 1`, [cardRef]);
-        if (dup.rowCount) throw bad('cardRef', `Reference ${cardRef} was already used on receipt ${dup.rows[0].receipt_no}`);
+        if (dup.rowCount) throw bad('cardRef', `Reference ${cardRef} was already used on invoice ${dup.rows[0].receipt_no}`);
       }
       const vat = round2(total * VAT_RATE / (1 + VAT_RATE));
       const ins = await client.query(
@@ -964,10 +966,10 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       }
       await audit(client, req.user, 'Record added', `POS sale ${s.receipt_no} — ${peso(total)} (${method}), ${items.length} line(s)` + (dlv ? ` · delivery to ${dlv.ship.city}, ${dlv.ship.province} (fee ${peso(dlv.fee)})` : '')
         + (changed.length ? ` · price override approved by ${approval.approverName}: ${changed.join(', ')}` : ''));
-      // a walk-in quotation handed to the counter: keep the reference on it so one quote can never cover two receipts
+      // a walk-in quotation handed to the counter: keep the reference on it so one quote can never cover two invoices
       if (str(b.quoteNo) && app.locals.quoteDesk) {
         await app.locals.quoteDesk.linkSale(client, str(b.quoteNo).toUpperCase(), s.sale_id);
-        await audit(client, req.user, 'Record edited', `Quote ${str(b.quoteNo).toUpperCase()} completed as receipt ${s.receipt_no}`);
+        await audit(client, req.user, 'Record edited', `Quote ${str(b.quoteNo).toUpperCase()} completed as invoice ${s.receipt_no}`);
       }
       return saleJson(s, items);
     });
@@ -993,12 +995,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     res.json(sales.map(s => saleJson(s, items.filter(i => i.sale_id === s.sale_id), ret)));
   }));
 
-  // Find an older receipt by its number (the list above only shows today), so a customer can bring items back on a later day.
+  // Find an older invoice by its number (the list above only shows today), so a customer can bring items back on a later day.
   app.get('/api/pos/sales/lookup', auth('cashier'), wrap(async (req, res) => {
     const no = str(req.query.receipt).toUpperCase();
-    if (!/^[A-Z0-9-]{3,30}$/.test(no)) throw bad('receipt', 'Enter the receipt number printed on the receipt');
+    if (!/^[A-Z0-9-]{3,30}$/.test(no)) throw bad('receipt', 'Enter the invoice number printed on the invoice');
     const sr = await pool.query('SELECT * FROM pos_sales WHERE upper(receipt_no) = $1', [no]);
-    if (!sr.rowCount) throw bad('receipt', 'No receipt with that number');
+    if (!sr.rowCount) throw bad('receipt', 'No invoice with that number');
     const s = sr.rows[0];
     const { rows: items } = await pool.query('SELECT * FROM pos_sale_items WHERE sale_id = $1 ORDER BY item_id', [s.sale_id]);
     res.json(saleJson(s, items, await returnInfo(pool, [s.sale_id])));
@@ -1115,7 +1117,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       let cents = 0;
       for (const [id, qty] of want) {
         const line = lines.find(l => String(l.item_id) === id);
-        if (!line) throw bad('items', 'One of the items is not on this receipt');
+        if (!line) throw bad('items', 'One of the items is not on this invoice');
         const done = ret.items.get(id) || { approved: 0, pending: 0 };
         const left = round2(+line.qty - done.approved - done.pending);
         if (qty > left + 1e-9) throw bad('items', left <= 0 ? `${line.name} was already returned` : `Only ${left} ${line.unit} of ${line.name} can still be returned`);
@@ -1880,7 +1882,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           const p = await app.locals.paymentTerms.applyPayment(client, { kind: 'order', no: o.order_no, amount: collect, method: 'Cash', tendered: cashReceived,
             cashShiftId: shiftId, actor: req.user, note: `Collected on ${target === 'Delivered' ? 'delivery' : 'pickup'}`, requestId: str(b.requestId) || undefined });
           await client.query("UPDATE orders SET payment_status = 'paid', cash_shift_id = $2 WHERE order_id = $1", [o.order_id, shiftId]);
-          handover = { receiptNo: 'RCP-' + o.order_no + '-' + p.paymentId, paymentId: p.paymentId, amount: p.amount, tendered: p.tendered, change: p.change,
+          handover = { receiptNo: 'INV-' + o.order_no + '-' + p.paymentId, paymentId: p.paymentId, amount: p.amount, tendered: p.tendered, change: p.change,
             paidAmount: p.parent.paid, balance: p.parent.balance };
         }
         if (dispatch) await delivery.saveDispatch(client, o.order_id, dispatch, req.user.id);

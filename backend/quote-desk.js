@@ -311,12 +311,12 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
   }
 
   /* Called by the POS sale when a cashier rings up a handed-over walk-in quote: keeps the reference and refuses a second
-     link, so one quote can never cover two receipts. */
+     link, so one quote can never cover two invoices. */
   app.locals.quoteDesk = {
     linkSale: async (client, quoteNo, saleId) => {
       const q = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [quoteNo])).rows[0];
       if (!q) throw bad('quote', 'That quotation reference was not found');
-      if (q.handover_sale_id && Number(q.handover_sale_id) !== Number(saleId)) throw bad('quote', 'This quotation was already used on another receipt');
+      if (q.handover_sale_id && Number(q.handover_sale_id) !== Number(saleId)) throw bad('quote', 'This quotation was already used on another invoice');
       await client.query('UPDATE quote_requests SET handover_sale_id = $2, updated_at = now() WHERE quote_id = $1', [q.quote_id, saleId]);
       return q;
     },

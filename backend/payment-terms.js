@@ -310,7 +310,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
        kind:'quote'|'order', no|id,                    which order / quotation the money is for
        amount, method, note, actor,                    what was received and who took it
        requestId?, providerRef?,                       idempotency: a retry adds nothing
-       saleId?, cashShiftId?, tendered?,               POS receipt / cash drawer context
+       saleId?, cashShiftId?, tendered?,               POS invoice / cash drawer context
        direction?, reversedOf?, purpose?               'out' + reversedOf = a refund of a recorded payment
        allowOver?                                      only for money already captured online — see below
      }) -> { payment, parent:{id,no,total,paid,balance,state}, replayed }
@@ -783,7 +783,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       return { cur, paid };
     });
     const p = out.paid;
-    res.json({ ok: true, replayed: !!p.replayed, paymentId: p.paymentId, receiptNo: 'RCP-' + out.cur.order_no + '-' + p.paymentId,
+    res.json({ ok: true, replayed: !!p.replayed, paymentId: p.paymentId, receiptNo: 'INV-' + out.cur.order_no + '-' + p.paymentId,
       amount: p.amount, method: p.method, purpose: p.purpose, tendered: p.tendered == null ? null : p.tendered, change: p.change == null ? null : p.change,
       providerRef: p.payment.provider_ref || undefined, cashShiftId: p.payment.cash_shift_id == null ? null : Number(p.payment.cash_shift_id),
       orderNo: out.cur.order_no, total: p.parent.total, paidAmount: p.parent.paid, balance: p.parent.balance, paymentState: p.parent.state });

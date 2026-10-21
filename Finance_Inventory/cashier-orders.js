@@ -39,7 +39,7 @@ const statusLabel = (o) => (o.status === 'Paid' ? 'Confirmed' : o.status);
 const statusClass = (s) => (s === 'Pending Confirmation' ? 's-pending' : FINAL.includes(s) ? 's-done' : s === 'Cancelled' ? 's-off' : 's-active');
 const isCash = (o) => /^Cash on /.test(o.method || '');
 /* The money comes from the ledger (orders.paid_amount / payment_state), never from a checkout redirect or a typed
-   receipt number. §5: "Paid" only when the ledger says the balance is zero. */
+   invoice number. §5: "Paid" only when the ledger says the balance is zero. */
 const STATE_LABEL = { unpaid: 'Unpaid', partially_paid: 'Partially paid', paid: 'Paid', refunded: 'Refunded', partially_refunded: 'Partially refunded' };
 const dueOf = (o) => Number(o.outstanding != null ? o.outstanding : Math.max(0, Number(o.total || 0) - Number(o.paidAmount || 0)));
 const paidOf = (o) => Number(o.paidAmount || 0);
@@ -289,7 +289,7 @@ function printSlip(o) {
   printFrame(html, o.id);
 }
 
-/* One shared printer path: the slip and the payment receipt are both built as a document string and sent to a
+/* One shared printer path: the slip and the payment invoice are both built as a document string and sent to a
    hidden iframe, so the browser print dialog is the only thing the page opens. */
 function printFrame(html, label) {
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'; document.body.appendChild(f);
@@ -405,13 +405,13 @@ function reviewPay(d) {                        // §7: the figures are read back
 function receiptSheet(r, o) {
   payReceipt = Object.assign({}, r, { order: o });
   $('coAction').innerHTML = `<div class="co-sheet">
-    <h2 id="coActionTitle">Payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 ${esc(o.customer)} \u00B7 receipt ${esc(r.receiptNo)}</div>
+    <h2 id="coActionTitle">Payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 ${esc(o.customer)} \u00B7 invoice ${esc(r.receiptNo)}</div>
     <div class="co-box"><div class="faint">${esc(r.method)} \u00B7 ${r.purpose === 'initial' ? 'initial payment' : 'balance payment'}</div>
       <div class="big">${peso(r.amount)}</div>
       ${r.change != null ? `<div class="co-change">Give change: <b>${peso(r.change)}</b> (received ${peso(r.tendered)})</div>` : ''}
       <div class="faint">Total ${peso(r.total)} \u00B7 now in ${peso(r.paidAmount)} \u00B7 outstanding ${peso(r.balance)}</div></div>
     ${r.replayed ? '<div class="co-flag">This is the same payment sent a moment ago, so it was recorded once.</div>' : ''}
-    <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(r.paymentId)}">Print receipt</button>
+    <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(r.paymentId)}">Print invoice</button>
       <button type="button" class="btn-secondary" id="coPayAgain">Another payment</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
 }
 async function submitPay() {
@@ -438,12 +438,12 @@ async function submitPay() {
   } finally { busy = false; }
 }
 
-/* ---------- print a payment receipt ---------- */
+/* ---------- print a payment invoice ---------- */
 function printPaymentReceipt(r) {
-  if (!r) { say('That receipt is no longer on the screen. Print it from the order details.', true); return; }
+  if (!r) { say('That invoice is no longer on the screen. Print it from the order details.', true); return; }
   const o = r.order || {};
-  const html = `<!doctype html><html><head><title>${esc(r.receiptNo || 'receipt')}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
-    <h1>Triple E Metal Products \u2014 official receipt</h1>
+  const html = `<!doctype html><html><head><title>${esc(r.receiptNo || 'invoice')}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
+    <h1>Triple E Metal Products \u2014 sales invoice</h1>
     <div><b>${esc(r.receiptNo || '')}</b> \u00B7 ${esc(when(Date.now()))}</div>
     <div>Order: ${esc(o.id || '')} \u00B7 Customer: ${esc(o.customer || '')}</div>
     <table><tbody>
@@ -454,9 +454,9 @@ function printPaymentReceipt(r) {
       <tr><td>Total now paid</td><td style="text-align:right">${peso(r.paidAmount)}</td></tr>
       <tr><td><b>Balance still outstanding</b></td><td style="text-align:right"><b>${peso(r.balance)}</b></td></tr>
     </tbody></table>
-    <div>This receipt is for one payment on the order. It is not proof that the order is fully paid \u2014 check the balance above.</div>
+    <div>This invoice is for one payment on the order. It is not proof that the order is fully paid \u2014 check the balance above.</div>
     <div class="sig">Cashier signature</div></body></html>`;
-  printFrame(html, r.receiptNo || 'the receipt');
+  printFrame(html, r.receiptNo || 'the invoice');
 }
 
 /* ---------- action dialog ---------- */
@@ -563,11 +563,11 @@ async function submit(e) {
     const res = await request('/orders/' + encodeURIComponent(o.id) + (t === 'Paid' ? '/confirm' : '/status'), { method: 'POST', body: JSON.stringify(body) });
     await load(true);
     if (res && res.receiptNo) {                                   // cash handover: the ledger row this move just created
-      $('coAction').innerHTML = `<div class="co-sheet"><h2 id="coActionTitle">${esc(t === 'Delivered' ? 'Delivered' : 'Released')} \u2014 payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 receipt ${esc(res.receiptNo)} \u00B7 in your Cash Shift</div>
+      $('coAction').innerHTML = `<div class="co-sheet"><h2 id="coActionTitle">${esc(t === 'Delivered' ? 'Delivered' : 'Released')} \u2014 payment recorded</h2><div class="co-sub">${esc(o.id)} \u00B7 invoice ${esc(res.receiptNo)} \u00B7 in your Cash Shift</div>
         <div class="co-box"><div class="faint">Cash received ${peso(res.tendered)} \u00B7 applied to the order ${peso(res.amount)}</div>
           <div class="co-change" style="font-size:16px">Give change: <b style="font-size:26px">${peso(res.change)}</b></div>
           <div class="faint">Order total ${peso(o.total)} \u00B7 now in ${peso(res.paidAmount)} \u00B7 outstanding ${peso(res.balance)}</div></div>
-        <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(res.paymentId)}">Print receipt</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
+        <div class="co-actions"><button type="button" class="btn-secondary" data-payreceipt="${esc(res.paymentId)}">Print invoice</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
       payReceipt = Object.assign({ order: o }, res);
       render(); return;
     }

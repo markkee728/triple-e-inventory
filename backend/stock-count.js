@@ -33,13 +33,24 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         note        TEXT,
         UNIQUE (count_id, product_id))`);
       await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_one_open_stock_count ON stock_counts ((status)) WHERE status = \'open\'');
+      // weekly schedule: the system starts a count by itself on the chosen day (see weeklyCount below)
+      await pool.query('ALTER TABLE stock_counts ADD COLUMN IF NOT EXISTS scheduled BOOLEAN NOT NULL DEFAULT FALSE');
+      await pool.query(`CREATE TABLE IF NOT EXISTS stock_count_schedule (
+        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        enabled BOOLEAN NOT NULL DEFAULT TRUE,
+        weekday INT NOT NULL DEFAULT 1 CHECK (weekday BETWEEN 0 AND 6),
+        scope TEXT NOT NULL DEFAULT '',
+        due_days INT NOT NULL DEFAULT 2 CHECK (due_days BETWEEN 1 AND 6),
+        last_run DATE,
+        updated_by INT REFERENCES users(user_id), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      await pool.query('INSERT INTO stock_count_schedule (id) VALUES (1) ON CONFLICT (id) DO NOTHING');
     } catch (err) { console.warn('[db] could not prepare the stock count tables:', err.message); }
   }
   const ready = ensureSchema();
 
   const countJson = (c) => ({
-    id: String(c.count_id), no: c.count_no, scope: c.scope, status: c.status, note: c.note || undefined,
-    createdBy: c.created_by_name || '—', closedBy: c.closed_by_name || undefined,
+    id: String(c.count_id), no: c.count_no, scope: c.scope, status: c.status, note: c.note || undefined, scheduled: !!c.scheduled,
+    createdBy: c.created_by_name || (c.scheduled ? 'System (weekly schedule)' : '\u2014'), closedBy: c.closed_by_name || undefined,
     createdAt: new Date(c.created_at).getTime(), closedAt: c.closed_at ? new Date(c.closed_at).getTime() : undefined,
     lines: +c.lines, counted: +c.counted, differences: +c.differences, netValue: round2(+c.net_value || 0)
   });
@@ -66,6 +77,19 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (!rows.length) throw bad('id', 'Stock count not found');
     return rows[0];
   }
+
+  // (the schedule routes come before /:id so "schedule" is not read as a count id)
+  app.get('/api/stock-counts/schedule', auth('finance'), wrap(async (req, res) => res.json(await schedule())));
+  app.put('/api/stock-counts/schedule', auth('finance'), wrap(async (req, res) => {
+    const b = req.body || {}, wd = Number(b.weekday), due = Number(b.dueDays), scope = str(b.scope);
+    if (!Number.isInteger(wd) || wd < 0 || wd > 6) throw bad('weekday', 'Choose the day of the week');
+    if (!Number.isInteger(due) || due < 1 || due > 6) throw bad('dueDays', 'Choose 1 to 6 days to finish the count');
+    if (scope && !DEPARTMENTS.includes(scope)) throw bad('scope', 'Choose a department from the list');
+    await pool.query('UPDATE stock_count_schedule SET enabled = $1, weekday = $2, scope = $3, due_days = $4, updated_by = $5, updated_at = now() WHERE id = 1',
+      [b.enabled !== false, wd, scope, due, req.user.id]);
+    await audit(pool, req.user, 'Record edited', `Weekly stock count: ${b.enabled === false ? 'switched off' : 'every ' + DAYS[wd] + ', ' + (scope || 'all departments') + ', post within ' + due + ' day(s)'}`);
+    res.json(await schedule());
+  }));
 
   app.get('/api/stock-counts', auth('finance'), wrap(async (req, res) => {
     await ready;
@@ -180,4 +204,67 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     });
     res.json({ ok: true });
   }));
+
+  /* ---------- weekly scheduled count ----------
+     Every week on the chosen day (Monday by default), once the store opens (BUSINESS_OPEN, 8:00 AM), the automation starts a
+     count of the chosen departments, so nobody has to remember. Finance is told it is ready, reminded if it is not posted
+     within due_days, and told if last week's count is still open on count day (then no second count is started). */
+  const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const OPEN_MIN = (() => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(process.env.BUSINESS_OPEN || '')); return m ? +m[1] * 60 + +m[2] : 8 * 60; })();
+  const tz = TZ || 'Asia/Manila';
+  function today() {
+    const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })
+      .formatToParts(new Date()).map((x) => [x.type, x.value]));
+    return { date: p.year + '-' + p.month + '-' + p.day, weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday), minutes: (+p.hour % 24) * 60 + +p.minute };
+  }
+  const addDays = (ymd, n) => { const d = new Date(ymd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+  async function schedule(db) {
+    await ready;
+    // last_run as text: a DATE read as a JS Date shifts a day with the server time zone
+    const r = (await (db || pool).query(`SELECT s.*, s.last_run::text AS last_run, u.full_name AS updated_by_name FROM stock_count_schedule s LEFT JOIN users u ON u.user_id = s.updated_by WHERE id = 1`)).rows[0] || {};
+    const t = today();
+    let ahead = ((r.weekday == null ? 1 : r.weekday) - t.weekday + 7) % 7;
+    const ranToday = r.last_run && String(r.last_run instanceof Date ? r.last_run.toISOString().slice(0, 10) : r.last_run).slice(0, 10) === t.date;
+    if (ahead === 0 && (ranToday || t.minutes >= OPEN_MIN + 24 * 60)) ahead = 7;
+    return { enabled: r.enabled !== false, weekday: r.weekday == null ? 1 : r.weekday, day: DAYS[r.weekday == null ? 1 : r.weekday],
+      scope: r.scope || '', scopeLabel: r.scope || 'All departments', dueDays: r.due_days || 2,
+      lastRun: r.last_run ? String(r.last_run instanceof Date ? r.last_run.toISOString().slice(0, 10) : r.last_run).slice(0, 10) : null,
+      nextRun: r.enabled === false ? null : (ahead === 0 && ranToday ? addDays(t.date, 7) : addDays(t.date, ahead)),
+      startsAt: OPEN_MIN, updatedBy: r.updated_by_name || null };
+  }
+  async function weeklyCount() {
+    await ready;
+    const nc = app.locals.notifications, out = { started: null, reminded: 0 };
+    const s = await schedule(), t = today();
+    // reminder: a scheduled count still open after its due days
+    const late = (await pool.query(`SELECT count_id, count_no, created_at FROM stock_counts WHERE status = 'open' AND scheduled
+                                      AND created_at < now() - ($1 || ' days')::interval`, [String(s.dueDays)])).rows;
+    for (const c of late) if (nc) out.reminded += await nc.notifyRole('finance', { category: 'inventory', severity: 'warn', title: 'Weekly stock count ' + c.count_no + ' is overdue',
+      body: c.count_no + ' was started on ' + new Date(c.created_at).toLocaleDateString('en-PH', { timeZone: tz, month: 'short', day: 'numeric' }) + ' and is not posted yet. Finish counting and post it.',
+      link: 'Finance_Inventory.html#stockflow', entityType: 'stock_count', entityId: c.count_no, dedupeKey: 'sc-late:' + c.count_id + ':' + t.date });
+    if (!s.enabled || t.weekday !== s.weekday || t.minutes < OPEN_MIN || s.lastRun === t.date) return out;
+    const res = await tx(async (client) => {
+      const lock = await client.query('UPDATE stock_count_schedule SET last_run = $1 WHERE id = 1 AND (last_run IS DISTINCT FROM $1::date) RETURNING id', [t.date]);
+      if (!lock.rowCount) return null;                                    // another server already did it today
+      const open = (await client.query(`SELECT count_no FROM stock_counts WHERE status = 'open' LIMIT 1`)).rows[0];
+      if (open) return { blocked: open.count_no };
+      const c = await client.query(`INSERT INTO stock_counts (scope, note, created_by, scheduled) VALUES ($1, $2, NULL, TRUE) RETURNING count_id, count_no`,
+        [s.scope || 'All departments', 'Weekly scheduled count (' + DAYS[s.weekday] + ')']);
+      const ins = await client.query(`INSERT INTO stock_count_lines (count_id, product_id, system_qty, unit_cost)
+         SELECT $1, product_id, on_hand, unit_cost FROM products WHERE NOT is_archived AND ($2::text = '' OR department = $2) ORDER BY product_id`, [c.rows[0].count_id, s.scope]);
+      if (!ins.rowCount) { await client.query('DELETE FROM stock_counts WHERE count_id = $1', [c.rows[0].count_id]); return { empty: true }; }
+      await audit(client, { id: null, name: 'System', role: 'system' }, 'Record added', `Stock count ${c.rows[0].count_no} started automatically (weekly schedule) — ${s.scopeLabel}, ${ins.rowCount} product(s)`);
+      return { no: c.rows[0].count_no, lines: ins.rowCount };
+    });
+    if (!res) return out;
+    if (nc && res.no) await nc.notifyRole('finance', { category: 'inventory', severity: 'info', title: 'Weekly stock count ' + res.no + ' is ready',
+      body: 'Today is count day. ' + res.no + ' lists ' + res.lines + ' product(s) (' + s.scopeLabel + '). Count the shelves and post it within ' + s.dueDays + ' day(s).',
+      link: 'Finance_Inventory.html#stockflow', entityType: 'stock_count', entityId: res.no, dedupeKey: 'sc-start:' + res.no });
+    if (nc && res.blocked) await nc.notifyRole('finance', { category: 'inventory', severity: 'warn', title: 'Count day, but ' + res.blocked + ' is still open',
+      body: 'The weekly stock count could not start because ' + res.blocked + ' is still open. Post or cancel it, then start a new count.',
+      link: 'Finance_Inventory.html#stockflow', entityType: 'stock_count', entityId: res.blocked, dedupeKey: 'sc-blocked:' + t.date });
+    out.started = res.no || null; out.blocked = res.blocked || null;
+    return out;
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'weekly-stock-count', run: weeklyCount });
 };

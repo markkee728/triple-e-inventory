@@ -573,9 +573,13 @@ function validateProduct(b, { creating }) {
     e.category = 'Finished goods are ' + FINISHED_GOODS_CATEGORIES.join(' or ');
   const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7 });
   // only Finished Goods are sold: they need a selling price; every other department has none (stored as 0)
+  // priceAuto (finished goods): the selling price is unit cost + the markup (pricing.js keeps it right in the database).
+  // true = automatic (default), false = Finance typed its own price, null = flag not sent: keep what is saved.
+  const priceAuto = department !== 'Finished Goods' ? null : b.priceAuto === undefined ? (creating ? true : null) : b.priceAuto === true;
   const listPrice = department === 'Finished Goods'
-    ? number(e, 'listPrice', b.listPrice, 'Selling price', { max: 1e7, gt: true })
+    ? (priceAuto === true ? null : number(e, 'listPrice', b.listPrice, 'Selling price', { max: 1e7, gt: true }))
     : 0;
+  if (department === 'Finished Goods' && priceAuto === true && !(unitCost > 0) && !e.unitCost) e.unitCost = 'Enter the unit cost: the selling price is worked out from it';
   // Reorder level is worked out automatically from usage (reorder.js) unless Finance ticks "Set manually".
   // reorderAuto: true = automatic, false = manual, null = flag not sent (an older form): keep the saved flag and read the level as before.
   const reorderAuto = b.reorderAuto === undefined ? (creating ? true : null) : b.reorderAuto === true;
@@ -584,7 +588,7 @@ function validateProduct(b, { creating }) {
   const location = text(e, 'location', b.location, 'Storage location', { min: 2, max: 100 });
 
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, name, department, category, unit, unitCost, listPrice, reorderLevel, reorderAuto, onHand, location: location || null };
+  return { sku, name, department, category, unit, unitCost, listPrice, priceAuto, reorderLevel, reorderAuto, onHand, location: location || null };
 }
 function validateSupplier(b, stored, creating) {
   // `stored` = the supplier's current phone/email when editing; an old value left unchanged is not re-checked
@@ -987,7 +991,7 @@ const productSelect = `
        WHERE ps.product_id = v.product_id), '[]'::json) AS suppliers
     FROM v_inventory v WHERE NOT v.is_archived ORDER BY v.department, v.name`;
 // reorder_auto / reorder_basis live on products (the view does not have them), so the list adds them here
-const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, COALESCE((')
+const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, p.price_auto, COALESCE((')
   .replace('FROM v_inventory v WHERE', 'FROM v_inventory v JOIN products p ON p.product_id = v.product_id WHERE');
 
 app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
@@ -999,12 +1003,13 @@ app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
 
 app.get('/api/products', auth('finance'), wrap(async (req, res) => {
   await reorder.ready;
+  if (app.locals.pricing) await app.locals.pricing.ready;   // price_auto column + trigger
   const archivedOnly = String(req.query.archived || '') === '1';
   const { rows } = await pool.query(archivedOnly ? productSelectFull.replace('WHERE NOT v.is_archived', 'WHERE v.is_archived') : productSelectFull);
   res.json(rows.map(r => ({ archived: !!r.is_archived, sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
     grade: r.grade || '', form: r.form || '', unit: r.unit, costUnit: r.unit, status: r.stock_status, available: +r.on_hand,
     reorderLevel: +r.reorder_level, reorderAuto: !!r.reorder_auto, reorderBasis: r.reorder_basis || '',
-    stdCost: +r.unit_cost, listPrice: +r.selling_price, location: r.location,
+    stdCost: +r.unit_cost, listPrice: +r.selling_price, priceAuto: r.department === 'Finished Goods' ? r.price_auto !== false : undefined, location: r.location,
     margin: r.selling_price > 0 ? +(((r.selling_price - r.unit_cost) / r.selling_price) * 100).toFixed(1) : 0,
     primarySource: r.primary_source || (r.suppliers.length ? r.suppliers[0].name : null),
     suppliers: r.suppliers })));
@@ -1061,6 +1066,7 @@ async function assertProductNameFree(client, name, sku) {
 app.post('/api/products', auth('finance'), wrap(async (req, res) => {
   const p = validateProduct(req.body || {}, { creating: true });
   await reorder.ready;
+  if (app.locals.pricing) await app.locals.pricing.ready;   // price_auto column + trigger
   // Raw Materials and Finishing Supplies are bought, so a new one must name its supplier. Finished Goods are made in-house: no supplier.
   const supplierCode = str((req.body || {}).supplierCode);
   if (NEEDS_SUPPLIER.includes(p.department) && !supplierCode) throw new ValidationError({ supplier: 'Choose the supplier for this material' });
@@ -1072,9 +1078,9 @@ app.post('/api/products', auth('finance'), wrap(async (req, res) => {
       if (!supplier) throw new ValidationError({ supplier: 'That supplier is missing or archived. Choose another' });
     }
     const ins = await client.query(
-      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location]);
+      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location,price_auto)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING product_id`,
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false]);
     const id = ins.rows[0].product_id;
     if (supplier) await client.query('INSERT INTO product_suppliers (product_id, supplier_id, is_primary) VALUES ($1,$2,TRUE)', [id, supplier.supplier_id]);
     if (p.onHand > 0) await client.query(
@@ -1089,6 +1095,7 @@ app.post('/api/products', auth('finance'), wrap(async (req, res) => {
 app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
   const p = validateProduct({ ...req.body, sku: req.params.sku }, { creating: false });
   await reorder.ready;
+  if (app.locals.pricing) await app.locals.pricing.ready;   // price_auto column + trigger
   const found = await tx(async (client) => {
     await client.query(`SELECT set_config('app.user_id', $1, true)`, [String(req.user.id)]);
     await assertProductNameFree(client, p.name, p.sku);
@@ -1096,9 +1103,10 @@ app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
       `UPDATE products SET name=$2, department=$3, category_id=$4, unit=$5, unit_cost=$6,
               selling_price=COALESCE($7, selling_price), reorder_level=COALESCE($8, reorder_level), location=$9,
               reorder_auto=COALESCE($10::boolean, reorder_auto),
-              reorder_basis=CASE WHEN $10::boolean IS FALSE THEN NULL ELSE reorder_basis END
+              reorder_basis=CASE WHEN $10::boolean IS FALSE THEN NULL ELSE reorder_basis END,
+              price_auto=COALESCE($11::boolean, price_auto)
         WHERE sku=$1 AND NOT is_archived RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location, p.reorderAuto]);
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location, p.reorderAuto, p.priceAuto]);
     if (!r.rowCount) return false;
     await reorder.recalc(client, p.sku);   // if it is (now) automatic, work the level out straight away
     await audit(client, req.user, 'Record edited', `Product ${p.sku}`);
@@ -1466,79 +1474,40 @@ app.get('/api/users/:id/avatar', auth('finance'), wrap(async (req, res) => {
   res.send(rows[0].avatar);          // Express adds an ETag, so the browser only re-downloads a photo that changed
 }));
 
-// Edit an account (Finance only): the SAME profile the person has in My Profile - first / middle / last name, suffix, email, mobile number,
-// birthdate, gender and (customers) company details - plus the role. Every rule is the one My Profile and sign-up use.
-// Customer accounts keep the Customer role (they cannot become Finance or Cashier, and staff cannot be turned into customers);
-// Finance can switch staff between Finance-Admin and Cashier, but not their own role.
+// Change an account's ROLE (Finance only). Finance does NOT edit anyone's personal information: name, email, mobile number,
+// birthdate, gender and company details belong to the account owner, who changes them in My Profile (with its own checks,
+// e.g. a new mobile number is confirmed by text). A request that tries to send any of those is refused, so nothing can slip through.
+// Rules: a customer stays a customer, staff can only be Finance-Admin or Cashier, nobody changes their own role, and at least one
+// active Finance-Admin must remain.
+const PROFILE_FIELDS = ['name', 'firstName', 'middleName', 'lastName', 'suffix', 'email', 'phone', 'birthdate', 'gender', 'companyName', 'companyPosition', 'companyTin'];
 app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
-  await app.locals.accountReady; await app.locals.phoneReady;
-  const H = app.locals.accountHelpers;
-  const id = Number(req.params.id), b = req.body || {}, e = {};
+  const id = Number(req.params.id), b = req.body || {};
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request' });
-  const t = (await pool.query(`SELECT u.full_name, u.email, u.phone, to_char(u.birthdate, 'YYYY-MM-DD') AS birthdate_s, r.role_key, r.label
-                                 FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1`, [id])).rows[0];
-  if (!t) return res.status(404).json({ error: 'Account not found' });
-  const isCustomer = t.role_key === 'customer';
-  const structured = b.firstName !== undefined || b.lastName !== undefined || b.middleName !== undefined;
-  let name, parts = null;
-  if (structured) { parts = H.nameParts(e, b); name = parts.full; }
-  else name = text(e, 'name', b.name, 'Name', { min: 2, max: 80 });
-  const email = str(b.email).toLowerCase();
-  if (!email) e.email = 'Email is required';
-  else if (email.length > 254 || !EMAIL_FORMAT.test(email)) e.email = 'Enter a valid email address';
-  const phone = structured ? H.mobileField(e, b.phone) : (t.phone || '');       // an old page that sends only name + email leaves the number alone
-  let more = null;
-  if (structured) {
-    const birthChanged = str(b.birthdate) !== (t.birthdate_s || '');
-    more = { ...H.optionalDetails(e, b, { adult: birthChanged }) };
-    if (isCustomer) Object.assign(more, H.companyDetails(e, b));
-  }
-  const roleKey = str(b.roleKey) || t.role_key;
-  if (!['finance', 'cashier', 'customer'].includes(roleKey)) e.role = 'Choose a valid role';
-  else if (roleKey !== t.role_key) {
-    if (t.role_key === 'customer') e.role = 'A customer account cannot be changed to Finance-Admin or Cashier';
-    else if (roleKey === 'customer') e.role = 'A staff account cannot be changed to Customer';
-    else if (id === req.user.id) e.role = 'You cannot change your own role';
-  }
-  if (Object.keys(e).length) throw new ValidationError(e);
-  if (email !== t.email) await assertPersonalEmail(email);
-  const canon = (p) => { if (!p) return ''; const m = phMobile(p); return m.value || String(p).replace(/\s+/g, ''); };
-  const phoneChanged = structured && canon(t.phone) !== canon(phone);
-  try {
-    const sets = ['full_name = $2', 'email = $3', 'role_id = (SELECT role_id FROM roles WHERE role_key = $4)'], vals = [id, name, email, roleKey];
-    const add = (col, v) => { vals.push(v); sets.push(col + ' = $' + vals.length); };
-    if (parts) { add('first_name', parts.first); add('middle_name', parts.middle || null); add('last_name', parts.last); add('suffix', parts.suffix || null); }
-    else if (name !== t.full_name) {
-      // old-style edit: keep the split name in step with full_name, otherwise the person's own My Profile still shows the old name
-      const g = splitFullName(name);
-      add('first_name', g.first); sets.push('middle_name = NULL'); add('last_name', g.last || null); add('suffix', g.suffix || null);
+  const sent = PROFILE_FIELDS.filter((k) => b[k] !== undefined);
+  if (sent.length) throw new ValidationError({ role: 'Finance can only change the role. Personal details are changed by the account owner in My Profile' });
+  const out = await tx(async (client) => {
+    const t = (await client.query(`SELECT u.user_id, u.full_name, u.email, u.status, r.role_key, r.label FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!t) throw new ValidationError({ id: 'Account not found' });
+    const roleKey = str(b.roleKey);
+    if (!['finance', 'cashier', 'customer'].includes(roleKey)) throw new ValidationError({ role: 'Choose a valid role' });
+    if (roleKey === t.role_key) return { t, roleKey, changed: false };
+    if (t.role_key === 'customer') throw new ValidationError({ role: 'A customer account cannot be changed to Finance-Admin or Cashier' });
+    if (roleKey === 'customer') throw new ValidationError({ role: 'A staff account cannot be changed to Customer' });
+    if (id === req.user.id) throw new ValidationError({ role: 'You cannot change your own role. Ask another Finance-Admin' });
+    if (t.role_key === 'finance') {
+      const left = (await client.query(`SELECT count(*)::int AS n FROM users u JOIN roles r USING (role_id)
+                                         WHERE r.role_key = 'finance' AND u.status = 'active' AND u.user_id <> $1`, [id])).rows[0].n;
+      if (left < 1) throw new ValidationError({ role: 'At least one active Finance-Admin must remain' });
     }
-    if (structured) {
-      add('phone', phone || null);
-      if (PHONE_VERIFICATION_ON && phoneChanged) sets.push('phone_verified_at = NULL');   // a new number is confirmed with a text code at the next sign-in
-    }
-    if (more) {
-      add('birthdate', more.birthdate); add('gender', more.gender);
-      if (isCustomer) { add('company_name', more.companyName); add('company_position', more.companyPosition); add('company_tin', more.companyTin); }
-    }
-    await pool.query('UPDATE users SET ' + sets.join(', ') + ' WHERE user_id = $1', vals);
-  } catch (err) {
-    if (err.code === '23505') throw new ValidationError({ email: 'That email is already used by another account' });
-    throw err;
-  }
-  const changes = [];
-  if (name !== t.full_name) changes.push(`name ${t.full_name} to ${name}`);
-  if (email !== t.email) changes.push(`email ${t.email} to ${email}`);
-  if (phoneChanged) changes.push('mobile number');
-  if (more && (t.birthdate_s || '') !== (more.birthdate || '')) changes.push('birthdate');
-  if (roleKey !== t.role_key) changes.push(`role ${t.label} to ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
-  if (changes.length) await audit(pool, req.user, 'Record edited', `Account updated — ${t.full_name}: ${changes.join(', ')}`);
-  res.json({ ok: true, name, email, phone: phone || '',
-    message: PHONE_VERIFICATION_ON && phoneChanged && phone ? 'The new mobile number will be confirmed with a text code the next time they sign in.' : '' });
+    await client.query(`UPDATE users SET role_id = (SELECT role_id FROM roles WHERE role_key = $2) WHERE user_id = $1`, [id, roleKey]);
+    await audit(client, req.user, 'Record edited', `Role changed — ${t.full_name}: ${t.label} to ${roleKey === 'finance' ? 'Finance-Admin Officer' : 'Sales Staff / Cashier'}`);
+    return { t, roleKey, changed: true };
+  });
+  res.json({ ok: true, name: out.t.full_name, email: out.t.email, roleKey: out.roleKey, changed: out.changed });
 }));
 
 // Delete a CUSTOMER account that has no history yet (no orders, quotations, reviews or payments) — e.g. one made by mistake.
-// A customer with history is disabled instead, so their orders and receipts keep pointing at a real account. Staff accounts are never deleted here.
+// A customer with history is disabled instead, so their orders and invoices keep pointing at a real account. Staff accounts are never deleted here.
 app.delete('/api/users/:id', auth('finance'), wrap(async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request' });
@@ -1617,6 +1586,8 @@ require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 // a custom quoted item is made with a job order: its raw materials and finishing supplies are issued (stock out) before it is ready
 require('./job-orders')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+// automatic prices: finished goods = unit cost + markup (20%), custom quotes from a formula (pricing.js)
+app.locals.pricing = require('./pricing')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 
 /* ---------- automation: follow-ups that run by themselves ----------

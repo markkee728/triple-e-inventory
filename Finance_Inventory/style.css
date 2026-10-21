@@ -4886,3 +4886,12 @@ html[data-theme="light"] #sales .pos-date-fields input{color-scheme:light;backgr
     .stockflow-grid > .movement-log-panel thead th { position: sticky; top: 0; z-index: 1; background: var(--card); }
 }
 .um-you { display: inline-flex; align-items: center; min-height: 30px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); border: 1px dashed var(--border); }
+
+/* User Management > account details: read-only personal details, only the role can be changed */
+.eu-info { margin-top: 4px; }
+.eu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; margin: 0; }
+.eu-row { padding: 8px 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.eu-row dt { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--text-faint); margin: 0 0 2px; }
+.eu-row dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.eu-lock { margin: 12px 0 0; }
+@media (max-width: 560px) { .eu-grid { grid-template-columns: 1fr; } }

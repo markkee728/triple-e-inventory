@@ -9,7 +9,7 @@
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const peso = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const when = (t) => new Date(t).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  let ORDERS = [], POS = [], VOIDS = {}, RETURNS = {}, posLoadSeq = 0;   // VOIDS / RETURNS: receipt no. -> pending void request {id, reason} / pending partial return {id, items, amount, ...}
+  let ORDERS = [], POS = [], VOIDS = {}, RETURNS = {}, posLoadSeq = 0;   // VOIDS / RETURNS: invoice no. -> pending void request {id, reason} / pending partial return {id, items, amount, ...}
   const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 
   function toast(msg, err) {
@@ -154,7 +154,7 @@
     $('soPosExport')?.addEventListener('click', () => {
       const q = $('soPosSearch').value.trim().toLowerCase();
       const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + (s.customerName||'') + ' ' + (s.customerPhone||'') + ' ' + (s.items||[]).map(i=>i.name).join(' ')).toLowerCase().includes(q));
-      const fields = ['Receipt','Date','Customer','Customer phone','Cashier','Items','Total','Refunded','Net','Payment','Status'];
+      const fields = ['Invoice','Date','Customer','Customer phone','Cashier','Items','Total','Refunded','Net','Payment','Status'];
       const csv = [fields,...rows.map(s => [s.receiptNo,s.createdAt,s.customerName||'Walk-in',s.customerPhone||'',s.cashierName,(s.items||[]).map(i=>i.qty+' x '+i.name).join('; '),s.total,s.refunded||0,s.status==='Voided'?0:Number(s.total)-Number(s.refunded||0),s.method,s.status])]
         .map(row => row.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\r\n');
       const url = URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
@@ -168,7 +168,7 @@
     const rows = POS.filter(s => !q || (s.receiptNo + ' ' + s.cashierName + ' ' + (s.customerName||'') + ' ' + (s.customerPhone||'') + ' ' + s.items.map(i => i.name).join(' ')).toLowerCase().includes(q));
     const live = rows.filter(s => s.status !== 'Voided');
     $('soPosSub').textContent = rows.length + ' sales · ' + peso(live.reduce((n, s) => n + s.total - (s.refunded || 0), 0)) + ' collected (after returns)';
-    $('soPosHead').innerHTML = '<tr><th>Receipt</th><th>Time</th><th>Customer</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Action</th></tr>';
+    $('soPosHead').innerHTML = '<tr><th>Invoice</th><th>Time</th><th>Customer</th><th>Cashier</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Action</th></tr>';
     const small = (t) => '<div class="faint" style="font-size:12px;margin-top:4px;max-width:240px">' + t + '</div>';
     $('soPosBody').innerHTML = (rows.length || Object.keys(RETURNS).length) ? rows.map(s => {
       const rq = s.returnPending && RETURNS[s.receiptNo];
@@ -182,7 +182,7 @@
           ? '<button class="btn-danger btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="1">Approve void</button> <button class="btn-secondary btn-sm" data-so-void="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
           : rq ? '<button class="btn-primary btn-sm" data-so-return="' + esc(s.receiptNo) + '" data-ok="1">Approve return</button> <button class="btn-secondary btn-sm" data-so-return="' + esc(s.receiptNo) + '" data-ok="0">Reject</button>'
           : '<span class="faint">—</span>') + '</td></tr>';
-    }).join('') + Object.values(RETURNS).filter(r => !rows.some(s => s.receiptNo === r.receiptNo)).map(r =>   // returns on an earlier day's receipt
+    }).join('') + Object.values(RETURNS).filter(r => !rows.some(s => s.receiptNo === r.receiptNo)).map(r =>   // returns on an earlier day's invoice
         '<tr><td>' + esc(r.receiptNo) + '</td><td colspan="3"><span class="faint">Earlier sale</span></td><td>' + r.items.map(i => esc(i.qty + ' × ' + i.name)).join('<br>') + '<div class="faint" style="font-size:12px">being returned</div></td><td>' + peso(r.amount) +
         '<div class="faint" style="font-size:12px">refund</div></td><td>' + esc(r.refundMethod === 'Xendit' ? 'Online payment' : r.refundMethod) + '</td><td>' + pill('Return Pending') + small('<b>' + esc(r.returnNo) + '</b> · ' + esc(r.reason)) +
         '</td><td><button class="btn-primary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="1">Approve return</button> <button class="btn-secondary btn-sm" data-so-return="' + esc(r.receiptNo) + '" data-ok="0">Reject</button></td></tr>').join('')

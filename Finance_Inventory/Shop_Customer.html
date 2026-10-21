@@ -404,7 +404,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=8"></script>
-<script src="quote-fields.js?v=10"></script>
+<script src="quote-fields.js?v=11"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -831,7 +831,7 @@ function renderHelpLines() {
     el.innerHTML = 'Questions? ' + (bits.length ? bits.join(' · ') + ' · ' : '') + '<a href="Shop_Info.html#contact">Help &amp; contact</a>';
   });
 }
-/* ----- online payment window: shows the QR inside checkout, confirms by itself, then shows the receipt ----- */
+/* ----- online payment window: shows the QR inside checkout, confirms by itself, then shows the invoice ----- */
 let payPoll = null, payOrderId = null, payInvoice = null, payBase = 0;
 const stopPayPoll = () => { clearInterval(payPoll); payPoll = null; };
 async function checkPay() {
@@ -855,7 +855,7 @@ async function showPaid(led) {
   if (led) { o.paymentState = led.paymentState || o.paymentState; o.paidAmount = led.paidAmount; o.outstanding = led.outstanding; o.dueNow = led.dueNow; }
   receiptShown.add(id); markAnnounced(rcptKey(id, led && led.paidAmount != null ? led.paidAmount : (orders.find(x => x.id === id) || {}).paidAmount)); try { sessionStorage.removeItem('payInv:' + id); } catch (e) {}
   closePay(); renderOrders(); syncCounts();
-  openReceipt(id, true);                       // payment confirmed: show the receipt straight away
+  openReceipt(id, true);                       // payment confirmed: show the invoice straight away
 }
 const rcptKey = (id, amt) => 'rcptDone:' + id + ':' + (Number(amt) || 0).toFixed(2);
 const wasAnnounced = k => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
@@ -880,7 +880,7 @@ function openPayModal(order, url, payment) {
 }
 $('payClose').onclick = () => { const was = payOrderId; closePay(); if (was) { show('orders'); } };
 document.addEventListener('visibilitychange', () => { if (!document.hidden && payOrderId) checkPay(); });
-/* ----- receipt (shown automatically after a successful online payment, and from My Orders) ----- */
+/* ----- invoice (shown automatically after a successful online payment, and from My Orders) ----- */
 const receiptShown = new Set();
 const RCPT_CSS = `
 .rcpt-ok{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:rgba(46,160,102,.12);border:1px solid rgba(46,160,102,.45);margin-bottom:14px;text-align:left}
@@ -946,7 +946,7 @@ function receiptHtml(o) {
     <div class="rcpt-head">
       <div class="rcpt-brand">Triple E Metal Products</div>
       ${contact ? `<div class="rcpt-contact">${contact}</div>` : ''}
-      <div class="rcpt-titlerow"><span class="rcpt-title">Order receipt</span><span class="rcpt-pill${paid ? '' : ' wait'}">${PAY_PILL[o.paymentState] || (paid ? 'PAID' : 'UNPAID')}</span></div>
+      <div class="rcpt-titlerow"><span class="rcpt-title">Order invoice</span><span class="rcpt-pill${paid ? '' : ' wait'}">${PAY_PILL[o.paymentState] || (paid ? 'PAID' : 'UNPAID')}</span></div>
     </div>
     <div class="rcpt-meta">
       <div><small>Order no.</small><span class="mono">${esc(o.id)}</span></div>
@@ -965,7 +965,7 @@ function receiptHtml(o) {
       ${o.paymentState && Number(o.outstanding) > 0 ? `<div><span>Balance still to pay</span><span>${peso(o.outstanding)}</span></div>` : ''}
       ${balBarHtml(o)}
     </div>
-    <div class="rcpt-foot"><b>Thank you for shopping with us!</b>Keep this receipt for your records.</div>
+    <div class="rcpt-foot"><b>Thank you for shopping with us!</b>Keep this invoice for your records.</div>
   </div>`;
 }
 function openReceipt(id, justPaid) {
@@ -982,8 +982,8 @@ function openReceipt(id, justPaid) {
 }
 function printReceipt(id) {
   const o = orders.find(x => x.id === id); if (!o) return;
-  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your receipt.', true);
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Receipt ${esc(o.id)}</title>
+  const w = window.open('', '_blank'); if (!w) return toast('Allow pop-ups to print your invoice.', true);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${esc(o.id)}</title>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap">
     <style>body{margin:0;padding:24px 14px;background:#eef1f5}.sheet{max-width:580px;margin:0 auto}
     .rcpt,.rcpt *{-webkit-print-color-adjust:exact;print-color-adjust:exact}${RCPT_CSS}
@@ -1064,7 +1064,7 @@ function renderOrders() {
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
     <div class="row total"><span>Total</span><span class="mono">${peso(o.total)}</span></div>
     ${payRowHtml(o)}
-    ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View receipt</button></div>` : ''}
+    ${!['Pending Confirmation', 'Cancelled'].includes(o.status) ? `<div style="margin-top:8px"><button class="btn-secondary btn-sm" data-receipt="${esc(o.id)}">View invoice</button></div>` : ''}
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
@@ -1402,7 +1402,7 @@ async function ensureQuoteFields() {            // the dropdown choices come fro
   if (qMounted) return true;
   try { QOPTS = await api('/api/shop/quote-options'); } catch (e) { $('qFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return false; }
   if (qMounted) return true;
-  QuoteFields.mount($('qFields'), { prefix: 'q', options: QOPTS }); qMounted = true; quoteProductChanged(); return true;
+  QuoteFields.mount($('qFields'), { prefix: 'q', options: QOPTS, estimate: 'customer', productSku: () => ($('qProduct').value && $('qProduct').value !== 'other') ? $('qProduct').value : '' }); qMounted = true; quoteProductChanged(); return true;
 }
 function quoteProductChanged() {
   const p = prod($('qProduct').value);
@@ -1411,6 +1411,7 @@ function quoteProductChanged() {
   QuoteFields.autofill('q', p ? p.specs : null);
   if (p) QuoteFields.setUnit('q', p.unit);
   QuoteFields.setHint('q', p ? 'Priced per ' + p.unit + ' (now ' + peso(p.price) + '). Bulk quantities may get a better price.' : '');
+  QuoteFields.estimate('q');
 }
 async function loadQuoteAddresses() {
   try { QADDRS = await api('/api/shop/addresses'); if (!Array.isArray(QADDRS)) QADDRS = []; } catch (e) { QADDRS = []; }
@@ -1766,7 +1767,7 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
       if (id) {
         receiptShown.add(id); renderOrders(); syncCounts();
         let mine = false; try { mine = sessionStorage.getItem('payInv:' + id) != null; sessionStorage.removeItem('payInv:' + id); } catch (e) {}
-        // the full receipt only opens for the visit that started this payment; a payment recorded elsewhere (counter, another device) is a quiet toast
+        // the full invoice only opens for the visit that started this payment; a payment recorded elsewhere (counter, another device) is a quiet toast
         if (mine) openReceipt(id, true); else toast('Payment received for order ' + id + '. See My Orders for your balance.');
       }
       else toast('Payment received. Thank you!');

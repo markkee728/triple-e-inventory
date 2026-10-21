@@ -106,3 +106,11 @@ html[data-theme="light"] .cs-modal{background:rgba(20,35,50,.45)}
   .cs-actions button{flex:1}
   .cs-recon b{font-size:17px}
 }
+
+/* sidebar / burger: the cash shift card with the time left until closing (cash-shift-ui.js) */
+.cs-side{display:flex;flex-direction:column;gap:4px;margin:10px 12px 6px;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);text-align:left;font:inherit;cursor:pointer;width:calc(100% - 24px)}
+.cs-side:hover{border-color:var(--blue-bright)}.cs-side-t{font-weight:700;font-size:13px}.cs-side-s{font-size:12px;color:var(--text-dim);line-height:1.35}
+.cs-side.off{border-style:dashed}.cs-side.off .cs-side-t{color:var(--amber)}.cs-side.on .cs-side-t{color:var(--green)}
+.cs-side.soon{border-color:var(--amber)}.cs-side.soon .cs-side-s{color:var(--amber)}.cs-side.late{border-color:var(--red);background:rgba(227,91,91,.08)}.cs-side.late .cs-side-t,.cs-side.late .cs-side-s{color:var(--red)}
+.cs-side-bar{display:block;height:4px;border-radius:4px;background:var(--border);overflow:hidden}.cs-side-bar i{display:block;height:100%;background:var(--green)}.cs-side.soon .cs-side-bar i{background:var(--amber)}.cs-side.late .cs-side-bar i{background:var(--red)}
+.cs-hours{margin:-4px 0 12px;font-size:13px;color:var(--text-dim)}

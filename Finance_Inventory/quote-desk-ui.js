@@ -209,6 +209,7 @@
       const total = unit && unit.value && q ? Number(unit.value) * q.qty : (d.proposedAmount != null ? d.proposedAmount : d.amount);
       loadTermOptions(form, total, (d.terms || {}).key);
       if (form && unit && unit.value && q) { const t = form.querySelector('[data-total]'); if (t) t.textContent = peso(total); syncRoute(form, total); }
+      loadSystemPrice(d, form);
     }
     if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
   }
@@ -223,6 +224,25 @@
     (d.notes || []).slice(0, 8).forEach((n) => items.push('<div class="qd-tl-item"><b>' + esc(n.action) + '</b><time>' + day(n.at) + ' · ' + esc(n.by || '') + '</time><p>' + esc(n.detail) + '</p></div>'));
     return items.length ? '<div class="qd-tl">' + items.join('') + '</div>' : '<p class="qd-mut dim" style="margin:0">Nothing has happened on this request yet.</p>';
   }
+  /* the system price (pricing.js): worked out from the request's material, size, finish, service and quantity + the markup.
+     It is filled in as the unit price when the cashier has not typed one; the cashier can still change it. */
+  async function loadSystemPrice(d, form) {
+    const box = form && form.querySelector('[data-sys]'); if (!box) return;
+    let e;
+    try { e = await api('/api/pricing/quote/' + encodeURIComponent(d.id)); } catch (err) { box.innerHTML = '<p class="q-hint">The system price could not be worked out: ' + esc(err.message) + '</p>'; return; }
+    if (!box.isConnected) return;
+    if (!e.ok) { box.innerHTML = '<p class="q-hint">No system price yet: the request does not give the ' + esc((e.missing || []).join(', ')) + '.</p>'; return; }
+    S.sysCost = { id: d.id, total: e.catalog ? e.costPerPiece * e.quantity : e.costTotal };
+    box.innerHTML = '<div class="qd-sys-head"><span>System price <span class="dim">(automatic)</span></span><strong>' + peso(e.total) + '</strong></div>' +
+      '<div class="dim">' + peso(e.pricePerPiece) + ' per piece \u00D7 ' + esc(e.quantity) + ' \u00B7 cost ' + peso(e.costPerPiece) + '/pc + ' + esc(e.markupPct) + '% markup</div>' +
+      '<details><summary>How it is worked out</summary><ul>' + (e.lines || []).map((l) => '<li><span>' + esc(l.label) + '</span><b>' + peso(l.amount) + '</b></li>').join('') +
+      (e.weightKg ? '<li><span>Estimated weight: ' + esc(e.weightKg) + ' kg (' + esc(e.weightBasis) + ')</span><b></b></li>' : '') + '</ul></details>' +
+      ((e.notes || []).length ? '<p class="q-hint">' + esc(e.notes.join(' ')) + '</p>' : '') +
+      '<button type="button" class="btn-secondary btn-sm" data-use-sys="' + esc(e.pricePerPiece) + '">Use the system price</button>';
+    const unit = form.querySelector('[name=unit]');
+    if (unit && !unit.value) { unit.value = String(e.pricePerPiece); unit.dispatchEvent(new Event('input', { bubbles: true })); }
+    box.querySelector('[data-use-sys]').addEventListener('click', (ev) => { unit.value = ev.currentTarget.dataset.useSys; unit.dispatchEvent(new Event('input', { bubbles: true })); unit.focus(); });
+  }
   function priceFormHtml(d) {
     const can = ['new', 'pending_approval', 'awaiting_details'].includes(d.status);
     if (!can) return d.status === 'awaiting_details' ? '<div class="qd-callout warn">Waiting for the customer to send the missing details. Pricing opens as soon as they reply.</div>' : '';
@@ -233,6 +253,7 @@
     const back = d.financeNote && d.status === 'new' ? '<div class="qd-callout warn">Finance sent your price back: <b>' + esc(d.financeNote) + '</b>. Change the price and send it again.</div>' : '';
     const unit = d.proposedAmount != null && q.qty ? (d.proposedAmount / q.qty).toFixed(2) : '';
     return back + '<form class="qd-price" id="qdPriceForm" novalidate>' +
+      '<div class="qd-sys wide" data-sys><p class="q-hint">Working out the system price\u2026</p></div>' +
       '<label>Unit price (PHP)<input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '" required></label>' +
       '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
@@ -507,6 +528,12 @@
   }
   function syncRoute(form, total) {
     const box = form && form.querySelector('[data-route]'); if (!box) return;
+    const cost = S.sysCost && S.detail && S.sysCost.id === S.detail.id ? S.sysCost.total : 0;
+    if (total > 0 && cost > 0 && total < cost) {          // the server routes a loss-making price to Finance (pricing.js)
+      box.hidden = false;
+      box.textContent = peso(total) + ' is below the computed cost of ' + peso(cost) + ', so Finance approves this price before the customer sees it.';
+      return;
+    }
     if (!(total > 0) || !overLimit(total)) { box.hidden = true; box.textContent = ''; return; }
     const lim = cashierLimit();
     box.hidden = false;
@@ -666,7 +693,7 @@
       esc(e instanceof TypeError ? 'No connection to the server.' : e.message || 'The server refused the request.') + '</p><button type="button" class="btn-secondary" id="pqRetryOptions">Try again</button></div>';
       el('pqRetryOptions').onclick = () => { el('pqFields').innerHTML = '<p class="dim">Loading the form…</p>'; ensureFields(); }; return; }
     if (pqMounted) return;
-    QuoteFields.mount(el('pqFields'), { prefix: 'pq', options: o, flexible: isFlexible });
+    QuoteFields.mount(el('pqFields'), { prefix: 'pq', options: o, flexible: isFlexible, estimate: 'staff', productSku: () => el('pqProduct').value || '' });
     pqMounted = true;
     // the date stays next to Quantity, exactly where the online form has it; the counter-only "No fixed date" switch sits under it
     const dateField = el('pqNeeded') && el('pqNeeded').closest('.q-field'), flex = el('pqFlexible') && el('pqFlexible').closest('label');
@@ -676,7 +703,7 @@
   function pqProductChanged() {
     const p = prod(el('pqProduct').value);
     el('pqNameWrap').hidden = !!p; if (p) pqErr('productName', '');
-    if (pqMounted) { QuoteFields.autofill('pq', p ? p.specs : null); if (p) QuoteFields.setUnit('pq', p.unit); }
+    if (pqMounted) { QuoteFields.autofill('pq', p ? p.specs : null); if (p) QuoteFields.setUnit('pq', p.unit); QuoteFields.estimate('pq'); }
   }
   function collectForm() {
     const f = pqFulfil(), r = pqMounted ? QuoteFields.read('pq') : {};

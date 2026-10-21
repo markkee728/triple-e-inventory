@@ -9,7 +9,7 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=5">
+    <link rel="stylesheet" href="style.css?v=6">
     <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
     <link rel="stylesheet" href="sidebar.css?v=2">
@@ -1389,7 +1389,7 @@
                                 <button type="button" class="pos-period-btn" data-pos-period="all">All history</button>
                                 <button type="button" class="pos-export-btn" id="soPosExport">Download CSV</button>
                             </div>
-                            <input type="search" id="soPosSearch" class="inv-search pos-history-search" placeholder="Search receipt, customer, cashier or product..." autocomplete="off" aria-label="Search POS sales">
+                            <input type="search" id="soPosSearch" class="inv-search pos-history-search" placeholder="Search invoice, customer, cashier or product..." autocomplete="off" aria-label="Search POS sales">
                         </div>
                     </div>
                     <div class="table-wrapper">
@@ -3196,8 +3196,9 @@
                     <h2
                         class="modal-title"
                         style="margin-bottom:0;"
+                        id="editUserTitle"
                     >
-                        Edit User
+                        Account details
                     </h2>
 
                 </div>
@@ -3210,7 +3211,9 @@
                 novalidate
              autocomplete="off">
 
-                <div id="editUserMount"></div>
+                <!-- personal details are read-only here: the account owner changes them in My Profile -->
+                <div id="editUserInfo" class="eu-info"></div>
+                <p class="field-hint eu-lock">&#128274; Personal details can only be changed by the account owner in <b>My Profile</b>. Finance can change the role only.</p>
 
                 <div class="form-group" style="margin-top:14px">
 
@@ -3515,6 +3518,8 @@
                     <div class="form-group">
                         <label class="form-label" for="npListPrice">Selling Price (&#8369;)</label>
                         <input type="text" data-money id="npListPrice" class="form-input" placeholder="Optional" inputmode="decimal" autocomplete="off">
+                        <label class="check-row" id="npPriceManualRow" style="margin-top:6px"><input type="checkbox" id="npPriceManual"><span class="check-label">Set manually</span></label>
+                        <div class="field-hint" id="npPriceHint"></div>
                     </div>
 
                     <div class="form-group">
@@ -3642,8 +3647,8 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
-    <script src="script.js?v=27"></script>
-    <script src="api-bridge.js?v=31"></script>
+    <script src="script.js?v=28"></script>
+    <script src="api-bridge.js?v=32"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3661,12 +3666,13 @@
     <script src="cash-shift-reports.js?v=9"></script>
 
     <script src="refund-admin.js?v=2"></script>
-    <script src="stock-count-admin.js?v=4"></script>
+    <script src="stock-count-admin.js?v=5"></script>
     <script src="production-admin.js?v=4"></script>
     <script src="product-materials.js?v=1"></script>
+    <script src="pricing-admin.js?v=1"></script>
     <script src="quick-stock.js?v=3"></script>
     <script src="finished-goods-shop.js?v=5"></script>
-    <script src="shop-extras-admin.js?v=12"></script>
+    <script src="shop-extras-admin.js?v=13"></script>
     <script src="delivery-rates-admin.js?v=2"></script>
     <script src="payment-terms-admin.js?v=7"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
