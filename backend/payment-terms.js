@@ -109,6 +109,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
           [t.term_key, t.label, t.basis, t.percent, t.retail_allowed, t.made_to_order_allowed, t.balance_condition, t.enabled]);
       } catch (err) { console.warn('[payment-terms] could not seed', t.term_key, ':', err.message); }
     }
+    await run(`UPDATE payment_terms SET enabled = false, retail_allowed = false, made_to_order_allowed = false WHERE term_key = 'custom' AND enabled`, 'switch off custom partial payment');
     await run(`CREATE TABLE IF NOT EXISTS payments (
       payment_id BIGSERIAL PRIMARY KEY,
       paid_for TEXT NOT NULL CHECK (paid_for IN ('order','quote')),
@@ -236,7 +237,9 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     } catch (err) { console.warn('[payment-terms] could not read payment_terms — falling back to the built-in policy:', err.message); }
     return DEFAULT_TERMS;
   }
-  const listTerms = async (db) => (await termRows(db)).map(json);
+  // "Custom partial payment" was removed: Finance only works with Full / Half / Down payment. Older records that used it still read correctly.
+  const REMOVED_TERMS = ['custom'];
+  const listTerms = async (db) => (await termRows(db)).filter((t) => !REMOVED_TERMS.includes(t.term_key)).map(json);
 
   /* The terms a customer or cashier may be offered for one purchase.
      'custom' is never returned here: a custom percentage is attached by Finance, not picked at the counter.
@@ -482,7 +485,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
 
   app.post('/api/finance/payment-terms/:key', auth('finance'), wrap(async (req, res) => {
     const key = str(req.params.key);
-    if (!TERMS.includes(key)) throw bad('key', 'Unknown payment term');
+    if (!TERMS.includes(key) || REMOVED_TERMS.includes(key)) throw bad('key', key === 'custom' ? 'Custom partial payment is no longer offered' : 'Unknown payment term');
     const b = req.body || {};
     const current = (await termRows()).find((t) => t.term_key === key);
     if (!current) throw bad('key', 'Payment term not found');
@@ -549,6 +552,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     if (!(total > 0)) throw bad('amount', 'Set the price before choosing payment terms');
     const key = str(b.termKey);
     if (!TERMS.includes(key)) throw bad('termKey', 'Choose a payment term');
+    if (REMOVED_TERMS.includes(key)) throw bad('termKey', 'Custom partial payment is no longer offered. Choose Full, Half or Down Payment');
     const policy = (await termRows(client)).find((t) => t.term_key === key);
     if (!policy) throw bad('termKey', 'Payment term not found');
     if (key === 'custom' && !actorIsFinance) throw bad('termKey', 'A custom payment percentage is set by Finance — send the quotation for approval instead');
@@ -650,7 +654,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       const fromRow = o.terms_amount == null ? null : round2(Number(o.terms_amount));
       initial = fromRow != null && fromRow > 0 ? fromRow : round2(total * (Number(o.terms_percent) || 100) / 100);
     }
-    /* Cash on delivery / pickup with an ADVANCE paid online first: the delivery fee (COD) or the reservation deposit (COP).
+    /* Cash on delivery / pickup with an ADVANCE paid online first: the delivery fee plus a deposit (COD) or the reservation deposit (COP).
        That advance is what is "due now"; the rest is cash at the door or the counter. */
     const advance = /^Cash on /.test(o.payment_method || '') && Number(o.advance_amount) > 0 ? round2(Math.min(Number(o.advance_amount), total)) : 0;
     if (advance && !partial) initial = advance;
@@ -658,7 +662,12 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const dueNow = cents(paid) < cents(initial) ? round2(initial - paid) : balance;
     return { key: o.terms_key || 'full', percent: o.terms_percent == null ? 100 : +o.terms_percent,
       initial, dueNow, balance, total, paid, state: o.payment_state || 'unpaid',
-      advance: advance ? { kind: o.advance_kind || 'deposit', amount: advance, paid: cents(paid) >= cents(advance), cash: round2(Math.max(0, total - Math.max(paid, advance))) } : null,
+      advance: advance ? (() => {
+        // COD: delivery fee + deposit; COP: the reservation deposit. The label is what every screen and message calls it.
+        const fee = o.advance_kind === 'shipping_fee' ? round2(Math.min(Number(o.delivery_fee) || 0, advance)) : 0, deposit = round2(advance - fee);
+        const label = o.advance_kind === 'shipping_fee' ? (deposit > 0 ? (fee > 0 ? 'delivery fee and deposit' : 'deposit') : 'delivery fee') : 'reservation deposit';
+        return { kind: o.advance_kind || 'deposit', amount: advance, fee, deposit, label, paid: cents(paid) >= cents(advance), cash: round2(Math.max(0, total - Math.max(paid, advance))) };
+      })() : null,
       condition: advance && !partial ? 'paid in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider on delivery' : 'at the counter on pickup')
         : o.terms_condition || (partial ? 'balance due before release' : 'nothing further to pay'),
       outstanding: cents(balance) > 0 };
@@ -687,7 +696,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const short = m.key === 'full' ? m.balance : round2(Math.max(0, m.initial - m.paid));
     // cash on delivery / pickup: the advance paid online (delivery fee or reservation deposit) must be in before it is confirmed
     if (cod && m.advance && !m.advance.paid && !(role === 'finance' && credit))
-      return { ok: false, field: 'payment', money: m, reason: `The ${peso(round2(m.advance.amount - m.paid))} ${m.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit'} has not been paid online yet. The order is confirmed when it is` };
+      return { ok: false, field: 'payment', money: m, reason: `The ${peso(round2(m.advance.amount - m.paid))} ${m.advance.label} has not been paid online yet. The order is confirmed when it is` };
     if (cents(short) > 0 && !(role === 'finance' && credit) && !cod)
       return { ok: false, field: 'payment', money: m, reason: `${peso(short)} ${m.key === 'full' ? '(full payment)' : `(${m.percent}% initial payment)`} has not been received yet. Record it with Collect payment, or wait for the online payment, before confirming` };
     if (role === 'cashier' && !cod && !verified && cents(m.paid) <= 0)

@@ -487,18 +487,22 @@ async function loadCash() {
   if (cashLoading) return; cashLoading = true;
   try { CASH = await api('/api/shop/cash-options'); renderCheckout(); } catch (e) { CASH = { codLimit: 0, cashBlocked: false }; } finally { cashLoading = false; }
 }
-/* Cash on delivery: the delivery fee is paid online first, the rider collects the goods' price in cash.
+/* Cash on delivery: the delivery fee plus a deposit (Finance sets it, e.g. ₱200) are paid online first; the rider collects the rest in cash.
    Cash on pickup: a reservation deposit (Finance sets it, e.g. ₱200) is paid online first and taken off the total; the rest is cash at the counter. */
 function cashAdvance() {
-  if (fulfil === 'Delivery') { const f = shipFee == null ? null : fee(); return { kind: 'shipping_fee', amount: f, cash: subtotal(), known: f != null }; }
+  if (fulfil === 'Delivery') {
+    const f = shipFee == null ? null : fee(), dep = CASH && CASH.codDeposit > 0 ? Math.min(CASH.codDeposit, subtotal()) : 0;
+    const label = dep > 0 ? (f ? 'delivery fee and deposit' : f == null ? 'delivery fee and deposit' : 'deposit') : 'delivery fee';
+    return { kind: 'shipping_fee', fee: f, deposit: dep, amount: f == null ? null : f + dep, cash: Math.max(0, subtotal() - dep), known: f != null && !!CASH, label };
+  }
   const dep = CASH && CASH.copDeposit > 0 ? Math.min(CASH.copDeposit, subtotal()) : 0;
-  return { kind: 'deposit', amount: dep, cash: Math.max(0, subtotal() - dep), known: !!CASH };
+  return { kind: 'deposit', amount: dep, cash: Math.max(0, subtotal() - dep), known: !!CASH, label: 'reservation deposit' };
 }
 function cashBlockReason() {
   if (!CASH) return '';
   const adv = cashAdvance();
   if (CASH.onlineReady === false && (adv.kind === 'shipping_fee' ? adv.amount !== 0 : adv.amount > 0))
-    return 'Not available right now: the ' + (adv.kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' is paid online first, and online payment is down. Please try again later.';
+    return 'Not available right now: the ' + adv.label + ' is paid online first, and online payment is down. Please try again later.';
   if (CASH.cashBlocked) return 'Not available on your account after ' + CASH.noShows + ' missed deliveries or pickups. Please pay online.';
   if (fulfil === 'Delivery' && CASH.codLimit > 0 && orderTotal() > CASH.codLimit + 0.004) return 'Available for orders up to ' + peso(CASH.codLimit) + '. Pay online, or choose Pickup.';
   return '';
@@ -712,7 +716,7 @@ function renderPaymentTerms() {
   const activeKey = online ? termKey : 'full';
   $('termOpts').innerHTML = list.map(t => `<label class="opt ${t.key === activeKey ? 'on' : ''}" data-term="${esc(t.key)}"><input type="radio" name="t" ${t.key === activeKey ? 'checked' : ''} ${!online ? 'disabled' : ''}><span><strong>${esc(t.label)}</strong><small>${+t.percent >= 100 ? '100% · ' + peso(total) + ' total' : peso(t.dueNow) + ' due now (' + t.percent + '%) · ' + peso(t.balance) + ' remaining'}${t.balance > 0 ? ' · ' + esc(t.balanceCondition || 'Balance due before release') : ''}</small></span></label>`).join('');
   let note = '';
-  if (!online) note = 'Cash on ' + (fulfil === 'Delivery' ? 'delivery: the delivery fee is paid online first and the rest in cash to the rider.' : 'pickup: a reservation deposit is paid online first and the rest in cash at our counter.') + ' To select an approved partial payment, choose an online payment method.';
+  if (!online) note = 'Cash on ' + (fulfil === 'Delivery' ? 'delivery: the delivery fee and a deposit are paid online first, and the rest in cash to the rider.' : 'pickup: a reservation deposit is paid online first and the rest in cash at our counter.') + ' To select an approved partial payment, choose an online payment method.';
   else if (TERMS_OPTS === null) note = 'Could not load approved payment terms. Full payment is shown for reference; please retry before placing your order.';
   else if (opts.length <= 1) note = 'Only Full Payment is currently available. Finance/Admin can enable Half Payment or Down Payment in Payment Terms settings.';
   const nb = $('termNote'); nb.hidden = !note; nb.textContent = note;
@@ -720,8 +724,8 @@ function renderPaymentTerms() {
 }
 function cashHint() {
   const a = cashAdvance(), hrs = CASH ? CASH.copHoldHours : 48;
-  if (fulfil === 'Delivery') return a.known && a.amount > 0 ? 'Pay the ' + peso(a.amount) + ' delivery fee online now, then ' + peso(a.cash) + ' in cash to the rider'
-    : a.known ? 'Pay ' + peso(a.cash) + ' in cash to the rider' : 'Pay the delivery fee online now, the rest in cash to the rider';
+  if (fulfil === 'Delivery') return a.known && a.amount > 0 ? 'Pay ' + peso(a.amount) + ' online now (' + (a.fee ? peso(a.fee) + ' delivery fee' : '') + (a.fee && a.deposit ? ' + ' : '') + (a.deposit ? peso(a.deposit) + ' deposit' : '') + '), then ' + peso(a.cash) + ' in cash to the rider'
+    : a.known ? 'Pay ' + peso(a.cash) + ' in cash to the rider' : 'Pay the delivery fee' + (a.deposit ? ' and a ' + peso(a.deposit) + ' deposit' : '') + ' online now, the rest in cash to the rider';
   return a.amount > 0 ? 'Pay a ' + peso(a.amount) + ' deposit online now, then ' + peso(a.cash) + ' in cash at our counter. Not picked up within ' + hrs + ' hours: cancelled, deposit not refunded'
     : 'Pay in cash when you collect it';
 }
@@ -731,21 +735,21 @@ function renderPayPlan() {
   const online = ONLINE.includes(pay), adv = !online ? cashAdvance() : null, advOn = adv && adv.amount > 0;
   if (adv && adv.kind === 'shipping_fee' && !adv.known) {        // cash on delivery before the address: the fee is not known yet
     box.hidden = false;
-    $('ppNowLabel').textContent = 'Pay online now (delivery fee)'; $('ppNow').textContent = 'after you choose the address';
+    $('ppNowLabel').textContent = 'Pay online now (' + adv.label + ')'; $('ppNow').textContent = adv.deposit ? peso(adv.deposit) + ' + delivery fee' : 'after you choose the address';
     $('ppBalRow').hidden = false; $('ppBal').textContent = peso(adv.cash);
     const bl = document.querySelector('#ppBalRow .dim'); if (bl) bl.textContent = 'Cash to the rider';
-    $('ppCond').hidden = false; $('ppCond').textContent = 'The delivery fee depends on your province; it is paid online to confirm the order. The goods are paid in cash when they arrive.';
+    $('ppCond').hidden = false; $('ppCond').textContent = 'The delivery fee depends on your province; it shows once you choose the address. It is paid online' + (adv.deposit ? ' with the deposit' : '') + ' to confirm the order; the rest is paid in cash when it arrives.';
     $('place').textContent = 'Place order'; return;
   }
   const due = advOn ? adv.amount : t ? t.dueNow : total, bal = advOn ? adv.cash : t ? t.balance : 0;
   box.hidden = false;
-  $('ppNowLabel').textContent = online ? (t ? t.percent + '% initial payment' : 'Pay now') : advOn ? 'Pay online now (' + (adv.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') + ')' : (fulfil === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
+  $('ppNowLabel').textContent = online ? (t ? t.percent + '% initial payment' : 'Pay now') : advOn ? 'Pay online now (' + adv.label + ')' : (fulfil === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
   $('ppNow').textContent = peso(due);
   $('ppBalRow').hidden = !(bal > 0); $('ppBal').textContent = peso(bal);
   const balLabel = document.querySelector('#ppBalRow .dim'); if (balLabel) balLabel.textContent = advOn ? (fulfil === 'Delivery' ? 'Cash to the rider' : 'Cash at our counter') : 'Balance later';
   const cond = $('ppCond'); cond.hidden = !(bal > 0);
   if (bal > 0) cond.textContent = advOn
-    ? (adv.kind === 'shipping_fee' ? 'Your order is confirmed once the delivery fee is paid. Prepare ' + peso(bal) + ' in cash for the rider.'
+    ? (adv.kind === 'shipping_fee' ? 'Your order is confirmed once the ' + adv.label + (adv.deposit ? ' are' : ' is') + ' paid' + (adv.deposit ? '; the deposit is taken off your total' : '') + '. Prepare ' + peso(bal) + ' in cash for the rider.'
       : 'Your order is confirmed once the deposit is paid; it is taken off your total. Pick it up within ' + ((CASH && CASH.copHoldHours) || 48) + ' hours of our "ready for pickup" message and pay ' + peso(bal) + ' in cash, or the order is cancelled and the deposit is not refunded.')
     : 'The ' + peso(bal) + ' balance is ' + ((t && t.balanceCondition) || 'due before your order is released') + '.';
   $('place').textContent = (online || advOn) && bal > 0 ? 'Place order \u00B7 pay ' + peso(due) + ' now' : 'Place order';
@@ -864,7 +868,7 @@ function openPayModal(order, url, payment) {
   payBase = payment && payment.base != null ? Number(payment.base) : Number(order.paidAmount || 0);
   if (url && payInvoice) { try { sessionStorage.setItem('payInv:' + order.id, JSON.stringify({ base: payBase, amount: payInvoice.amount })); } catch (e) {} }
   $('payTitle').textContent = 'Complete your payment';
-  $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + (order.advance ? ' ' + (order.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') : '') + ' due now' +
+  $('payFor').textContent = 'Order ' + order.id + ' · ' + (payInvoice ? peso(payInvoice.amount) + (order.advance ? ' ' + order.advance.label : '') + ' due now' +
     (order.advance ? ' · ' + peso(order.advance.cash) + ' in cash ' + (order.fulfillment === 'Delivery' ? 'to the rider' : 'at pickup') : payInvoice.terms && payInvoice.terms.balance > 0 ? ' · balance ' + peso(payInvoice.terms.balance) + ' later' : '') : peso(order.total));
   $('payWait').hidden = false; $('payDone').hidden = true; $('payQR').replaceChildren();
   if (url) {
@@ -1063,9 +1067,9 @@ function renderOrders() {
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
-    ${o.advance && !['Cancelled', 'Returned'].includes(o.status) ? `<div class="dim" style="margin-top:8px">${o.advance.paid ? '✓ ' + peso(o.advance.amount) + ' ' + (o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'deposit') + ' paid online.' : peso(o.advance.amount) + ' ' + (o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'reservation deposit') + ' to pay online to confirm this order.'} ${Number(o.outstanding || 0) > 0.005 ? peso(o.advance.paid ? o.outstanding : o.advance.cash) + ' in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.') : ''}</div>` : ''}
-    ${o.forfeited ? `<div class="dim" style="margin-top:8px;color:#b32929">The ${peso(o.forfeited)} ${o.fulfillment === 'Delivery' ? 'delivery fee' : 'reservation deposit'} was not refunded because the order was not ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.</div>` : ''}
-    ${o.advance && !o.advance.paid && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Pay ${peso(o.dueNow)} ${o.advance.kind === 'shipping_fee' ? 'delivery fee' : 'deposit'} online</button>` : ''}
+    ${o.advance && !['Cancelled', 'Returned'].includes(o.status) ? `<div class="dim" style="margin-top:8px">${o.advance.paid ? '✓ ' + peso(o.advance.amount) + ' ' + o.advance.label + ' paid online.' : peso(o.advance.amount) + ' ' + o.advance.label + ' to pay online to confirm this order.'} ${Number(o.outstanding || 0) > 0.005 ? peso(o.advance.paid ? o.outstanding : o.advance.cash) + ' in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.') : ''}</div>` : ''}
+    ${o.forfeited ? `<div class="dim" style="margin-top:8px;color:#b32929">The ${peso(o.forfeited)} ${o.fulfillment === 'Delivery' ? 'delivery fee and deposit' : 'reservation deposit'} ${o.fulfillment === 'Delivery' ? 'were' : 'was'} not refunded because the order was not ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.</div>` : ''}
+    ${o.advance && !o.advance.paid && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Pay ${peso(o.dueNow)} ${o.advance.label} online</button>` : ''}
     ${o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005 && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.paidAmount || 0) > 0 ? 'Pay remaining ' + peso(o.outstanding) : Number(o.dueNow) > 0 ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
@@ -1440,7 +1444,7 @@ async function loadQuotes() {
     const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payOnline && q.balance > 0 && ['accepted', 'preparing', 'ready'].includes(q.status) ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.balance)} now</button></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
     const clarification=q.clarification;
-    const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--border,#cbd8e5);border-radius:10px;background:var(--surface,#f6f9fc)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`${clarifyFormHtml(q.id, clarification.fields || [])}`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
+    const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--amber,#d9a441);border-radius:10px;background:var(--card,#fff)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`${clarifyFormHtml(q.id, clarification.fields || [], q)}`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
@@ -1454,17 +1458,26 @@ async function loadQuotes() {
       ${termsRows(q)}
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
+      ${q.status === 'closed' && q.closeReason ? `<div class="refund-why">Closed: ${esc(q.closeReason)}</div>` : ''}
       ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
     : '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>';
 }
 /* the cashier asked for missing details: one REQUIRED box per detail they asked for (same rules as clarifyProblem in shop-extras.js) */
 const CLARIFY = { dimensions: ['Dimensions', 'e.g. 100 x 60 x 40 mm'], thickness: ['Thickness', 'e.g. 2.5 mm'], material: ['Material', 'e.g. Brass C37700'], finish: ['Finish', 'e.g. Polished'], quantity: ['Quantity', 'e.g. 200 pcs'] };
-(function () { const st = document.createElement('style'); st.textContent = '.cl-f{display:grid;gap:5px;font-weight:600;font-size:13.5px}.cl-f .form-input{width:100%;box-sizing:border-box;font-weight:400}.cl-err{color:#b32929;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-err:empty{display:none}[data-clarify-quote] .is-bad{border-color:#b32929!important;box-shadow:0 0 0 3px rgba(179,41,41,.14)}'; document.head.appendChild(st); })();
-function clarifyFormHtml(id, fields) {
-  const boxes = fields.filter(f => CLARIFY[f]).map(f => `<label class="cl-f">${CLARIFY[f][0]} <b style="color:#b32929">*</b><input class="form-input" name="spec_${f}" maxlength="200" autocomplete="off" placeholder="${CLARIFY[f][1]}"><span class="cl-err" data-err="spec_${f}" role="alert"></span></label>`).join('');
+(function () { const st = document.createElement('style'); st.textContent = '.cl-now{font-size:12px;font-weight:500;color:var(--text-dim,#5d6b7a);text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-more summary{cursor:pointer;font-weight:600;font-size:13.5px;color:var(--blue,#2e6fb5)}.cl-f{display:grid;gap:5px;font-weight:600;font-size:13.5px}.cl-f .form-input{width:100%;box-sizing:border-box;font-weight:400;background:var(--field,#fff);color:var(--text,#1d2733);border:1px solid var(--border,#cbd8e5);border-radius:8px;padding:9px 11px;font-family:Inter,system-ui,sans-serif;text-transform:none;letter-spacing:0}.cl-f .form-input:focus{outline:none;border-color:var(--blue-bright,#2e6fb5)}.cl-err{color:#b32929;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-err:empty{display:none}[data-clarify-quote] .is-bad{border-color:#b32929!important;box-shadow:0 0 0 3px rgba(179,41,41,.14)}'; document.head.appendChild(st); })();
+// what the request says now for each detail (the boxes start with it, so the customer only corrects what is wrong)
+const clarifyNow = (q, f) => { const sp = (q && q.specs) || {}, v = { dimensions: sp.size, thickness: sp.thickness, material: sp.material, finish: sp.finish, quantity: q && q.quantity }[f];
+  return v && !/^(not specified|not sure)/i.test(String(v)) ? String(v) : ''; };
+function clarifyFormHtml(id, fields, q) {
+  const box = (f, req) => { const now = clarifyNow(q, f);
+    return `<label class="cl-f">${CLARIFY[f][0]} ${req ? '<b style="color:#b32929">*</b>' : '<span class="dim">(optional)</span>'}<input class="form-input" name="spec_${f}" maxlength="200" autocomplete="off" placeholder="${CLARIFY[f][1]}" value="${esc(now)}">` +
+      `<span class="cl-now">${now ? 'Your request says: ' + esc(now) + (req ? '. Correct it if it is not exact.' : '') : 'Not in your request yet.'}</span><span class="cl-err" data-err="spec_${f}" role="alert"></span></label>`; };
+  const boxes = fields.filter(f => CLARIFY[f]).map(f => box(f, true)).join('');
+  const others = Object.keys(CLARIFY).filter(f => !fields.includes(f));
+  const more = others.length ? `<details class="cl-more"><summary>Edit other details too</summary><div style="display:grid;gap:10px;margin-top:8px">${others.map(f => box(f, false)).join('')}</div></details>` : '';
   const noteNeeded = fields.includes('other') || fields.includes('drawing');   // 'drawing' is no longer offered; an older request that asked for it is answered in the note
   const noteLabel = noteNeeded ? 'The other details' : 'Note to the cashier';
-  return `<form data-clarify-quote="${esc(id)}" novalidate style="display:grid;gap:10px;margin-top:8px">${boxes}
+  return `<form data-clarify-quote="${esc(id)}" novalidate style="display:grid;gap:10px;margin-top:8px">${boxes}${more}
     <label class="cl-f">${noteLabel} ${noteNeeded ? '<b style="color:#b32929">*</b>' : '<span class="dim">(optional)</span>'}<textarea class="form-input" name="response" rows="3" maxlength="1500" placeholder="${noteNeeded ? 'Explain the details the cashier asked for' : 'Anything else the cashier should know'}"></textarea><span class="cl-err" data-err="response" role="alert"></span></label>
     <p class="dim" style="margin:0">Every field marked * is required. Include the unit (mm, inches, pcs).</p>
     <div><button class="btn-primary btn-sm" type="submit">Review & Send Details</button> <span data-clarify-error role="alert" style="color:#b32929"></span></div></form>`;
@@ -1484,6 +1497,9 @@ $('quoteList').addEventListener('submit', async e => {
   const setErr = (k, m) => { const box = form.querySelector('[data-err="' + k + '"]'), inp = form.elements[k]; if (box) box.textContent = m || ''; if (inp) { inp.classList.toggle('is-bad', !!m); inp.setAttribute('aria-invalid', m ? 'true' : 'false'); } };
   const specs = {}, response = form.elements.response.value.trim(); let first = null;
   fields.filter(f => CLARIFY[f]).forEach(f => { const v = form.elements['spec_' + f].value.trim(), m = clarifyProblem(f, v); setErr('spec_' + f, m); if (m && !first) first = form.elements['spec_' + f]; specs[f] = v; });
+  Object.keys(CLARIFY).filter(f => !fields.includes(f) && form.elements['spec_' + f]).forEach(f => {     // optional: only what they actually changed
+    const v = form.elements['spec_' + f].value.trim(); if (!v || v === clarifyNow(q, f)) { setErr('spec_' + f, ''); return; }
+    const m = clarifyProblem(f, v); setErr('spec_' + f, m); if (m && !first) { first = form.elements['spec_' + f]; form.querySelector('.cl-more').open = true; } specs[f] = v; });
   const noteNeeded = fields.includes('other') || fields.includes('drawing');
   const nm = noteNeeded && response.length < 10 ? 'Explain it in at least 10 characters.' : !noteNeeded && response && response.length < 5 ? 'Write at least 5 characters, or leave it empty.' : '';
   setErr('response', nm); if (nm && !first) first = form.elements.response;

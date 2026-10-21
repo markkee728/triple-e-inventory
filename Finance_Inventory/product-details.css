@@ -27,4 +27,21 @@
 #supplierTableBody tr.supplier-row { cursor: pointer; }
 #supplierTableBody tr.supplier-row:hover { background: var(--hover); }
 #supplierTableBody tr.supplier-row:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
-#supplierTableBody tr.supplier-row.is-archived { opacity: .8; }
+#supplierTableBody tr.supplier-row.is-archived { opacity: .8; }/* Products toolbar: one row — Active / Archived · All / Raw Materials / Finishing Supplies / Finished Goods · search · New product */
+#products .catalog-toolbar { flex-wrap: nowrap; justify-content: flex-start; align-items: center; gap: 12px; }
+#products .prod-toolbar-left { flex: 0 1 auto; flex-wrap: nowrap; gap: 10px; }
+#products .category-pills { flex-wrap: nowrap; gap: 6px; }
+#products .catalog-toolbar .pill-btn { font-size: 14.5px; padding: 7px 11px; }
+#products .catalog-toolbar-right { flex: 1 1 260px; justify-content: flex-end; gap: 10px; min-width: 0; }
+#products #catalogSearch { flex: 1 1 200px; min-width: 160px; max-width: 320px; }
+#products #newProductBtn { flex: none; white-space: nowrap; }
+@media (max-width: 1280px) {
+  #products .catalog-toolbar, #products .prod-toolbar-left { flex-wrap: wrap; }
+  #products .catalog-toolbar-right { flex-basis: 100%; justify-content: flex-start; }
+  #products #catalogSearch { max-width: none; }
+}
+@media (max-width: 640px) {
+  #products .category-pills { flex-wrap: wrap; }
+  #products .catalog-toolbar-right { flex-wrap: wrap; }
+  #products #newProductBtn { width: 100%; }
+}

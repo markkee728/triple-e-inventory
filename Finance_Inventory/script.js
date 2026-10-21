@@ -1624,47 +1624,29 @@ function currentCatalogList() {
         : productCatalogData;
 }
 
-// One pill per category (upper/lower case and extra spaces ignored), A to Z, Uncategorized last.
-function getCatalogCategories() {
-    const seen = new Map();
-    currentCatalogList().forEach(product => {
-        const label = String(product.category || "Uncategorized").trim().replace(/\s+/g, " ");
-        if (!seen.has(catKey(label))) seen.set(catKey(label), label);
-    });
-    const names = [...seen.values()].sort((a, b) => {
-        if (catKey(a) === "uncategorized") return 1;
-        if (catKey(b) === "uncategorized") return -1;
-        return a.localeCompare(b);
-    });
-    return ["All categories", ...names];
-}
-
+// The Products page is filtered by DEPARTMENT only: Raw Materials, Finishing Supplies, Finished Goods (the category stays a column).
+const CATALOG_DEPTS = ["Raw Materials", "Finishing Supplies", "Finished Goods"];
+function getCatalogCategories() { return ["All categories", ...CATALOG_DEPTS]; }
 
 function renderCategoryPills() {
     const container = document.getElementById("categoryPills");
     if (!container) return;
     const list = currentCatalogList();
-    const categories = getCatalogCategories();
-    // the chosen category can disappear (last product archived or moved): fall back to All so the table is never stuck empty
-    if (activeCatalogCategory !== "All categories" &&
-        !categories.some(c => catKey(c) === catKey(activeCatalogCategory))) {
-        activeCatalogCategory = "All categories";
-    }
+    if (activeCatalogCategory !== "All categories" && !CATALOG_DEPTS.includes(activeCatalogCategory)) activeCatalogCategory = "All categories";
     container.innerHTML = "";
-    categories.forEach(category => {
-        const isAll = category === "All categories";
-        const count = isAll
-            ? list.length
-            : list.filter(item => catKey(item.category) === catKey(category)).length;
+    container.setAttribute("role", "group");
+    container.setAttribute("aria-label", "Filter by department");
+    getCatalogCategories().forEach(dept => {
+        const isAll = dept === "All categories";
+        const count = isAll ? list.length : list.filter(item => item.department === dept).length;
+        const on = isAll ? activeCatalogCategory === "All categories" : activeCatalogCategory === dept;
         const button = document.createElement("button");
         button.type = "button";
-        button.className = "pill-btn" +
-            ((isAll ? activeCatalogCategory === "All categories" : catKey(category) === catKey(activeCatalogCategory)) ? " active" : "");
-        button.innerHTML = `${escapeHTML(category)}<span class="count">${count}</span>`;
+        button.className = "pill-btn" + (on ? " active" : "");
+        button.setAttribute("aria-pressed", String(on));
+        button.innerHTML = `${escapeHTML(isAll ? "All" : dept)}<span class="count">${count}</span>`;
         button.addEventListener("click", () => {
-            activeCatalogCategory = category;
-            container.querySelectorAll(".pill-btn").forEach(p => p.classList.remove("active"));
-            button.classList.add("active");
+            activeCatalogCategory = dept;
             applyCatalogFilters();
         });
         container.appendChild(button);
@@ -1799,7 +1781,7 @@ function applyCatalogFilters() {
     const filtered = list.filter(item => {
         const categoryMatch =
             activeCatalogCategory === "All categories" ||
-            catKey(item.category) === catKey(activeCatalogCategory);
+            item.department === activeCatalogCategory;
         const searchMatch =
             !searchTerm ||
             item.name.toLowerCase().includes(searchTerm) ||
@@ -4482,27 +4464,22 @@ function renderAccountsTable() {
         return;
     }
 
-    if (count) {
-        count.textContent =
-            `${userAccountsData.filter(u => u.roleKey !== "customer").length} account${
-                userAccountsData.filter(u => u.roleKey !== "customer").length === 1 ? "" : "s"
-            }`;
-    }
+    // staff AND customer accounts are managed here (create by invitation, edit, disable / enable, delete a customer with no history)
+    const staffCount = userAccountsData.filter(u => u.roleKey !== "customer").length;
+    const custCount = userAccountsData.length - staffCount;
+    if (count) count.textContent = `${staffCount} staff \u00B7 ${custCount} customer${custCount === 1 ? "" : "s"}`;
 
     const roleSel = document.getElementById("accountRoleFilter");
     const roleWanted = roleSel ? roleSel.value : "all";
-    // User Management is for staff only (Finance-Admin and Cashier); customers are managed under Customer Profiles
-    const staffCount = userAccountsData.filter(u => u.roleKey !== "customer").length;
     const visible = userAccountsData
         .map((user, index) => ({ user, index }))
-        .filter(x => x.user.roleKey !== "customer")
-        .filter(x => roleWanted === "all" || x.user.roleKey === roleWanted)
+        .filter(x => roleWanted === "all" || (roleWanted === "staff" ? x.user.roleKey !== "customer" : x.user.roleKey === roleWanted))
         // latest sign-in on top; accounts that have never signed in go to the bottom (then by name)
         .sort((a, b) => (userLoginTime(b.user) - userLoginTime(a.user)) ||
             String(a.user.name || "").localeCompare(String(b.user.name || "")));
 
     if (count && roleWanted !== "all") {
-        count.textContent = `${visible.length} of ${staffCount} accounts`;
+        count.textContent = `${visible.length} of ${userAccountsData.length} accounts`;
     }
 
     if (visible.length === 0) {
@@ -4570,6 +4547,7 @@ function renderAccountsTable() {
                         >
                             ${user.status === "active" ? "Disable" : "Enable"}
                         </button>`}
+                        ${user.roleKey === "customer" ? `<button type="button" class="btn-danger-sm user-delete-btn" data-index="${index}" title="Only an account with no orders, quotations or reviews can be deleted">Delete</button>` : ""}
 
                     </div>
                 </td>
@@ -4591,6 +4569,27 @@ function renderAccountsTable() {
 
             });
 
+        });
+
+    tableBody
+        .querySelectorAll(".user-delete-btn")
+        .forEach(button => {
+            button.addEventListener("click", async () => {
+                const user = userAccountsData[Number(button.dataset.index)];
+                if (!(await uiConfirm({ title: `Delete ${user.name}?`, message: "The customer account is removed for good. This only works for an account with no orders, quotations or reviews; otherwise disable it instead.", confirm: "Delete account", danger: true }))) return;
+                button.disabled = true;
+                try {
+                    const res = await fetch("/api/users/" + user.id, { method: "DELETE", credentials: "same-origin" });
+                    const data = await res.json().catch(() => ({}));
+                    if (!res.ok) throw new Error((data.fields && Object.values(data.fields)[0]) || data.error || "Could not delete the account");
+                    const at = userAccountsData.indexOf(user); if (at >= 0) userAccountsData.splice(at, 1);
+                    renderAccountsTable();
+                    inviteToast(user.name + "\u2019s account was deleted.");
+                } catch (err) {
+                    button.disabled = false;
+                    inviteToast(err.message, true);
+                }
+            });
         });
 
     tableBody

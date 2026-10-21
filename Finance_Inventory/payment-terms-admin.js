@@ -89,7 +89,7 @@
     };
     return '<div class="panel" id="ptrCodBox" style="margin-bottom:18px">'
       + '<div class="panel-head"><div><div class="panel-title">Cash on delivery and pickup</div>'
-      + '<div class="panel-sub">Cash on delivery: the customer pays the delivery fee online first, the rider collects the goods\u2019 price in cash. '
+      + '<div class="panel-sub">Cash on delivery: the customer pays the delivery fee and a deposit online first, the rider collects the rest in cash. '
       + 'Cash on pickup: a reservation deposit is paid online first (taken off the total), the rest in cash at the counter; a no-show keeps the deposit. '
       + 'The checkout hides cash when a rule says no, and the server checks again.</div></div></div>'
       + '<div style="display:flex;gap:18px;flex-wrap:wrap;padding:4px 16px 0">'
@@ -99,7 +99,7 @@
       + '</div><div style="display:flex;gap:18px;flex-wrap:wrap;padding:14px 16px 0">'
       + f('copDeposit', 'Cash on pickup deposit (\u20B1)', 'Paid online to reserve the items; taken off the total. 0 = no deposit (pay everything at the counter).', 'placeholder="200"')
       + f('copHours', 'Hours to hold a cash-on-pickup order', 'Counted from \u201CReady for pickup\u201D. Not picked up by then: cancelled, restocked, and the deposit is kept.', 'placeholder="48"')
-      + '<div style="flex:1 1 200px;min-width:180px"></div>'
+      + f('codDeposit', 'Cash on delivery deposit (\u20B1)', 'Paid online together with the delivery fee; taken off what the rider collects. 0 = delivery fee only.', 'placeholder="200"')
       + '</div><div style="display:flex;gap:12px;align-items:center;padding:14px 16px 16px"><button type="button" class="btn-primary btn-sm" data-cod-save>Save rules</button>'
       + '<span class="faint" id="codStatus"></span></div></div>';
   }
@@ -107,17 +107,18 @@
     if (!RULES || !$('codLimit')) return;
     $('codLimit').value = RULES.codLimit; $('codShows').value = RULES.maxNoShows; $('codHold').value = RULES.pickupHoldDays;
     $('copDeposit').value = RULES.copDeposit != null ? RULES.copDeposit : 200; $('copHours').value = RULES.copHoldHours != null ? RULES.copHoldHours : 48;
+    $('codDeposit').value = RULES.codDeposit != null ? RULES.codDeposit : 200;
     $('codStatus').textContent = RULES.updatedBy ? 'Last changed by ' + RULES.updatedBy + ' \u00B7 ' + when(RULES.updatedAt) : 'Default rules (not changed yet)';
   }
   async function saveCod(btn) {
     document.querySelectorAll('[data-coderr]').forEach(function (x) { x.textContent = ''; });
     var body = { codLimit: $('codLimit').value.trim(), maxNoShows: Number($('codShows').value), pickupHoldDays: Number($('codHold').value),
-      copDeposit: $('copDeposit').value.trim(), copHoldHours: Number($('copHours').value) };
+      copDeposit: $('copDeposit').value.trim(), copHoldHours: Number($('copHours').value), codDeposit: $('codDeposit').value.trim() };
     btn.disabled = true;
     try { RULES = await api('/finance/order-rules', { method: 'PUT', body: JSON.stringify(body) }); renderCod(); toast('Cash rules saved.'); }
     catch (e) {
       if (e.message === 'Not signed in') return;
-      var map = { codLimit: 'codLimit', maxNoShows: 'codShows', pickupHoldDays: 'codHold', copDeposit: 'copDeposit', copHoldHours: 'copHours' }, shown = false;
+      var map = { codLimit: 'codLimit', maxNoShows: 'codShows', pickupHoldDays: 'codHold', copDeposit: 'copDeposit', copHoldHours: 'copHours', codDeposit: 'codDeposit' }, shown = false;
       Object.keys(e.fields || {}).forEach(function (k) { var el = document.querySelector('[data-coderr="' + (map[k] || k) + '"]'); if (el) { el.textContent = e.fields[k]; shown = true; } });
       if (!shown) toast(e.message, true);
     } finally { btn.disabled = false; }

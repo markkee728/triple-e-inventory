@@ -1338,9 +1338,11 @@
     $('inviteRoleBox').hidden = !staff;
     $('signupBackRow').hidden = staff;
     $('suEmail').readOnly = staff;
-    $('signupEyebrow').textContent = staff ? 'Team Invitation' : 'Create Account';
-    $('signupTitle').textContent = staff ? 'Welcome to the team' : 'Create your account';
-    $('signupSub').textContent = staff ? 'Your administrator set up your role. Complete the 3 steps to finish your account.' : 'Sign up to browse and order from Triple E Metal Products.';
+    const custInvite = staff && invitation && invitation.role === 'customer';     // Finance set up a shop account for a customer
+    $('signupEyebrow').textContent = custInvite ? 'Account Invitation' : staff ? 'Team Invitation' : 'Create Account';
+    $('signupTitle').textContent = custInvite ? 'Finish your shop account' : staff ? 'Welcome to the team' : 'Create your account';
+    $('signupSub').textContent = custInvite ? 'Triple E Metal Products set up an online shop account for you. Complete the 3 steps and choose your password.'
+      : staff ? 'Your administrator set up your role. Complete the 3 steps to finish your account.' : 'Sign up to browse and order from Triple E Metal Products.';
     if (staff){
       const w = clean(invitation.name).split(' ').filter(Boolean);
       $('suFirst').value = w.length > 1 ? w.slice(0, -1).join(' ') : (w[0] || '');

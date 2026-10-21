@@ -441,3 +441,12 @@
 #page-quotes .qd-review>h3{font:600 19px/1.2 Oswald,sans-serif;letter-spacing:.3px}
 #page-quotes .qd-review-note{margin:14px 0 0;padding:12px;border-radius:9px;background:var(--inset);color:var(--text-dim);font-size:13.5px;line-height:1.5}
 #page-quotes .qd-back{display:block;margin-top:4px;font-size:11.5px;font-weight:650;color:var(--red)}
+/* request missing details: each detail shows what the request says now; missing ones are flagged and ticked */
+#page-quotes .qd-modal-grid .qd-cl-item{grid-column:1/-1;margin:0 0 4px;font-size:13px;color:var(--text-dim)}
+#page-quotes .qd-modal-grid .qd-cl{display:flex;align-items:flex-start;gap:9px;padding:9px 10px;border:1px solid var(--border);border-radius:9px;background:var(--inset);cursor:pointer}
+#page-quotes .qd-modal-grid .qd-cl span{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+#page-quotes .qd-modal-grid .qd-cl small{font-size:12px;color:var(--text-faint);overflow-wrap:anywhere}
+#page-quotes .qd-modal-grid .qd-cl em{font-style:normal;font:700 10px Inter,sans-serif;letter-spacing:.4px;text-transform:uppercase;color:var(--amber);align-self:center}
+#page-quotes .qd-modal-grid .qd-cl.gap{border-color:rgba(217,164,65,.5)}
+#page-quotes .qd-modal-grid .qd-cl,#page-quotes .qd-modal-grid .qd-cl *{text-transform:none;letter-spacing:0;font-family:Inter,sans-serif}
+#page-quotes .qd-modal-grid .qd-cl b{font-size:13.5px;font-weight:650;color:var(--text)}

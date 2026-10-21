@@ -104,6 +104,8 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
   const detailJson = (q, clarifications, notes) => ({
     ...briefJson(q),
     details: q.details, replyNote: q.reply_note || null, approvalReason: q.approval_reason || null,
+    closeReason: q.close_reason ? ({ customer_cancelled: 'The customer cancelled or no longer needs it', no_response: 'The customer did not respond', price_not_agreed: 'The customer did not agree with the price',
+      cannot_make: 'We cannot make this item or get the material', duplicate: 'Duplicate of another request', other: 'Other reason' })[q.close_reason] || q.close_reason : null,
     contactEmail: q.contact_email || null,
     responseNote: q.response_note || null, respondedAt: ms(q.responded_at) || null, email: q.customer_email || null,
     customerId: q.customer_id || null, handledBy: q.handled_by_name || null, updatedAt: ms(q.updated_at),

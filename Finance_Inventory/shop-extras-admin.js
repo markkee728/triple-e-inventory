@@ -46,6 +46,10 @@
       '.sx-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}' +
       '.sx-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.sx-sub{margin:16px 0 4px;font-weight:700;font-size:14px}' +
       '.sx-empty{padding:22px;text-align:center;color:var(--text-faint)}' +
+      '.sx-job{white-space:normal}.sx-job>span{display:block;margin:2px 0 8px}.sx-jobtable{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0}.sx-jobtable th,.sx-jobtable td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}.sx-jobtable .r{text-align:right}' +
+      '.sx-jobsum{margin-top:6px;font-size:13.5px}.sx-jobline{display:grid;grid-template-columns:1fr 100px 46px auto;gap:8px;align-items:center;margin-top:8px}.sx-jobline small,.sx-jobline .sx-jerr{grid-column:1/-1;margin-top:-4px}' +
+      '.sx-jerr{color:var(--red);font-size:12.5px}.sx-jerr:empty{display:none}.sx-jobline.bad .form-input{border-color:var(--red)}.sx-junit{font-size:13px;color:var(--text-dim)}' +
+      '.sx-closebox{margin-top:14px;padding:12px 14px;border:1px solid color-mix(in srgb,var(--red) 45%,var(--border));border-radius:10px;background:color-mix(in srgb,var(--red) 6%,transparent)}.sx-closebox .sx-sub{margin-top:0}' +
       '.sx-approve{margin:0 0 14px;padding:14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--amber) 55%,var(--border));background:color-mix(in srgb,var(--amber) 8%,transparent)}' +
       '.sx-approve-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline;margin-bottom:10px}.sx-approve-head span{font-size:12.5px;color:var(--text-faint)}' +
       '.sx-approve-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px;margin-bottom:10px}.sx-approve-grid div{padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}' +
@@ -188,7 +192,7 @@
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     var inFlow = IN_FLOW.indexOf(x.status) >= 0;
     if (['new', 'pending_approval', 'awaiting_details'].indexOf(x.status) < 0) {           // nothing was sent to the customer yet in these
-      var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed', completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
+      var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed' + (x.closeReason ? ': ' + x.closeReason : ''), completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
       h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
         (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (collect the payment, then record it below)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + '\n' : '') +
         (x.handledBy ? 'Handled by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
@@ -202,6 +206,8 @@
       '<p class="faint">Approve to send this price to the customer, or send it back to the cashier with a note on what to change. You can also type your own price below.</p></div>';
     if (ap) h = h.replace('<dl class="sx-info">', ap + '<dl class="sx-info">');                       // first thing Finance sees
     else if (x.financeNote && x.status === 'new') h += '<div class="sx-box"><b>You sent the cashier\u2019s price back</b>' + esc(x.financeNote) + (x.proposedAmount ? '\nTheir price was ' + peso(x.proposedAmount) + '.' : '') + '</div>';
+    // a custom item (no catalog product) is made with a job order: its raw materials and finishing supplies are issued here
+    if (!x.sku && ['accepted', 'preparing', 'ready', 'completed'].indexOf(x.status) >= 0) h += '<div class="sx-box sx-job" id="sxJob"><b>Job order: materials for this custom item</b><span class="faint">Loading\u2026</span></div>';
     if (inFlow || x.status === 'completed') {
       var steps = (x.progress || []).map(function (e) { return '\u2022 ' + esc(e.label) + ' \u2014 ' + esc(when(e.at)) + (e.note ? ' (' + esc(e.note) + ')' : ''); }).join('\n');
       h += '<div class="sx-box"><b>Progress</b>' + steps + '</div>';
@@ -232,8 +238,18 @@
     if (!inFlow && x.status !== 'completed') h += '<button type="button" class="' + (x.status === 'pending_approval' ? 'btn-secondary' : 'btn-primary') + '" id="sxSend">' + (x.status === 'pending_approval' ? 'Send my own price instead' : x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
     if (x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : inFlow ? 'Cancel this quote' : 'Close request') + '</button>';
     if (x.status !== 'new' && !inFlow && x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxReopen">Reopen</button>';
-    h += '</div></div>';
+    h += '</div>';
+    if (x.status !== 'completed' && x.status !== 'closed') {
+      var reasons = (qopts && qopts.closeReasons) || [];
+      h += '<div class="sx-closebox" id="sxCloseBox" hidden><div class="sx-sub">' + (inFlow ? 'Cancel this quote' : 'Close this request') + '</div>' +
+        '<label for="sxCloseReason">Reason <span class="faint" style="font-weight:400">(required; the customer is told)</span></label><select id="sxCloseReason" class="form-input"><option value="">Choose the reason</option>' +
+        reasons.map(function (r) { return '<option value="' + esc(r.key) + '">' + esc(r.label) + '</option>'; }).join('') + '</select>' +
+        '<p class="faint" style="margin:6px 0 0">Add details in the message box above' + (x.paidAmount > 0 ? ' (required: payments were received, say how they are refunded or settled)' : ' (required for "Other reason")') + '.</p>' +
+        '<div class="sx-actions"><button type="button" class="btn-danger" id="sxCloseGo">' + (inFlow ? 'Cancel quote' : 'Close request') + '</button><button type="button" class="btn-secondary" id="sxCloseBack">Back</button></div></div>';
+    }
+    h += '</div>';
     $('sxBody').innerHTML = h;
+    if ($('sxJob')) loadJob(x);
     if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Approved: ' + x.id + ' is sent to the customer at ' + peso(x.proposedAmount || 0) + '.'); });
     if ($('sxReturnPrice')) $('sxReturnPrice').addEventListener('click', function () {
       var note = $('sxNote').value.trim(); $('sxErr').classList.remove('show');
@@ -243,9 +259,90 @@
     if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
     if ($('sxStep')) $('sxStep').addEventListener('click', function () { submitStep(x); });
     if ($('sxPay')) $('sxPay').addEventListener('click', function () { submitPayment(x); });
-    if ($('sxCloseReq')) $('sxCloseReq').addEventListener('click', function () { submitQuote(x, 'closed'); });
+    if ($('sxCloseReq')) $('sxCloseReq').addEventListener('click', function () {        // pick a reason first; nothing is closed until "Close request"
+      if (x.status === 'closed') { closeModal(); return; }
+      $('sxCloseBox').hidden = false; $('sxCloseReq').closest('.sx-actions').style.display = 'none'; $('sxCloseReason').focus();
+    });
+    if ($('sxCloseBack')) $('sxCloseBack').addEventListener('click', function () { $('sxCloseBox').hidden = true; $('sxCloseReq').closest('.sx-actions').style.display = ''; });
+    if ($('sxCloseGo')) $('sxCloseGo').addEventListener('click', function () { submitQuote(x, 'closed'); });
     if ($('sxReopen')) $('sxReopen').addEventListener('click', function () { submitQuote(x, 'new'); });
   }
+  /* ---------------- job order (custom items) ---------------- */
+  var jobSeq = 0;
+  var newKey = function () { return (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Date.now().toString(36) + Math.random().toString(36).slice(2, 12)); };
+  async function loadJob(x) {
+    var my = ++jobSeq, box = $('sxJob'); if (!box) return;
+    var d;
+    try { d = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/job'); }
+    catch (e) { if (my === jobSeq && $('sxJob')) $('sxJob').innerHTML = '<b>Job order</b><span class="sx-err show">' + esc(e.message) + '</span>'; return; }
+    if (my !== jobSeq || !$('sxJob')) return;
+    box = $('sxJob');
+    var cost = function (j) { return j.materialCost != null ? peso(j.materialCost) : '\u2014'; };
+    if (d.job) {
+      var j = d.job, margin = d.quoted ? d.quoted - j.materialCost : null;
+      box.innerHTML = '<b>Job order ' + esc(j.ref) + ': materials issued</b><span class="faint">By ' + esc(j.issuedBy) + ' \u00B7 ' + esc(j.issuedAt) + '</span>' +
+        '<table class="sx-jobtable"><thead><tr><th>Material</th><th>Department</th><th class="r">Used</th><th class="r">Cost</th></tr></thead><tbody>' +
+        j.items.map(function (i) { return '<tr><td>' + esc(i.name) + '<div class="faint">' + esc(i.sku) + ' \u00B7 ' + esc(i.movementRef || '') + '</div></td><td>' + esc(i.department) + '</td><td class="r">' + i.quantity + ' ' + esc(i.unit) + '</td><td class="r">' + (i.unitCost != null ? peso(i.quantity * i.unitCost) : '\u2014') + '</td></tr>'; }).join('') +
+        '</tbody></table><div class="sx-jobsum">Material cost <b>' + cost(j) + '</b>' + (margin != null ? ' \u00B7 quoted ' + peso(d.quoted) + ' \u00B7 left for labour and margin <b>' + peso(margin) + '</b>' : '') + '</div>' + (j.note ? '<div class="faint">' + esc(j.note) + '</div>' : '');
+      return;
+    }
+    if (!d.canIssue) {
+      box.innerHTML = '<b>Job order: materials for this custom item</b><span class="faint">' + (x.status === 'accepted'
+        ? 'Press \u201CStart preparing\u201D first (the payment terms are checked there). Then issue the raw materials and finishing supplies here: they leave stock, and the quote can be marked ready.'
+        : 'No materials were issued for this job.') + '</span>';
+      return;
+    }
+    var opts = function (sel) {
+      return '<option value="">Choose a material</option>' + ['Raw Materials', 'Finishing Supplies'].map(function (dep) {
+        return '<optgroup label="' + dep + '">' + d.materials.filter(function (m) { return m.department === dep; }).map(function (m) {
+          return '<option value="' + esc(m.sku) + '"' + (m.sku === sel ? ' selected' : '') + ' data-unit="' + esc(m.unit) + '" data-onhand="' + m.onHand + '">' + esc(m.name) + ' (' + esc(m.sku) + ') \u00B7 ' + m.onHand + ' ' + esc(m.unit) + ' on hand</option>'; }).join('') + '</optgroup>'; }).join('');
+    };
+    var line = function (sku, why) {
+      var m = d.materials.find(function (z) { return z.sku === sku; });
+      return '<div class="sx-jobline"><select class="form-input" data-jsku>' + opts(sku) + '</select><input class="form-input mono" data-jqty inputmode="decimal" autocomplete="off" placeholder="Qty"><span class="sx-junit">' + esc(m ? m.unit : '') + '</span>' +
+        '<button type="button" class="btn-secondary btn-sm" data-jdel aria-label="Remove line">\u00D7</button>' + (why ? '<small class="faint">Suggested from the ' + esc(why) + '</small>' : '') + '<span class="sx-jerr" data-jerr></span></div>';
+    };
+    box.innerHTML = '<b>Job order: issue the materials for this custom item</b>' +
+      '<span class="faint">Each line leaves stock as \u201CUsed in production\u201D when you confirm. The suggestions come from the quote\u2019s material and finish; enter what this job really uses.</span>' +
+      '<div id="sxJobLines">' + (d.suggestions.length ? d.suggestions.map(function (sg) { return line(sg.sku, sg.why); }).join('') : line('')) + '</div>' +
+      '<button type="button" class="btn-secondary btn-sm" id="sxJobAdd" style="margin-top:8px">+ Add material</button>' +
+      '<label for="sxJobNote" style="display:block;margin:10px 0 4px;font-weight:600;font-size:13px">Note <span class="faint" style="font-weight:400">(optional)</span></label><input id="sxJobNote" class="form-input" maxlength="300" placeholder="e.g. cut from 2 ingots, extra coat on the flange">' +
+      '<div class="sx-err" id="sxJobErr" role="alert"></div><div class="sx-actions"><button type="button" class="btn-primary" id="sxJobGo">Issue materials</button></div>';
+    var linesBox = $('sxJobLines');
+    $('sxJobAdd').addEventListener('click', function () { linesBox.insertAdjacentHTML('beforeend', line('')); });
+    linesBox.addEventListener('click', function (e) { var b = e.target.closest('[data-jdel]'); if (b) b.closest('.sx-jobline').remove(); });
+    linesBox.addEventListener('change', function (e) { if (e.target.matches('[data-jsku]')) { var o = e.target.selectedOptions[0]; e.target.parentNode.querySelector('.sx-junit').textContent = o ? (o.dataset.unit || '') : ''; } });
+    var key = newKey();
+    $('sxJobGo').addEventListener('click', async function () {
+      var err = $('sxJobErr'); err.classList.remove('show'); var items = [], first = null, seen = {};
+      linesBox.querySelectorAll('.sx-jobline').forEach(function (ln) {
+        var sel = ln.querySelector('[data-jsku]'), q = ln.querySelector('[data-jqty]'), e2 = ln.querySelector('[data-jerr]'), o = sel.selectedOptions[0], msg = '';
+        var v = q.value.replace(/,/g, '').trim();
+        if (!sel.value) msg = 'Choose the material';
+        else if (seen[sel.value]) msg = 'Already listed above';
+        else if (!/^\d{1,8}(\.\d{1,2})?$/.test(v) || !(Number(v) > 0)) msg = 'Enter the quantity used';
+        else if (Number(v) > Number(o.dataset.onhand)) msg = 'Only ' + o.dataset.onhand + ' ' + o.dataset.unit + ' on hand';
+        e2.textContent = msg; ln.classList.toggle('bad', !!msg);
+        if (msg && !first) first = msg ? (sel.value ? q : sel) : null;
+        if (sel.value) seen[sel.value] = 1;
+        if (!msg) items.push({ sku: sel.value, quantity: v, name: o.textContent.split(' (')[0], unit: o.dataset.unit });
+      });
+      if (!items.length && !first) { err.textContent = 'Add at least one raw material or finishing supply.'; err.classList.add('show'); return; }
+      if (first) { first.focus(); err.textContent = 'Fix the highlighted lines.'; err.classList.add('show'); return; }
+      var ok = window.uiConfirm ? await window.uiConfirm({ title: 'Issue these materials for ' + x.id + '?', message: 'They leave stock now as \u201CUsed in production\u201D. This cannot be undone from here.',
+        lines: items.map(function (i) { return i.name + ': ' + i.quantity + ' ' + i.unit; }), confirm: 'Issue materials' }) : true;
+      if (!ok) return;
+      var btn = $('sxJobGo'); btn.disabled = true;
+      try {
+        var r = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/job', { method: 'POST', body: JSON.stringify({ requestKey: key, note: $('sxJobNote').value.trim(), items: items.map(function (i) { return { sku: i.sku, quantity: i.quantity }; }) }) });
+        toast((r.job ? r.job.ref : 'Job order') + ': materials issued for ' + x.id + '.');
+        loadJob(x); loadQuotes();
+      } catch (e) {
+        btn.disabled = false; err.textContent = (e.fields && (e.fields.items || Object.values(e.fields)[0])) || e.message; err.classList.add('show');
+      }
+    });
+  }
+
   function showErr(msg) { var b = $('sxErr'); if (b) { b.textContent = msg; b.classList.add('show'); } }
 
   async function submitQuote(x, status) {
@@ -253,6 +350,12 @@
     var note = $('sxNote').value.trim(), amount = $('sxAmount') ? MoneyInput.raw($('sxAmount').value) : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
     $('sxErr').classList.remove('show');
     if (note && note.length < 5) { showErr('Write at least 5 characters, or leave the message empty.'); $('sxNote').focus(); return; }
+    var closeReason = status === 'closed' && $('sxCloseReason') ? $('sxCloseReason').value : '';
+    if (status === 'closed') {
+      if (!closeReason) { showErr('Choose why this request is being closed.'); $('sxCloseReason').focus(); return; }
+      if (closeReason === 'other' && note.length < 10) { showErr('Explain the reason in the message box (at least 10 characters).'); $('sxNote').focus(); return; }
+      if (x.paidAmount > 0 && note.length < 5) { showErr('Payments were received: write how they are refunded or settled in the message box.'); $('sxNote').focus(); return; }
+    }
     if (status === 'quoted') {
       if (!amount) { showErr('Enter the quoted amount.'); $('sxAmount').focus(); return; }
       var n = Number(amount.replace(/[,\u20B1\s]/g, ''));
@@ -261,14 +364,14 @@
     }
     busy = true; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     try {
-      var body = { status: status, note: note };
+      var body = { status: status, note: note, closeReason: closeReason || undefined };
       if (status === 'quoted') { body.amount = amount; body.leadTime = lead; body.validDays = Number(days); }
       await api('/finance/quotes/' + encodeURIComponent(x.id), { method: 'POST', body: JSON.stringify(body) });
       toast(status === 'quoted' ? 'Quote sent for ' + x.id + '.' : status === 'closed' ? x.id + ' closed.' : x.id + ' reopened.');
       busy = false; closeModal(); await loadQuotes();
     } catch (e) {
       busy = false; if (e.message === 'Not signed in') return;
-      await loadQuotes(); if (openQuote) { paintQuote(); $('sxNote').value = note; if ($('sxAmount')) $('sxAmount').value = amount; if ($('sxLead')) $('sxLead').value = lead; showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
+      await loadQuotes(); if (openQuote) { paintQuote(); $('sxNote').value = note; if (status === 'closed' && $('sxCloseBox')) { $('sxCloseBox').hidden = false; $('sxCloseReason').value = closeReason; if ($('sxCloseReq')) $('sxCloseReq').closest('.sx-actions').style.display = 'none'; } if ($('sxAmount')) $('sxAmount').value = amount; if ($('sxLead')) $('sxLead').value = lead; showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
     } finally { busy = false; }
   }
 

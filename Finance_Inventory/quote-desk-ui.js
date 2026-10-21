@@ -9,7 +9,7 @@
   const PAGE_SIZES = [10, 20, 50, 100];
   const FILTERS = [['all', 'All requests'], ['open', 'Needs my action'], ['approval', 'With Finance'], ['quoted', 'Quote ready'], ['active', 'Accepted'], ['done', 'Closed']];
   const SOURCES = [['all', 'Online + walk-in'], ['shop', 'Online only'], ['pos', 'Walk-in only']];
-  const CLARIFY = [['dimensions', 'Size / dimensions'], ['thickness', 'Thickness'], ['material', 'Material / grade'], ['finish', 'Surface finish'], ['quantity', 'Quantity / unit'], ['drawing', 'Reference drawing'], ['other', 'Other detail']];
+  const CLARIFY = [['dimensions', 'Size / dimensions'], ['thickness', 'Thickness'], ['material', 'Material / grade'], ['finish', 'Surface finish'], ['quantity', 'Quantity / unit'], ['other', 'Other detail']];
 
   const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 20, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, openTerms: false, view: 'requests' };
   const desk = (p) => '/api/pos/quote-desk' + p;
@@ -191,6 +191,7 @@
           : d.financeNote && d.status === 'new' ? '<span class="qd-pill bad">Sent back by Finance</span> ' + esc(d.financeNote) + (d.proposedAmount != null ? ' <span class="dim">· your price was ' + money(d.proposedAmount) + '</span>' : '')
           : d.approvalReason && d.amount != null ? '<span class="qd-pill ok">Approved by Finance</span> ' + esc(d.approvalReason)
           : 'not needed'),
+        row('Closed because', d.status === 'closed' && d.closeReason ? '<span class="qd-pill bad">Closed by Finance</span> ' + esc(d.closeReason) : ''),
         row('Note to customer', d.replyNote ? noteBox(d.replyNote) : ''),
         row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
 
@@ -401,7 +402,26 @@
     el('qdClarifySubtitle').textContent = d.id + ' · ' + (d.customer || 'customer') + ' · ' + (d.product || 'custom item');
     el('qdClarifyForm').reset(); el('qdClarifyError').textContent = '';
     el('qdClarifyDue').min = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
-    overlay.hidden = false; overlay.classList.add('open'); el('qdClarifyMessage').focus();
+    // what the request says NOW for each detail, so the cashier asks only for what is really missing (those are ticked for them)
+    const sp = d.specs || {}, cur = { dimensions: sp.size, thickness: sp.thickness, material: sp.material, finish: sp.finish, quantity: d.quantity };
+    const missing = (v) => !v || /^(not specified|not sure)/i.test(String(v));
+    const grid = overlay.querySelector('.qd-modal-grid');
+    grid.innerHTML = (sp.itemType || d.product ? '<p class="qd-cl-item">' + esc(d.product || 'Custom item') + (sp.itemType ? ' · ' + esc(sp.itemType) : '') + '</p>' : '') +
+      CLARIFY.map(([k, label]) => { const v = cur[k], gap = k !== 'other' && missing(v);
+        return '<label class="qd-cl' + (gap ? ' gap' : '') + '"><input type="checkbox" name="fields" value="' + k + '"' + (gap ? ' checked' : '') + '>' +
+          '<span><b>' + esc(label) + '</b><small>' + (k === 'other' ? 'Anything not listed above' : 'Now: ' + esc(v || 'not given')) + '</small></span>' + (gap ? '<em>missing</em>' : '') + '</label>'; }).join('');
+    // a starting message from what is ticked; the cashier can rewrite it (it is only filled while untouched)
+    const msg = el('qdClarifyMessage'); msg.dataset.auto = '1';
+    const suggest = () => {
+      if (msg.dataset.auto !== '1') return;
+      const picked = Array.from(grid.querySelectorAll('[name=fields]:checked')).map((x) => x.value);
+      if (!picked.length) { msg.value = ''; return; }
+      const words = picked.map((k) => k === 'other' ? 'any other detail we should know' : ({ dimensions: 'the exact size (length x width x height, with the unit)', thickness: 'the wall thickness in mm', material: 'the material or grade', finish: 'the surface finish', quantity: 'the quantity' })[k] + (cur[k] && !missing(cur[k]) ? ' (you wrote: ' + cur[k] + ')' : ''));
+      msg.value = 'Hi ' + (d.customer || '').split(' ')[0] + ', to price your ' + (d.product || 'custom item') + ' we need ' + (words.length > 1 ? words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1] : words[0]) + '. Please reply with the exact values in your account.';
+    };
+    grid.onchange = suggest; msg.oninput = () => { msg.dataset.auto = ''; };
+    suggest();
+    overlay.hidden = false; overlay.classList.add('open'); msg.focus();
     el('qdClarifyForm').onsubmit = async (e) => {
       e.preventDefault();
       const fields = Array.from(overlay.querySelectorAll('[name=fields]:checked')).map((x) => x.value);
@@ -409,7 +429,7 @@
       err.textContent = '';
       if (!fields.length || message.length < 15 || message.length > 1000) { err.textContent = 'Tick at least one detail and explain what you need in 15–1000 characters.'; return; }
       const go = await pqConfirm({ title: 'Send this clarification request?', description: 'The quotation moves to “Awaiting Customer Details”, the customer is notified, and your original notes stay untouched.',
-        rows: [['Quotation', d.id], ['Customer', d.customer], ['Details asked for', fields.join(', ')], ['Message', message], ['Suggested reply by', responseDue || 'no date set']],
+        rows: [['Quotation', d.id], ['Customer', d.customer], ['Details asked for', fields.map((f) => (CLARIFY.find((c) => c[0] === f) || [f, f])[1]).join(', ')], ['Message', message], ['Suggested reply by', responseDue || 'no date set']],
         acknowledgment: 'I checked that these details really are missing before pricing.', confirmLabel: 'Confirm & send' });
       if (!go) return;
       const btn = el('qdClarifySubmit'); btn.disabled = true;
@@ -715,7 +735,7 @@
       pqProductChanged(); el('pqFlexible').checked = false; const nd = pqNeededEl(); if (nd) nd.disabled = false;
       document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; el('pqArea').hidden = true;
       showFormStep(); loadDesk();
-      if (no) openDetail(no);                        // straight to the request, where the reference drawing is attached and the price is prepared
+      if (no) openDetail(no);                        // straight to the request, where the price is prepared
     } catch (e) {
       if (!QuoteFields.showServerError('pq', e.fields)) err.textContent = fieldErr(e); else err.textContent = 'Please fix the highlighted fields.';
       showFormStep();

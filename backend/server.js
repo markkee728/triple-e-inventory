@@ -1530,6 +1530,36 @@ app.patch('/api/users/:id', auth('finance'), wrap(async (req, res) => {
     message: PHONE_VERIFICATION_ON && phoneChanged && phone ? 'The new mobile number will be confirmed with a text code the next time they sign in.' : '' });
 }));
 
+// Delete a CUSTOMER account that has no history yet (no orders, quotations, reviews or payments) — e.g. one made by mistake.
+// A customer with history is disabled instead, so their orders and receipts keep pointing at a real account. Staff accounts are never deleted here.
+app.delete('/api/users/:id', auth('finance'), wrap(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'Invalid request' });
+  const out = await tx(async (client) => {
+    const u = (await client.query(`SELECT u.user_id, u.full_name, u.email, r.role_key FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1 FOR UPDATE`, [id])).rows[0];
+    if (!u) throw new ValidationError({ id: 'Account not found' });
+    if (u.role_key !== 'customer') throw new ValidationError({ id: 'Staff accounts are disabled, not deleted, so the audit log keeps who did what' });
+    const used = (await client.query(`SELECT
+        (SELECT count(*) FROM orders WHERE customer_id = $1) + (SELECT count(*) FROM quote_requests WHERE customer_id = $1) +
+        (SELECT count(*) FROM product_reviews WHERE user_id = $1) AS n`, [id])).rows[0];
+    if (+used.n > 0) throw new ValidationError({ id: `${u.full_name} has orders, quotations or reviews, so the account is kept for the records. Disable it instead` });
+    // things that belong only to the account itself go with it
+    for (const t of ['customer_addresses', 'notifications', 'cart_items']) {
+      const has = (await client.query(`SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'user_id'`, [t])).rowCount;
+      if (has) await client.query(`DELETE FROM ${t} WHERE user_id = $1`, [id]);
+    }
+    try { await client.query('SAVEPOINT del_user'); await client.query('DELETE FROM users WHERE user_id = $1', [id]); }
+    catch (err) {
+      if (err.code !== '23503') throw err;                    // still referenced somewhere: keep it, disable instead
+      await client.query('ROLLBACK TO SAVEPOINT del_user');
+      throw new ValidationError({ id: `${u.full_name} is still linked to other records, so the account is kept. Disable it instead` });
+    }
+    await audit(client, req.user, 'Record deleted', `Customer account deleted — ${u.full_name} (${u.email}); it had no orders, quotations or reviews`);
+    return u;
+  });
+  res.json({ ok: true, name: out.full_name });
+}));
+
 // Finance can disable / re-enable any account, including another Finance-Admin (e.g. one who left the company). Two rules:
 //   - never your own account (another Finance-Admin has to do it), so nobody locks themselves out by mistake;
 //   - at least one active Finance-Admin must remain, or nobody could manage the system any more.
@@ -1578,6 +1608,8 @@ app.locals.balanceReminders = require('./balance-reminders')({ app, pool, auth, 
 require('./pos-shop')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ, validateShipTo, formatShipTo });
 require('./shop-product-content')({ app, pool, auth, wrap });
 require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+// a custom quoted item is made with a job order: its raw materials and finishing supplies are issued (stock out) before it is ready
+require('./job-orders')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 
 /* ---------- automation: follow-ups that run by themselves ----------

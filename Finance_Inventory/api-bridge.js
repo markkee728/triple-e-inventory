@@ -18,7 +18,7 @@
   // so the form still filters correctly (and ignores retired reasons) if an older server is running.
   const DEFAULT_REASON_DEPTS = {
     in: {
-      supplier_receipt: ALL_D,
+      supplier_receipt: ['Raw Materials', 'Finishing Supplies'], // finished goods are produced in-house
       customer_return: ['Finished Goods'],
       produced_batch: ['Finished Goods'],
       count_correction_up: ALL_D,
@@ -182,7 +182,7 @@
     movementCache = movements;
     safe(renderMovementLog);
     safe(renderReports);
-    replace(userAccountsData, users.filter((u) => u.roleKey !== 'customer'));   // User Management lists staff only; customers live under Customer Profiles
+    replace(userAccountsData, users);   // User Management lists staff AND customer accounts (filter by role on the page)
     replace(auditLogData, audit);
 
     const low = inventory.filter((i) => getStockStatus(i) === 'low');

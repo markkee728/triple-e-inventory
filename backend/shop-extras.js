@@ -77,6 +77,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_by INT REFERENCES users(user_id)');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMPTZ');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS finance_note TEXT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS close_reason TEXT');          // why Finance closed the request (CLOSE_REASONS)
       await pool.query(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'shop'`);
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS created_by INT REFERENCES users(user_id)');
       // quote flow: needed-by date (older rows may have needed_months), dropdown choices, reply details, customer answer
@@ -139,8 +140,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
             Finance can close (cancel) a quote at any step before it is completed  ->  'closed'
   ===================================================== */
   /* WHAT TRIPLE E MAKES — and so the only things a custom quotation can ask for:
-       Die-cast part     aluminum ADC12 / A380, made to the customer's drawing (typed dimensions), counted in pcs / sets
-       Forged part       brass C37700 / C36000, made to the customer's drawing, counted in pcs / sets
+       Die-cast part     aluminum ADC12 / A380, made to the customer's specifications (size range or typed dimensions), counted in pcs / sets
+       Forged part       brass C37700 / C36000, made to the customer's specifications, counted in pcs / sets
        Fitting / valve   forged brass, standard pipe sizes 1/4" to 2", no wall thickness, counted in pcs / sets / boxes
      The item type decides the material family; the material decides finish and wall thickness. Everything is in ONE table,
      QUOTE_OPTIONS.matrix[itemType][material], which the form downloads, so the page and readQuote() can never disagree.
@@ -149,7 +150,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const mm = (...n) => n.map((x) => x.toFixed(1) + ' mm');
   const ALU = ['Aluminum ADC12', 'Aluminum A380'], BRASS = ['Brass C37700', 'Brass C36000'];
   const PIPE_SIZES = ['1/4"', '3/8"', '1/2"', '3/4"', '1"', '1-1/4"', '1-1/2"', '2"'];
-  // A part is made to the customer's drawing, so it has no catalog size. The dropdown offers size RANGES (by the longest side),
+  // A part is made to order, so it has no catalog size. The dropdown offers size RANGES (by the longest side),
   // which is enough for a first price; "Exact dimensions" lets them type length x width x height instead.
   const PART_SIZES = ['Small: longest side up to 50 mm', 'Medium: 51 to 150 mm', 'Large: 151 to 300 mm', 'Extra large: 301 to 1000 mm'];
   const FINISH_ALU = ['Raw / Unfinished', 'Shot Blasted', 'Powder Coated', 'Painted', 'Chromate Conversion', 'Polished'];
@@ -162,7 +163,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     decimalUnits: [],                                                        // every part is counted in whole pieces
     minQty: 20,                                                              // smallest custom run (a catalog product keeps its own minimum)
     material: ALU.concat(BRASS, [NOT_SURE]),
-    size: PIPE_SIZES,                                                        // parts are typed to the drawing; only fittings have standard sizes
+    size: PIPE_SIZES,                                                        // parts use size ranges or typed dimensions; only fittings have standard sizes
     thickness: [...new Set(WALL_ALU.concat(WALL_BRASS))].sort((a, b) => parseFloat(a) - parseFloat(b)).concat([NA]),
     finish: [...new Set(FINISH_ALU.concat(FINISH_BRASS))],
     service: SERVICE,
@@ -198,9 +199,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   QUOTE_OPTIONS.processWords = ['forged', 'forging', 'forge', 'cast', 'casting'];
   QUOTE_OPTIONS.itemRules = {
     'Die-cast part':   { materials: ALU, sizes: PART_SIZES, typed: 'part', thickness: 'optional', finish: FINISH_ALU, wall: WALL_ALU, units: ['pcs', 'sets'], unit: 'pcs',
-                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to your drawing. Pick a size range, or type the exact dimensions.' },
+                         services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'CNC machining'], label: 'a die-cast part', note: 'Aluminum, cast to order. Pick a size range, or type the exact dimensions.' },
     'Forged part':     { materials: BRASS, sizes: PART_SIZES, typed: 'part', thickness: 'optional', finish: FINISH_BRASS, wall: WALL_BRASS, units: ['pcs', 'sets'], unit: 'pcs',
-                         services: SERVICE, label: 'a forged part', note: 'Brass, forged to your drawing. Pick a size range, or type the exact dimensions.' },
+                         services: SERVICE, label: 'a forged part', note: 'Brass, forged to order. Pick a size range, or type the exact dimensions.' },
     'Fitting / valve': { materials: BRASS, sizes: PIPE_SIZES, typed: 'pipe', thickness: 'none', finish: FINISH_BRASS, wall: [], units: ['pcs', 'sets', 'boxes'], unit: 'pcs',
                          services: ['None (as is)', 'Deburring', 'Drilling / tapping', 'Threading (BSP / NPT)'], label: 'a fitting or valve', note: 'Forged brass, standard pipe sizes up to 2".' }
   };
@@ -292,6 +293,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const QFLOW = ['accepted', 'preparing', 'ready', 'completed'];             // what happens after the customer accepts
   const stepLabel = (st, f) => ({ new: 'Waiting for reply', quoted: 'Quote ready', accepted: 'Accepted', declined: 'Declined', preparing: 'Preparing',
     ready: f === 'Delivery' ? 'Out for Delivery' : 'Ready for Pickup', completed: f === 'Delivery' ? 'Delivered' : 'Picked Up', closed: 'Closed', pending_approval: 'Awaiting Finance approval', awaiting_details: 'Awaiting customer details' })[st] || st;
+  const CLOSE_REASON_LABEL = { customer_cancelled: 'The customer cancelled or no longer needs it', no_response: 'The customer did not respond',
+    price_not_agreed: 'The customer did not agree with the price', cannot_make: 'We cannot make this item or get the material', duplicate: 'Duplicate of another request', other: 'Other reason' };
   const quoteJson = (q) => {
     const validUntil = dateStr(q.valid_until), total = q.quoted_amount == null ? null : +q.quoted_amount, paid = +q.paid_amount || 0;
     const terms = (app.locals.paymentTerms || {}).quoteTerms ? app.locals.paymentTerms.quoteTerms(q) : null;
@@ -308,7 +311,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
       proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined,
       proposedLeadTime: q.proposed_lead_time || undefined, proposedValidDays: q.proposed_valid_days || undefined,
-      proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
+      proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined,
+      closeReason: q.close_reason ? (CLOSE_REASON_LABEL[q.close_reason] || q.close_reason) : undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
       lateForNeededBy: (() => { const r = quoteReadyBy(q), n = dateStr(q.needed_by); return !!(r && n && r > n) || undefined; })(),
@@ -626,7 +630,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }
 
   // Clarification is a separate auditable exchange: never overwrite original specs.
-  const CLARIFY_FIELDS = ['dimensions','thickness','material','finish','drawing','quantity','other'];
+  const CLARIFY_FIELDS = ['dimensions','thickness','material','finish','quantity','other'];      // no reference drawings: the shop does not take them
   const clarificationJson = c => c && ({ id: c.clarification_id, fields: c.fields, message: c.message,
     responseDue: dateStr(c.response_due), status: c.status, response: c.response || undefined,
     submittedSpecs: c.submitted_specs || undefined, createdAt: ms(c.created_at), answeredAt: ms(c.answered_at) });
@@ -689,21 +693,42 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if(q.status!=='awaiting_details') throw bad('status','This quotation is not awaiting details');
       const c=(await client.query("SELECT * FROM quote_clarifications WHERE quote_id=$1 AND status='awaiting_customer' FOR UPDATE",[q.quote_id])).rows[0];
       if(!c) throw bad('status','There is no outstanding clarification');
-      if(Object.keys(specs).some(k=>!c.fields.includes(k))) throw bad('specs','Only requested specifications may be updated');
+      // the details the cashier asked for are required; the customer may also correct any OTHER detail while answering (optional)
+      for (const k of Object.keys(specs)) if (!c.fields.includes(k) && specs[k]) { const why = clarifyProblem(k, specs[k]); if (why) throw bad('spec_' + k, why); }
       // every detail the cashier asked for is required, and must look like that kind of detail; "Other" is answered in the note
       for (const k of c.fields) {
-        if (k === 'other' || k === 'drawing') {      // no upload yet: a drawing is described (or a link / "sent by email") in the note
-          if (response.length < 10) throw bad('response', k === 'drawing' ? 'The cashier asked for a drawing: describe it, paste a link, or say how you will send it (at least 10 characters)' : 'The cashier asked for other details: explain them in at least 10 characters');
+        if (k === 'other' || k === 'drawing') {      // 'drawing' is no longer offered; a request made before is answered in the note like "other"
+          if (response.length < 10) throw bad('response', 'The cashier asked for other details: explain them in at least 10 characters');
           continue;
         }
         const why = clarifyProblem(k, specs[k] || '');
         if (why) throw bad('spec_' + k, why);
       }
       if (!c.fields.includes('other') && !c.fields.includes('drawing') && response && response.length < 5) throw bad('response', 'Write at least 5 characters, or leave the note empty');
+      // the answers go INTO the quotation (its specs, its details text and its quantity), so the cashier prices what the customer confirmed
+      const given = {}; Object.keys(specs).forEach((k) => { if (specs[k]) given[k] = specs[k]; });
+      const toSpec = { dimensions: 'size', thickness: 'thickness', material: 'material', finish: 'finish' };
+      const nextSpecs = Object.assign({}, q.specs || {});
+      let details = String(q.details || ''), quantity = q.quantity;
+      for (const k of Object.keys(given)) {
+        if (toSpec[k]) {
+          const key = toSpec[k], label = SPEC_LABEL[key];
+          nextSpecs[key] = given[k];
+          const line = new RegExp('^' + label.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + ': .*$', 'm');
+          details = line.test(details) ? details.replace(line, label + ': ' + given[k]) : details + '\n' + label + ': ' + given[k];
+        } else if (k === 'quantity') {
+          const m = /^(\d[\d,]*)\s*([a-z]*)$/i.exec(given[k]), old = /([a-z]+)\s*$/i.exec(q.quantity || '');
+          const n = m ? Number(m[1].replace(/,/g, '')) : NaN, unit = (m && m[2] ? m[2] : old ? old[1] : 'pcs').toLowerCase();
+          if (!(n > 0) || !QUOTE_OPTIONS.units.includes(unit)) throw bad('spec_quantity', 'Enter the quantity as a whole number with pcs, sets or boxes, e.g. 200 pcs');
+          if (!q.product_sku && n < QUOTE_OPTIONS.minQty) throw bad('spec_quantity', 'The minimum order for a custom item is ' + QUOTE_OPTIONS.minQty + ' ' + unit);
+          quantity = n.toLocaleString('en-US') + ' ' + unit;
+        }
+      }
       const row=(await client.query(`UPDATE quote_clarifications SET status='answered',response=$2,submitted_specs=$3::jsonb,answered_at=now()
-        WHERE clarification_id=$1 RETURNING *`,[c.clarification_id,response,JSON.stringify(specs)])).rows[0];
-      await client.query("UPDATE quote_requests SET status='new',updated_at=now() WHERE quote_id=$1",[q.quote_id]);
-      await audit(client,req.user,'Record edited',`Customer clarified ${q.quote_no}`);
+        WHERE clarification_id=$1 RETURNING *`,[c.clarification_id,response,JSON.stringify(given)])).rows[0];
+      await client.query("UPDATE quote_requests SET status='new', specs=$2::jsonb, details=$3, quantity=$4, updated_at=now() WHERE quote_id=$1",
+        [q.quote_id, JSON.stringify(nextSpecs), details, quantity]);
+      await audit(client,req.user,'Record edited',`Customer clarified ${q.quote_no}` + (Object.keys(given).length ? ': ' + Object.keys(given).map((k) => k + ' = ' + given[k]).join(', ') : ''));
       return {row,no:q.quote_no};
     });
     res.json({ok:true,clarification:clarificationJson(result.row)});
@@ -845,10 +870,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }));
 
   // Finance: send the quote (amount is required), close a request, or reopen it
+  // why a request is closed: Finance must pick one (and explain "Other"); the customer is told the reason
+  const CLOSE_REASONS = {
+    customer_cancelled: 'The customer cancelled or no longer needs it',
+    no_response: 'The customer did not respond',
+    price_not_agreed: 'The customer did not agree with the price',
+    cannot_make: 'We cannot make this item or get the material',
+    duplicate: 'Duplicate of another request',
+    other: 'Other reason'
+  };
+  QUOTE_OPTIONS.closeReasons = Object.keys(CLOSE_REASONS).map((k) => ({ key: k, label: CLOSE_REASONS[k] }));
   app.post('/api/finance/quotes/:no', auth('finance'), wrap(async (req, res) => {
     const b = req.body || {};
-    const status = str(b.status), note = str(b.note);
+    const status = str(b.status), note = str(b.note), closeReason = str(b.closeReason);
     if (!['new', 'quoted', 'closed'].includes(status)) throw bad('status', 'Choose a status');
+    if (status === 'closed') {
+      if (!CLOSE_REASONS[closeReason]) throw bad('closeReason', 'Choose why this request is being closed');
+      if (closeReason === 'other' && note.length < 10) throw bad('note', 'Explain the reason for closing (at least 10 characters)');
+    }
     if (note.length > 1500) throw bad('note', 'The note is too long (max 1500 characters)');
     if (note && note.length < 5) throw bad('note', 'Write at least 5 characters, or leave the note empty');
     let amount = null, leadTime = null, validUntil = null;
@@ -875,17 +914,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, lead_time = $5, valid_until = $6, handled_by = $7,
                 responded_at = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE responded_at END,
-                response_note = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE response_note END, updated_at = now() WHERE quote_id = $1 RETURNING *`,
+                response_note = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE response_note END,
+                close_reason = CASE WHEN $2 = 'closed' THEN $8 ELSE NULL END, updated_at = now() WHERE quote_id = $1 RETURNING *`,
         [cur.quote_id, status, quoting ? (note || null) : (note || cur.reply_note), quoting ? amount : cur.quoted_amount,
-         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id]);
-      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${quoting ? ' (' + peso(amount) + ')' : ''}`);
+         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id, status === 'closed' ? closeReason : null]);
+      await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${quoting ? ' (' + peso(amount) + ')' : ''}` +
+        (status === 'closed' ? ` — reason: ${CLOSE_REASONS[closeReason]}${note ? ' (' + note + ')' : ''}` : ''));
       return r.rows[0];
     });
     res.json({ ok: true });
     if (status !== 'new') (async () => {
       if (!q.customer_id) return;                       // walk-in from the POS: the cashier / Finance tells them by phone
-      if (status === 'closed' && !note) return;
       const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      if (status === 'closed') {                        // the customer always learns why
+        Promise.resolve(pingUser(q.customer_id, { category: 'orders', title: 'Quote request closed', body: `${q.quote_no} was closed: ${CLOSE_REASONS[q.close_reason] || 'closed by our staff'}.` + (note ? ' ' + note : ''),
+          link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+        return send(u && u.email, `Your quote request ${q.quote_no} was closed`, [`Hi ${q.contact_name},`, `We closed your quote request ${q.quote_no}.`, '',
+          'Reason: ' + (CLOSE_REASONS[q.close_reason] || 'closed by our staff'), ...(note ? [note] : []), '', 'You can send a new request any time from Request a Quote.', ...signoff()], 'quote-reply');
+      }
       if (status === 'quoted') await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
         `Hi ${q.contact_name},`, 'Here is our quote for your request.', '',
         `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}${quoteReadyBy(q) ? ' (about ' + needText(quoteReadyBy(q)) + ' if you accept today)' : ''}`, `Price valid until: ${dateStr(q.valid_until)}`,
@@ -919,6 +965,12 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const next = QFLOW[at + 1];
       if (!next) throw bad('status', 'This quote is already completed');
       if (target !== next) throw bad('status', `The next step is "${stepLabel(next, cur.fulfillment)}". Steps cannot be skipped or moved backwards`);
+      // a custom item (no catalog product) is made with a job order: its materials must be issued before it can be ready
+      if (next === 'ready' && !cur.product_sku && app.locals.jobOrders) {
+        await app.locals.jobOrders.ready;
+        if (!(await client.query('SELECT 1 FROM job_orders WHERE quote_id = $1', [cur.quote_id])).rowCount)
+          throw bad('status', 'Issue the raw materials and finishing supplies for this custom item first (Job order), then mark it ready');
+      }
       if (next === 'preparing' && cur.pay_method === 'Xendit' && round2(+cur.quoted_amount - (+cur.paid_amount || 0)) > 0.004)
         throw bad('payment', 'The customer chose to pay online and has not paid yet. Wait for the Xendit payment, or record a payment received another way first');
       if (next === 'completed') {

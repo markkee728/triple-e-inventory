@@ -1,5 +1,5 @@
 /* cash-advance.api.js — DEV ONLY walk-through of Cash on Delivery / Cash on Pickup against a running server and its PostgreSQL.
-   COD: the delivery fee is paid online first (Xendit), the rider collects the goods' price in cash.
+   COD: the delivery fee + a deposit (order_rules.cod_deposit, default 200) are paid online first (Xendit); the rider collects the rest in cash.
    COP: a reservation deposit (order_rules.cop_deposit, default 200) is paid online first and taken off the total; the rest is cash at
    the counter. Not picked up within order_rules.cop_hold_hours (default 48) of Ready for Pickup: cancelled, restocked, deposit kept.
    Needs: the server on :8099 with XENDIT_SECRET_KEY set (any value; the gateway itself is simulated through the webhook),
@@ -28,7 +28,7 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   sql(`DELETE FROM order_failures WHERE customer_id = 4`);                       // a clean slate for the no-show block
   const rules = await fi('GET', '/api/finance/order-rules');
   console.log('\nRules:', JSON.stringify(rules.body));
-  ok('defaults: ₱200 deposit, 48-hour hold', rules.body.copDeposit === 200 && rules.body.copHoldHours === 48, rules.body);
+  ok('defaults: ₱200 pickup deposit, 48-hour hold, ₱200 COD deposit', rules.body.copDeposit === 200 && rules.body.copHoldHours === 48 && rules.body.codDeposit === 200, rules.body);
 
   console.log('\n1. Cash on Pickup: ₱200 deposit online, the rest in cash at the counter');
   let r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Pickup', method: 'Cash on Pickup', phone: '09171234567', items: [{ sku: 'FG-FB02', qty: 20 }] });
@@ -66,32 +66,32 @@ const automation = () => fetch(B + '/api/automation/run', { method: 'POST', head
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
   ok('COD order placed', r.status === 201, r.body);
   const cod = r.body;
-  ok('the delivery fee is what is paid now; the goods are cash on delivery', cod.advance && cod.advance.kind === 'shipping_fee' && cod.advance.amount === cod.deliveryFee && cod.dueNow === cod.deliveryFee && cod.advance.cash === cod.subtotal, cod);
+  ok('the delivery fee + ₱200 deposit are paid now; the rest is cash on delivery', cod.advance && cod.advance.kind === 'shipping_fee' && cod.advance.amount === cod.deliveryFee + 200 && cod.advance.fee === cod.deliveryFee && cod.advance.deposit === 200 && cod.dueNow === cod.deliveryFee + 200 && cod.advance.cash === cod.subtotal - 200 && cod.advance.label === 'delivery fee and deposit', cod);
   r = await ca('POST', '/api/orders/' + cod.id + '/confirm', {});
-  ok('not confirmed before the fee is paid', r.status === 400 && /delivery fee has not been paid/.test(JSON.stringify(r.body)), r.body);
-  await webhook(cod.id, cod.deliveryFee);
+  ok('not confirmed before the fee and deposit are paid', r.status === 400 && /delivery fee and deposit has not been paid/.test(JSON.stringify(r.body)), r.body);
+  await webhook(cod.id, cod.advance.amount);
   ok('fee paid: confirmed by itself', sql(`SELECT status FROM orders WHERE order_no='${cod.id}'`) === 'Paid');
   for (const st of ['Packed']) await ca('POST', '/api/orders/' + cod.id + '/status', { status: st });
   r = await ca('POST', '/api/orders/' + cod.id + '/status', { status: 'Out for Delivery' });
   ok('out for delivery with the goods still to collect', r.status === 200, r.body);
-  r = await ca('POST', '/api/orders/' + cod.id + '/status', { status: 'Delivered', receivedBy: 'Carlo Customer', cashReceived: String(cod.subtotal), requestId: rid() });
-  ok('delivered: the rider collected exactly the price of the goods (' + cod.subtotal + ')', r.status === 200 && r.body.amount === cod.subtotal && r.body.balance === 0, r.body);
+  r = await ca('POST', '/api/orders/' + cod.id + '/status', { status: 'Delivered', receivedBy: 'Carlo Customer', cashReceived: String(cod.subtotal - 200), requestId: rid() });
+  ok('delivered: the rider collected the goods less the deposit (' + (cod.subtotal - 200) + ')', r.status === 200 && r.body.amount === cod.subtotal - 200 && r.body.balance === 0, r.body);
 
   console.log('\n4. COD: the customer refuses at the door — the delivery fee is kept');
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
-  const cod2 = r.body; await webhook(cod2.id, cod2.deliveryFee);
+  const cod2 = r.body; await webhook(cod2.id, cod2.advance.amount);
   for (const st of ['Packed', 'Out for Delivery']) await ca('POST', '/api/orders/' + cod2.id + '/status', { status: st });
   r = await ca('POST', '/api/orders/' + cod2.id + '/not-completed', { reason: 'refused', action: 'cancel' });
   ok('cancelled', r.status === 200 && !r.body.refundQueued, r.body);
-  ok('…the delivery fee is kept, nothing refunded', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod2.id}'`) === Number(cod2.deliveryFee).toFixed(2));
+  ok('…the delivery fee and deposit are kept, nothing refunded', sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod2.id}'`) === Number(cod2.advance.amount).toFixed(2));
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
   ok('after 2 no-shows, cash is blocked for this customer', r.status === 400 && /not available on your account/.test(r.body.error || ''), r.body);
   sql(`DELETE FROM order_failures WHERE customer_id = 4`);
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Delivery', method: 'Cash on Delivery', phone: '09171234567', shipTo: ship, items: [{ sku: 'FG-FB02', qty: 20 }] });
-  const cod3 = r.body; await webhook(cod3.id, cod3.deliveryFee);
+  const cod3 = r.body; await webhook(cod3.id, cod3.advance.amount);
   for (const st of ['Packed', 'Out for Delivery']) await ca('POST', '/api/orders/' + cod3.id + '/status', { status: st });
   r = await ca('POST', '/api/orders/' + cod3.id + '/not-completed', { reason: 'shop_issue', action: 'cancel' });
-  ok('our own fault (vehicle / weather): the fee is refunded instead', r.status === 200 && r.body.refundQueued === cod3.deliveryFee && sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod3.id}'`) === '0.00', r.body);
+  ok('our own fault (vehicle / weather): the fee is refunded instead', r.status === 200 && r.body.refundQueued === cod3.advance.amount && sql(`SELECT forfeited_amount FROM orders WHERE order_no='${cod3.id}'`) === '0.00', r.body);
 
   console.log('\n5. The advance was never paid');
   r = await cu('POST', '/api/shop/orders', { requestId: rid(), fulfillment: 'Pickup', method: 'Cash on Pickup', phone: '09171234567', items: [{ sku: 'FG-FB02', qty: 20 }] });
