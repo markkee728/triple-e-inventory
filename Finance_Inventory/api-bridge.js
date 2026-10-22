@@ -349,7 +349,20 @@
     tag.textContent = item ? 'On hand: ' + formatNumber(item.onHand) + ' ' + item.unit + (item.location ? ' · ' + item.location : '') : '';
     tag.style.color = item && type === 'out' && qty > item.onHand ? '#ef7a7a' : '';
     const conv = $('movementQuantity') && FA ? $('movementQuantity') : null, from = enterUnit();
-    if (conv) FA.note(conv, item && from && from !== item.unit && qty > 0 ? '= <b>' + formatNumber(qty) + ' ' + esc(item.unit) + '</b> (saved in the product’s unit)' : '', 'info', 'conv');
+    if (conv) {
+      if (item && from && from !== item.unit && qty > 0) {
+        FA.note(conv, '= <b>' + formatNumber(qty) + ' ' + esc(item.unit) + '</b> (saved in the product’s unit)', 'info', 'conv');
+      } else if (item && type === 'in' && item.reorderLevel > 0 && item.onHand <= item.reorderLevel && (!qty || qty === 0)) {
+        const suggest = Math.max(1, Math.round(item.reorderLevel - item.onHand));
+        FA.note(conv, 'Below reorder level (' + formatNumber(item.onHand) + ' / ' + formatNumber(item.reorderLevel) + ' ' + esc(item.unit) + '). <a href="#" id="faSuggestFill" style="font-weight:bold;text-decoration:underline">Auto-fill suggested ' + suggest + ' ' + esc(item.unit) + '</a>', 'warn', 'lowstock');
+        setTimeout(() => {
+          const btn = document.getElementById('faSuggestFill');
+          if (btn) btn.onclick = (e) => { e.preventDefault(); $('movementQuantity').value = suggest; syncMovementForm(); syncCostHint(); };
+        }, 0);
+      } else {
+        FA.note(conv, '', '', 'lowstock');
+      }
+    }
   }
   // an impossible Stock Out cannot be sent (runs after production-admin.js has set the button for this sync)
   function syncOutBlock() {
@@ -468,6 +481,30 @@
     return { list: linked.length ? linked : active, linkedOnly: linked.length > 0, anyActive: active.length > 0 };
   }
 
+  function syncSupplierLeadHint(item) {
+    const h = $('movementSupplierHint'), sel = $('movementSupplier');
+    if (!h) return;
+    const m = suppliersForItem(item);
+    let baseText = !item ? '' : m.linkedOnly ? 'Showing only suppliers that supply this product.'
+      : 'No supplier is linked to this product yet \u2014 showing all active suppliers. Link one in Supplier Management.';
+    const supId = sel ? sel.value : '';
+    if (!supId) {
+      h.innerHTML = esc(baseText);
+      return;
+    }
+    const sup = (supplierData || []).find((s) => String(s.id) === String(supId));
+    if (sup) {
+      const lead = sup.leadTimeDays != null ? sup.leadTimeDays : 7;
+      const arrDate = new Date(Date.now() + lead * 86400000);
+      const dateStr = arrDate.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+      h.innerHTML = (baseText ? '<div style="margin-bottom:4px">' + esc(baseText) + '</div>' : '') +
+        '<div style="color:#0369a1;font-weight:600;font-size:12.5px"><span style="margin-right:4px">📅</span>Supplier lead time: ' +
+        lead + ' day' + (lead === 1 ? '' : 's') + ' &mdash; Estimated delivery by <b>' + dateStr + '</b></div>';
+    } else {
+      h.innerHTML = esc(baseText);
+    }
+  }
+
   // Supplier dropdown: shows only the suppliers that supply the chosen product
   function fillMovementSuppliers(item) {
     const sel = $('movementSupplier');
@@ -484,9 +521,7 @@
       if (prev && m.list.some((s) => s.id === prev)) sel.value = prev;
       else if (m.linkedOnly && m.list.length === 1) sel.value = m.list[0].id;
     }
-    const h = $('movementSupplierHint');
-    if (h) h.textContent = !item ? '' : m.linkedOnly ? 'Showing only suppliers that supply this product.'
-      : 'No supplier is linked to this product yet \u2014 showing all active suppliers. Link one in Supplier Management.';
+    syncSupplierLeadHint(item);
   }
 
   function refreshMovementForm() {
@@ -496,16 +531,23 @@
 
   const MOVE_FIELDS = { sku: 'movementProduct', quantity: 'movementQuantity', reason: 'movementReason', note: 'movementNote',
     supplier: 'movementSupplier', invoiceNo: 'movementInvoice', unitCost: 'movementUnitCost' };
-  // moving-average cost: show what the cost becomes before saving (the server does the same sum and saves it)
+  // line total and moving-average cost computation
   function syncCostHint() {
     const hint = $('movementCostHint'), it = movementItem(); if (!hint) return;
     const raw = ($('movementUnitCost') && $('movementUnitCost').value || '').replace(/[,\u20B1\s]/g, ''), cost = Number(raw), qty = movementQty() || 0;
     if (!it) { hint.textContent = ''; return; }
-    const now = Number(it.unitCost) || 0, peso = (n) => '\u20B1' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    if (!raw || !(cost > 0)) { hint.textContent = 'Current cost ' + peso(now) + ' per ' + it.unit + '. Enter the invoice price to update the average cost; leave it empty to keep it.'; return; }
+    const now = Number(it.unitCost) || 0, peso = (n) => '\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!raw || !(cost > 0)) {
+      hint.innerHTML = 'Current unit cost: <b>' + peso(now) + '</b> per ' + esc(it.unit) + '. Enter invoice unit cost to compute delivery total and update average cost.';
+      return;
+    }
     const have = Math.max(0, Number(it.onHand) || 0);
     const avg = qty > 0 ? Math.round(((have * now + qty * cost) / (have + qty)) * 100) / 100 : now;
-    hint.textContent = 'Average cost ' + peso(now) + ' \u2192 ' + peso(avg) + ' per ' + it.unit + ' (' + (have || 0) + ' on hand at ' + peso(now) + ' + ' + (qty || 0) + ' at ' + peso(cost) + ').';
+    const lineTotal = qty > 0 ? Math.round(qty * cost * 100) / 100 : 0;
+    hint.innerHTML = '<div style="margin-bottom:4px;color:#1e40af;font-weight:700">Line total: ' + peso(lineTotal) + ' ' +
+      '<span class="faint" style="font-weight:normal">(' + formatNumber(qty) + ' ' + esc(it.unit) + ' &times; ' + peso(cost) + ')</span></div>' +
+      '<div class="faint">Average cost update: ' + peso(now) + ' &rarr; <b style="color:#0f172a">' + peso(avg) + '</b> per ' + esc(it.unit) +
+      ' (' + have + ' on hand at ' + peso(now) + ' + ' + qty + ' incoming at ' + peso(cost) + ')</div>';
   }
 
   function setupMovementForm() {
@@ -531,6 +573,7 @@
     // last supplier / last cost: filled in when a supplier delivery is being recorded; a value typed or picked by hand is kept
     $('movementProduct').addEventListener('change', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x && x.dataset.auto) { x.value = ''; delete x.dataset.auto; } }); prefillReceipt(); });
     $('movementReason').addEventListener('change', prefillReceipt);
+    if ($('movementSupplier')) $('movementSupplier').addEventListener('change', () => syncSupplierLeadHint(movementItem()));
     ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x) { x.addEventListener('input', (e) => { if (e.isTrusted) delete x.dataset.auto; }); x.addEventListener('change', (e) => { if (e.isTrusted) delete x.dataset.auto; }); } });
     if ($('movementUnitCost')) $('movementUnitCost').addEventListener('input', syncCostWarning);
     form.addEventListener('reset', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { if ($(id)) delete $(id).dataset.auto; }); if (FA) ['last', 'jump'].forEach((k) => FA.note($('movementUnitCost'), '', '', k)); });
@@ -1749,7 +1792,7 @@
     return el;
   }
 
-  function goStockIn(sku) {
+  function goStockIn(sku, suggestedQty, supplierId, unitCost) {
     const item = inventoryCache.find((i) => i.sku === sku);
     if (!item) return;
     const nav = document.querySelector('.nav-item[data-page="stockflow"]');
@@ -1760,9 +1803,28 @@
     if (dept) { dept.value = item.department; dept.dispatchEvent(new Event('change', { bubbles: true })); }
     const prod = $('movementProduct');
     if (prod) { prod.value = sku; prod.dispatchEvent(new Event('change', { bubbles: true })); }
+    const reason = $('movementReason');
+    if (reason && (!reason.value || reason.value !== 'supplier_receipt')) {
+      reason.value = 'supplier_receipt';
+      reason.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const qtyVal = suggestedQty != null ? suggestedQty : (item.reorderLevel > item.onHand ? Math.max(1, Math.round(item.reorderLevel - item.onHand)) : '');
     const qty = $('movementQuantity');
-    if (qty) qty.focus();
+    if (qty) {
+      if (qtyVal) qty.value = qtyVal;
+      qty.dispatchEvent(new Event('input', { bubbles: true }));
+      qty.focus();
+    }
+    if (supplierId && $('movementSupplier')) {
+      $('movementSupplier').value = supplierId;
+      $('movementSupplier').dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (unitCost != null && $('movementUnitCost')) {
+      $('movementUnitCost').value = Number(unitCost).toFixed(2);
+      $('movementUnitCost').dispatchEvent(new Event('input', { bubbles: true }));
+    }
   }
+  window.goStockIn = goStockIn;
 
   /* ---------------- Dashboard: every KPI card opens its own matching table ---------------- */
   const KPI_ICONS = {

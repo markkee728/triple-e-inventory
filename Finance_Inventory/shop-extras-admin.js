@@ -95,8 +95,8 @@
       '<div class="inv-filters"><select id="sxqFilter" class="inv-select" aria-label="Show"><option value="approval">Cashier prices to approve</option><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
       '<div class="sx-batch" id="sxqBatch"></div>' +
       '<div class="table-wrapper"><table><thead id="sxqHead"></thead><tbody id="sxqBody"></tbody></table></div></div>' +
-      '<div class="panel" style="margin-top:16px"><div class="panel-head"><div><div class="panel-title">Purchase suggestions</div><div class="panel-sub" id="sxpSub">Materials that accepted quotes need more of than is in stock.</div></div></div>' +
-      '<div class="table-wrapper"><table><thead><tr><th>Material</th><th>Short by</th><th>On hand now</th><th>Quote</th><th>Raised</th><th></th></tr></thead><tbody id="sxpBody"></tbody></table></div></div>';
+      '<div class="panel" style="margin-top:16px"><div class="panel-head"><div><div class="panel-title">Purchase Suggestions &amp; Restock Orders</div><div class="panel-sub" id="sxpSub">Materials and products needing purchase due to low stock or accepted customer quotes.</div></div></div>' +
+      '<div class="table-wrapper"><table><thead><tr><th>Item</th><th>Source</th><th>Order Qty</th><th>On Hand</th><th>Est. Cost</th><th>Supplier &amp; Lead Time</th><th>Raised</th><th></th></tr></thead><tbody id="sxpBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '</div>' +
@@ -112,7 +112,17 @@
       $('sxqRules').addEventListener('click', openRules);
       $('sxqBatch').addEventListener('click', function (e) { var b = e.target.closest('[data-batch]'); if (b) batchApprove(b.dataset.batch); });
       $('sxqBody').addEventListener('change', function () { paintBatch(); });
-      $('sxpBody').addEventListener('click', function (e) { var b = e.target.closest('[data-sxp]'); if (b) markSuggestion(Number(b.dataset.sxp), b.dataset.st); });
+      $('sxpBody').addEventListener('click', function (e) {
+        var si = e.target.closest('[data-stockin]');
+        if (si) {
+          if (typeof window.goStockIn === 'function') {
+            window.goStockIn(si.dataset.stockin, si.dataset.qty, si.dataset.sup, si.dataset.cost);
+          }
+          return;
+        }
+        var b = e.target.closest('[data-sxp]');
+        if (b) markSuggestion(Number(b.dataset.sxp), b.dataset.st);
+      });
       $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
       $('sxqBody').addEventListener('click', function (e) {
         var a = e.target.closest('[data-sxapprove]'); if (a) { quickApprove(a.dataset.sxapprove); return; }
@@ -219,16 +229,37 @@
     loadQuotes();
   }
 
-  /* ---- purchase suggestions from accepted quotes ---- */
+  /* ---- purchase suggestions from accepted quotes & low-stock alerts ---- */
   var suggestions = [];
   async function loadSuggestions() {
     if (!$('sxpBody')) return;
     try { suggestions = await api('/finance/purchase-suggestions?status=open'); } catch (e) { $('sxpSub').textContent = 'Could not load the purchase suggestions: ' + e.message; return; }
-    $('sxpSub').textContent = suggestions.length ? suggestions.length + ' material' + (suggestions.length === 1 ? '' : 's') + ' to buy for accepted quotes.' : 'Nothing to buy: accepted quotes are covered by stock.';
+    $('sxpSub').textContent = suggestions.length ? suggestions.length + ' item' + (suggestions.length === 1 ? '' : 's') + ' recommended for purchase.' : 'All stock is healthy: no items currently below reorder level or short for quotes.';
     $('sxpBody').innerHTML = suggestions.length ? suggestions.map(function (s) {
-      return '<tr><td>' + esc(s.name) + '<div class="faint" style="font-size:12px">' + esc(s.sku) + '</div></td><td class="sx-num"><b>' + qnum(s.quantity) + ' ' + esc(s.unit) + '</b></td><td class="sx-num">' + qnum(s.onHand) + ' ' + esc(s.unit) + '</td>' +
-        '<td>' + esc(s.quote || '\u2014') + '</td><td>' + esc(when(s.createdAt)) + '</td><td style="white-space:nowrap"><button type="button" class="btn-primary btn-sm" data-sxp="' + s.id + '" data-st="ordered">Ordered</button> <button type="button" class="btn-secondary btn-sm" data-sxp="' + s.id + '" data-st="dismissed">Dismiss</button></td></tr>';
-    }).join('') : '<tr><td colspan="6" class="sx-empty">No purchase suggestions.</td></tr>';
+      var srcBadge = s.source === 'low_stock'
+        ? '<span style="background:#fee2e2;color:#991b1b;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">Low Stock</span>'
+        : (s.quote ? '<span style="background:#e0f2fe;color:#0369a1;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">Quote ' + esc(s.quote) + '</span>'
+          : '<span style="background:#f3f4f6;color:#374151;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">' + esc(s.source) + '</span>');
+      var supText = s.supplierName
+        ? esc(s.supplierName) + (s.leadTimeDays != null ? '<div class="faint" style="font-size:11.5px">' + s.leadTimeDays + ' day lead time</div>' : '')
+        : '<span class="faint">\u2014</span>';
+      var costText = s.estimatedCost != null
+        ? peso(s.estimatedCost)
+        : (s.unitCost ? peso(s.quantity * s.unitCost) : '<span class="faint">\u2014</span>');
+      return '<tr>' +
+        '<td><b>' + esc(s.name) + '</b><div class="faint" style="font-size:12px">' + esc(s.sku) + '</div></td>' +
+        '<td>' + srcBadge + '</td>' +
+        '<td class="sx-num"><b>' + qnum(s.quantity) + ' ' + esc(s.unit) + '</b></td>' +
+        '<td class="sx-num">' + qnum(s.onHand) + ' ' + esc(s.unit) + '</td>' +
+        '<td class="sx-num"><b>' + costText + '</b></td>' +
+        '<td>' + supText + '</td>' +
+        '<td>' + esc(when(s.createdAt)) + '</td>' +
+        '<td style="white-space:nowrap">' +
+          '<button type="button" class="btn-primary btn-sm" data-stockin="' + esc(s.sku) + '" data-qty="' + qnum(s.quantity) + '" data-sup="' + (s.supplierId || '') + '" data-cost="' + (s.unitCost || '') + '" style="margin-right:4px">Stock In</button>' +
+          '<button type="button" class="btn-secondary btn-sm" data-sxp="' + s.id + '" data-st="ordered" style="margin-right:4px">Ordered</button>' +
+          '<button type="button" class="btn-secondary btn-sm" data-sxp="' + s.id + '" data-st="dismissed" title="Dismiss">\u00D7</button>' +
+        '</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="sx-empty">No purchase suggestions. All stock is healthy.</td></tr>';
   }
   async function markSuggestion(id, st) {
     try { await api('/finance/purchase-suggestions/' + id, { method: 'POST', body: JSON.stringify({ status: st }) }); toast(st === 'ordered' ? 'Marked as ordered.' : 'Dismissed.'); }

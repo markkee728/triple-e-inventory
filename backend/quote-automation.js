@@ -173,6 +173,13 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
         decided_at  TIMESTAMPTZ,
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
         UNIQUE (quote_id, product_id))`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'quote'`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS supplier_id INT REFERENCES suppliers(supplier_id) ON DELETE SET NULL`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS supplier_name TEXT`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(14,2)`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC(14,2)`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS lead_time_days INT`);
+      await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_open_low_stock_suggestion ON purchase_suggestions (product_id) WHERE status = 'open' AND source = 'low_stock'`);
       console.log('[quote-automation] draft recipes, approval rules and the decision log are ready');
       return true;
     } catch (err) { console.warn('[quote-automation] setup failed:', err.message); return false; }
@@ -522,15 +529,31 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
       by: d.user_name || 'System', role: d.role_label || undefined, at: d.created_at ? new Date(d.created_at).getTime() : undefined })));
   }));
 
-  /* ---------------- Finance: purchase suggestions from accepted quotes ---------------- */
+  /* ---------------- Finance: purchase suggestions from accepted quotes & low stock ---------------- */
   app.get('/api/finance/purchase-suggestions', auth('finance'), wrap(async (req, res) => {
     const st = ['open', 'ordered', 'dismissed', 'all'].includes(str(req.query.status)) ? str(req.query.status) : 'open';
-    const { rows } = await pool.query(`SELECT s.*, p.on_hand, p.unit_cost, u.full_name AS decided_by_name FROM purchase_suggestions s
+    const { rows } = await pool.query(`SELECT s.*, p.on_hand, COALESCE(s.unit_cost, p.unit_cost) AS effective_unit_cost, u.full_name AS decided_by_name FROM purchase_suggestions s
         JOIN products p ON p.product_id = s.product_id LEFT JOIN users u ON u.user_id = s.decided_by
        WHERE ($1 = 'all' OR s.status = $1) ORDER BY s.status = 'open' DESC, s.created_at DESC LIMIT 200`, [st]);
-    res.json(rows.map((s) => ({ id: +s.suggestion_id, sku: s.sku, name: s.name, unit: s.unit, quantity: +s.quantity, onHand: +s.on_hand,
-      unitCost: +s.unit_cost || null, quote: s.quote_no, status: s.status, note: s.note || undefined, decidedBy: s.decided_by_name || undefined,
-      createdAt: s.created_at ? new Date(s.created_at).getTime() : undefined })));
+    res.json(rows.map((s) => ({
+      id: +s.suggestion_id,
+      sku: s.sku,
+      name: s.name,
+      unit: s.unit,
+      quantity: +s.quantity,
+      onHand: +s.on_hand,
+      unitCost: +s.effective_unit_cost || null,
+      estimatedCost: s.estimated_cost != null ? +s.estimated_cost : (s.effective_unit_cost ? Math.round(+s.quantity * +s.effective_unit_cost * 100) / 100 : null),
+      supplierId: s.supplier_id ? +s.supplier_id : null,
+      supplierName: s.supplier_name || null,
+      leadTimeDays: s.lead_time_days != null ? +s.lead_time_days : null,
+      source: s.source || (s.quote_no ? 'quote' : 'low_stock'),
+      quote: s.quote_no,
+      status: s.status,
+      note: s.note || undefined,
+      decidedBy: s.decided_by_name || undefined,
+      createdAt: s.created_at ? new Date(s.created_at).getTime() : undefined
+    })));
   }));
   app.post('/api/finance/purchase-suggestions/:id', auth('finance'), wrap(async (req, res) => {
     const id = Number(req.params.id), st = str((req.body || {}).status), note = str((req.body || {}).note);
