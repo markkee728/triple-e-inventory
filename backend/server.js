@@ -1690,7 +1690,7 @@ const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inve
 app.use(express.static(dir));
 
 app.get('/', (req, res) => {
-  res.redirect('/Login_Inventory.html');
+  res.redirect('/LandingPage_Inventory-1.html');
 });
 
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));

@@ -425,7 +425,7 @@ nav {
     font-family: "Oswald", sans-serif;
 
     font-weight: 600;
-    font-size: 27px;
+    font-size: 30px;
 
     letter-spacing: 0.3px;
 
@@ -433,7 +433,7 @@ nav {
 }
 
 .welcome p {
-    font-size: 17.5px;
+    font-size: 17px;
 
     color: var(--text-dim);
 
@@ -1158,7 +1158,7 @@ tbody td.mono {
     }
 
     .welcome h1 {
-        font-size: 23.5px;
+        font-size: 22px;
     }
 
     .panel {
@@ -1474,7 +1474,7 @@ tbody td.mono {
 
 .catalog-header {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
@@ -1493,6 +1493,7 @@ tbody td.mono {
     font-family: "Oswald", sans-serif;
     font-weight: 600;
     font-size: 30px;
+    line-height: 1.2;
     color: var(--text);
 }
 
@@ -4141,7 +4142,7 @@ body.sidebar-collapsed .sidebar { margin-left: -248px; }
 
     .catalog-actions { width: 100%; }
     .catalog-actions > * { flex: 1 1 140px; }
-    .catalog-title { font-size: 28px; }
+    .catalog-title { font-size: 24px; }
     .product-grid { grid-template-columns: 1fr; }
     .product-grid.list-view .product-card { grid-template-columns: 1fr; }
     .card-stats { grid-template-columns: 1fr 1fr; }
@@ -4170,8 +4171,8 @@ body.sidebar-collapsed .sidebar { margin-left: -248px; }
     .panel { padding: 14px 12px; }
     .stats, .report-stat-cards, .report-summary-row, .sales-report-summary { grid-template-columns: 1fr; }
     .stat-value { font-size: 25.5px; }
-    .welcome h1 { font-size: 22.5px; }
-    .catalog-title { font-size: 23.5px; }
+    .welcome h1 { font-size: 23px; }
+    .catalog-title { font-size: 21px; }
     .panel-title { font-size: 17.5px; }
     .product-modal .form-row.cols-4, .card-stats { grid-template-columns: 1fr; }
     .custom-range-row .form-group { flex-basis: 100%; }
@@ -5248,4 +5249,22 @@ html[data-theme="light"] .order-click-row:hover, html[data-theme="light"] .pos-c
 }
 html[data-theme="light"] .order-ref {
     color: #1d4ed8;
+}
+
+/* pages whose title now lives only in the top bar: keep their buttons on the right */
+.catalog-header > .catalog-actions:only-child { margin-left: auto; }
+
+/* ---------- page headers: bigger titles, vertically centred ---------- */
+.topbar { align-items: center; }
+.topbar-title { font-size: 28px; line-height: 1.2; }
+.welcome h1 { line-height: 1.2; }
+@media (max-width: 1024px) {
+    .topbar-title { font-size: 24px; }
+    .catalog-title { font-size: 26px; }
+    .welcome h1 { font-size: 26px; }
+}
+@media (max-width: 640px) {
+    .topbar-title { font-size: 21px; }
+    .catalog-title { font-size: 22px; }
+    .welcome h1 { font-size: 23px; }
 }
