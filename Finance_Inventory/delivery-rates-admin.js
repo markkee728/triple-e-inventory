@@ -29,8 +29,6 @@
 
   const esc = (v) => String(v == null ? '' : v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';');
   const peso = (n) => '\u20B1' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const host = document.querySelector('#orders .sales-log-panel');
-  if (!host) return;
 
   /* ---------- Panel 1: Regional Delivery Rates ---------- */
   const panel = document.createElement('div');
@@ -80,7 +78,6 @@
       </div>
       <div class="faint" id="drMsg" style="padding:10px 16px;min-height:18px"></div>
     </div>`;
-  host.insertAdjacentElement('afterend', panel);
 
   const $ = (id) => panel.querySelector('#' + id);
   let rows = [];     // { scope, name, fee, available }
@@ -240,7 +237,21 @@
         <span class="faint" id="dsMsg"></span>
       </div>
     </div>`;
-  panel.insertAdjacentElement('afterend', sp);
+  function mountPanels() {
+    if (panel.isConnected) return true;
+    const target = document.getElementById('ptrCodBox') || document.getElementById('ptrPolicyBox') || document.querySelector('#payment-terms .panel') || document.getElementById('payment-terms');
+    if (!target) return false;
+    if (target.id === 'payment-terms') {
+      target.appendChild(panel);
+    } else {
+      target.insertAdjacentElement('afterend', panel);
+    }
+    panel.insertAdjacentElement('afterend', sp);
+    return true;
+  }
+  if (!mountPanels()) {
+    const timer = setInterval(() => { if (mountPanels()) clearInterval(timer); }, 60);
+  }
 
   const $s = (id) => sp.querySelector('#' + id);
 

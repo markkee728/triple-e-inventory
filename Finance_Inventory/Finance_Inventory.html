@@ -260,13 +260,17 @@
 
         <div class="content">
 
-            <!-- Sales pages share one tab strip (shown only on those pages: see navigateToPage in script.js) -->
+            <!-- Sales pages share one tab strip (placed below page headers on active sales subpage: see navigateToPage in script.js) -->
             <div class="sales-nav-container" id="salesNavContainer" hidden>
                 <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections">
                     <button type="button" class="sales-tab active" role="tab" data-page="sales-overview">Overview</button>
                     <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders <span class="tab-badge" id="ordersTabBadge" hidden>0</span></button>
                     <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
-                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Policies</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Policies &amp; Rates</button>
+                </div>
+                <div class="sales-nav-status">
+                    <span class="sales-nav-dot" aria-hidden="true"></span>
+                    <span id="salesNavStatusText">Sales Ledger &middot; Automated Sync</span>
                 </div>
             </div>
 
@@ -3693,8 +3697,8 @@
     <script src="quick-stock.js?v=4"></script>
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=16"></script>
-    <script src="delivery-rates-admin.js?v=3"></script>
-    <script src="payment-terms-admin.js?v=8"></script>
+    <script src="payment-terms-admin.js?v=9"></script>
+    <script src="delivery-rates-admin.js?v=4"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=8"></script>

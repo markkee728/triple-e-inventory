@@ -40,9 +40,6 @@
     ['ptrPolicy', 'Payment terms on offer',
      'Changes save by themselves. Switch a term on to offer it; set an automatic limit and part-payments up to it are approved without you. Payments already recorded are not affected.',
      '<th style="min-width:160px">Term</th><th style="width:190px">Pay now</th><th style="width:160px">Allowed for</th><th style="width:200px">Balance due</th><th style="width:230px">Approval</th><th style="width:220px">Status</th>'],
-    ['ptrProposed', 'Waiting for your approval',
-     'Part-payments a cashier proposed. The customer only sees them after you approve.',
-     '<th>Quotation</th><th>Customer</th><th class="mono">Quoted</th><th>Proposed</th><th>Balance due</th><th style="width:280px">Decision</th>'],
     ['ptrDebt', 'Balances outstanding',
      'Orders and quotations with money still owed.',
      '<th>Reference</th><th>Customer</th><th>Payment option</th><th class="mono">Value</th><th class="mono">Collected</th><th class="mono">Outstanding</th><th>Payment state</th><th>Exception</th>'],
@@ -64,8 +61,8 @@
     var host = $('payment-terms');
     if (!host || host.dataset.built === '1') return;
     host.dataset.built = '1';
-    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div><h1 class="catalog-title">Payment Policies &amp; Terms</h1>'
-      + '<div class="panel-sub">Automated part-payment policies, cash rules, approvals, and balances.</div></div>'
+    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div><h1 class="catalog-title">Payment &amp; Fulfillment Policies</h1>'
+      + '<div class="panel-sub">Automated part-payment terms, cash on delivery thresholds, regional delivery rates, and weight surcharges.</div></div>'
       + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
       + PANELS.map(function (p) {
         var isPolicy = p[0] === 'ptrPolicy';

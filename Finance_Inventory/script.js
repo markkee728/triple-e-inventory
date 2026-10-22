@@ -91,8 +91,8 @@ const pageInformation = {
     },
 
     "payment-terms": {
-        title: "Payment Terms",
-        subtitle: "Which terms are offered, partial-term approvals and balances owed"
+        title: "Policies & Rates",
+        subtitle: "Corporate payment terms, cash on delivery thresholds, automated delivery rates, and weight surcharges"
     },
 
     reviews: {
@@ -137,7 +137,26 @@ function navigateToPage(pageId) {
     const parent = document.querySelector('.sales-parent');
     if (parent) parent.classList.toggle('sales-section-active', inSales);
     const salesNavContainer = document.getElementById('salesNavContainer');
-    if (salesNavContainer) salesNavContainer.hidden = !inSales;
+    if (salesNavContainer) {
+        salesNavContainer.hidden = !inSales;
+        if (inSales) {
+            const activePage = document.getElementById(pageId);
+            const header = activePage ? activePage.querySelector('.catalog-header') : null;
+            if (header && salesNavContainer.previousElementSibling !== header) {
+                header.insertAdjacentElement('afterend', salesNavContainer);
+            }
+            const statusEl = document.getElementById('salesNavStatusText');
+            if (statusEl) {
+                const STATUS_MAP = {
+                    'sales-overview': 'Overview \u00B7 Realtime Activity',
+                    'orders': 'Online Orders \u00B7 Order Queue',
+                    'sales': 'POS Counter \u00B7 In-Store Ledger',
+                    'payment-terms': 'Policies & Rates \u00B7 Automated Engine'
+                };
+                statusEl.textContent = STATUS_MAP[pageId] || 'Sales Ledger \u00B7 Automated Sync';
+            }
+        }
+    }
     const salesTabs = document.getElementById('salesTabs');
     if (salesTabs) salesTabs.hidden = !inSales;
     const bcCurrent = document.getElementById('salesBreadcrumbCurrent');
@@ -145,7 +164,7 @@ function navigateToPage(pageId) {
       'sales-overview': 'Overview',
       'orders': 'Online Orders',
       'sales': 'POS Sales & Shifts',
-      'payment-terms': 'Payment Terms'
+      'payment-terms': 'Policies & Rates'
     };
     if (bcCurrent && TAB_NAMES[pageId]) {
       bcCurrent.textContent = TAB_NAMES[pageId];
