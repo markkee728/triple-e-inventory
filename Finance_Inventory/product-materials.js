@@ -98,6 +98,60 @@
     return { raw, fin, total: Math.round((raw + fin) * 100) / 100, complete: complete && st.rows.some((r) => r.sku), problems };
   }
 
+  function autoSuggestBOM(name) {
+    if (!name || editingSku()) return;
+    const n = name.trim().toLowerCase();
+    const inventory = inv();
+    const rawMaterials = inventory.filter((i) => i.department === 'Raw Materials');
+    const finishing = inventory.filter((i) => i.department === 'Finishing Supplies');
+    let suggested = [];
+
+    // Brass detection
+    if (/brass|bronze|valve|nipple|fitting/.test(n)) {
+      const rm = rawMaterials.find((i) => /brass/i.test(i.name)) || rawMaterials[0];
+      const fs1 = finishing.find((i) => /buffing|wheel/i.test(i.name));
+      const fs2 = finishing.find((i) => /chromic|acid|plating/i.test(i.name));
+      if (rm) suggested.push({ sku: rm.sku, qty: '0.42', name: rm.name, department: rm.department, unit: rm.unit, entryUnit: rm.unit });
+      if (fs1) suggested.push({ sku: fs1.sku, qty: '0.008', name: fs1.name, department: fs1.department, unit: fs1.unit, entryUnit: fs1.unit });
+      if (fs2) suggested.push({ sku: fs2.sku, qty: '0.001', name: fs2.name, department: fs2.department, unit: fs2.unit, entryUnit: fs2.unit });
+    }
+    // Aluminum / Ingot detection
+    else if (/aluminum|aluminium|housing|casing|motor|die-cast|diecast/.test(n)) {
+      const rm = rawMaterials.find((i) => /aluminum|adc12|a380/i.test(i.name)) || rawMaterials[0];
+      const fs1 = finishing.find((i) => /release|die/i.test(i.name));
+      const fs2 = finishing.find((i) => /carton|box/i.test(i.name));
+      if (rm) suggested.push({ sku: rm.sku, qty: '1.25', name: rm.name, department: rm.department, unit: rm.unit, entryUnit: rm.unit });
+      if (fs1) suggested.push({ sku: fs1.sku, qty: '0.004', name: fs1.name, department: fs1.department, unit: fs1.unit, entryUnit: fs1.unit });
+      if (fs2) suggested.push({ sku: fs2.sku, qty: '1', name: fs2.name, department: fs2.department, unit: fs2.unit, entryUnit: fs2.unit });
+    }
+    // Steel / sheet / bracket / enclosure
+    else if (/steel|sheet|bracket|plate|enclosure|frame/.test(n)) {
+      const rm = rawMaterials.find((i) => /steel|iron|sheet/i.test(i.name)) || rawMaterials[0];
+      const fs1 = finishing.find((i) => /powder|coat|paint/i.test(i.name));
+      const fs2 = finishing.find((i) => /carton|box/i.test(i.name));
+      if (rm) suggested.push({ sku: rm.sku, qty: '1.5', name: rm.name, department: rm.department, unit: rm.unit, entryUnit: rm.unit });
+      if (fs1) suggested.push({ sku: fs1.sku, qty: '0.02', name: fs1.name, department: fs1.department, unit: fs1.unit, entryUnit: fs1.unit });
+      if (fs2) suggested.push({ sku: fs2.sku, qty: '1', name: fs2.name, department: fs2.department, unit: fs2.unit, entryUnit: fs2.unit });
+    }
+    // General finished good fallback with any keyword
+    else if (rawMaterials.length) {
+      const rm = rawMaterials[0];
+      const fs = finishing[0];
+      if (rm) suggested.push({ sku: rm.sku, qty: '1', name: rm.name, department: rm.department, unit: rm.unit, entryUnit: rm.unit });
+      if (fs) suggested.push({ sku: fs.sku, qty: '0.05', name: fs.name, department: fs.department, unit: fs.unit, entryUnit: fs.unit });
+    }
+
+    if (suggested.length) {
+      st.rows = suggested;
+      render();
+      changed();
+      const hint = $('npBomHint');
+      if (hint) {
+        hint.innerHTML = '<span style="color:#15803d;font-weight:600">Auto-suggested BOM recipe based on product name.</span> Quantities can be adjusted.';
+      }
+    }
+  }
+
   function render() {
     const box = $('npBomList'); if (!box) return;
     const unit = unitOfFg();

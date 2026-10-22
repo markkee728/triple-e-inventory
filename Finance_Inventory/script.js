@@ -136,8 +136,20 @@ function navigateToPage(pageId) {
     });
     const parent = document.querySelector('.sales-parent');
     if (parent) parent.classList.toggle('sales-section-active', inSales);
+    const salesNavContainer = document.getElementById('salesNavContainer');
+    if (salesNavContainer) salesNavContainer.hidden = !inSales;
     const salesTabs = document.getElementById('salesTabs');
-    if (salesTabs) salesTabs.hidden = !inSales;                       // one shared tab strip on every Sales page
+    if (salesTabs) salesTabs.hidden = !inSales;
+    const bcCurrent = document.getElementById('salesBreadcrumbCurrent');
+    const TAB_NAMES = {
+      'sales-overview': 'Overview',
+      'orders': 'Online Orders',
+      'sales': 'POS Sales & Shifts',
+      'payment-terms': 'Payment Terms'
+    };
+    if (bcCurrent && TAB_NAMES[pageId]) {
+      bcCurrent.textContent = TAB_NAMES[pageId];
+    }
     document.querySelectorAll('.sales-tab').forEach(tab => {
         const on = tab.dataset.page === pageId;
         tab.classList.toggle('active', on);

@@ -346,17 +346,25 @@
     if (conv) {
       if (item && from && from !== item.unit && qty > 0) {
         FA.note(conv, '= <b>' + formatNumber(qty) + ' ' + esc(item.unit) + '</b> (saved in the product’s unit)', 'info', 'conv');
-      } else if (item && type === 'in' && item.reorderLevel > 0 && item.onHand <= item.reorderLevel) {
-        const suggest = Math.max(1, Math.round(item.reorderLevel - item.onHand));
+      } else if (item && type === 'in') {
         const qBox = $('movementQuantity');
+        let suggest = 1;
+        let noteText = '';
+        if (item.reorderLevel > 0 && item.onHand <= item.reorderLevel) {
+          suggest = Math.max(1, Math.round(item.reorderLevel - item.onHand));
+          noteText = 'Auto-filled replenishment (<b>' + suggest + ' ' + esc(item.unit) + '</b> to reach reorder level). You can adjust.';
+        } else {
+          suggest = item.reorderLevel > 0 ? Math.round(item.reorderLevel) : (item.unit === 'kg' ? 50 : 20);
+          noteText = 'Suggested restock quantity (<b>' + suggest + ' ' + esc(item.unit) + '</b> standard lot). You can adjust.';
+        }
         if (qBox && (!qBox.value || qBox.dataset.autoFill)) {
           qBox.value = suggest;
           qBox.dataset.autoFill = '1';
           setTimeout(() => { syncCostHint(); }, 0);
         }
-        FA.note(conv, 'Auto-filled needed stock (<b>' + suggest + ' ' + esc(item.unit) + '</b> to reach reorder level). You can adjust.', 'info', 'lowstock');
+        FA.note(conv, noteText, 'info', 'restock');
       } else {
-        FA.note(conv, '', '', 'lowstock');
+        FA.note(conv, '', '', 'restock');
       }
     }
   }
@@ -1725,7 +1733,85 @@
   /* =====================================================
      MOVEMENT LOG  (fills the table on Stock In / Out and filters it)
   ===================================================== */
-  const openMovements = new Set();
+  let movementDetailOverlay = null;
+  function ensureMovementDetailModal() {
+    if (movementDetailOverlay) return movementDetailOverlay;
+    movementDetailOverlay = document.createElement('div');
+    movementDetailOverlay.className = 'modal-overlay';
+    movementDetailOverlay.id = 'movementDetailOverlay';
+    movementDetailOverlay.innerHTML =
+      '<div class="account-modal supplier-modal product-modal pd-modal" role="dialog" aria-modal="true" aria-labelledby="movTitle" style="max-width:580px">' +
+        '<button type="button" class="modal-close" id="movClose" aria-label="Close">×</button>' +
+        '<div id="movBody"></div>' +
+      '</div>';
+    document.body.appendChild(movementDetailOverlay);
+    const close = () => {
+      movementDetailOverlay.classList.remove('open');
+      if (!document.querySelector('.modal-overlay.open')) {
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+      }
+    };
+    movementDetailOverlay.addEventListener('click', (e) => { if (e.target === movementDetailOverlay) close(); });
+    movementDetailOverlay.querySelector('#movClose').addEventListener('click', close);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && movementDetailOverlay.classList.contains('open')) close();
+    });
+    return movementDetailOverlay;
+  }
+
+  function openMovementDetails(ref) {
+    const m = (movementCache || []).find((x) => x.ref === ref);
+    if (!m) return;
+    const overlay = ensureMovementDetailModal();
+    const isIn = m.type === 'in';
+    const totalCost = (m.unitCost != null && !isNaN(m.unitCost)) ? (Number(m.unitCost) * Number(m.qty)) : null;
+    const formattedTotal = totalCost != null ? (typeof formatCurrency === 'function' ? formatCurrency(totalCost) : 'PHP ' + totalCost.toFixed(2)) : '—';
+    const formattedUnit = (m.unitCost != null && !isNaN(m.unitCost)) ? (typeof formatCurrency === 'function' ? formatCurrency(m.unitCost) : 'PHP ' + Number(m.unitCost).toFixed(2)) : '—';
+
+    const row = (dt, dd) => '<div class="pd-row"><dt>' + dt + '</dt><dd>' + dd + '</dd></div>';
+
+    overlay.querySelector('#movBody').innerHTML =
+      '<div class="supplier-modal-head">' +
+        '<div class="supplier-modal-icon">' +
+          '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 12 5 5 5-5"/><path d="M12 7v10"/></svg>' +
+        '</div>' +
+        '<div>' +
+          '<div class="modal-eyebrow">Stock Movement · ' + esc(m.department || '') + '</div>' +
+          '<h2 class="modal-title" id="movTitle" style="margin-bottom:0;">' + esc(m.product) + '</h2>' +
+          '<div class="pd-sub"><span class="mono">' + esc(m.ref) + '</span> ' +
+            '<span class="status-pill ' + (isIn ? 'in' : 'out') + '">' + (isIn ? 'Stock In (Replenishment)' : 'Stock Out (Deduction)') + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<dl class="pd-grid">' +
+        row('Quantity', '<b>' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</b>') +
+        row('Cost & Value', formattedUnit + ' (Total: <b>' + formattedTotal + '</b>)') +
+        row('Reason', esc(m.reason || '—')) +
+        row('Supplier', m.supplier ? esc(m.supplier) : '<span class="dim">Internal / Not specified</span>') +
+        row('Invoice / PO No.', m.invoiceNo ? '<span class="mono">' + esc(m.invoiceNo) + '</span>' : '<span class="dim">None recorded</span>') +
+        row('Production Batch', m.productionRef ? '<span class="mono">' + esc(m.productionRef) + '</span>' + (m.relatedProduct ? ' (for ' + esc(m.relatedProduct) + ')' : '') : '<span class="dim">Not linked</span>') +
+        row('Handled By', esc(m.handledBy)) +
+        row('Date & Time', esc(m.dateTime)) +
+      '</dl>' +
+      (m.note ? '<div class="pd-note" style="margin-top:12px"><b>Transaction note:</b> ' + esc(m.note) + '</div>' : '') +
+      '<div class="modal-footer" style="margin-top:18px;display:flex;justify-content:flex-end">' +
+        '<button type="button" class="btn-secondary" id="movCloseBtn">Close</button>' +
+      '</div>';
+
+    overlay.querySelector('#movCloseBtn').addEventListener('click', () => {
+      overlay.classList.remove('open');
+      if (!document.querySelector('.modal-overlay.open')) {
+        document.body.style.overflow = '';
+        document.documentElement.style.overflow = '';
+      }
+    });
+
+    overlay.classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+  }
+
   function renderMovementLog() {
     const body = $('movementLogTableBody');
     if (!body) return;
@@ -1745,12 +1831,9 @@
     }
     body.innerHTML = rows.map((m) => {
       const isIn = m.type === 'in';
-      const isOpen = openMovements.has(m.ref);
-      const totalCost = (m.unitCost != null && !isNaN(m.unitCost)) ? (Number(m.unitCost) * Number(m.qty)) : null;
-      const formattedTotal = totalCost != null ? (typeof formatCurrency === 'function' ? formatCurrency(totalCost) : 'PHP ' + totalCost.toFixed(2)) : '—';
       const formattedUnit = (m.unitCost != null && !isNaN(m.unitCost)) ? (typeof formatCurrency === 'function' ? formatCurrency(m.unitCost) : 'PHP ' + Number(m.unitCost).toFixed(2)) : '—';
 
-      return '<tr class="mov-row' + (isOpen ? ' mov-open' : '') + '" data-mov-ref="' + esc(m.ref) + '">' +
+      return '<tr class="mov-row" data-mov-ref="' + esc(m.ref) + '" style="cursor:pointer">' +
         '<td class="mono">' + esc(m.ref) + '</td>' +
         '<td>' + esc(m.product) + '</td>' +
         '<td><span class="status-pill ' + (isIn ? 'in' : 'out') + '">' + (isIn ? 'In' : 'Out') + '</span></td>' +
@@ -1759,27 +1842,12 @@
         '<td class="dim">' + esc(m.department) + '</td>' +
         '<td class="dim">' + formattedUnit + '</td>' +
         '<td class="dim">' + esc(m.handledBy) + '</td>' +
-        '<td class="dim">' + esc(m.dateTime) + '</td></tr>' +
-        (isOpen ? '<tr class="mov-detail"><td colspan="9"><div class="mov-detail-card">' +
-          '<div class="mov-detail-grid">' +
-            '<div><span class="mov-dt-label">Movement Reference</span><div class="mono" style="font-weight:600">' + esc(m.ref) + '</div></div>' +
-            '<div><span class="mov-dt-label">Transaction Type</span><div style="font-weight:600">' + (isIn ? 'Stock In (Replenishment)' : 'Stock Out (Deduction)') + '</div></div>' +
-            '<div><span class="mov-dt-label">Quantity &amp; Unit</span><div><b>' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</b></div></div>' +
-            '<div><span class="mov-dt-label">Unit Cost / Total Value</span><div>' + formattedUnit + ' (Total: <b>' + formattedTotal + '</b>)</div></div>' +
-            '<div><span class="mov-dt-label">Supplier / Source</span><div>' + (m.supplier ? esc(m.supplier) : '<span class="dim">Internal / Not specified</span>') + '</div></div>' +
-            '<div><span class="mov-dt-label">Invoice / PO Reference</span><div>' + (m.invoiceNo ? esc(m.invoiceNo) : '<span class="dim">None recorded</span>') + '</div></div>' +
-            '<div><span class="mov-dt-label">Production Batch</span><div>' + (m.productionRef ? esc(m.productionRef) + (m.relatedProduct ? ' (for ' + esc(m.relatedProduct) + ')' : '') : '<span class="dim">Not linked</span>') + '</div></div>' +
-            '<div><span class="mov-dt-label">Handled By &amp; Date</span><div>' + esc(m.handledBy) + ' · ' + esc(m.dateTime) + '</div></div>' +
-          '</div>' +
-          (m.note ? '<div style="margin-top:10px;font-size:12.5px;color:var(--text-dim)"><b>Transaction note:</b> ' + esc(m.note) + '</div>' : '') +
-        '</div></td></tr>' : '');
+        '<td class="dim">' + esc(m.dateTime) + '</td></tr>';
     }).join('');
 
     body.querySelectorAll('tr.mov-row').forEach((row) => {
       row.addEventListener('click', () => {
-        const ref = row.dataset.movRef;
-        if (openMovements.has(ref)) openMovements.delete(ref); else openMovements.add(ref);
-        renderMovementLog();
+        openMovementDetails(row.dataset.movRef);
       });
     });
   }

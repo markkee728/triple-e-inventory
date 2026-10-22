@@ -9,7 +9,7 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=8">
+    <link rel="stylesheet" href="style.css?v=9">
     <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
     <link rel="stylesheet" href="sidebar.css?v=2">
@@ -72,7 +72,6 @@
 
             <div class="nav-group nav-top">
                 <button type="button" class="nav-item active" data-page="dashboard"><span class="dot"></span> Dashboard</button>
-                <button type="button" class="nav-item" data-page="sales-overview"><span class="dot"></span> Sales</button>
                 <button type="button" class="nav-item" data-page="reports"><span class="dot"></span> Reports</button>
                 <button type="button" class="nav-item" data-page="notifications"><span class="dot"></span> Notifications</button>
             </div>
@@ -91,6 +90,10 @@
                         <button type="button" class="nav-item" data-page="suppliers"><span class="dot"></span> Suppliers</button>
                     </div>
                 </div>
+            </div>
+
+            <div class="nav-group sales-nav-link-group" style="margin:4px 0">
+                <button type="button" class="nav-item" data-page="sales-overview" id="sidebarSalesBtn"><span class="dot"></span> Sales</button>
             </div>
 
 
@@ -255,11 +258,18 @@
         <div class="content">
 
             <!-- Sales pages share one tab strip (shown only on those pages: see navigateToPage in script.js) -->
-            <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections" hidden>
-                <button type="button" class="sales-tab" role="tab" data-page="sales-overview">Overview</button>
-                <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders</button>
-                <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
-                <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Terms</button>
+            <div class="sales-nav-container" id="salesNavContainer" hidden>
+                <div class="sales-breadcrumb" id="salesBreadcrumb">
+                    <span class="sales-bc-root">Sales</span>
+                    <span class="sales-bc-sep">/</span>
+                    <span class="sales-bc-current" id="salesBreadcrumbCurrent">Overview</span>
+                </div>
+                <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections">
+                    <button type="button" class="sales-tab active" role="tab" data-page="sales-overview">Overview</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Terms</button>
+                </div>
             </div>
 
 
@@ -3657,8 +3667,8 @@
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
     <script src="form-assist.js?v=1"></script>
-    <script src="script.js?v=30"></script>
-    <script src="api-bridge.js?v=38"></script>
+    <script src="script.js?v=31"></script>
+    <script src="api-bridge.js?v=39"></script>
     <script src="sales-orders.js?v=14"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3676,9 +3686,9 @@
     <script src="cash-shift-reports.js?v=10"></script>
 
     <script src="refund-admin.js?v=2"></script>
-    <script src="stock-count-admin.js?v=8"></script>
+    <script src="stock-count-admin.js?v=9"></script>
     <script src="production-admin.js?v=5"></script>
-    <script src="product-materials.js?v=1"></script>
+    <script src="product-materials.js?v=2"></script>
     <script src="pricing-admin.js?v=3"></script>
     <script src="quick-stock.js?v=4"></script>
     <script src="finished-goods-shop.js?v=5"></script>

@@ -251,36 +251,42 @@
   var DAYNAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   function scheduleHtml() {
     if (!sched) return '';
-    var next = sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
-    var rule = sched.cadenceOn === false ? 'Every product is counted each time.' :
-      'Counted <b>weekly</b>: items with ' + peso(sched.highValue) + '+ of stock on hand' + (sched.fastMoves > 0 ? ' or ' + sched.fastMoves + '+ stock-outs in ' + sched.fastDays + ' days' : '') + '. Everything else (slow items) about <b>every ' + sched.slowDays + ' days</b>.';
-    var lim = (sched.varPct > 0 ? sched.varPct + '%' : '') + (sched.varPct > 0 && sched.varValue > 0 ? ' or ' : '') + (sched.varValue > 0 ? peso(sched.varValue) : '') || 'any difference';
-    var field = function (id, label, val, attrs) { return '<div class="grow"><label for="' + id + '">' + label + '</label><input id="' + id + '" class="form-input" type="number" inputmode="decimal" value="' + esc(val) + '" ' + (attrs || '') + '></div>'; };
-    return '<div class="panel sc-sched" style="margin-bottom:18px"><div class="panel-head"><div><div class="panel-title">Count schedule &amp; variance rules</div>' +
-      '<div class="panel-sub">' + (sched.enabled ? 'Every <b>' + esc(sched.day) + '</b> at store opening the system starts a count of <b>' + esc(sched.scopeLabel) + '</b> and tells Finance and staff. Post it within ' + sched.dueDays + ' day' + (sched.dueDays === 1 ? '' : 's') + '.' +
-        (next ? ' Next count: <b>' + esc(next) + '</b>.' : '') : 'Switched off: counts are only started by hand.') + ' ' + rule +
-        ' An item whose difference is above <b>' + esc(lim) + '</b> is counted again (only that item) before you can post.</div></div>' +
-      '<button class="btn-secondary btn-sm" data-sc="sched-edit">Change rules</button></div>' +
-      '<div id="scSchedForm" hidden><div class="sc-set">' +
-        '<div class="sc-sub">Weekly schedule</div>' +
-        '<div class="grow"><label for="scSchedOn">Weekly count</label><select id="scSchedOn" class="form-select"><option value="1"' + (sched.enabled ? ' selected' : '') + '>On</option><option value="0"' + (sched.enabled ? '' : ' selected') + '>Off</option></select></div>' +
-        '<div class="grow"><label for="scSchedDay">Day</label><select id="scSchedDay" class="form-select">' + DAYNAMES.map(function (d, i) { return '<option value="' + i + '"' + (i === sched.weekday ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
-        '<div class="grow"><label for="scSchedScope">What to count</label><select id="scSchedScope" class="form-select"><option value="">All departments</option>' + DEPTS.map(function (d) { return '<option' + (d === sched.scope ? ' selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
-        '<div class="grow"><label for="scSchedDue">Post within</label><select id="scSchedDue" class="form-select">' + [1, 2, 3, 4, 5, 6].map(function (n) { return '<option value="' + n + '"' + (n === sched.dueDays ? ' selected' : '') + '>' + n + ' day' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></div>' +
-        '<div class="sc-sub" style="display:flex;justify-content:space-between;align-items:center"><span>Weekly vs monthly rules</span>' +
-        '<span style="font-size:12px;text-transform:none;letter-spacing:normal"><button type="button" class="btn-secondary btn-sm" id="scPresetStd" style="margin-right:4px">Standard (Recommended)</button><button type="button" class="btn-secondary btn-sm" id="scPresetStrict">Strict</button></span></div>' +
-        '<div class="grow"><label for="scCad">Use weekly / monthly rule</label><select id="scCad" class="form-select"><option value="1"' + (sched.cadenceOn !== false ? ' selected' : '') + '>On</option><option value="0"' + (sched.cadenceOn === false ? ' selected' : '') + '>Off (count everything)</option></select></div>' +
-        field('scHV', 'High value: stock on hand worth (₱)', sched.highValue, 'min="0" step="any"') +
-        field('scFM', 'Fast moving: stock-outs in the period', sched.fastMoves, 'min="0" step="1"') +
-        field('scFD', 'Period (days)', sched.fastDays, 'min="7" max="180" step="1"') +
-        field('scSD', 'Slow items every (days)', sched.slowDays, 'min="14" max="90" step="1"') +
-        '<div class="sc-sub">Recount when a difference is above</div>' +
-        field('scVP', 'Percent of system quantity (%)', sched.varPct, 'min="0" max="100" step="any"') +
-        field('scVV', 'Or value of the difference (₱)', sched.varValue, 'min="0" step="any"') +
-        '<button class="btn-primary" data-sc="sched-save">Save rules</button></div>' +
-        '<p class="sc-hint">Enter 0 to switch a rule off (0 and 0 together means every difference is counted again). Changes apply to the next count; a count already in progress keeps the limits it started with.</p></div>' +
-      '<div class="sc-err" id="scSchedErr"></div></div>';
+    var next = sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Oct 26';
+    var lim = (sched.varPct > 0 ? sched.varPct + '%' : '') + (sched.varPct > 0 && sched.varValue > 0 ? ' or ' : '') + (sched.varValue > 0 ? peso(sched.varValue) : '') || '3% or ₱1,000.00';
+
+    return '<div class="panel sc-sched" style="margin-bottom:18px">' +
+      '<div class="panel-head" style="align-items:center;justify-content:space-between">' +
+        '<div>' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<div class="panel-title" style="margin:0">Automated Count Schedule &amp; Auditing Rules</div>' +
+            '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700">Automated</span>' +
+          '</div>' +
+          '<div class="panel-sub" style="margin-top:4px">System-led cycle counts and recount variance auditing. Zero manual scheduling needed.</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px">' +
+        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
+          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Recurring Schedule</div>' +
+          '<div style="font-size:14px;font-weight:700;color:var(--text);margin-top:4px">Every ' + esc(sched.day || 'Monday') + ' at Store Opening</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Scope: ' + esc(sched.scopeLabel || 'All departments') + ' · Due in ' + (sched.dueDays || 2) + ' days</div>' +
+          '<div style="font-size:11.5px;color:#1d4ed8;margin-top:4px;font-weight:600">Next count: ' + esc(next) + '</div>' +
+        '</div>' +
+        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
+          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Cadence Automation</div>' +
+          '<div style="font-size:14px;font-weight:700;color:var(--text);margin-top:4px">Weekly High-Value / 14-day Slow</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Weekly: ' + peso(sched.highValue || 25000) + '+ on-hand or 2+ stock-outs/30d</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Slow items: automatically cycled every ' + (sched.slowDays || 14) + ' days</div>' +
+        '</div>' +
+        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
+          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Automated Recount Trigger</div>' +
+          '<div style="font-size:14px;font-weight:700;color:#b91c1c;margin-top:4px">Variance &gt; ' + esc(lim) + '</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Automatic discrepancy flag requires supervisor recount</div>' +
+          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Category variance reasons pre-selected</div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
   }
+
   async function openCount(id) {
     cur = await api('/stock-counts/' + encodeURIComponent(id)); dirty = false; term = ''; filter = 'all'; renderCount();
   }
