@@ -7,6 +7,7 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
+  const FA = window.FormAssist;                  // form-assist.js (Task 9 form helpers); every use checks it is there
   const esc = (v) => (typeof escapeHTML === 'function' ? escapeHTML(String(v)) : String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';'));
   const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
   const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
@@ -304,6 +305,92 @@
     sel.disabled = !dept;
   }
 
+  /* ---------- Task 9: Stock In / Out helpers ----------
+     Unit conversion: the quantity can be typed in another unit of the same kind (g / tonne / lb for a kg product, ft for a meter
+     product); it is converted to the product's own unit before it is checked and saved (2 decimals, like the ledger).
+     On hand is shown beside the quantity, and a Stock Out larger than what is on hand cannot be saved.
+     Supplier delivery: the last supplier and the last cost per unit are filled in (still editable), with the storage location;
+     a cost more than COST_JUMP away from the last purchase asks "is this right?" before saving. */
+  const COST_JUMP = 0.30;                       // assumption: a 30% change from the last purchase price is worth a second look
+  const UNIT_GROUPS = [{ kg: 1, g: 0.001, tonne: 1000, lb: 0.45359237 }, { m: 1, ft: 0.3048 }];
+  const unitGroup = (u) => UNIT_GROUPS.find((g) => g[u] != null) || null;
+  const enterUnit = () => ($('movementEnterUnit') && !$('movementEnterUnit').hidden && $('movementEnterUnit').value) || '';
+  // the typed quantity in the product's own unit (null when nothing valid is typed)
+  function movementQty(raw) {
+    const n = Number(raw == null ? $('movementQuantity').value : raw), item = movementItem();
+    if (!(n > 0) || !item) return Number.isFinite(n) ? n : null;
+    const from = enterUnit(), g = unitGroup(item.unit);
+    if (!from || from === item.unit || !g || g[from] == null) return n;
+    return Math.round((n * g[from] / g[item.unit]) * 100) / 100;
+  }
+  function syncEnterUnit(item) {
+    let sel = $('movementEnterUnit');
+    const unitBox = $('movementUnit'); if (!unitBox) return;
+    if (!sel) {
+      sel = document.createElement('select');
+      sel.id = 'movementEnterUnit'; sel.className = 'form-select'; sel.style.marginTop = '6px';
+      sel.setAttribute('aria-label', 'Unit the quantity is typed in');
+      unitBox.parentNode.appendChild(sel);
+      sel.addEventListener('change', () => { syncMovementForm(); syncCostHint(); validateField('movementQuantity', false); });
+    }
+    const g = item ? unitGroup(item.unit) : null;
+    const sig = item ? item.sku + '|' + item.unit : '';
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig;
+      sel.innerHTML = g ? Object.keys(g).map((u) => '<option value="' + u + '">Type it in ' + u + (u === item.unit ? ' (product unit)' : '') + '</option>').join('') : '';
+      if (g) sel.value = item.unit;
+    }
+    sel.hidden = !g;
+  }
+  function syncOnHandLabel(item, type, qty) {
+    const lab = document.querySelector('label[for="movementQuantity"]'); if (!lab) return;
+    let tag = lab.querySelector('.fa-onhand');
+    if (!tag) { tag = document.createElement('span'); tag.className = 'fa-onhand'; lab.appendChild(tag); }
+    tag.textContent = item ? 'On hand: ' + formatNumber(item.onHand) + ' ' + item.unit + (item.location ? ' · ' + item.location : '') : '';
+    tag.style.color = item && type === 'out' && qty > item.onHand ? '#ef7a7a' : '';
+    const conv = $('movementQuantity') && FA ? $('movementQuantity') : null, from = enterUnit();
+    if (conv) FA.note(conv, item && from && from !== item.unit && qty > 0 ? '= <b>' + formatNumber(qty) + ' ' + esc(item.unit) + '</b> (saved in the product’s unit)' : '', 'info', 'conv');
+  }
+  // an impossible Stock Out cannot be sent (runs after production-admin.js has set the button for this sync)
+  function syncOutBlock() {
+    const btn = $('movementSubmitBtn'), item = movementItem(), type = movementType(), qty = movementQty() || 0;
+    if (!btn || (window.ProductionUI && window.ProductionUI.isProduction && window.ProductionUI.isProduction())) return;
+    const block = !!(item && type === 'out' && (qty > item.onHand || item.onHand <= 0));
+    if (block) { btn.disabled = true; btn.title = item.onHand <= 0 ? 'Nothing on hand to take out' : 'More than what is on hand'; }
+    else if (btn.title) { btn.disabled = false; btn.title = ''; }
+  }
+  const receiptCache = new Map();               // sku -> last delivery (forgotten after every save)
+  let receiptSeq = 0;
+  async function prefillReceipt() {
+    const item = movementItem(), type = movementType(), reason = $('movementReason').value;
+    const hint = $('movementCostHint');
+    if (!item || !(type === 'in' && reason === 'supplier_receipt')) { if (FA) FA.note($('movementUnitCost'), '', '', 'last'); return; }
+    const my = ++receiptSeq;
+    let r = receiptCache.get(item.sku);
+    if (!r) { try { r = await api('/products/' + encodeURIComponent(item.sku) + '/last-receipt'); receiptCache.set(item.sku, r); } catch (e) { return; } }
+    if (my !== receiptSeq || !movementItem() || movementItem().sku !== item.sku) return;
+    if (!r.last || movementType() !== 'in' || $('movementReason').value !== 'supplier_receipt') { if (FA) FA.note($('movementUnitCost'), '', '', 'last'); return; }
+    const sup = $('movementSupplier'), cost = $('movementUnitCost');
+    if (sup && r.last.supplier && (!sup.value || sup.dataset.auto) && [].some.call(sup.options, (o) => o.value === r.last.supplier)) { sup.value = r.last.supplier; sup.dataset.auto = '1'; }
+    if (cost && r.last.unitCost != null && (!cost.value || cost.dataset.auto)) { cost.value = r.last.unitCost.toFixed(2); cost.dataset.auto = '1'; syncCostHint(); }
+    if (FA) FA.note(cost, 'Last delivery ' + esc(r.last.day) + (r.last.supplierName ? ' from ' + esc(r.last.supplierName) : '') +
+      (r.last.unitCost != null ? ' at <b>₱' + r.last.unitCost.toFixed(2) + '</b> per ' + esc(item.unit) : '') + '. Filled in for you — change it to match this invoice.', 'info', 'last');
+    if (hint) syncCostHint();
+    syncCostWarning();
+  }
+  // "is this right?": the cost per unit is far from the last purchase
+  function costJump(item, cost) {
+    const r = item && receiptCache.get(item.sku), last = r && r.last && r.last.unitCost;
+    if (!(cost > 0) || !(last > 0)) return null;
+    const diff = (cost - last) / last;
+    return Math.abs(diff) > COST_JUMP ? { last, diff } : null;
+  }
+  function syncCostWarning() {
+    const box = $('movementUnitCost'); if (!box || !FA) return;
+    const j = costJump(movementItem(), Number(String(box.value).replace(/[,₱\s]/g, '')));
+    FA.note(box, j ? 'This is ' + Math.round(Math.abs(j.diff) * 100) + '% ' + (j.diff > 0 ? 'higher' : 'lower') + ' than the last purchase (₱' + j.last.toFixed(2) + '). Check the invoice.' : '', 'warn', 'jump');
+  }
+
   function syncMovementForm() {
     const form = $('movementForm');
     if (!form) return;
@@ -313,7 +400,9 @@
     fillReasons();
     if (window.ProductionUI) window.ProductionUI.beforeSync();   // Finished Goods Stock In: source picker sets the reason
     const reason = $('movementReason').value;
-    const qty = Number($('movementQuantity').value) || 0;
+    syncEnterUnit(movementItem());
+    const qty = movementQty() || 0;
+    syncOnHandLabel(movementItem(), type, qty);
     const item = movementItem();
     const dept = movementDepartment();
 
@@ -368,6 +457,7 @@
         aft.style.color = after < 0 ? '#ef7a7a' : '';
       }
     }
+    setTimeout(syncOutBlock, 0);
   }
 
   // Suppliers that match a product: only the active suppliers linked to it. If none is linked yet, every active supplier
@@ -409,7 +499,7 @@
   // moving-average cost: show what the cost becomes before saving (the server does the same sum and saves it)
   function syncCostHint() {
     const hint = $('movementCostHint'), it = movementItem(); if (!hint) return;
-    const raw = ($('movementUnitCost') && $('movementUnitCost').value || '').replace(/[,\u20B1\s]/g, ''), cost = Number(raw), qty = Number($('movementQuantity').value);
+    const raw = ($('movementUnitCost') && $('movementUnitCost').value || '').replace(/[,\u20B1\s]/g, ''), cost = Number(raw), qty = movementQty() || 0;
     if (!it) { hint.textContent = ''; return; }
     const now = Number(it.unitCost) || 0, peso = (n) => '\u20B1' + n.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     if (!raw || !(cost > 0)) { hint.textContent = 'Current cost ' + peso(now) + ' per ' + it.unit + '. Enter the invoice price to update the average cost; leave it empty to keep it.'; return; }
@@ -438,13 +528,20 @@
     $('movementQuantity').addEventListener('input', syncCostHint);
     $('movementProduct').addEventListener('change', syncCostHint);
     if ($('movementUnitCost')) $('movementUnitCost').addEventListener('input', syncCostHint);
+    // last supplier / last cost: filled in when a supplier delivery is being recorded; a value typed or picked by hand is kept
+    $('movementProduct').addEventListener('change', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x && x.dataset.auto) { x.value = ''; delete x.dataset.auto; } }); prefillReceipt(); });
+    $('movementReason').addEventListener('change', prefillReceipt);
+    ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x) { x.addEventListener('input', (e) => { if (e.isTrusted) delete x.dataset.auto; }); x.addEventListener('change', (e) => { if (e.isTrusted) delete x.dataset.auto; }); } });
+    if ($('movementUnitCost')) $('movementUnitCost').addEventListener('input', syncCostWarning);
+    form.addEventListener('reset', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { if ($(id)) delete $(id).dataset.auto; }); if (FA) ['last', 'jump'].forEach((k) => FA.note($('movementUnitCost'), '', '', k)); });
+    if (FA) { FA.keyboard(form); FA.guard(form); }
     ['movementSupplier', 'movementInvoice', 'movementUnitCost'].forEach((id) => {       // clear an old error message as soon as the field is changed
       const el = $(id); if (!el) return;
       const clear = () => { el.classList.remove('field-invalid'); const g = el.closest('.form-group'); if (g) g.querySelectorAll('.field-msg').forEach((n) => n.remove()); };
       el.addEventListener('input', clear); el.addEventListener('change', clear);
     });
     const toggle = $('movementTypeToggle');
-    if (toggle) toggle.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setTimeout(syncMovementForm, 0)));
+    if (toggle) toggle.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setTimeout(() => { syncMovementForm(); prefillReceipt(); }, 0)));
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault(); e.stopImmediatePropagation();
@@ -455,7 +552,9 @@
       const errs = {};
       if (!$('movementProduct').value) errs.movementProduct = 'Choose a product';
       if (!reason) errs.movementReason = type === 'out' ? 'Choose why this stock is going out' : 'Choose why this stock is coming in';
-      const qty = vNum(errs, 'movementQuantity', 'Quantity', { gt: true });
+      const typed = vNum(errs, 'movementQuantity', 'Quantity', { gt: true });
+      const qty = typed === null ? null : movementQty(typed);           // in the product's own unit
+      if (typed !== null && !(qty > 0)) errs.movementQuantity = 'That is less than 0.01 ' + ((movementItem() || {}).unit || '') + ' \u2014 enter a bigger quantity';
       const note = vText(errs, 'movementNote', 'Note', { required: false, max: 300 });
       const isReceipt = type === 'in' && reason === 'supplier_receipt';
       let supplier = '', invoiceNo = '', unitCost = '';
@@ -473,6 +572,11 @@
       if (item && type === 'out' && qty !== null && !errs.movementQuantity && qty > item.onHand)
         errs.movementQuantity = 'Only ' + formatNumber(item.onHand) + ' ' + item.unit + ' on hand — cannot take out ' + formatNumber(qty);
       if (Object.keys(errs).length) return showErrors(form, banner, errs);
+      // "is this right?" when the price is far from the last purchase
+      const jump = isReceipt && unitCost ? costJump(item, Number(unitCost)) : null;
+      if (jump && window.uiConfirm && !(await uiConfirm({ title: 'Is this cost right?', confirm: 'Yes, save it', cancel: 'Let me check',
+        message: 'The cost per unit is ' + Math.round(Math.abs(jump.diff) * 100) + '% ' + (jump.diff > 0 ? 'higher' : 'lower') + ' than the last purchase. It changes the average cost of ' + item.name + '.',
+        lines: [['Last purchase', '\u20B1' + jump.last.toFixed(2) + ' / ' + item.unit], ['This delivery', '\u20B1' + Number(unitCost).toFixed(2) + ' / ' + item.unit]] }))) { $('movementUnitCost').focus(); return; }
 
       clearErrors(form); hideBanner(banner);
       try {
@@ -483,6 +587,7 @@
         toast('Saved. Reference no. ' + r.ref + (r.previousCost != null && r.unitCost !== r.previousCost ? ' \u00B7 average cost is now \u20B1' + Number(r.unitCost).toFixed(2) : '') +
           (r.ripple ? ' \u00B7 ' + r.ripple.recalculated + ' finished good cost' + (r.ripple.recalculated === 1 ? '' : 's') + ' updated, ' + r.ripple.repriced + ' repriced' + (r.ripple.quotesFlagged ? ', ' + r.ripple.quotesFlagged + ' open quote' + (r.ripple.quotesFlagged === 1 ? '' : 's') + ' to check' : '') + (r.ripple.blocked ? ', ' + r.ripple.blocked + ' cannot be priced yet' : '') : ''));
         if ($('movementCostHint')) $('movementCostHint').textContent = '';
+        receiptCache.clear();
         form.reset();
         await load();
       } catch (err) {
@@ -717,6 +822,61 @@
   }
   const dupNameMsg = (p) => 'A product named "' + p.name + '" already exists (SKU ' + p.sku + ')';
 
+  /* ---------- Task 9: product form helpers (form-assist.js) ----------
+     New product: the SKU is suggested from the department + category (next free number, still editable), the unit / category /
+     location start as what that department mostly uses, a name close to an existing one gets "Did you mean …?", and the
+     stock typed here is saved as an "Opening balance" ledger entry. Anything the person picks by hand is never overwritten. */
+  const mostCommon = (list) => {
+    const c = new Map(); list.filter(Boolean).forEach((v) => c.set(v, (c.get(v) || 0) + 1));
+    let best = '', n = 0; c.forEach((k, v) => { if (k > n) { n = k; best = v; } });
+    return best;
+  };
+  let skuSeq = 0;
+  async function suggestSku() {
+    const box = $('npSku'); if (!box || productModalState()) return;
+    if (clean(box.value) && !box.dataset.auto) return;                 // typed by hand: leave it alone
+    const cat = $('npCategory').value === NEW_CATEGORY ? clean($('npCategoryNew').value) : $('npCategory').value;
+    const my = ++skuSeq;
+    try {
+      const r = await api('/products/next-sku?department=' + encodeURIComponent($('npDept').value) + '&category=' + encodeURIComponent(cat || ''));
+      if (my !== skuSeq || productModalState() || (clean(box.value) && !box.dataset.auto)) return;
+      box.value = r.sku; box.dataset.auto = '1';
+      validateField('npSku', false);
+      if (FA) FA.note(box, 'Next free code for ' + esc(r.prefix) + '. You can change it.', 'info');
+    } catch (e) { /* the SKU can still be typed */ }
+  }
+  function applyDeptDefaults() {
+    if (productModalState()) return;
+    const dept = $('npDept').value, same = productCatalogData.filter((p) => p.department === dept);
+    const unit = $('npUnit');
+    if (unit && !unit.disabled && (!unit.value || unit.dataset.auto)) { const u = mostCommon(same.map((p) => p.unit)); if (u) { setUnitValue(u); unit.dataset.auto = '1'; } }
+    const cat = $('npCategory');
+    if (cat && (!cat.value || cat.dataset.auto)) {
+      [].filter.call(cat.options, (o) => o.dataset.legacy).forEach((o) => o.remove());   // the last department's default is not in this list
+      const c = mostCommon(same.map((p) => p.category).filter((x) => x && x !== 'Uncategorized'));
+      setCategoryValue(c || ''); if (c) cat.dataset.auto = '1'; else delete cat.dataset.auto;
+    }
+    const loc = $('npLocation');
+    if (loc && (!loc.value || loc.dataset.auto)) { const l = mostCommon(same.map((p) => p.location)); if (l) { setLocationValue(l); loc.dataset.auto = '1'; } }
+  }
+  function nameHint() {
+    const box = $('npName'); if (!box || !FA) return;
+    const me = productModalState();
+    const near = duplicateProductName(box.value) ? [] : FA.similar(box.value, productCatalogData.filter((p) => p.sku !== me), (p) => p.name);
+    FA.note(box, near.length ? 'Did you mean ' + near.map((p) => '<b>' + esc(p.name) + '</b> (' + esc(p.sku) + ')').join(', ') +
+      '? A similar product already exists — check this is not the same item.' : '', 'warn');
+  }
+  function productAssistOpen(product) {
+    ['npSku', 'npUnit', 'npCategory', 'npLocation'].forEach((id) => { if ($(id)) delete $(id).dataset.auto; });
+    if (FA) { FA.note($('npSku'), ''); FA.note($('npName'), ''); }
+    const lab = document.querySelector('label[for="npOnHand"]');
+    if (lab) lab.innerHTML = (product ? 'On Hand' : 'Opening Stock') + ' <span class="required-mark">*</span>';
+    if (FA) FA.note($('npOnHand'), product ? '' : 'Saved as an <b>opening balance</b> entry in the stock ledger. Later changes go through Stock In / Out.', 'info');
+    if (product) return;
+    applyDeptDefaults();
+    suggestSku();
+  }
+
   function onProductModalOpen() {
     const form = $('newProductForm');
     clearErrors(form); hideBanner($('newProductFormError'));
@@ -743,6 +903,7 @@
     setUnitValue(product ? product.unit : '');
     syncUnitField(product);
     fillCategories(product ? product.category : '');          // the department is set by now: Finished Goods only lists its two product lines
+    productAssistOpen(product);
   }
 
   const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
@@ -755,7 +916,19 @@
     $('npDept').addEventListener('change', () => {
       fillCategories(); syncCostField(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
       const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
+      applyDeptDefaults(); suggestSku();
     });
+    // a value picked by hand is the person's choice: the department defaults no longer change it
+    ['npUnit', 'npCategory', 'npLocation'].forEach((id) => $(id).addEventListener('change', (e) => { if (e.isTrusted) delete $(id).dataset.auto; }));
+    $('npCategory').addEventListener('change', suggestSku);
+    let catTimer = null, nameTimer = null;
+    $('npCategoryNew').addEventListener('input', () => { clearTimeout(catTimer); catTimer = setTimeout(suggestSku, 400); });
+    $('npSku').addEventListener('input', (e) => { if (e.isTrusted) { delete $('npSku').dataset.auto; if (FA) FA.note($('npSku'), ''); } });
+    $('npName').addEventListener('input', () => { clearTimeout(nameTimer); nameTimer = setTimeout(nameHint, 300); });
+    if (FA) {
+      FA.guard(form, { overlay, closeSelector: '#newProductCloseBtn, #newProductCancelBtn', close: () => closeNewProductModal() });
+      FA.keyboard(form);
+    }
     $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });
     if ($('npPriceManual')) $('npPriceManual').addEventListener('change', () => { syncPriceField(); if (priceManual()) $('npListPrice').focus(); });
     if ($('npCostOverride')) $('npCostOverride').addEventListener('change', () => { syncCostField(); if (costOverridden()) { $('npUnitCost').focus(); if ($('npCostReason')) $('npCostReason').value = ''; } else syncPriceField(); });
@@ -855,6 +1028,8 @@
     fill('newSupplierPhone', supplier ? supplier.phone : '');
     fill('newSupplierEmail', supplier ? supplier.email : '');
     fill('newSupplierAddress', supplier ? supplier.address : '');
+    fill('newSupplierLeadTime', supplier && supplier.leadTimeDays != null ? supplier.leadTimeDays : '');
+    if ($('newSupplierLeadTime')) $('newSupplierLeadTime').placeholder = String(REORDER && REORDER.leadDays != null ? REORDER.leadDays : 7);
     setupAddressFields();
     prefillAddress(supplier);
     setEmailStatus(EMAIL_HINT);
@@ -1305,8 +1480,30 @@
     setZipStatus('Checked against ' + (sup.city || 'the selected city'));
   }
 
+  // ZIP -> supplier address: picks each level from the PSGC lists exactly as a click would (the ZIP is then checked as usual)
+  async function supplierZipFill(place) {
+    const pick = (list, want) => { const n = want && FA.bestName(list.map((x) => x.name), want); return n ? list.find((x) => x.name === n) : null; };
+    if (!(await ensureRegions())) return;
+    const reg = pick(GEO.regions, place.region); if (!reg) return;
+    setBox('newSupplierRegion', { value: reg.name, code: reg.code }); await onRegionPick(reg);
+    if (GEO.provinces.length) {
+      const prov = pick(GEO.provinces, place.province); if (!prov) return;
+      setBox('newSupplierProvince', { value: prov.name, code: prov.code }); await onProvincePick(prov);
+    }
+    const city = pick(GEO.cities, place.city); if (!city) return;
+    setBox('newSupplierCity', { value: city.name, code: city.code });
+    GEO.zip = null; clearTimeout(GEO.zipTimer); unlockZip(false);     // what picking the city does, but waiting for the barangay list
+    if (!(await loadBarangays(city))) return;
+    const bg = pick(GEO.barangays, place.barangay);
+    if (bg) { setBox('newSupplierBarangay', { value: bg.name, code: bg.code }); onBarangayPick(bg); }
+    const zip = $('newSupplierZip'); zip.value = place.zip;
+    if (bg) scheduleZipCheck(0);
+    $('newSupplierForm').dataset.faDirty = '1';
+    ['newSupplierRegion', 'newSupplierProvince', 'newSupplierCity', 'newSupplierBarangay'].forEach((id) => validateField(id, false));
+  }
+
   const SUPPLIER_FIELDS = { name: 'newSupplierName', contactPerson: 'newSupplierContactPerson', phone: 'newSupplierPhone', email: 'newSupplierEmail',
-    address: 'newSupplierAddress', city: 'newSupplierCity', barangay: 'newSupplierBarangay', province: 'newSupplierProvince', region: 'newSupplierRegion', zip: 'newSupplierZip',
+    address: 'newSupplierAddress', leadTimeDays: 'newSupplierLeadTime', city: 'newSupplierCity', barangay: 'newSupplierBarangay', province: 'newSupplierProvince', region: 'newSupplierRegion', zip: 'newSupplierZip',
     products: 'newSupplierProducts' };
 
   // duplicate supplier checks against the loaded list (the server re-checks on save)
@@ -1336,6 +1533,15 @@
     ['newSupplierName', 'newSupplierContactPerson', 'newSupplierAddress'].forEach(liveTitleCase);
     setupSupplierInputFilters();
     setupAddressFields();
+    if (FA) {
+      FA.phone.bind($('newSupplierPhone'));
+      FA.email.bind($('newSupplierEmail'));
+      // "Know the ZIP code?": fills Region > Province > City (> Barangay) through the same search lists the person would use
+      const regionGroup = $('newSupplierRegion').closest('.form-row');
+      FA.zipFill({ before: regionGroup, fill: supplierZipFill });
+      FA.guard(form, { overlay, closeSelector: '#newSupplierCloseBtn, #newSupplierCancelBtn', close: () => closeNewSupplierModal() });
+      FA.keyboard(form);
+    }
     $('newSupplierEmail').addEventListener('input', scheduleEmailCheck);
     $('newSupplierEmail').addEventListener('blur', scheduleEmailCheck);
     form.addEventListener('reset', () => setTimeout(() => { setEmailStatus(EMAIL_HINT); setupSupplierInputFilters(); prefillToken++; resetBelowRegion(false); }, 0));
@@ -1382,6 +1588,8 @@
         else if (!z.ok) { errs.newSupplierZip = z.message; setZipStatus('Checked against ' + city); }
         else setZipStatus('ZIP code matches ' + city, '#5fbf8a');
       }
+      const leadRaw = clean(($('newSupplierLeadTime') || {}).value);
+      if (leadRaw && !(/^\d{1,3}$/.test(leadRaw) && +leadRaw <= 365)) errs.newSupplierLeadTime = 'Lead time must be a whole number of days from 0 to 365';
       const productSkus = [].map.call($('newSupplierProducts').querySelectorAll('.prod-check:checked'), (c) => c.value);
       if (!productSkus.length) errs.newSupplierProducts = 'Tick at least one product this supplier provides';
       // the email's domain must really exist and be able to receive mail
@@ -1396,6 +1604,7 @@
 
       clearErrors(form); hideBanner(banner);
       const payload = { name, contactPerson, phone, email, address, city, barangay, province, region, zip, productSkus };
+      if (leadRaw) payload.leadTimeDays = Number(leadRaw);
       try {
         if (id) await api('/suppliers/' + encodeURIComponent(id), { method: 'PUT', body: JSON.stringify(payload) });
         else await api('/suppliers', { method: 'POST', body: JSON.stringify(payload) });
@@ -1747,9 +1956,9 @@
       movementReason: () => $('movementReason').value ? '' :
         (movementType() === 'out' ? 'Choose why this stock is going out' : 'Choose why this stock is coming in'),
       movementQuantity: () => {
-        const e = {}; const q = vNum(e, 'movementQuantity', 'Quantity', { gt: true });
+        const e = {}; const typed = vNum(e, 'movementQuantity', 'Quantity', { gt: true });
         if (e.movementQuantity) return e.movementQuantity;
-        const item = movementItem();
+        const item = movementItem(), q = movementQty(typed);
         if (item && movementType() === 'out' && q > item.onHand)
           return 'Only ' + formatNumber(item.onHand) + ' ' + item.unit + ' on hand — cannot take out ' + formatNumber(q);
         return '';
@@ -1816,6 +2025,7 @@
         return known && !known.ok ? known.message : '';
       },
       newSupplierAddress: textRule('newSupplierAddress', 'Warehouse address', { min: 5, max: 150 }),
+      newSupplierLeadTime: () => { const v = clean($('newSupplierLeadTime').value); return !v || (/^\d{1,3}$/.test(v) && +v <= 365) ? '' : 'Lead time must be a whole number of days from 0 to 365'; },
       newSupplierCity: () => {
         const m = textRule('newSupplierCity', 'City / Municipality', { min: 2, max: 60 })();
         return m || (picked('newSupplierCity') || addressUnchanged() ? '' : 'Pick a city / municipality from the list');

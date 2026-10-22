@@ -294,7 +294,7 @@ const REASON_GROUPS = {
   'Supplier receipts': { in: ['supplier_receipt'] },
   'Finished goods produced': { in: ['produced_batch', 'production_output'] },
   'Returns and restocking': { in: ['return', 'refund', 'customer_return'] },
-  'Stock adjustments': { in: ['count_correction_up', 'correction'], out: ['count_correction_down'] },
+  'Stock adjustments': { in: ['count_correction_up', 'correction', 'opening_balance'], out: ['count_correction_down'] },
   'Sales': { out: ['sale', 'online_order'] },
   'Material consumption': { out: ['production_use'] },
   'Losses and write-offs': { out: ['rust_corrosion', 'damaged', 'damage', 'scrap_cutting_waste', 'quality_rejection', 'lost_missing', 'write_off'] },

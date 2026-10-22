@@ -479,9 +479,10 @@
 <script src="input-rules.js?v=1"></script>
 <script src="password-change.js?v=1"></script>
 <script src="account-menu.js?v=3"></script>
+<script src="form-assist.js?v=1"></script>
 <script src="quote-fields.js?v=12"></script>
-<script src="quote-desk-ui.js?v=13"></script>
-<script src="pos-delivery.js?v=1"></script>
+<script src="quote-desk-ui.js?v=14"></script>
+<script src="pos-delivery.js?v=2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
@@ -978,6 +979,23 @@ function syncCart() {
 /* ----- delivery mode ----- */
 const DLV_PHONE_RE = /^(\+63|0)9\d{9}$/, DLV_NAME_RE = /^[\p{L}][\p{L}\p{M} .'’-]*$/u;
 function custErr(id, msg) { const b = $(id + 'Err'); if (b) b.textContent = msg || ''; $(id).classList.toggle('is-bad', !!msg); }
+/* Task 9 (form-assist.js): a phone number the shop already knows (account, earlier walk-in sale or quote) fills in the customer's name */
+(function () {
+  const FA = window.FormAssist; if (!FA) return;
+  let seq = 0;
+  $('custPhone').addEventListener('blur', () => setTimeout(async () => {          // after the number is put in its one format
+    const phone = $('custPhone').value.replace(/[\s().-]/g, ''), my = ++seq;
+    FA.note($('custPhone'), '');
+    if (!DLV_PHONE_RE.test(phone)) return;
+    let r; try { r = await api('/api/customers/match?phone=' + encodeURIComponent(phone)); } catch (_) { return; }
+    const m = my === seq && r && (r.matches || [])[0]; if (!m) return;
+    const typed = $('custName').value.trim();
+    if (!typed) { FA.setValue($('custName'), m.name); FA.note($('custPhone'), 'Known customer: <b>' + esc(m.name) + '</b> \u2014 name filled in.', 'ok'); return; }
+    if (typed.toLowerCase() === String(m.name).toLowerCase()) return;
+    const n = FA.note($('custPhone'), 'This number is saved for <b>' + esc(m.name) + '</b>. <button type="button" class="fa-link">Use that name</button>', 'info');
+    n.querySelector('button').onclick = () => { FA.setValue($('custName'), m.name); FA.note($('custPhone'), ''); };
+  }, 0));
+})();
 function setFulfil(f) {
   fulfil = f; document.querySelectorAll('[data-fulfil]').forEach(b => b.classList.toggle('on', b.dataset.fulfil === f));
   $('dlvHost').hidden = f !== 'Delivery';
@@ -1001,7 +1019,7 @@ document.addEventListener('click', e => { const b = e.target.closest('[data-fulf
 PosDelivery.init({ api, esc, toast, onChange: () => { if (ready) renderCart(); } });
 PosDelivery.mount($('dlvHost'));
 
-function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; setFulfil('Pickup'); PosDelivery.reset(); custErr('custName', ''); custErr('custPhone', ''); $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
+function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; if (window.FormAssist) FormAssist.note($('custPhone'), ''); setFulfil('Pickup'); PosDelivery.reset(); custErr('custName', ''); custErr('custPhone', ''); $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }
 
 /* ----- events ----- */
 document.addEventListener('click', e => {

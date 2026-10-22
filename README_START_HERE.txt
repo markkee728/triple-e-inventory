@@ -62,3 +62,20 @@ PRODUCTION-BASED INVENTORY DEDUCTION (Finished Goods made in-house use up Raw Ma
      "Production history" lists every record with its material details. Reports include these movements automatically.
   Double deduction: every confirm carries a one-time key, so a double click / retry returns the same PRD record instead of deducting again.
   Manual Stock Out "Used in production" still exists for consumption NOT recorded through a production record.
+
+
+FORM HELPERS (Task 9)
+  Code:  Finance_Inventory/form-assist.js (shared by every page) + backend/form-assist.js (routes). Tests: node --no-warnings backend/test/form-assist.test.js
+  SQL:   backend/db/023_form_assist.sql (also run automatically when the server starts).
+  Product form (new product): SKU suggested as the next free number for department + category (e.g. RM-AL-001), still editable; unit, category and
+         storage location start as what that department mostly uses; "Did you mean …?" for a name close to an existing product; the recipe cost of a
+         finished good stays read-only (Override needs a reason, as before); the Opening Stock is saved as an "Opening balance" ledger entry.
+  Stock In / Out: On hand (and storage location) beside the quantity; a Stock Out larger than what is on hand cannot be saved; the quantity can be
+         typed in another unit of the same kind (g / tonne / lb for kg, ft for m) and is converted; a supplier delivery is pre-filled with the last
+         supplier and last cost per unit; a cost more than 30% away from the last purchase asks "Is this cost right?" (30% is an assumption, COST_JUMP in api-bridge.js).
+  Quote forms (shop + POS walk-in): live price estimate (as before), minimum-order warning for catalog products, delivery fee shown as soon as the
+         area is known, a "Know the ZIP code?" box that fills the area, and an autosaved draft in the browser ("Start over" discards it).
+  Customer / sign-up / supplier: "Know the ZIP code?" fills Region > Province > City (> Barangay) from backend/data/ph-zip.json; every phone box is
+         rewritten as +63 917 123 4567 (landlines +63 2 8123 4567); email typos get "Did you mean …@gmail.com?"; sign-up warns when the mobile number is
+         already on an account; the cashier sees "this number / email belongs to …" (accounts, earlier walk-in sales and quotes); suppliers have a lead time.
+  Everywhere: errors beside the field while typing, a warning before unsaved changes are lost, Enter moves to the next field (Ctrl+Enter submits).

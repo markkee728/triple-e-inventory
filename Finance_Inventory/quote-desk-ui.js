@@ -761,11 +761,47 @@
   // same coverage as a POS delivery sale (Finance > Delivery rates): the cashier sees it before the request is logged
   let pqNoCover = '';
   async function pqCheckCover() {
-    pqNoCover = ''; const region = el('pqRegion').value, province = el('pqProvince').value;
+    pqNoCover = ''; pqFeeNote(''); const region = el('pqRegion').value, province = el('pqProvince').value;
     if (!region || !province) return;
     try { const q = await api('/api/pos/delivery-fee?region=' + encodeURIComponent(region) + '&province=' + encodeURIComponent(province));
-      if (q && q.available === false) pqNoCover = 'We do not deliver to ' + province + ' yet. Choose another area or switch to Pickup.'; } catch (_) { /* the server checks again on save */ }
+      if (q && q.available === false) pqNoCover = 'We do not deliver to ' + province + ' yet. Choose another area or switch to Pickup.';
+      pqFeeNote(q && q.available !== false ? 'Delivery fee to ' + esc(province) + ': <b>' + peso(q.fee) + '</b> (' + esc(q.rate || 'standard rate') + ')' : ''); } catch (_) { /* the server checks again on save */ }
     if (pqFulfil() === 'Delivery') pqField('province');
+  }
+
+  /* ---- Task 9 (form-assist.js): delivery fee, minimum order, known customer by phone / email, ZIP -> area, draft, Enter to move on ---- */
+  const FA = window.FormAssist;
+  let pqDraft = null;
+  function pqFeeNote(html) {
+    let n = el('pqFeeNote');
+    if (!n) { n = document.createElement('div'); n.id = 'pqFeeNote'; n.className = 'fa-note ok'; n.setAttribute('role', 'status'); el('pqArea').appendChild(n); }
+    n.innerHTML = html || ''; n.hidden = !html;
+  }
+  function pqMinWarn() {
+    const qty = el('pqQty'), p = prod(el('pqProduct').value); if (!FA || !qty) return;
+    const n = Number(qty.value), m = p ? Math.min(Number(p.minOrder) || 0, p.available > 0 ? p.available : Infinity) : 0;
+    FA.note(qty, p && n > 0 && n < m ? 'Minimum order for ' + esc(p.name) + ' is <b>' + m + ' ' + esc(p.unit) + '</b>.' : '', 'warn', 'min');
+  }
+  // the person may already be known: a registered account, an earlier walk-in sale or walk-in quote with the same phone / email
+  let matchSeq = 0;
+  async function pqMatch(input) {
+    if (!FA) return;
+    const phone = el('pqPhone').value.replace(/[\s().-]/g, ''), email = el('pqEmail').value.trim(), my = ++matchSeq;
+    if (!PQ_PHONE_RE.test(phone) && !PQ_MAIL_RE.test(email)) { FA.note(input, ''); return; }
+    let r; try { r = await api('/api/customers/match?phone=' + encodeURIComponent(phone) + '&email=' + encodeURIComponent(email)); } catch (_) { return; }
+    if (my !== matchSeq) return;
+    const m = (r.matches || [])[0];
+    ['pqPhone', 'pqEmail'].forEach((id) => FA.note(el(id), '', '', 'match'));
+    if (!m) return;
+    const kind = m.kind === 'account' ? 'has an online account' : 'bought from us before (' + m.kind + (m.last ? ', ' + m.last : '') + ')';
+    const n = FA.note(el(m.by === 'email' ? 'pqEmail' : 'pqPhone'), 'This ' + (m.by === 'email' ? 'email' : 'number') + ' belongs to <b>' + esc(m.name) + '</b>, who ' + esc(kind) +
+      '. <button type="button" class="fa-link">Use their details</button>', 'info', 'match');
+    n.querySelector('button').onclick = () => {
+      if (m.name) FA.setValue(el('pqName'), m.name);
+      if (m.email && !el('pqEmail').value.trim()) FA.setValue(el('pqEmail'), m.email);
+      if (m.phone && !el('pqPhone').value.trim()) FA.setValue(el('pqPhone'), FA.phone.format(m.phone) || m.phone);
+      FA.note(n.closest('.q-field').querySelector('input'), '', '', 'match');
+    };
   }
 
   const PQG = { regions: [], provinces: [], cities: [], barangays: [], city: '', tok: { prov: 0, city: 0, bgy: 0 } };
@@ -845,6 +881,12 @@
     if (pqMounted) return;
     QuoteFields.mount(el('pqFields'), { prefix: 'pq', options: o, flexible: isFlexible, estimate: 'staff', productSku: () => el('pqProduct').value || '' });
     pqMounted = true;
+    if (FA && !pqDraft) {
+      pqDraft = FA.draft('posQuote', el('pqForm'), ['pqProduct', 'pqItem', 'pqS_itemType', 'pqS_material', 'pqS_size', 'pqS_thickness', 'pqS_finish', 'pqS_service',
+        'pqQty', 'pqUnit', 'pqNeeded', 'pqNotes', 'pqName', 'pqPhone', 'pqEmail', 'pqCompany', 'pqStreet'],
+        { ignoreDefault: (id) => id === 'pqUnit', banner: el('qdFormSections'), onDiscard: () => { el('pqForm').reset(); el('pqProduct').value = ''; QuoteFields.reset('pq'); pqProductChanged(); } });
+      setTimeout(() => pqDraft.restore().then(pqMinWarn), 0);
+    }
     // the date stays next to Quantity, exactly where the online form has it; the counter-only "No fixed date" switch sits under it
     const dateField = el('pqNeeded') && el('pqNeeded').closest('.q-field'), flex = el('pqFlexible') && el('pqFlexible').closest('label');
     if (dateField && flex) { dateField.appendChild(flex); const holder = el('pqFlexHolder'); if (holder) holder.remove(); }
@@ -910,6 +952,7 @@
       pqResetArea(); Object.keys(PQ_IDS).forEach((k) => pqErr(k, '')); el('pqProduct').value = '';
       if (pqMounted) QuoteFields.reset('pq');
       pqProductChanged(); el('pqFlexible').checked = false; const nd = pqNeededEl(); if (nd) nd.disabled = false;
+      if (pqDraft) pqDraft.clear(); if (FA) { FA.markClean(el('pqForm')); ['pqPhone', 'pqEmail'].forEach((id) => FA.note(el(id), '', '', 'match')); pqFeeNote(''); }
       document.querySelector('input[name="pqFulfil"][value="Pickup"]').checked = true; el('pqArea').hidden = true;
       showFormStep(); loadDesk();
       if (no) openDetail(no);                        // straight to the request, where the price is prepared
@@ -1008,6 +1051,14 @@
     Object.keys(PQ_IDS).forEach((f) => { const x = el(PQ_IDS[f]); x.addEventListener('blur', () => pqField(f)); x.addEventListener('input', () => { if (x.classList.contains('is-bad')) pqField(f); el('pqErr').textContent = ''; }); });
     el('pqPhone').addEventListener('input', () => { const p = el('pqPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
     el('pqForm').addEventListener('submit', (e) => { e.preventDefault(); saveWalkIn(); });
+    if (FA) {
+      el('pqForm').addEventListener('input', (e) => { if (e.target.id === 'pqQty') pqMinWarn(); });
+      el('pqProduct').addEventListener('change', pqMinWarn);
+      ['pqPhone', 'pqEmail'].forEach((id) => el(id).addEventListener('blur', () => setTimeout(() => pqMatch(el(id)), 0)));   // after the phone is put in its one format
+      FA.zipFill({ before: el('pqRegion').closest('.q-grid'), region: el('pqRegion'), province: el('pqProvince'), city: el('pqCity'), barangay: el('pqBrgy'), api: (u) => api(u) });
+      FA.keyboard(el('pqForm'));
+      FA.guard(el('pqForm'));
+    }
     el('qdReview').addEventListener('click', (e) => {
       if (e.target.closest('[data-act="edit"]')) showFormStep();
       if (e.target.closest('#qdConfirmSave')) commitWalkIn();

@@ -2990,6 +2990,11 @@
                     <div class="form-section" role="group" aria-labelledby="supSecProducts">
                         <div class="form-section-title" id="supSecProducts">Products Supplied <span class="required-mark">*</span></div>
                         <div class="form-group">
+                            <label class="form-label" for="newSupplierLeadTime">Lead time (days)</label>
+                            <input type="number" id="newSupplierLeadTime" class="form-input" min="0" max="365" step="1" inputmode="numeric" style="max-width:140px" autocomplete="off">
+                            <div class="field-hint" id="newSupplierLeadHint">Days from placing an order to delivery. Used for the automatic reorder level of the products this is the main supplier of.</div>
+                        </div>
+                        <div class="form-group">
                             <div id="newSupplierProducts" class="check-list"></div>
                             <div class="field-hint">Only Raw Materials and Finishing Supplies can be supplied. Tick every product this supplier provides. The same link shows on the product.</div>
                         </div>
@@ -3650,8 +3655,9 @@
     <script src="password-change.js?v=1"></script>
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
+    <script src="form-assist.js?v=1"></script>
     <script src="script.js?v=28"></script>
-    <script src="api-bridge.js?v=32"></script>
+    <script src="api-bridge.js?v=33"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3664,7 +3670,7 @@
     <script src="reports-sales.js?v=4"></script>
     <script src="reports-top-products.js?v=5"></script>
     <script src="reports-low-stock.js?v=2"></script>
-    <script src="reports-inventory.js?v=6"></script>
+    <script src="reports-inventory.js?v=7"></script>
     <script src="reports-highlights.js?v=1"></script>
     <script src="cash-shift-reports.js?v=9"></script>
 

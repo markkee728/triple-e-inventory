@@ -69,6 +69,9 @@
     ['line', 'landmark'].forEach((f) => $('pd_' + f).addEventListener('input', () => { setErr(f, ''); preview(); }));
     $('pdZipChips').addEventListener('click', (e) => { const b = e.target.closest('.zip-chip'); if (!b) return; $('pd_zip').value = b.dataset.zip; setErr('zip', ''); preview(); checkZip(); });
     loadRegions();
+    // Task 9: typing the ZIP first fills Region > Province > City (> Barangay) from the ZIP list (form-assist.js)
+    if (window.FormAssist) window.FormAssist.zipFill({ before: $('pd_region').closest('.dlv-grid'), region: $('pd_region'), province: $('pd_province'),
+      city: $('pd_city'), barangay: $('pd_barangay'), zip: $('pd_zip') });
   }
 
   const setOptions = (sel, rows, placeholder, disabled) => {

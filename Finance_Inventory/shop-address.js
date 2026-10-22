@@ -117,6 +117,9 @@
     $('ae_phone').addEventListener('input', () => { const p = $('ae_phone'); const d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
     F.forEach((f) => { const el = $('ae_' + f); if (el) el.addEventListener('input', () => setErr(f, '')); });
     loadRegions();
+    // Task 9: typing the ZIP first fills Region > Province > City (> Barangay) from the ZIP list (form-assist.js)
+    if (window.FormAssist) window.FormAssist.zipFill({ before: $('ae_region').closest('.field-grid'), region: $('ae_region'), province: $('ae_province'),
+      city: $('ae_city'), barangay: $('ae_barangay'), zip: $('ae_zip'), api: cfg.api });
   }
 
   function setOptions(sel, rows, placeholder, { disabled = false } = {}) {

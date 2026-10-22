@@ -1001,6 +1001,7 @@
     </div>
   </div>
 
+<script src="form-assist.js?v=1"></script>
 <script>
 (function(){
   'use strict';
@@ -1275,6 +1276,20 @@
 
   /* ---------- little input niceties ---------- */
   $('suPhone').addEventListener('input', function(){ const n = this.value.replace(/[^\d+\s().-]/g, ''); if (n !== this.value) this.value = n; setErr('suPhone', ''); });
+  /* ---------- Task 9: one phone format, "already on an account?" (a warning, not a block), Enter moves on, unsaved warning ---------- */
+  const FA = window.FormAssist;
+  let phoneSeq = 0;
+  $('suPhone').addEventListener('blur', () => {
+    if (!FA || mode === 'invite') return;
+    const v = clean($('suPhone').value), my = ++phoneSeq;
+    FA.note($('suPhone'), '');
+    if (!v || mobileProblem(v)) return;
+    api('GET', '/api/signup/check-phone?phone=' + encodeURIComponent(v)).then(r => {
+      if (my !== phoneSeq || r.status !== 200 || !r.data) return;
+      FA.note($('suPhone'), r.data.used ? r.data.message : '', 'warn');
+    }).catch(() => {});
+  });
+  if (FA) { FA.keyboard($('signupForm')); FA.guard($('signupForm')); }
   // Names: Title Case while typing + a message the moment something wrong is typed (and it stays until it is fixed)
   ['suFirst','suLast','suMiddle'].forEach(id => {
     const el = $(id);
@@ -1326,6 +1341,7 @@
 
   function resetSignup(){
     $('signupForm').reset(); clearAllErr(); signupError.classList.remove('show');
+    if (window.FormAssist) window.FormAssist.note($('suPhone'), '');
     emailCheck = { email: '', ok: null, msg: '' }; hint.className = 'hint'; hint.textContent = 'We\u2019ll send a verification link to this address.';
     ['suSuffix','suGender'].forEach(id => $(id).classList.add('placeholder'));
     ['suPass','suConfirm'].forEach(id => { $(id).type = 'password'; const b = $(id).parentNode.querySelector('.toggle-vis'); if (b){ b.classList.remove('showing'); b.setAttribute('aria-label', 'Show password'); } });

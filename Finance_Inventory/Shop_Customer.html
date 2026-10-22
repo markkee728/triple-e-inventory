@@ -404,6 +404,7 @@ a.nav-item{text-decoration:none}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=8"></script>
+<script src="form-assist.js?v=1"></script>
 <script src="quote-fields.js?v=12"></script>
 
 <script>
@@ -1319,12 +1320,13 @@ const qField = f => qErr(f, QCHECK[f]());
    so a quote is never requested for a place we do not deliver to. The server repeats the check when the request is sent. */
 let qNoCover = '', qCoverSeq = 0;
 async function qCheckCover() {
-  const seq = ++qCoverSeq; qNoCover = '';
+  const seq = ++qCoverSeq; qNoCover = ''; qFeeNote('');
   if (qFulfil() !== 'Delivery') return;
   const a = qAddr === 'new' ? { region: $('qRegion').value, province: $('qProvince').value } : QADDRS.find(x => x.id === qAddr);
   if (!a || !a.region || !a.province) { if (qAddr === 'new') qField('province'); else $('qE_address').textContent = ''; return; }
   try { const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(a.region) + '&province=' + encodeURIComponent(a.province)); if (seq !== qCoverSeq) return;
-    if (q && q.available === false) qNoCover = 'Sorry, we do not deliver to ' + a.province + ' yet. Choose another area, or pick it up at our shop.'; } catch (_) { /* the server checks again */ }
+    if (q && q.available === false) qNoCover = 'Sorry, we do not deliver to ' + a.province + ' yet. Choose another area, or pick it up at our shop.';
+    qFeeNote(q && q.available !== false ? 'Delivery fee to ' + esc(a.province) + ': <b>' + peso(q.fee) + '</b> \u00B7 the final fee is confirmed in your quotation.' : ''); } catch (_) { /* the server checks again */ }
   if (qAddr === 'new') qField('province'); else $('qE_address').textContent = qNoCover;
 }
 
@@ -1402,7 +1404,9 @@ async function ensureQuoteFields() {            // the dropdown choices come fro
   if (qMounted) return true;
   try { QOPTS = await api('/api/shop/quote-options'); } catch (e) { $('qFields').innerHTML = '<p class="dim">Could not load the form. Please refresh the page.</p>'; return false; }
   if (qMounted) return true;
-  QuoteFields.mount($('qFields'), { prefix: 'q', options: QOPTS, estimate: 'customer', productSku: () => ($('qProduct').value && $('qProduct').value !== 'other') ? $('qProduct').value : '' }); qMounted = true; quoteProductChanged(); return true;
+  QuoteFields.mount($('qFields'), { prefix: 'q', options: QOPTS, estimate: 'customer', productSku: () => ($('qProduct').value && $('qProduct').value !== 'other') ? $('qProduct').value : '' }); qMounted = true; quoteProductChanged();
+  qStartDraft();
+  return true;
 }
 function quoteProductChanged() {
   const p = prod($('qProduct').value);
@@ -1545,6 +1549,36 @@ $('qCity').addEventListener('change', qOnCity); $('qBrgy').addEventListener('cha
   $(id).addEventListener('input', () => { if ($(id).classList.contains('is-bad')) qField(f); $('qErr').textContent = ''; });
 });
 $('qPhone').addEventListener('input', () => { const p = $('qPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
+
+/* ---------- Task 9 (form-assist.js): minimum order warning, delivery fee, ZIP -> delivery area, autosaved draft, Enter to move on ---------- */
+const QFA = window.FormAssist;
+let qDraft = null;
+function qFeeNote(html) {
+  let n = $('qFeeNote');
+  if (!n) { n = document.createElement('div'); n.id = 'qFeeNote'; n.className = 'fa-note ok'; n.setAttribute('role', 'status'); $('qDeliveryBox').appendChild(n); }
+  n.innerHTML = html || ''; n.hidden = !html;
+}
+function qMinWarn() {
+  const qty = $('qQty'), p = prod($('qProduct').value); if (!QFA || !qty) return;
+  const n = Number(qty.value), m = p ? minQty(p) : 0;               // a custom item's minimum is checked by quote-fields.js itself
+  QFA.note(qty, p && n > 0 && n < m ? 'The minimum order for ' + esc(p.name) + ' is <b>' + m + ' ' + esc(p.unit) + '</b>' +
+    (p.available > 0 && p.available < (Number(p.minOrder) || 0) ? ' (only ' + p.available + ' left in stock)' : '') + '.' : '', 'warn', 'min');
+}
+function qStartDraft() {
+  if (!QFA || qDraft) return;
+  qDraft = QFA.draft('shopQuote.' + (USER && USER.id != null ? USER.id : 'preview'), $('quoteForm'),
+    ['qProduct', 'qProductName', 'qS_itemType', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qUnit', 'qNeeded', 'qNotes', 'qStreet', 'qName', 'qPhone'],
+    { ignoreDefault: (id) => ['qName', 'qPhone', 'qUnit'].includes(id),           // filled from the profile / the product: not a draft by themselves
+      onDiscard: () => { $('qProduct').value = ''; $('qProductName').value = ''; QuoteFields.reset('q'); quoteProductChanged(); } });
+  if (!$('qProduct').value) qDraft.restore().then(qMinWarn);                      // opened from a product page: that product wins over an old draft
+}
+if (QFA) {
+  $('quoteForm').addEventListener('input', e => { if (e.target.id === 'qQty') qMinWarn(); });
+  $('qProduct').addEventListener('change', qMinWarn);
+  QFA.zipFill({ before: $('qRegion').closest('.q-grid'), region: $('qRegion'), province: $('qProvince'), city: $('qCity'), barangay: $('qBrgy'), api: (u) => api(u) });
+  QFA.keyboard($('quoteForm'));
+  QFA.guard($('quoteForm'));
+}
 function validateQuote() {
   const f = qFulfil(), fields = ['productName'];
   if (f === 'Delivery' && qAddr === 'new') fields.push('region', 'province', 'city', 'barangay', 'street');
@@ -1608,6 +1642,7 @@ async function tqSubmitQuote() {
   $('qSend').disabled = false;
   $('qProductName').value = ''; $('qProductName').classList.remove('is-bad'); $('qProduct').value = ''; QuoteFields.reset('q');
   qErr('productName', ''); quoteProductChanged(); ['qCity', 'qBrgy', 'qStreet'].forEach(id => { $(id).value = ''; $(id).classList.remove('is-bad'); }); qResetArea();
+  if (qDraft) qDraft.clear(); if (QFA) { QFA.markClean($('quoteForm')); QFA.note($('qQty'), '', '', 'min'); }
   toast('Quotation request submitted. We will reply soon.'); await loadQuotes();
 }
 

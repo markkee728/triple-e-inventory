@@ -66,7 +66,8 @@ const LEGACY_REASON_LABELS = {
   sale: 'Sold at the POS counter',
   online_order: 'Online shop order',
   return: 'Returned by customer',
-  refund: 'Order cancelled, restocked'
+  refund: 'Order cancelled, restocked',
+  opening_balance: 'Opening balance'
 };
 const ALL_DEPTS = DEPARTMENTS;
 // Which product departments each reason applies to (the product's department comes from the database).
@@ -159,9 +160,10 @@ function supplierFields(r) {
   const person = r.contact_person != null ? r.contact_person : (segs.find((x) => !/[@\d]/.test(x)) || '');
   const address = r.address_line != null ? r.address_line : (r.location || '');
   const city = r.city || '', province = r.province || '', region = r.region || '', zip = r.zip_code || '', barangay = r.barangay || '';
+  const leadTimeDays = r.lead_time_days == null ? null : +r.lead_time_days;
   const area = [city, province].filter(Boolean).join(', ');
   const fullAddress = city ? [address, barangay && (/^(brgy|barangay)/i.test(barangay) ? barangay : 'Brgy. ' + barangay), city, province, [region, zip].filter(Boolean).join(' ')].filter(Boolean).join(', ') : (r.location || address);
-  return { contactPerson: person, phone, email, address, city, province, barangay, region, zip,
+  return { contactPerson: person, phone, email, address, city, province, barangay, region, zip, leadTimeDays,
     contact: [person, phone, email].filter(Boolean).join(' · '), location: area || r.location || address, fullAddress };
 }
 
@@ -635,10 +637,18 @@ function validateSupplier(b, stored, creating) {
   }
   if (productSkus && !productSkus.length) e.products = 'Tick at least one product this supplier provides';
   if (creating && b.productSkus === undefined) e.products = 'Tick at least one product this supplier provides';
+  // days from ordering to delivery; used by the automatic reorder level of the products this supplier is the main supplier of
+  const leadRaw = b.leadTimeDays;
+  let leadTimeDays = null;
+  if (leadRaw !== undefined && leadRaw !== null && leadRaw !== '') {
+    const n = Number(leadRaw);
+    if (!Number.isInteger(n) || n < 0 || n > 365) e.leadTimeDays = 'Lead time must be a whole number of days from 0 to 365';
+    else leadTimeDays = n;
+  }
   if (Object.keys(e).length) throw new ValidationError(e);
   const f = supplierFields({ contact_person: contactPerson || '', phone, email, address_line: address, city, province, region, zip_code: zip, barangay });
   return { name, contactPerson: contactPerson || null, phone: phone || null, email: email || null, address, city, province, barangay, region, zip,
-    contact: f.contact, location: f.location, status, productSkus };
+    contact: f.contact, location: f.location, status, productSkus, leadTimeDays };
 }
 function validateMovement(b) {
   const e = {};
@@ -1087,9 +1097,10 @@ app.post('/api/products', auth('finance'), wrap(async (req, res) => {
       [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost == null ? 0 : p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false]);
     const id = ins.rows[0].product_id;
     if (supplier) await client.query('INSERT INTO product_suppliers (product_id, supplier_id, is_primary) VALUES ($1,$2,TRUE)', [id, supplier.supplier_id]);
+    // the stock a new product starts with is its own ledger entry ("Opening balance"), valued at the cost it was entered with
     if (p.onHand > 0) await client.query(
-      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note)
-       VALUES ($1,'in','count_correction_up',$2,$3,'Opening balance')`, [id, p.onHand, req.user.id]);
+      `INSERT INTO stock_movements (product_id,movement_type,reason,quantity,handled_by,note,unit_cost)
+       VALUES ($1,'in','opening_balance',$2,$3,'Opening balance',$4)`, [id, p.onHand, req.user.id, p.unitCost == null ? 0 : p.unitCost]);
     await reorder.recalc(client, p.sku);   // no-op unless automatic; writes the "needs usage history" note for a new product
     await audit(client, req.user, 'Record added', `Product ${p.sku} — ${p.name}` + (supplier ? ` — supplier ${supplier.name}` : ''));
   });
@@ -1201,6 +1212,9 @@ app.get('/api/geo/check-zip', auth('finance', 'customer', 'cashier'), wrap(async
   res.json(await checkZipMatch({ zip, city, province, barangay }));
 }));
 
+/* ---------- form helpers (Task 9): next SKU, last delivery, ZIP -> address, known customers ---------- */
+require('./form-assist')({ app, pool, auth, wrap, str, loadZipRows, REGIONS, TZ });
+
 const initials = n => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
 
 app.get('/api/suppliers', auth('finance'), wrap(async (req, res) => {
@@ -1272,9 +1286,10 @@ app.post('/api/suppliers', auth('finance'), wrap(async (req, res) => {
   const code = s.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   await tx(async (client) => {
     const ins = await client.query(
-      `INSERT INTO suppliers (code,name,location,contact,contact_person,phone,email,address_line,city,province,region,zip_code,barangay)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING supplier_id`,
-      [code, s.name, s.location, s.contact, s.contactPerson, s.phone, s.email, s.address, s.city, s.province, s.region, s.zip, s.barangay || null]);
+      `INSERT INTO suppliers (code,name,location,contact,contact_person,phone,email,address_line,city,province,region,zip_code,barangay,lead_time_days)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING supplier_id`,
+      [code, s.name, s.location, s.contact, s.contactPerson, s.phone, s.email, s.address, s.city, s.province, s.region, s.zip, s.barangay || null,
+       s.leadTimeDays == null ? reorder.settings.leadDays : s.leadTimeDays]);
     if (s.productSkus && s.productSkus.length) await setSupplierProducts(client, ins.rows[0].supplier_id, s.productSkus);
     await audit(client, req.user, 'Record added', `Supplier ${s.name}`);
   });
@@ -1293,10 +1308,16 @@ app.put('/api/suppliers/:code', auth('finance'), wrap(async (req, res) => {
   const found = await tx(async (client) => {
     const r = await client.query(
       `UPDATE suppliers SET name=$2, location=$3, contact=$4, contact_person=$6, phone=$7, email=$8, address_line=$9,
-              city=$10, province=$11, region=$12, zip_code=$13, barangay=$14, status=COALESCE($5, status)
+              city=$10, province=$11, region=$12, zip_code=$13, barangay=$14, status=COALESCE($5, status),
+              lead_time_days=COALESCE($15::int, lead_time_days)
         WHERE code=$1 RETURNING supplier_id`,
-      [req.params.code, s.name, s.location, s.contact, s.status || null, s.contactPerson, s.phone, s.email, s.address, s.city, s.province, s.region, s.zip, s.barangay || null]);
+      [req.params.code, s.name, s.location, s.contact, s.status || null, s.contactPerson, s.phone, s.email, s.address, s.city, s.province, s.region, s.zip, s.barangay || null, s.leadTimeDays]);
     if (!r.rowCount) return false;
+    // a new lead time changes the automatic reorder level of the products this supplier mainly supplies
+    if (s.leadTimeDays != null) {
+      const skus = await client.query(`SELECT p.sku FROM product_suppliers ps JOIN products p USING (product_id) WHERE ps.supplier_id = $1 AND ps.is_primary AND p.reorder_auto`, [r.rows[0].supplier_id]);
+      for (const row of skus.rows) await reorder.recalc(client, row.sku);
+    }
     if (s.productSkus) await setSupplierProducts(client, r.rows[0].supplier_id, s.productSkus);
     await audit(client, req.user, 'Record edited', `Supplier ${req.params.code}${s.status ? ' to ' + s.status : ''}`);
     return true;
@@ -1675,6 +1696,7 @@ async function ensureSupplierColumns() {
   try {
     for (const col of ['contact_person', 'phone', 'email', 'address_line', 'barangay', 'city', 'province', 'region', 'zip_code'])
       await pool.query(`ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS ${col} TEXT`);
+    await pool.query('ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS lead_time_days INT CHECK (lead_time_days BETWEEN 0 AND 365)');
   } catch (err) { console.warn('[db] could not check the suppliers columns:', err.message); }
 }
 ensureSupplierColumns();

@@ -252,6 +252,16 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     res.json({ available: !r.rowCount, message: r.rowCount ? emailTakenMsg(r.rows[0]) : '' });
   }));
 
+  // live "is this mobile number already on an account?" check (a warning on the form, not a block: a shared business line is allowed)
+  app.get('/api/signup/check-phone', limit('check-phone', 40, 10 * 60 * 1000), wrap(async (req, res) => {
+    const m = phMobile(str(req.query.phone));
+    if (m.error) return res.json({ valid: false, used: false, message: m.error });
+    const key = m.value.replace(/\D/g, '').slice(-10);
+    const r = await pool.query(`SELECT 1 FROM users WHERE right(regexp_replace(coalesce(phone, ''), '\\D', '', 'g'), 10) = $1 LIMIT 1`, [key]);
+    res.json({ valid: true, phone: m.value, used: r.rowCount > 0,
+      message: r.rowCount ? 'This mobile number is already on another account. If it is yours, sign in instead (or use Forgot password).' : '' });
+  }));
+
   app.post('/api/signup/customer', limit('signup', 10, 60 * 60 * 1000), wrap(async (req, res) => {
     await ready;
     const b = req.body || {};
