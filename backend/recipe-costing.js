@@ -28,6 +28,8 @@ const ALIASES = { l: 'liter', liters: 'liter', litre: 'liter', litres: 'liter', 
 const normUnit = (u) => { const k = String(u == null ? '' : u).trim().toLowerCase(); return ALIASES[k] || k; };
 const groupOf = (u) => Object.keys(GROUPS).find((g) => GROUPS[g][normUnit(u)] != null) || null;
 const convertibleUnits = (u) => { const g = groupOf(u); return g ? Object.keys(GROUPS[g]) : [normUnit(u)]; };
+// how many `to` one `from` is (no rounding), or null when the two units cannot be converted
+const unitFactor = (from, to) => { const f = normUnit(from), t = normUnit(to); if (f === t) return 1; const g = groupOf(f); return g && g === groupOf(t) ? GROUPS[g][f] / GROUPS[g][t] : null; };
 const q4 = (n) => Math.round(Number(n) * 1e4) / 1e4;
 const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
@@ -271,4 +273,4 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
 
   return { ready, recalcOne, ripple, reconcileAll, breakdown, guardProductCost, flagQuotes, computeCost, convert, SYSTEM, MATERIAL_DEPTS };
 };
-module.exports.pure = { convert, convertibleUnits, normUnit, groupOf, lineCost, computeCost, priceFromCost, marginPct, MATERIAL_DEPTS };
+module.exports.pure = { convert, convertibleUnits, normUnit, groupOf, unitFactor, lineCost, computeCost, priceFromCost, marginPct, MATERIAL_DEPTS };

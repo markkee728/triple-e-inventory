@@ -4,41 +4,33 @@
       A database trigger keeps the price right whenever the unit cost changes, from ANY screen or job, so it never goes stale.
       A product can be switched to a manual price (price_auto = false) when there is a reason; the trigger then leaves it alone.
 
-   2. Custom made-to-order quotes: a calculator works the price out from the request itself.
-        weight per piece   from the size: a size range (table), a pipe size (table) or typed dimensions (volume x density x fill)
-        material           weight x (1 + scrap %) x price per kg of the raw material in stock (its current unit cost)
-        process            casting / forging / fitting work per kg (with a minimum per piece)
-        finish             per kg (with a minimum per piece) — powder coat, plating, polishing ...
-        service            per piece — deburring, drilling, CNC, threading
-        tooling            one-time mould / die cost for the order, shared by every piece
-        cost per piece     the sum;   price per piece = cost x (1 + quote markup %), rounded up to the next peso
-      The cashier sees it as the suggested price (already filled in), the customer sees an estimate on the request form,
-      and Finance sees the system price next to the cashier's. A cashier price BELOW the computed cost always goes to Finance.
+   2. Custom made-to-order quotes (Task 4): there is no saved recipe, so quote-automation.js builds a QUICK RECIPE on the quote
+      and prices it with the Task 3 formula (sum of quantity per piece x current unit cost, then cost x (1 + quote markup %)).
+      This module only keeps the ESTIMATES that first guess uses, all of them edited by Finance on "Pricing rules":
+        weight per piece   from the size: a size range (table), a pipe size (table) or typed dimensions (volume x density x fill factor)
+        raw material       weight x (1 + scrap %), in the stock unit of the matching raw material
+        finishing supply   weight x the supply used per kg of the piece for that finish (0 = the finish uses no stock item)
+      They are estimates, and every screen that uses them says so. Rates for process, labour and tooling are not part of the
+      cost (same rule as Task 3); they can be added to a quote as extra recipe lines.
    Every rate lives in one row (pricing_rules) that Finance edits on the Products page ("Pricing rules"). */
 module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, str }) {
-  const FG = 'Finished Goods';
   const DEFAULT_RATES = {
     density: { Aluminum: 2.7, Brass: 8.5 },                                       // g/cm3
     fillFactor: 0.35,                                                               // a cast / forged part is not a solid block
     rangeWeightKg: { 'Small': 0.08, 'Medium': 0.45, 'Large': 2.0, 'Extra large': 7.5 },     // aluminum; brass is scaled by density
     pipeWeightKg: { '1/4"': 0.06, '3/8"': 0.09, '1/2"': 0.14, '3/4"': 0.22, '1"': 0.36, '1-1/4"': 0.55, '1-1/2"': 0.75, '2"': 1.2 },
-    materialSku: { 'Aluminum ADC12': 'RM-ADC12', 'Aluminum A380': 'RM-ADC12', 'Brass C37700': 'RM-C377', 'Brass C36000': 'RM-C377' },
-    materialPerKgFallback: { Aluminum: 150, Brass: 420 },                          // used only if the raw material is not in stock records
     scrapPct: 10,
-    processPerKg: { 'Die-cast part': 60, 'Forged part': 80, 'Fitting / valve': 90 },
-    processMinPerPc: 10,
-    finishPerKg: { 'Raw / Unfinished': 0, 'Shot Blasted': 15, 'Powder Coated': 45, 'Painted': 35, 'Chromate Conversion': 30, 'Polished': 40,
-                   'Satin / Brushed': 30, 'Nickel Plated': 90, 'Chrome Plated': 120 },
-    finishMinPerPc: 5,
-    servicePerPc: { 'None (as is)': 0, 'Deburring': 8, 'Drilling / tapping': 25, 'CNC machining': 120, 'Threading (BSP / NPT)': 30 },
-    toolingPerOrder: { 'Die-cast part': 8000, 'Forged part': 5000, 'Fitting / valve': 0 },
-    thicknessRefMm: 3
+    thicknessRefMm: 3,
+    // finishing supply used per kg of the piece, in the supply's own stock unit (kg of powder, kg of plating salt ...)
+    finishUsePerKg: { 'Raw / Unfinished': 0, 'Shot Blasted': 0, 'Powder Coated': 0.05, 'Painted': 0.04, 'Chromate Conversion': 0.01, 'Polished': 0.01,
+                      'Satin / Brushed': 0.008, 'Nickel Plated': 0.012, 'Chrome Plated': 0.01 }
   };
+  // every number above is a first guess, not a measured value: the screens label them "estimate"
+  const ESTIMATES = Object.keys(DEFAULT_RATES);
   const ITEM_FAMILY = { 'Die-cast part': 'Aluminum', 'Forged part': 'Brass', 'Fitting / valve': 'Brass' };
   const FAMILY_DEFAULT = { Aluminum: 'Aluminum ADC12', Brass: 'Brass C37700' };
   const PIPE_IN = { '1/4"': 0.25, '3/8"': 0.375, '1/2"': 0.5, '3/4"': 0.75, '1"': 1, '1-1/4"': 1.25, '1-1/2"': 1.5, '2"': 2 };
   const r2 = (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
-  const r3 = (n) => Math.round(Number(n) * 1000) / 1000;
   const clamp = (n, a, b) => Math.min(b, Math.max(a, n));
 
   /* ---------- database ---------- */
@@ -85,20 +77,8 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     return { fgMarkupPct: r.fg_markup_pct == null ? 20 : +r.fg_markup_pct, quoteMarkupPct: r.quote_markup_pct == null ? 20 : +r.quote_markup_pct,
       rates, updatedAt: r.updated_at || null, updatedBy: r.updated_by || null };
   }
-  async function materialPrices(db, rates) {
-    const skus = [...new Set(Object.values(rates.materialSku))];
-    const { rows } = await (db || pool).query(`SELECT sku, name, unit, unit_cost FROM products WHERE sku = ANY($1) AND NOT is_archived`, [skus]);
-    const by = new Map(rows.map((x) => [x.sku, x]));
-    const out = {};
-    Object.keys(rates.materialSku).forEach((m) => {
-      const p = by.get(rates.materialSku[m]), fam = /^Brass/.test(m) ? 'Brass' : 'Aluminum';
-      const perKg = p && String(p.unit).toLowerCase() === 'kg' && +p.unit_cost > 0 ? +p.unit_cost : +rates.materialPerKgFallback[fam];
-      out[m] = { perKg, from: p && String(p.unit).toLowerCase() === 'kg' && +p.unit_cost > 0 ? p.name + ' (' + p.sku + ') unit cost' : 'standard rate (no stock price found)' };
-    });
-    return out;
-  }
 
-  /* ---------- the quote calculator ---------- */
+  /* ---------- the weight estimate: the first guess of how much material one piece needs ---------- */
   const toMm = (v) => {
     const unit = (/(mm|cm|inches|inch|in|")\s*$/i.exec(v) || [])[1] || 'mm', f = /^mm$/i.test(unit) ? 1 : /^cm$/i.test(unit) ? 10 : 25.4;
     return (String(v).replace(/(mm|cm|inches|inch|in|")\s*$/i, '').match(/\d+(?:[-\s]\d+\/\d+|\/\d+|\.\d+)?/g) || []).map((t) => {
@@ -134,71 +114,20 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     else vol = Math.pow(n[0], 3) / 4;
     return { kg: vol * rates.fillFactor * rates.density[family] / 1e6, basis: size + ' x ' + Math.round(rates.fillFactor * 100) + '% fill x ' + rates.density[family] + ' g/cm3' };
   }
-  const qtyOf = (q) => { const m = /(\d+(?:\.\d+)?)/.exec(String(q || '')); return m ? Number(m[1]) : 0; };
-
-  // returns { ok, ... } or { ok: false, missing: [...] } when the request does not say enough yet
-  async function estimate(input, db) {
-    const R = await rules(db), rates = R.rates;
-    const specs = input.specs || {};
-    const itemType = str(input.itemType || specs.itemType), qty = Number(input.quantity) > 0 ? Number(input.quantity) : qtyOf(input.quantity);
-    const productSku = str(input.productSku).toUpperCase();
-    const markup = R.quoteMarkupPct;
-    if (productSku) {                                          // a catalog finished good: its own (automatic) selling price
-      const p = (await (db || pool).query(`SELECT sku, name, unit, unit_cost, selling_price, department FROM products WHERE sku = $1 AND NOT is_archived`, [productSku])).rows[0];
-      if (p && p.department === FG && +p.selling_price > 0) {
-        const per = r2(+p.selling_price);
-        return { ok: true, catalog: true, product: p.name, quantity: qty, unit: p.unit, pricePerPiece: per, costPerPiece: r2(+p.unit_cost),
-          markupPct: R.fgMarkupPct, total: r2(per * qty), lines: [{ label: p.name + ' catalog price (unit cost + ' + R.fgMarkupPct + '%)', amount: per }], notes: [] };
-      }
-    }
-    const missing = [];
-    if (!ITEM_FAMILY[itemType]) missing.push('item type');
-    const size = str(specs.size || input.size);
-    if (!size) missing.push('size');
-    if (!(qty > 0)) missing.push('quantity');
-    if (missing.length) return { ok: false, missing };
-    const family = ITEM_FAMILY[itemType], notes = [];
-    let material = str(specs.material || input.material);
-    if (!rates.materialSku[material]) { material = FAMILY_DEFAULT[family]; notes.push('Material not chosen yet: priced as ' + material + '.'); }
-    const w = itemType === 'Fitting / valve' ? pipeWeight(rates, size) : partWeight(rates, family, size, specs.thickness || input.thickness);
-    if (!w || !(w.kg > 0)) return { ok: false, missing: ['a size the calculator can read'] };
-    const kg = w.kg, prices = await materialPrices(db, rates), perKg = prices[material].perKg;
-    const finish = str(specs.finish || input.finish), service = str(specs.service || input.service);
-    const matCost = kg * (1 + rates.scrapPct / 100) * perKg;
-    const process = Math.max(kg * (+rates.processPerKg[itemType] || 0), +rates.processMinPerPc || 0);
-    const finRate = +rates.finishPerKg[finish] || 0, fin = finRate > 0 ? Math.max(kg * finRate, +rates.finishMinPerPc || 0) : 0;
-    const svc = +rates.servicePerPc[service] || 0;
-    const tooling = +rates.toolingPerOrder[itemType] || 0, toolingPc = qty > 0 ? tooling / qty : 0;
-    if (finish && rates.finishPerKg[finish] == null) notes.push('No rate for the finish "' + finish + '" yet: not included.');
-    if (service && rates.servicePerPc[service] == null) notes.push('No rate for the service "' + service + '" yet: not included.');
-    const cost = matCost + process + fin + svc + toolingPc;
-    const pricePc = Math.ceil(cost * (1 + markup / 100));
-    const lines = [
-      { label: 'Material: ' + r3(kg) + ' kg ' + material + ' + ' + rates.scrapPct + '% scrap x ₱' + r2(perKg) + '/kg', amount: r2(matCost) },
-      { label: 'Process (' + itemType.toLowerCase() + '): ₱' + rates.processPerKg[itemType] + '/kg, min ₱' + rates.processMinPerPc, amount: r2(process) }
-    ];
-    if (fin > 0) lines.push({ label: 'Finish: ' + finish + ' (₱' + finRate + '/kg)', amount: r2(fin) });
-    if (svc > 0) lines.push({ label: 'Service: ' + service, amount: r2(svc) });
-    if (toolingPc > 0) lines.push({ label: 'Tooling / mould ₱' + tooling.toLocaleString('en-PH') + ' shared by ' + qty + ' pcs', amount: r2(toolingPc) });
-    return { ok: true, catalog: false, itemType, material, materialPriceFrom: prices[material].from, weightKg: r3(kg), weightBasis: w.basis,
-      quantity: qty, lines, costPerPiece: r2(cost), markupPct: markup, pricePerPiece: pricePc, total: r2(pricePc * qty), costTotal: r2(cost * qty), notes };
+  // { kg, basis } for one piece, or null when the size cannot be read
+  function weightOf(rates, itemType, size, thickness) {
+    const family = ITEM_FAMILY[itemType];
+    if (!family) return null;
+    const w = itemType === 'Fitting / valve' ? pipeWeight(rates, size) : partWeight(rates, family, size, thickness);
+    return w && w.kg > 0 ? w : null;
   }
+  const qtyOf = (q) => { const m = /(\d[\d,]*(?:\.\d+)?)/.exec(String(q || '')); return m ? Number(m[1].replace(/,/g, '')) : 0; };
 
   /* ---------- routes ---------- */
   app.get('/api/pricing', auth('finance', 'cashier'), wrap(async (req, res) => {
     const R = await rules();
-    res.json(Object.assign(R, { materialPrices: await materialPrices(pool, R.rates), defaults: DEFAULT_RATES }));
-  }));
-
-  // a live estimate for the request form (customer, cashier, Finance): nothing is saved
-  app.post('/api/pricing/quote-estimate', auth('finance', 'cashier', 'customer'), wrap(async (req, res) => {
-    res.json(await estimate(req.body || {}));
-  }));
-  // the system price of a saved request (what the cashier and Finance see next to the price form)
-  app.get('/api/pricing/quote/:no', auth('finance', 'cashier'), wrap(async (req, res) => {
-    const q = (await pool.query('SELECT quote_no, product_sku, quantity, specs FROM quote_requests WHERE quote_no = $1', [str(req.params.no)])).rows[0];
-    if (!q) throw new ValidationError({ id: 'Quotation not found' });
-    res.json(await estimate({ specs: q.specs || {}, quantity: q.quantity, productSku: q.product_sku }));
+    const qa = app.locals.quoteAutomation;
+    res.json(Object.assign(R, { defaults: DEFAULT_RATES, estimates: ESTIMATES, materialItems: qa ? await qa.materialItems(pool) : {} }));
   }));
 
   const num = (e, key, v, label, max) => {
@@ -216,12 +145,11 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     const inRates = b.rates && typeof b.rates === 'object' ? b.rates : {};
     Object.keys(DEFAULT_RATES).forEach((k) => {
       const d = DEFAULT_RATES[k];
-      if (k === 'materialSku') { rates[k] = cur[k]; return; }               // which stock item prices a material: fixed here
       if (d && typeof d === 'object') {
         rates[k] = {};
         Object.keys(d).forEach((sub) => {
           const v = inRates[k] && inRates[k][sub] !== undefined ? inRates[k][sub] : cur[k][sub];
-          const n = num(e, 'rates.' + k + '.' + sub, v, sub, 1e7);
+          const n = num(e, 'rates.' + k + '.' + sub, v, sub, k === 'finishUsePerKg' ? 10 : 1e7);
           rates[k][sub] = n == null ? cur[k][sub] : n;
         });
       } else {
@@ -232,6 +160,7 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
     });
     if (rates.fillFactor <= 0) e['rates.fillFactor'] = 'Fill factor must be more than 0';
     if (rates.thicknessRefMm <= 0) e['rates.thicknessRefMm'] = 'Reference wall must be more than 0';
+    Object.keys(rates.density).forEach((k) => { if (!(rates.density[k] > 0)) e['rates.density.' + k] = 'Density must be more than 0'; });
     if (Object.keys(e).length) throw new ValidationError(e);
     const changed = await tx(async (client) => {
       const before = await rules(client);
@@ -239,12 +168,13 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
         [fg, qm, JSON.stringify(rates), req.user.id]);
       // finished goods on automatic pricing follow the new markup straight away
       const n = (await client.query(`UPDATE products SET unit_cost = unit_cost WHERE department = 'Finished Goods' AND price_auto AND NOT is_archived`)).rowCount;
+      const moved = ESTIMATES.filter((k) => JSON.stringify(before.rates[k]) !== JSON.stringify(rates[k]));
       await audit(client, req.user, 'Record edited', `Pricing rules: finished goods markup ${before.fgMarkupPct}% to ${fg}%, quote markup ${before.quoteMarkupPct}% to ${qm}%` +
-        (n ? `; ${n} finished good price${n === 1 ? '' : 's'} recalculated` : ''));
+        (moved.length ? `; estimates changed: ${moved.join(', ')}` : '') + (n ? `; ${n} finished good price${n === 1 ? '' : 's'} recalculated` : ''));
       return n;
     });
-    res.json(Object.assign(await rules(), { repriced: changed }));
+    res.json(Object.assign(await rules(), { repriced: changed, defaults: DEFAULT_RATES, estimates: ESTIMATES }));
   }));
 
-  return { estimate, rules, ready };
+  return { rules, ready, weightOf, qtyOf, ITEM_FAMILY, FAMILY_DEFAULT, DEFAULT_RATES, ESTIMATES };
 };

@@ -460,3 +460,17 @@
 #page-quotes .qd-sys li{display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px dashed var(--border)}
 #page-quotes .qd-sys li b{white-space:nowrap;color:var(--text)}
 #page-quotes .qd-sys .btn-sm{align-self:flex-start}
+
+/* Task 4: quick recipe editor and the materials / stock table under the suggested price (quote-desk-ui.js) */
+#page-quotes .qd-sys-tablewrap{overflow-x:auto;margin:4px 0}
+#page-quotes .qd-sys-table{width:100%;border-collapse:collapse;font-size:12.5px}
+#page-quotes .qd-sys-table th,#page-quotes .qd-sys-table td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+#page-quotes .qd-sys-table td:first-child{white-space:normal;min-width:140px}
+#page-quotes .qd-sys-table .qd-num{text-align:right}
+#page-quotes .qd-recipe{margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);display:flex;flex-direction:column;gap:6px}
+#page-quotes .qd-recipe-head{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+#page-quotes .qd-rline{display:grid;grid-template-columns:minmax(0,1fr) 96px 72px auto;gap:6px;align-items:center}
+#page-quotes .qd-rline select,#page-quotes .qd-rline input{min-height:36px;min-width:0;width:100%}
+#page-quotes .qd-jline{grid-template-columns:minmax(0,1fr) 110px 48px;margin:6px 0}
+#page-quotes .qd-recipe-actions{display:flex;gap:8px;flex-wrap:wrap}
+@media(max-width:560px){#page-quotes .qd-rline{grid-template-columns:minmax(0,1fr) 80px 64px auto}}

@@ -199,6 +199,7 @@
       sec('Payment terms on this quotation', termsSectionHtml(d)),
       sec('History', timelineHtml(d)),
       d.orderNo ? sec('Converted', '<div class="qd-callout ok">This quotation became order <b>' + esc(d.orderNo) + '</b>. A quotation is not a reservation: stock leaves inventory only at the sale or order-confirm step.</div>') : '',
+      productionHtml(d),
       sec('Pricing', priceFormHtml(d))
     ];
     el('qdDrawerBody').innerHTML = parts.filter(Boolean).join('');
@@ -213,6 +214,7 @@
       loadSystemPrice(d, form);
     }
     if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
+    if (el('qdDrawerBody').querySelector('[data-job]')) loadJob(d);
   }
   function timelineHtml(d) {
     const items = (d.clarifications || []).map((c) => '<div class="qd-tl-item ' + (c.status === 'answered' ? 'done' : 'wait') + '">' +
@@ -225,24 +227,94 @@
     (d.notes || []).slice(0, 8).forEach((n) => items.push('<div class="qd-tl-item"><b>' + esc(n.action) + '</b><time>' + day(n.at) + ' · ' + esc(n.by || '') + '</time><p>' + esc(n.detail) + '</p></div>'));
     return items.length ? '<div class="qd-tl">' + items.join('') + '</div>' : '<p class="qd-mut dim" style="margin:0">Nothing has happened on this request yet.</p>';
   }
-  /* the system price (pricing.js): worked out from the request's material, size, finish, service and quantity + the markup.
-     It is filled in as the unit price when the cashier has not typed one; the cashier can still change it. */
+  /* ---- Task 4: the quick recipe and the system price. Every sum is done by the server (quote-automation.js):
+     cost per piece = materials x their current cost, suggested price = cost x (1 + markup), margin, stock needed vs on hand.
+     The suggested price per piece pre-fills the unit price and follows every change until the cashier types their own. ---- */
+  const num4 = (n) => (+Number(n).toFixed(4)).toLocaleString('en-PH', { maximumFractionDigits: 4 });
+  let draftSeq = 0, draftTimer = null;
+  const linesFrom = (e) => (Array.isArray(e && e.lines) && !e.catalog ? e.lines.map((l) => ({ sku: l.sku, qtyPerPiece: l.recipeQty, unit: l.recipeUnit })) : null);
   async function loadSystemPrice(d, form) {
     const box = form && form.querySelector('[data-sys]'); if (!box) return;
     let e;
-    try { e = await api('/api/pricing/quote/' + encodeURIComponent(d.id)); } catch (err) { box.innerHTML = '<p class="q-hint">The system price could not be worked out: ' + esc(err.message) + '</p>'; return; }
+    try { e = await call('/api/pricing/quote/' + encodeURIComponent(d.id)); } catch (err) { box.innerHTML = '<p class="q-hint">The system price could not be worked out: ' + esc(fieldErr(err)) + '</p>'; return; }
     if (!box.isConnected) return;
-    if (!e.ok) { box.innerHTML = '<p class="q-hint">No system price yet: the request does not give the ' + esc((e.missing || []).join(', ')) + '.</p>'; return; }
-    S.sysCost = { id: d.id, total: e.catalog ? e.costPerPiece * e.quantity : e.costTotal };
-    box.innerHTML = '<div class="qd-sys-head"><span>System price <span class="dim">(automatic)</span></span><strong>' + peso(e.total) + '</strong></div>' +
-      '<div class="dim">' + peso(e.pricePerPiece) + ' per piece \u00D7 ' + esc(e.quantity) + ' \u00B7 cost ' + peso(e.costPerPiece) + '/pc + ' + esc(e.markupPct) + '% markup</div>' +
-      '<details><summary>How it is worked out</summary><ul>' + (e.lines || []).map((l) => '<li><span>' + esc(l.label) + '</span><b>' + peso(l.amount) + '</b></li>').join('') +
-      (e.weightKg ? '<li><span>Estimated weight: ' + esc(e.weightKg) + ' kg (' + esc(e.weightBasis) + ')</span><b></b></li>' : '') + '</ul></details>' +
+    S.rules = e.approvalRules || (window.PQ_OPTIONS || {}).approvalRules || null;
+    S.recipeMode = 'saved'; S.lines = linesFrom(e); S.recipeEditedBy = e.editedBy || null; S.recipeAuto = e.auto !== false;
+    if (!e.catalog && !e.missing && !S.mats) { try { S.mats = await call('/api/pricing/materials'); } catch (_) { S.mats = []; } }
+    if (!box.isConnected) return;
+    box.innerHTML = '<div data-sum></div>' + (e.catalog || e.missing ? '' : '<div data-recipe></div>');
+    renderRecipe(form); showDraft(form, e);
+  }
+  function showDraft(form, e) {
+    S.draft = e;
+    const sum = form.querySelector('[data-sum]'); if (!sum) return;
+    sum.innerHTML = draftSummaryHtml(e);
+    fillUnit(form);
+    const unit = form.querySelector('[name=unit]'), q = qtyParts(S.detail && S.detail.quantity);
+    syncRoute(form, unit && q && /^\d+(\.\d{1,2})?$/.test(unit.value.trim()) ? Number(unit.value) * q.qty : 0);
+  }
+  function draftSummaryHtml(e) {
+    if (e.missing) return '<p class="q-hint">No system price yet: the request does not give the ' + esc(e.missing.join(', ')) + '.</p>';
+    const rows = (e.lines || []).map((l) => '<tr><td>' + esc(l.name || l.sku) + (l.estimate ? ' <span class="dim">estimate</span>' : '') + '</td>' +
+      '<td class="qd-num">' + (l.qtyPerPiece != null ? num4(l.qtyPerPiece) + ' ' + esc(l.unit) : '\u2014') + '</td>' +
+      '<td class="qd-num">' + (l.needed != null ? num4(l.needed) + ' ' + esc(l.unit) : '\u2014') + '</td>' +
+      '<td class="qd-num">' + num4(l.onHand || 0) + '</td>' +
+      '<td>' + (l.short > 0 ? '<span class="qd-pill bad">short by ' + num4(l.short) + ' ' + esc(l.unit) + '</span>' : l.needed != null ? '<span class="qd-pill ok">in stock</span>' : '\u2014') + '</td>' +
+      '<td class="qd-num">' + (l.costPerPiece != null ? peso(l.costPerPiece) : '<span class="qd-pill bad">no cost</span>') + '</td></tr>').join('');
+    const table = rows ? '<div class="qd-sys-tablewrap"><table class="qd-sys-table"><thead><tr><th>Material</th><th class="qd-num">Per piece</th><th class="qd-num">For ' + esc(e.quantity) + '</th><th class="qd-num">On hand</th><th>Stock</th><th class="qd-num">Cost / pc</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '';
+    if (!e.ok) return '<div class="qd-sys-head"><span>System price</span><strong>Cannot price yet</strong></div>' +
+      '<div class="qd-callout bad">' + esc((e.problems || []).map((p) => p.message).join(' ')) + '</div>' + table;
+    return '<div class="qd-sys-head"><span>Suggested price <span class="dim">(cost \u00D7 ' + (1 + e.markupPct / 100).toFixed(2) + ')</span></span><strong>' + peso(e.total) + '</strong></div>' + table +
+      kv([['Cost per piece', peso(e.costPerPiece)], ['Total cost', peso(e.costTotal)], ['Suggested per piece', '<b>' + peso(e.pricePerPiece) + '</b>'], ['Margin', esc(e.marginPct) + '%'],
+        ['Stock check', (e.shortfalls || []).length ? '<span class="qd-pill bad">short</span> ' + esc(e.shortfalls.map((s) => s.name + ' short by ' + num4(s.short) + ' ' + s.unit).join('; ')) : '<span class="qd-pill ok">covers the quantity</span>']]) +
       ((e.notes || []).length ? '<p class="q-hint">' + esc(e.notes.join(' ')) + '</p>' : '') +
-      '<button type="button" class="btn-secondary btn-sm" data-use-sys="' + esc(e.pricePerPiece) + '">Use the system price</button>';
-    const unit = form.querySelector('[name=unit]');
-    if (unit && !unit.value) { unit.value = String(e.pricePerPiece); unit.dispatchEvent(new Event('input', { bubbles: true })); }
-    box.querySelector('[data-use-sys]').addEventListener('click', (ev) => { unit.value = ev.currentTarget.dataset.useSys; unit.dispatchEvent(new Event('input', { bubbles: true })); unit.focus(); });
+      (e.catalog ? '' : '<p class="q-hint">Materials only, at today\u2019s costs. The weight per piece (' + esc(e.weightKg) + ' kg) is an estimate; correct the lines below if you know better.</p>') +
+      '<button type="button" class="btn-secondary btn-sm" data-use-sys>Use the suggested price</button>';
+  }
+  function matOptions(sku) {
+    const m = S.mats || [];
+    return '<option value="">Choose a material\u2026</option>' + ['Raw Materials', 'Finishing Supplies'].map((dep) => '<optgroup label="' + dep + '">' +
+      m.filter((x) => x.department === dep).map((x) => '<option value="' + esc(x.sku) + '"' + (x.sku === sku ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.sku) + ')' + (x.unitCost == null ? ' \u00B7 no cost' : '') + '</option>').join('') + '</optgroup>').join('');
+  }
+  function renderRecipe(form) {
+    const box = form && form.querySelector('[data-recipe]'); if (!box) return;
+    const lines = S.lines || [], editable = ['new', 'pending_approval'].includes((S.detail || {}).status);
+    const units = (sku) => ((S.mats || []).find((x) => x.sku === sku) || {}).units || [];
+    box.innerHTML = '<div class="qd-recipe"><div class="qd-recipe-head"><b>Quick recipe, per piece</b><span class="dim">' +
+      (S.recipeMode === 'edited' ? 'changed by you \u2014 saved when you confirm the price' : S.recipeMode === 'auto' ? 'back to the automatic guess \u2014 saved when you confirm' :
+        S.recipeAuto ? 'automatic first guess (estimate)' : 'adjusted on this quote' + (S.recipeEditedBy ? ' by ' + esc(S.recipeEditedBy) : '')) + '</span></div>' +
+      lines.map((l, i) => '<div class="qd-rline" data-i="' + i + '"><select data-rsku aria-label="Material"' + (editable ? '' : ' disabled') + '>' + matOptions(l.sku) + '</select>' +
+        '<input data-rqty inputmode="decimal" aria-label="Quantity per piece" value="' + esc(l.qtyPerPiece == null ? '' : l.qtyPerPiece) + '"' + (editable ? '' : ' disabled') + '>' +
+        '<select data-runit aria-label="Unit"' + (editable ? '' : ' disabled') + '>' + (units(l.sku).length ? units(l.sku) : [l.unit || '']).map((u) => '<option' + (String(u).toLowerCase() === String(l.unit || '').toLowerCase() ? ' selected' : '') + '>' + esc(u) + '</option>').join('') + '</select>' +
+        (editable ? '<button type="button" class="btn-secondary btn-sm" data-rdel aria-label="Remove this material">\u00D7</button>' : '') + '</div>').join('') +
+      (editable ? '<div class="qd-recipe-actions"><button type="button" class="btn-secondary btn-sm" data-radd>+ Add material</button>' +
+        (S.recipeMode === 'edited' || !S.recipeAuto ? '<button type="button" class="btn-secondary btn-sm" data-rauto>Back to the automatic guess</button>' : '') + '</div>' : '') + '</div>';
+  }
+  function readRecipe(form) {
+    S.lines = Array.from(form.querySelectorAll('.qd-rline')).map((r) => ({ sku: r.querySelector('[data-rsku]').value, qtyPerPiece: r.querySelector('[data-rqty]').value.replace(/,/g, '').trim(), unit: r.querySelector('[data-runit]').value }));
+  }
+  const validLines = () => (S.lines || []).filter((l) => l.sku && /^\d+(\.\d+)?$/.test(String(l.qtyPerPiece)) && Number(l.qtyPerPiece) > 0);
+  function recalcDraft(form) {
+    clearTimeout(draftTimer);
+    const sum = form.querySelector('[data-sum]'); if (sum) sum.style.opacity = '.55';
+    draftTimer = setTimeout(async () => {
+      const d = S.detail; if (!d) return;
+      const sp = d.specs || {}, my = ++draftSeq;
+      try {
+        const e = await call('/api/pricing/quote-estimate', { method: 'POST', body: JSON.stringify({ itemType: sp.itemType, specs: sp, quantity: d.quantity, productSku: d.sku || undefined,
+          lines: S.recipeMode === 'auto' && !S.lines ? undefined : validLines() }) });
+        if (my !== draftSeq || !form.isConnected) return;
+        if (!S.lines) { S.lines = linesFrom(e) || []; renderRecipe(form); }
+        showDraft(form, e);
+      } catch (err) { if (my === draftSeq && sum && sum.isConnected) sum.innerHTML = '<div class="qd-callout bad">' + esc(fieldErr(err)) + '</div>'; }
+      if (sum && sum.isConnected) sum.style.opacity = '';
+    }, 300);
+  }
+  // the suggested price stays in the unit price box until the cashier types their own (data-auto="1" while untouched)
+  function fillUnit(form) {
+    const u = form.querySelector('[name=unit]'); if (!u || u.dataset.auto !== '1') return;
+    u.value = S.draft && S.draft.ok ? Number(S.draft.pricePerPiece).toFixed(2) : '';
+    S.fillingUnit = true; u.dispatchEvent(new Event('input', { bubbles: true })); S.fillingUnit = false;
   }
   function priceFormHtml(d) {
     const can = ['new', 'pending_approval', 'awaiting_details'].includes(d.status);
@@ -254,8 +326,8 @@
     const back = d.financeNote && d.status === 'new' ? '<div class="qd-callout warn">Finance sent your price back: <b>' + esc(d.financeNote) + '</b>. Change the price and send it again.</div>' : '';
     const unit = d.proposedAmount != null && q.qty ? (d.proposedAmount / q.qty).toFixed(2) : '';
     return back + '<form class="qd-price" id="qdPriceForm" novalidate>' +
-      '<div class="qd-sys wide" data-sys><p class="q-hint">Working out the system price\u2026</p></div>' +
-      '<label>Unit price (PHP)<input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '" required></label>' +
+      '<div class="qd-sys wide" data-sys><p class="q-hint">Working out the materials and the suggested price\u2026</p></div>' +
+      '<label>Unit price (PHP) <span class="dim" data-unit-note>' + (unit ? 'your earlier price' : 'filled in with the suggested price') + '</span><input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '"' + (unit ? '' : ' data-auto="1"') + ' required></label>' +
       '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
       '<div class="qd-callout wide" data-route role="status" hidden></div>' +
@@ -267,12 +339,10 @@
       '<div class="qd-term-list" data-terms-opts><p class="q-hint">Reading the payment policy…</p></div>' +
       '<small class="q-hint">Only the terms Finance switched on for this kind of item appear. Choosing one never takes money now; it says what the customer pays now and what stays outstanding.</small></fieldset>' +
       '<label class="wide">Remarks for the customer<textarea name="note" maxlength="1500" rows="2" placeholder="What is included, any assumption you made, how to reach you"></textarea></label>' +
-      '<label class="qd-check"><input type="checkbox" name="exception"> Custom manufacturing, or a price that needs Finance approval first</label>' +
-      '<label class="wide" data-reason hidden>Why Finance must approve<textarea name="reason" maxlength="500" rows="2" placeholder="Costing, material sourcing, or the discount you are asking for"></textarea></label>' +
       '<div class="err-text wide" data-price-err role="alert"></div>' +
       '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelprice">Cancel</button>' +
-      '<button type="submit" class="btn-primary">' + (d.status === 'pending_approval' ? 'Resubmit for approval' : 'Review & send price') + '</button></div></form>' +
-      '<p class="q-hint">Approval status: ' + esc(d.status === 'pending_approval' ? 'waiting for Finance' : limitHint()) + '</p>';
+      '<button type="submit" class="btn-primary">Confirm price</button></div></form>' +
+      '<p class="q-hint">You never choose where the price goes: the system checks it against Finance\u2019s rules (' + esc(rulesHint()) + ') and either sends it to the customer or to Finance, with the reason.</p>';
   }
   /* ---- payment terms. The policy table, the allowed scope per item type and every peso figure come from the
      backend; this screen only renders what GET /api/pos/payment-terms returns for the total being quoted. ---- */
@@ -377,6 +447,7 @@
     const b = [];
     if (['new', 'awaiting_details'].includes(d.status) && d.customerId) b.push('<button type="button" class="btn-secondary" data-act="clarify">Request missing details</button>');
     if (d.status === 'quoted' && d.source === 'pos' && !d.expired) b.push('<button type="button" class="btn-primary" data-act="accept">Customer accepted</button><button type="button" class="btn-secondary" data-act="decline">Customer declined</button>');
+    if (d.status === 'quoted' && !(Number(d.paidAmount) > 0)) b.push('<button type="button" class="' + (d.expired || d.costStale ? 'btn-primary' : 'btn-secondary') + '" data-act="refresh">Refresh price at today\u2019s costs</button>');
     if (d.status === 'quoted' && d.expired) b.push('<button type="button" class="btn-secondary" data-act="renew">Ask Finance for a new price</button>');
     if (d.status === 'quoted' && d.source !== 'pos') b.push('<button type="button" class="btn-secondary" data-act="renew">Ask Finance to re-issue</button>');
     if (d.status === 'accepted') b.push('<button type="button" class="btn-primary" data-act="convert">' + (d.source === 'pos' ? 'Hand over to the counter' : 'Convert into an order') + '</button>');
@@ -518,28 +589,38 @@
     out.textContent = day(iso); box.hidden = false; late.hidden = !(d.neededBy && iso > d.neededBy);
   }
 
-  /* Whether a price goes to Finance is decided by the server's cashier ceiling (GET /api/pos/quote-options).
-     Going over it is automatic and needs no written reason; only the "custom manufacturing" tick asks for one. */
-  const cashierLimit = () => { const n = Number((window.PQ_OPTIONS || {}).cashierQuoteLimit || 0); return n > 0 ? n : 0; };
-  const overLimit = (total) => { const lim = cashierLimit(); return lim <= 0 || total > lim; };
-  function limitHint() {
-    const lim = cashierLimit();
-    return lim > 0 ? 'you can send prices up to ' + peso(lim) + ' straight to the customer; a higher price goes to Finance automatically, no reason needed.'
-      : 'no cashier pricing limit is set yet, so every counter price is checked by Finance before the customer sees it. You do not need to write a reason for that.';
+  /* Where a confirmed price goes is decided by the SERVER (quote-automation.js routeQuote) from Finance's approval rules.
+     This preview runs the same rules on the same numbers so the cashier knows before confirming; the server decides again. */
+  const rulesNow = () => S.rules || (window.PQ_OPTIONS || {}).approvalRules || null;
+  function rulesHint() {
+    const R = rulesNow(); if (!R) return 'the approval rules could not be read, so Finance checks it';
+    return '\u00B1' + R.tolerancePct + '% of the system price, margin at least ' + R.minMarginPct + '%, up to ' + peso(R.valueLimit) + ', fully costed and in stock';
+  }
+  function previewRoute(form, total) {
+    const R = rulesNow(), e = S.draft, why = [];
+    if (!R) return ['the approval rules could not be read'];
+    if (!e || !e.ok) why.push(e && e.missing ? 'the request does not give the ' + e.missing.join(', ') : 'it cannot be priced yet (' + ((e && e.problems) || []).map((p) => p.message).join(' ').replace(/\.$/, '') + ')');
+    else {
+      const margin = total > 0 ? (total - e.costTotal) / total * 100 : -Infinity, dev = e.total > 0 ? (total - e.total) / e.total * 100 : 0;
+      if (total < e.costTotal - 0.004) why.push(peso(total) + ' is below the cost of ' + peso(e.costTotal));
+      else if (margin < R.minMarginPct) why.push('the margin of ' + margin.toFixed(1) + '% is below the minimum of ' + R.minMarginPct + '%');
+      if (Math.abs(dev) > R.tolerancePct + 1e-9) why.push(Math.abs(dev).toFixed(1) + '% ' + (dev < 0 ? 'below' : 'above') + ' the system price of ' + peso(e.total) + ' (allowed \u00B1' + R.tolerancePct + '%)');
+      if ((e.shortfalls || []).length) why.push('stock is short (' + e.shortfalls.map((s) => s.name + ' by ' + num4(s.short) + ' ' + s.unit).join('; ') + ')');
+    }
+    if (!(R.valueLimit > 0)) why.push('no order-value limit is set');
+    else if (total > R.valueLimit) why.push(peso(total) + ' is over the cashier limit of ' + peso(R.valueLimit));
+    const term = form && form.querySelector('input[name=term]:checked');
+    if (term && term.value !== 'full') why.push('partial-payment terms are approved by Finance');
+    return why;
   }
   function syncRoute(form, total) {
     const box = form && form.querySelector('[data-route]'); if (!box) return;
-    const cost = S.sysCost && S.detail && S.sysCost.id === S.detail.id ? S.sysCost.total : 0;
-    if (total > 0 && cost > 0 && total < cost) {          // the server routes a loss-making price to Finance (pricing.js)
-      box.hidden = false;
-      box.textContent = peso(total) + ' is below the computed cost of ' + peso(cost) + ', so Finance approves this price before the customer sees it.';
-      return;
-    }
-    if (!(total > 0) || !overLimit(total)) { box.hidden = true; box.textContent = ''; return; }
-    const lim = cashierLimit();
+    if (!(total > 0)) { box.hidden = true; box.textContent = ''; return; }
+    const why = previewRoute(form, total);
     box.hidden = false;
-    box.textContent = (lim > 0 ? peso(total) + ' is above your ' + peso(lim) + ' pricing limit' : 'No cashier pricing limit is set')
-      + ', so Finance approves this price before the customer sees it. This is automatic; you do not need to tick the box below or write a reason.';
+    box.className = 'qd-callout wide ' + (why.length ? 'warn' : 'ok');
+    box.textContent = why.length ? 'Goes to Finance automatically: ' + why.join('; ') + '. Nothing else to do; you are told when they answer.'
+      : 'Within Finance\u2019s rules: the customer gets this price as soon as you confirm.';
   }
 
   async function submitPrice(form) {
@@ -552,11 +633,9 @@
     if (!q) { err.textContent = 'The quoted quantity could not be read. Fix it with Finance before pricing.'; return; }
     const total = Math.round(Number(unit) * q.qty * 100) / 100;
     const leadTime = f.get('leadTime'), validDays = Number(f.get('validDays')), note = String(f.get('note') || '').trim();
-    const exception = f.has('exception'), reason = String(f.get('reason') || '').trim();
     if (!leadTime || !validDays) { err.textContent = 'Choose the preparation time and how long the price is valid.'; return; }
-    if (exception && reason.length < 10) { err.textContent = 'Explain why Finance must approve it (at least 10 characters).'; return; }
-    const auto = !exception && overLimit(total), toFinance = exception || auto;
-    const autoWhy = cashierLimit() > 0 ? 'above your ' + peso(cashierLimit()) + ' pricing limit' : 'no cashier pricing limit is set';
+    if (S.recipeMode === 'edited' && validLines().length !== (S.lines || []).length) { err.textContent = 'Finish or remove the incomplete recipe line (material and a quantity above 0).'; return; }
+    const why = previewRoute(form, total), toFinance = why.length > 0;
     const termKey = f.get('term') || 'full';
     const termOpt = (S.termOpts || []).find((x) => x.key === termKey) || {};
     const dueNow = termOpt.dueNow != null ? money(termOpt.dueNow) : peso(total);
@@ -567,23 +646,93 @@
         ['Unit price', peso(Number(unit))], ['Calculated total', peso(total)], ['Ready in', leadTime], ['Price valid', validDays + ' days'],
         ['Payment term', (termOpt.label || TERM_NAME[termKey] || termKey) + ' — pay ' + dueNow + ' now, balance ' + balance],
         ['Where they pay', d.payMethod || (d.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay at pickup')],
-        ['Needs Finance approval', exception ? 'Yes — ' + reason : auto ? 'Yes, automatically — ' + autoWhy : 'No'], ['Remarks', note || 'none']],
-      acknowledgment: 'I checked the specifications, the quantity and the arithmetic before sending this price.', confirmLabel: toFinance ? 'Send to Finance' : 'Approve & tell customer' });
+        ['Suggested price', S.draft && S.draft.ok ? peso(S.draft.total) + ' (cost ' + peso(S.draft.costTotal) + ')' : 'cannot price yet'],
+        ['Where it goes', toFinance ? 'Finance, automatically \u2014 ' + why.join('; ') : 'Straight to the customer'], ['Remarks', note || 'none']],
+      acknowledgment: 'I checked the specifications, the quantity and the arithmetic before confirming this price.', confirmLabel: 'Confirm price' });
     if (!go) return;
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
-      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/price', { method: 'POST', body: JSON.stringify({ amount: total.toFixed(2), leadTime, validDays, note, reason, customManufacturing: exception }) });
+      const recipe = d.sku ? undefined : S.recipeMode === 'edited' ? validLines() : S.recipeMode === 'auto' ? null : undefined;
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/price', { method: 'POST', body: JSON.stringify({ amount: total.toFixed(2), leadTime, validDays, note, termKey, recipe }) });
       // The terms are attached to the price the customer is shown, so they go on straight after it exists.
       let termsState = null;
       if (termKey !== ((d.terms || {}).key || 'full')) {
         try { const t = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/terms', { method: 'POST', body: JSON.stringify({ termKey }) }); termsState = t.terms && t.terms.state; }
         catch (te) { err.textContent = 'The price was saved, but the payment terms were not: ' + fieldErr(te); S.openPrice = false; await openDetail(d.id); loadDesk(); return; }
       }
-      toast(r.status === 'pending_approval' ? 'Sent to Finance for approval.'
+      const dec = r.decision || {};
+      toast(r.status === 'pending_approval' ? 'Sent to Finance automatically: ' + ((dec.reasons || []).join('; ') || 'needs approval') + '.'
         : termsState === 'proposed' ? 'Price sent. The partial payment terms now go to Finance for a signature.'
-        : 'Price approved and shown to the customer.');
+        : 'Within the rules: the customer has the price now.');
       S.openPrice = false; await openDetail(d.id); loadDesk();
-    } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; if (/reason|justif/i.test(err.textContent)) { const box = form.querySelector('[data-reason]'); if (box) { box.hidden = false; box.querySelector('textarea').focus(); } } }
+    } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; }
+  }
+
+  async function doRefresh() {
+    const d = S.detail; if (!d) return;
+    const go = await pqConfirm({ title: 'Refresh this quote at today\u2019s costs?',
+      description: 'The system works the price out again from today\u2019s material costs and checks it against Finance\u2019s rules. Within the rules the customer gets the new price and a new validity date; otherwise it goes to Finance.',
+      rows: [['Quotation', d.id], ['Customer', d.customer], ['Price now', money(d.amount) || '\u2014'], ['Valid until', d.validUntil ? day(d.validUntil) + (d.expired ? ' (expired)' : '') : '\u2014']],
+      acknowledgment: 'I will tell the customer if the price changes.', confirmLabel: 'Refresh price' });
+    if (!go) return;
+    try {
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/refresh-price', { method: 'POST', body: '{}' });
+      toast(r.status === 'quoted' ? 'Refreshed: ' + peso(r.before) + ' \u2192 ' + peso(r.amount) + ', valid again.' : 'The new price ' + peso(r.amount) + ' went to Finance: ' + ((r.decision || {}).reasons || []).join('; '));
+      await openDetail(d.id); loadDesk();
+    } catch (e) { toast(fieldErr(e), true); }
+  }
+
+  /* ---- after acceptance: the job order of a custom item (cashier / production staff can run every step) ---- */
+  function productionHtml(d) {
+    if (!['accepted', 'preparing', 'ready'].includes(d.status) || d.sku) return '';
+    return sec('Production', '<div data-job><p class="q-hint">Reading the job order\u2026</p></div>');
+  }
+  let jobSeq = 0;
+  async function loadJob(d) {
+    const my = ++jobSeq; let j;
+    try { j = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/job'); } catch (e) { const b0 = el('qdDrawerBody').querySelector('[data-job]'); if (b0) b0.innerHTML = '<div class="qd-callout bad">' + esc(fieldErr(e)) + '</div>'; return; }
+    const box = el('qdDrawerBody').querySelector('[data-job]'); if (my !== jobSeq || !box || !S.detail || S.detail.id !== d.id) return;
+    S.job = j; S.jobKey = S.jobKey || requestId();
+    const name = (sku) => ((j.materials || []).find((m) => m.sku === sku) || { name: sku });
+    let h = '';
+    if (j.job && j.job.status !== 'draft') {
+      h += '<p><b>' + esc(j.job.ref) + '</b> \u00B7 materials issued by ' + esc(j.job.issuedBy) + ' \u00B7 ' + esc(j.job.issuedAt) + (j.job.status === 'finished' ? ' \u00B7 <span class="qd-pill ok">finished ' + esc(j.job.finishedAt || '') + '</span>' : '') + '</p>' +
+        kv(j.job.items.map((i) => [i.name, num4(i.quantity) + ' ' + esc(i.unit)]).concat([['Material cost', peso(j.job.materialCost)]]));
+      if (j.canFinish) h += '<button type="button" class="btn-primary" data-act="jobfinish">Job finished \u2014 mark ' + (d.fulfillment === 'Delivery' ? 'out for delivery' : 'ready for pickup') + '</button>';
+    } else if (j.canIssue) {
+      h += '<p class="q-hint">' + (j.job ? '<b>' + esc(j.job.ref) + '</b> draft, made when the customer accepted. ' : '') + 'Issuing takes these materials out of stock and moves the quote to Preparing (the customer is told).</p>' +
+        (j.suggestions || []).map((s) => { const m = name(s.sku); return '<div class="qd-rline qd-jline"><span>' + esc(m.name) + ' <span class="dim">' + esc(m.onHand != null ? num4(m.onHand) + ' ' + m.unit + ' on hand' : '') + '</span></span>' +
+          '<input data-jsku="' + esc(s.sku) + '" inputmode="decimal" aria-label="Quantity to issue" value="' + esc(s.quantity != null ? s.quantity : '') + '"><span>' + esc(m.unit || '') + '</span></div>' +
+          (m.onHand != null && s.quantity > m.onHand ? '<div class="qd-callout warn">' + esc(m.name) + ' is short by ' + num4(s.quantity - m.onHand) + ' ' + esc(m.unit) + ' (a purchase suggestion was sent to Finance).</div>' : ''); }).join('') +
+        '<button type="button" class="btn-primary" data-act="jobissue">Issue materials &amp; start preparing</button>';
+    } else h += '<p class="q-hint">Nothing to do here right now.</p>';
+    if (d.status === 'ready') h += '<label class="wide" style="display:block;margin-top:10px">' + (d.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by') + '<input data-recv maxlength="80" autocomplete="off"></label>' +
+      '<button type="button" class="btn-primary" data-act="complete">Mark ' + (d.fulfillment === 'Delivery' ? 'delivered' : 'picked up') + '</button>' +
+      (Number(d.balance) > 0 ? '<p class="q-hint">The balance of ' + money(d.balance) + ' must be paid first.</p>' : '');
+    box.innerHTML = h;
+  }
+  async function jobAction(act) {
+    const d = S.detail; if (!d) return;
+    const no = encodeURIComponent(d.id), box = el('qdDrawerBody').querySelector('[data-job]');
+    try {
+      if (act === 'jobissue') {
+        const items = Array.from(box.querySelectorAll('[data-jsku]')).map((i) => ({ sku: i.dataset.jsku, quantity: i.value.replace(/,/g, '').trim() })).filter((i) => Number(i.quantity) > 0);
+        if (!items.length) { toast('Enter how much of each material the job uses.', true); return; }
+        const go = await pqConfirm({ title: 'Issue these materials for ' + d.id + '?', description: 'They leave stock now as \u201CUsed in production\u201D and the quote moves to Preparing.',
+          rows: items.map((i) => [((S.job.materials || []).find((m) => m.sku === i.sku) || { name: i.sku }).name, i.quantity]), acknowledgment: 'These are the quantities the job really uses.', confirmLabel: 'Issue materials' });
+        if (!go) return;
+        await call('/api/pos/quotes/' + no + '/job', { method: 'POST', body: JSON.stringify({ requestKey: S.jobKey, items }) });
+        S.jobKey = null; toast('Materials issued. The quote is now Preparing and the customer was told.');
+      } else if (act === 'jobfinish') {
+        await call('/api/pos/quotes/' + no + '/job/finish', { method: 'POST', body: '{}' });
+        toast('Job finished. The customer was told it is ' + (d.fulfillment === 'Delivery' ? 'out for delivery.' : 'ready for pickup.'));
+      } else if (act === 'complete') {
+        const recv = (box.querySelector('[data-recv]') || {}).value || '';
+        await call('/api/pos/quotes/' + no + '/step', { method: 'POST', body: JSON.stringify({ status: 'completed', receivedBy: recv.trim() }) });
+        toast(d.id + ' is complete.');
+      }
+      await openDetail(d.id); loadDesk();
+    } catch (e) { toast(fieldErr(e), true); }
   }
 
   /* ================= 5. walk-in quotation form ================= */
@@ -795,7 +944,9 @@
     el('qdDrawerClose').addEventListener('click', closeDetail);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.detail) { if (!el('qdClarifyOverlay').hidden) closeClarify(); else closeDetail(); } });
     el('qdDrawerBody').addEventListener('input', (e) => {
-      if (e.target.name === 'unit') { const d = S.detail, q = qtyParts(d.quantity), out = e.target.form.querySelector('[data-total]');
+      if (e.target.matches('[data-rqty]')) { readRecipe(e.target.form); S.recipeMode = 'edited'; recalcDraft(e.target.form); return; }
+      if (e.target.name === 'unit') { if (!S.fillingUnit) { e.target.dataset.auto = ''; const n = e.target.form.querySelector('[data-unit-note]'); if (n) n.textContent = 'your price'; }
+        const d = S.detail, q = qtyParts(d.quantity), out = e.target.form.querySelector('[data-total]');
         const okNum = /^\d+(\.\d{1,2})?$/.test(e.target.value.trim());
         if (out) out.textContent = q && okNum ? peso(Number(e.target.value) * q.qty) : '—';
         syncRoute(e.target.form, q && okNum ? Number(e.target.value) * q.qty : 0);
@@ -804,8 +955,12 @@
     });
     el('qdDrawerBody').addEventListener('change', (e) => {
       if (e.target.name === 'leadTime') updateReady(e.target.form);
-      if (e.target.name === 'term') syncTermFields(e.target.form);
-      if (e.target.name === 'exception') { const box = e.target.form.querySelector('[data-reason]'); box.hidden = !e.target.checked; if (e.target.checked) box.querySelector('textarea').focus(); }
+      if (e.target.name === 'term') { syncTermFields(e.target.form); if (e.target.form.id === 'qdPriceForm') { const u = e.target.form.elements.unit, q = qtyParts(S.detail.quantity); syncRoute(e.target.form, u && q ? Number(u.value) * q.qty : 0); } }
+      if (e.target.matches('[data-rsku], [data-runit]')) {
+        if (e.target.matches('[data-rsku]')) { readRecipe(e.target.form); const m = (S.mats || []).find((x) => x.sku === e.target.value); const i = +e.target.closest('.qd-rline').dataset.i; if (m && S.lines[i]) S.lines[i].unit = m.unit; renderRecipe(e.target.form); }
+        else readRecipe(e.target.form);
+        S.recipeMode = 'edited'; recalcDraft(el('qdPriceForm'));
+      }
     });
     el('qdDrawerBody').addEventListener('submit', (e) => {
       if (e.target.id === 'qdPriceForm') { e.preventDefault(); submitPrice(e.target); }
@@ -818,6 +973,7 @@
       else if (act === 'clarify') doClarify();
       else if (act === 'convert') doConvert();
       else if (['accept', 'decline', 'renew'].includes(act)) doRespond(act);
+      else if (act === 'refresh') doRefresh();
     });
     el('qdDrawerBody').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]'); if (!b) return;
@@ -825,6 +981,14 @@
       if (b.dataset.act === 'cancelprice') { S.openPrice = false; renderDetail(); }
       if (b.dataset.act === 'terms') { S.openTerms = true; renderDetail(); }
       if (b.dataset.act === 'cancelterms') { S.openTerms = false; renderDetail(); }
+      if (['jobissue', 'jobfinish', 'complete'].includes(b.dataset.act)) jobAction(b.dataset.act);
+    });
+    el('qdDrawerBody').addEventListener('click', (e) => {
+      const form = el('qdPriceForm'); if (!form || !form.contains(e.target)) return;
+      if (e.target.closest('[data-use-sys]')) { const u = form.elements.unit; u.dataset.auto = '1'; const n = form.querySelector('[data-unit-note]'); if (n) n.textContent = 'filled in with the suggested price'; fillUnit(form); u.focus(); }
+      if (e.target.closest('[data-radd]')) { readRecipe(form); S.lines.push({ sku: '', qtyPerPiece: '', unit: '' }); renderRecipe(form); const all = form.querySelectorAll('.qd-rline [data-rsku]'); if (all.length) all[all.length - 1].focus(); }
+      if (e.target.closest('[data-rdel]')) { readRecipe(form); S.lines.splice(+e.target.closest('.qd-rline').dataset.i, 1); S.recipeMode = 'edited'; renderRecipe(form); recalcDraft(form); }
+      if (e.target.closest('[data-rauto]')) { S.recipeMode = 'auto'; S.lines = null; S.recipeAuto = true; recalcDraft(form); }
     });
 
     el('pqClarifyCancel').addEventListener('click', closeClarify);

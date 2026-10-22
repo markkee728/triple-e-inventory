@@ -50,7 +50,7 @@ const shopQuote = () => ({ contactName: 'Eva Son', phone: '0921 123 4567', sku: 
   specs: { material: 'Aluminum ADC12', size: '2"', thickness: '3.0 mm', finish: 'Raw / Unfinished', service: 'None (as is)' } });
 
 async function main() {
-  const child = await start(PORT, { CASHIER_QUOTE_LIMIT_PHP: '60000' });
+  const child = await start(PORT, { CASHIER_QUOTE_LIMIT_PHP: '60000', HARNESS_QUOTE_BAND_PCT: '1000' });
   try {
     /* ---------------- 1. the policy: percentages are a proposal until Finance switches them on ---------------- */
     console.log('\n1. payment terms ship switched off except Full Payment, and only Finance can change them');
@@ -505,9 +505,9 @@ async function main() {
 
     /* ---------------- 11. the online callback records money once, however many times Xendit repeats it ---------------- */
     console.log('\n11. a paid online invoice lands on the quotation once, even when Xendit repeats the callback');
-    const webQ = await call('customer', 'POST', '/api/shop/quotes', Object.assign(shopQuote(), { contactName: 'Eva Son', quantity: 6 }));
+    const webQ = await call('customer', 'POST', '/api/shop/quotes', Object.assign(shopQuote(), { contactName: 'Eva Son', quantity: 4 }));   // 4 lengths: ₱3,000 is above their cost (the price routing refuses a loss)
     const webNo = webQ.body.id;
-    await call('cashier', 'POST', '/api/pos/quotes/' + webNo + '/price', { amount: '3000', leadTime: '1 to 3 working days', validDays: 7, note: 'Six lengths' });
+    await call('cashier', 'POST', '/api/pos/quotes/' + webNo + '/price', { amount: '3000', leadTime: '1 to 3 working days', validDays: 7, note: 'Four lengths' });
     const acc3 = await call('customer', 'POST', '/api/shop/quotes/' + webNo + '/respond', { action: 'accept', payMethod: 'online' });
     ok('the third quotation is accepted with the money still to come online', acc3.status === 200 && acc3.body.status === 'accepted', acc3.body);
     const qid = (st) => Number(st.quotes.find((q) => q.quote_no === webNo).quote_id);

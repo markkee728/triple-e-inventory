@@ -56,6 +56,11 @@
       '.sx-approve-grid span,.sx-approve p span{display:block;font-size:11.5px;color:var(--text-faint);margin-bottom:3px}.sx-approve-grid strong{font-size:16px}.sx-approve-grid small{display:block;font-size:12px;color:var(--text-dim);margin-top:2px}' +
       '.sx-approve p{margin:6px 0 0;font-size:14px;overflow-wrap:anywhere}@media(max-width:560px){.sx-approve-grid{grid-template-columns:1fr}}' +
       '.sx-text{max-width:340px;overflow-wrap:anywhere;white-space:pre-line}' +
+      '.sx-why{max-width:300px;font-size:13px;overflow-wrap:anywhere}.sx-num{white-space:nowrap;font-variant-numeric:tabular-nums}.sx-num small,.sx-why small{display:block;color:var(--text-faint);font-size:12px}' +
+      '.sx-bad{color:var(--red)}.sx-okc{color:var(--green)}.sx-batch{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}.sx-batch:empty{display:none}' +
+      '.sx-chip{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border:1px solid var(--border);border-radius:99px;font-size:12.5px;background:var(--panel)}' +
+      '.sx-log{white-space:normal}.sx-log li{margin:0 0 6px;font-size:13px}.sx-log li small{display:block;color:var(--text-faint)}.sx-rules .sx-two{gap:0 14px}.sx-assume{color:var(--amber);font-size:13px}' +
+      '.sx-warnbox{border-color:color-mix(in srgb,var(--amber) 55%,var(--border))}' +
       '.sxr-row{cursor:pointer;transition:background .15s}.sxr-row:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}.sxr-row:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}' +
       '.sxr-who{display:flex;align-items:center;gap:10px;min-width:0}.sxr-av{flex:none;width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#16283b;border:1px solid rgba(74,144,217,.35);color:var(--blue-bright);font:600 13px Oswald,sans-serif}html[data-theme="light"] .sxr-av{background:#dbe6f0;color:var(--blue)}' +
       '.sxr-clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
@@ -83,12 +88,15 @@
   function build() {
     var q = $('quotes'), r = $('reviews');
     if (q) q.innerHTML =
-      '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Quote Approvals</h1><p class="faint" style="margin:4px 0 0;max-width:70ch">The cashiers price quotations at the counter. A price above their limit, or one they flag as custom, waits here until you approve it or send it back.</p>' +
+      '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales</div><h1 class="catalog-title">Quote Approvals</h1><p class="faint" style="margin:4px 0 0;max-width:70ch">The cashiers confirm prices at the counter and the system routes them. Only the exceptions wait here: outside the tolerance band, below the minimum margin or cost, over the value limit, not fully costed, short of stock, or with partial-payment terms. Nothing is ever approved automatically.</p>' +
       '</div>' +
-      '<button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-secondary btn-sm" id="sxqRules" type="button">Approval rules</button><button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
       '<div class="inv-filters"><select id="sxqFilter" class="inv-select" aria-label="Show"><option value="approval">Cashier prices to approve</option><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
-      '<div class="table-wrapper"><table><thead><tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr></thead><tbody id="sxqBody"></tbody></table></div></div>';
+      '<div class="sx-batch" id="sxqBatch"></div>' +
+      '<div class="table-wrapper"><table><thead id="sxqHead"></thead><tbody id="sxqBody"></tbody></table></div></div>' +
+      '<div class="panel" style="margin-top:16px"><div class="panel-head"><div><div class="panel-title">Purchase suggestions</div><div class="panel-sub" id="sxpSub">Materials that accepted quotes need more of than is in stock.</div></div></div>' +
+      '<div class="table-wrapper"><table><thead><tr><th>Material</th><th>Short by</th><th>On hand now</th><th>Quote</th><th>Raised</th><th></th></tr></thead><tbody id="sxpBody"></tbody></table></div></div>';
     if (r) r.innerHTML =
       '<div class="catalog-header"><div><div class="catalog-eyebrow">Orders</div><h1 class="catalog-title">Product Reviews</h1>' +
       '</div>' +
@@ -101,8 +109,15 @@
       '<div class="table-wrapper"><table><thead><tr><th>Product</th><th>Rating</th><th>Customer</th><th>Review</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody id="sxrBody"></tbody></table></div></div>';
     if (q) {
       $('sxqRefresh').addEventListener('click', loadQuotes);
+      $('sxqRules').addEventListener('click', openRules);
+      $('sxqBatch').addEventListener('click', function (e) { var b = e.target.closest('[data-batch]'); if (b) batchApprove(b.dataset.batch); });
+      $('sxqBody').addEventListener('change', function () { paintBatch(); });
+      $('sxpBody').addEventListener('click', function (e) { var b = e.target.closest('[data-sxp]'); if (b) markSuggestion(Number(b.dataset.sxp), b.dataset.st); });
       $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
-      $('sxqBody').addEventListener('click', function (e) { var b = e.target.closest('[data-sxq]'); if (b) openQ(b.dataset.sxq); });
+      $('sxqBody').addEventListener('click', function (e) {
+        var a = e.target.closest('[data-sxapprove]'); if (a) { quickApprove(a.dataset.sxapprove); return; }
+        var b = e.target.closest('[data-sxq]'); if (b) openQ(b.dataset.sxq);
+      });
     }
     if (r) {
       $('sxrRefresh').addEventListener('click', loadReviews);
@@ -139,6 +154,12 @@
     var ap = approvalCount(), opt = $('sxqFilter').querySelector('option[value="approval"]'); if (opt) opt.textContent = 'Cashier prices to approve (' + ap + ')';
     $('sxqSub').textContent = quotes.length ? (ap ? ap + ' cashier price' + (ap === 1 ? '' : 's') + ' waiting for your approval \u00B7 ' : '') + (n ? n + ' need your action (prices to approve, new requests to price, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
+    var approvals = f === 'approval';
+    $('sxqHead').innerHTML = approvals
+      ? '<tr><th><span class="sr-only">Pick</span></th><th>Ref</th><th>Customer / item</th><th>Why it needs you</th><th>Cashier vs system price</th><th>Cost \u00B7 margin</th><th>Stock</th><th></th></tr>'
+      : '<tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr>';
+    if (approvals) { $('sxqBody').innerHTML = list.length ? list.map(approvalRow).join('') : '<tr><td colspan="8" class="sx-empty">No prices are waiting for you. The cashiers\u2019 prices that met every rule went straight to the customers.</td></tr>'; paintBatch(); paintBadge(); return; }
+    $('sxqBatch').innerHTML = '';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
@@ -147,6 +168,111 @@
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
   }
+  /* ---- the exceptions queue (Task 5): only prices that failed a rule reach Finance; one tap to approve, or a batch with the same reason ---- */
+  var RULE_LABEL = { not_costed: 'Cannot be priced yet', below_cost: 'Below cost', below_margin: 'Below the minimum margin', outside_band: 'Outside the tolerance band',
+    over_limit: 'Over the cashier limit', stock_short: 'Not enough stock', partial_terms: 'Partial-payment terms', checks_unavailable: 'Automatic checks unavailable' };
+  var keyOf = function (x) { var ck = x.approvalCheck || {}; return (ck.rules || []).slice().sort().join('+') || 'unknown'; };
+  var keyLabel = function (k) { return k === 'unknown' ? 'No recorded rule' : k.split('+').map(function (r) { return RULE_LABEL[r] || r; }).join(' + '); };
+  var qnum = function (n) { return (+Number(n).toFixed(4)).toLocaleString('en-PH', { maximumFractionDigits: 4 }); };
+  function approvalRow(x) {
+    var ck = x.approvalCheck || {}, n = ck.numbers || {}, cash = n.cashierTotal != null ? n.cashierTotal : x.proposedAmount;
+    var short = (n.shortfalls || []);
+    return '<tr><td><input type="checkbox" data-pick="' + esc(x.id) + '" data-key="' + esc(keyOf(x)) + '" aria-label="Pick ' + esc(x.id) + '"></td><td>' + esc(x.id) + '</td>' +
+      '<td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.product || 'Custom item') + ' \u00B7 ' + esc(x.quantity) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div></td>' +
+      '<td class="sx-why">' + esc((ck.reasons && ck.reasons.length ? ck.reasons : [x.approvalReason || 'Not given']).join('; ')) + '<small>' + esc(keyLabel(keyOf(x))) + '</small></td>' +
+      '<td class="sx-num">' + peso(cash || 0) + '<small>' + (n.systemTotal != null ? 'system ' + peso(n.systemTotal) + ' (' + (n.deviationPct > 0 ? '+' : '') + n.deviationPct + '%)' : 'no system price') + '</small></td>' +
+      '<td class="sx-num">' + (n.costTotal != null ? peso(n.costTotal) + '<small class="' + (n.marginPct < 0 ? 'sx-bad' : '') + '">margin ' + n.marginPct + '%</small>' : '<span class="sx-bad">not costed</span>') + '</td>' +
+      '<td class="sx-why">' + (short.length ? short.map(function (s) { return '<span class="sx-bad">' + esc(s.name) + ' short by ' + qnum(s.short) + ' ' + esc(s.unit) + '</span>'; }).join('<br>') : '<span class="sx-okc">OK</span>') + '</td>' +
+      '<td style="white-space:nowrap"><button type="button" class="btn-primary btn-sm" data-sxapprove="' + esc(x.id) + '">Approve</button> <button type="button" class="btn-secondary btn-sm" data-sxq="' + esc(x.id) + '">Review / return</button></td></tr>';
+  }
+  function paintBatch() {
+    var box = $('sxqBatch'); if (!box || $('sxqFilter').value !== 'approval') return;
+    var waiting = quotes.filter(function (x) { return x.status === 'pending_approval'; }), groups = {};
+    waiting.forEach(function (x) { var k = keyOf(x); (groups[k] = groups[k] || []).push(x.id); });
+    var picked = Array.prototype.map.call($('sxqBody').querySelectorAll('[data-pick]:checked'), function (c) { return { id: c.dataset.pick, key: c.dataset.key }; });
+    var keys = Object.keys(groups).filter(function (k) { return k !== 'unknown' && groups[k].length > 1; });
+    var same = picked.length && picked.every(function (p) { return p.key === picked[0].key; });
+    box.innerHTML = (picked.length ? (same ? '<button type="button" class="btn-primary btn-sm" data-batch="picked">Approve the ' + picked.length + ' picked (' + esc(keyLabel(picked[0].key)) + ')</button>'
+        : '<span class="sx-chip sx-bad">Pick quotes with the same reason to approve them together</span>') : '') +
+      keys.map(function (k) { return '<span class="sx-chip">' + esc(keyLabel(k)) + ' \u00B7 ' + groups[k].length + ' waiting <button type="button" class="btn-secondary btn-sm" data-batch="' + esc(k) + '">Approve all ' + groups[k].length + '</button></span>'; }).join('');
+  }
+  async function batchApprove(which) {
+    var nos, key;
+    if (which === 'picked') {
+      var p = Array.prototype.map.call($('sxqBody').querySelectorAll('[data-pick]:checked'), function (c) { return c; });
+      nos = p.map(function (c) { return c.dataset.pick; }); key = p.length ? p[0].dataset.key : '';
+    } else { key = which; nos = quotes.filter(function (x) { return x.status === 'pending_approval' && keyOf(x) === key; }).map(function (x) { return x.id; }); }
+    if (!nos.length) return;
+    var okGo = window.uiConfirm ? await window.uiConfirm({ title: 'Approve ' + nos.length + ' price' + (nos.length === 1 ? '' : 's') + '?', message: 'All of them wait for the same reason: ' + keyLabel(key) + '. Each is logged with your name, and the customers are told.',
+      lines: nos, confirm: 'Approve ' + nos.length }) : true;
+    if (!okGo) return;
+    try {
+      var r = await api('/finance/quotes/approve-batch', { method: 'POST', body: JSON.stringify({ quotes: nos, reasonKey: key }) });
+      toast('Approved ' + r.approved.length + (r.skipped.length ? '; skipped ' + r.skipped.map(function (s) { return s.quote + ' (' + s.why + ')'; }).join(', ') : '') + '.', !!r.skipped.length);
+    } catch (e) { toast((e.fields && Object.values(e.fields)[0]) || e.message, true); }
+    loadQuotes();
+  }
+  async function quickApprove(no) {
+    var x = quotes.find(function (q) { return q.id === no; }); if (!x) return;
+    try { await api('/finance/quotes/' + encodeURIComponent(no) + '/approve-price', { method: 'POST', body: '{}' }); toast('Approved: ' + no + ' is sent to the customer at ' + peso(x.proposedAmount || 0) + '.'); }
+    catch (e) { toast((e.fields && Object.values(e.fields)[0]) || e.message, true); }
+    loadQuotes();
+  }
+
+  /* ---- purchase suggestions from accepted quotes ---- */
+  var suggestions = [];
+  async function loadSuggestions() {
+    if (!$('sxpBody')) return;
+    try { suggestions = await api('/finance/purchase-suggestions?status=open'); } catch (e) { $('sxpSub').textContent = 'Could not load the purchase suggestions: ' + e.message; return; }
+    $('sxpSub').textContent = suggestions.length ? suggestions.length + ' material' + (suggestions.length === 1 ? '' : 's') + ' to buy for accepted quotes.' : 'Nothing to buy: accepted quotes are covered by stock.';
+    $('sxpBody').innerHTML = suggestions.length ? suggestions.map(function (s) {
+      return '<tr><td>' + esc(s.name) + '<div class="faint" style="font-size:12px">' + esc(s.sku) + '</div></td><td class="sx-num"><b>' + qnum(s.quantity) + ' ' + esc(s.unit) + '</b></td><td class="sx-num">' + qnum(s.onHand) + ' ' + esc(s.unit) + '</td>' +
+        '<td>' + esc(s.quote || '\u2014') + '</td><td>' + esc(when(s.createdAt)) + '</td><td style="white-space:nowrap"><button type="button" class="btn-primary btn-sm" data-sxp="' + s.id + '" data-st="ordered">Ordered</button> <button type="button" class="btn-secondary btn-sm" data-sxp="' + s.id + '" data-st="dismissed">Dismiss</button></td></tr>';
+    }).join('') : '<tr><td colspan="6" class="sx-empty">No purchase suggestions.</td></tr>';
+  }
+  async function markSuggestion(id, st) {
+    try { await api('/finance/purchase-suggestions/' + id, { method: 'POST', body: JSON.stringify({ status: st }) }); toast(st === 'ordered' ? 'Marked as ordered.' : 'Dismissed.'); }
+    catch (e) { toast(e.message, true); }
+    loadSuggestions();
+  }
+
+  /* ---- Finance's approval rules (Task 5 settings) ---- */
+  var RULE_FIELDS = [['tolerancePct', 'Tolerance band around the system price', '\u00B1 %', 'Within this band (and every other rule) a cashier price goes straight to the customer.'],
+    ['minMarginPct', 'Minimum margin', '%', 'Margin on the price. 0% = never below cost. A price under it always comes to you.'],
+    ['valueLimit', 'Cashier order-value limit', '\u20B1', 'A quote total above this always comes to you.'],
+    ['costMovePct', 'Flag when material cost moved by more than', '%', 'Checked again when the customer accepts.'],
+    ['expiryReminderDays', 'Remind before a quote expires', 'days', 'The customer (or, for a walk-in, the cashier) is reminded.'],
+    ['approvalRemindHours', 'Remind you when a price waits longer than', 'hours', 'A waiting price is never approved automatically.'],
+    ['approvalEscalateHours', 'Escalate when it waits longer than', 'hours', 'Alerts Finance again and tells the cashier.']];
+  var rulesOverlay = null;
+  async function openRules() {
+    if (!rulesOverlay) {
+      rulesOverlay = document.createElement('div'); rulesOverlay.className = 'modal-overlay'; rulesOverlay.id = 'sxRulesOverlay';
+      rulesOverlay.innerHTML = '<div class="account-modal sx-modal sx-rules" role="dialog" aria-modal="true" aria-labelledby="sxRulesTitle"><button type="button" class="modal-close" id="sxRulesClose" aria-label="Close">\u00D7</button><div id="sxRulesBody"></div></div>';
+      document.body.appendChild(rulesOverlay);
+      var close = function () { rulesOverlay.classList.remove('open'); };
+      rulesOverlay.addEventListener('mousedown', function (e) { if (e.target === rulesOverlay) close(); });
+      $('sxRulesClose').addEventListener('click', close);
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && rulesOverlay.classList.contains('open')) close(); });
+    }
+    rulesOverlay.classList.add('open'); $('sxRulesBody').innerHTML = '<p class="faint">Loading\u2026</p>';
+    var r; try { r = await api('/finance/quote-rules'); } catch (e) { $('sxRulesBody').innerHTML = '<div class="sx-err show">' + esc(e.message) + '</div>'; return; }
+    $('sxRulesBody').innerHTML = '<div class="sx-head"><h2 id="sxRulesTitle">Quote approval rules</h2></div>' +
+      '<p class="faint" style="margin:0 0 10px">The cashier presses \u201CConfirm price\u201D and the system routes it: fully costed, in stock, inside the band, at or above the minimum margin and under the value limit goes straight to the customer. Anything else comes to you with the reason. Partial-payment terms always come to you.</p>' +
+      (r.confirmed ? '<p class="faint" style="margin:0 0 10px">Last saved by ' + esc(r.updatedBy || 'Finance') + (r.updatedAt ? ' \u00B7 ' + esc(when(new Date(r.updatedAt).getTime())) : '') + '.</p>'
+        : '<p class="sx-assume"><b>Starting values, not yet confirmed by Finance.</b> The cashier limit of ' + peso(r.valueLimit) + ' and the \u00B1' + r.tolerancePct + '% band are assumptions. Check them and press Save.</p>') +
+      '<div class="sx-form"><div class="sx-two">' + RULE_FIELDS.map(function (f) { return '<div><label for="sxR_' + f[0] + '">' + esc(f[1]) + ' <span class="faint" style="font-weight:400">(' + esc(f[2]) + ')</span></label>' +
+        '<input class="form-input" id="sxR_' + f[0] + '" inputmode="decimal" value="' + esc(r[f[0]]) + '"><div class="faint" style="font-size:12px;margin-top:3px">' + esc(f[3]) + '</div></div>'; }).join('') + '</div>' +
+      '<div class="sx-err" id="sxRulesErr" role="alert"></div><div class="sx-actions"><button type="button" class="btn-primary" id="sxRulesSave">Save rules</button></div></div>';
+    $('sxRulesSave').addEventListener('click', async function () {
+      var body = {}; RULE_FIELDS.forEach(function (f) { body[f[0]] = $('sxR_' + f[0]).value.trim(); });
+      $('sxRulesErr').classList.remove('show'); this.disabled = true;
+      try { await api('/finance/quote-rules', { method: 'PUT', body: JSON.stringify(body) }); toast('Approval rules saved. They apply to the next price a cashier confirms.'); rulesOverlay.classList.remove('open'); }
+      catch (e) { var k = e.fields && Object.keys(e.fields)[0]; $('sxRulesErr').textContent = k ? e.fields[k] : e.message; $('sxRulesErr').classList.add('show'); if (k && $('sxR_' + k)) $('sxR_' + k).focus(); }
+      finally { this.disabled = false; }
+    });
+  }
+
   function paintBadge() {
     var nav = document.querySelector('.nav-item[data-page="quotes"]'); if (!nav) return;
     var n = approvalCount(), b = nav.querySelector('.sx-badge');
@@ -159,6 +285,7 @@
     try {
       if (!qopts) { try { qopts = await api('/finance/quote-options'); } catch (e) { /* the reply form shows a message if this is still missing */ } }
       var d = await api('/finance/quotes'); quotes = Array.isArray(d) ? d : [];
+      loadSuggestions();
       if (!pickedFilter && $('sxqFilter')) { pickedFilter = true; $('sxqFilter').value = approvalCount() ? 'approval' : 'open'; }
       if (!(openQuote && busy)) renderQuotes();
       if (openQuote && !busy) paintQuote();
@@ -206,10 +333,14 @@
         (x.suggestedCost != null ? ' \u00B7 cost ' + peso(x.suggestedCost) : '') + '</small></div>' : '') +
       '<div><span>Ready in</span><strong>' + esc(x.proposedLeadTime || '\u2014') + '</strong></div><div><span>Price valid</span><strong>' + esc(x.proposedValidDays ? x.proposedValidDays + ' days' : '\u2014') + '</strong></div></div>' +
       (x.costStale ? '<p class="sx-stale" style="color:#b32929"><span>Cost changed</span>' + esc(x.costStale) + '</p>' : '') +
+      (function (n) { return n.costTotal != null ? '<p><span>Cost and margin</span>Cost ' + peso(n.costTotal) + ' \u00B7 margin ' + n.marginPct + '% on the cashier price' + (n.minMarginPct ? ' (minimum ' + n.minMarginPct + '%)' : '') + '</p>' : '<p class="sx-bad"><span>Cost</span>Not costed: the system could not work out the cost</p>'; })((x.approvalCheck || {}).numbers || {}) +
+      (((x.approvalCheck || {}).numbers || {}).shortfalls || []).map(function (s) { return '<p class="sx-bad"><span>Stock</span>' + esc(s.name) + ' short by ' + qnum(s.short) + ' ' + esc(s.unit) + '</p>'; }).join('') +
       '<p><span>Why it needs you</span>' + esc(x.approvalReason || 'Not given') + '</p>' +
       '<p class="faint">Approve to send this price to the customer, or send it back to the cashier with a note on what to change. You can also type your own price below.</p></div>';
     if (ap) h = h.replace('<dl class="sx-info">', ap + '<dl class="sx-info">');                       // first thing Finance sees
     else if (x.financeNote && x.status === 'new') h += '<div class="sx-box"><b>You sent the cashier\u2019s price back</b>' + esc(x.financeNote) + (x.proposedAmount ? '\nTheir price was ' + peso(x.proposedAmount) + '.' : '') + '</div>';
+    var ac = x.acceptCheck;
+    if (ac && (ac.flags || []).length) h += '<div class="sx-box sx-warnbox"><b>Checked again when the customer accepted</b>' + esc((ac.reasons || []).join('\n')) + '</div>';
     // a custom item (no catalog product) is made with a job order: its raw materials and finishing supplies are issued here
     if (!x.sku && ['accepted', 'preparing', 'ready', 'completed'].indexOf(x.status) >= 0) h += '<div class="sx-box sx-job" id="sxJob"><b>Job order: materials for this custom item</b><span class="faint">Loading\u2026</span></div>';
     if (inFlow || x.status === 'completed') {
@@ -237,6 +368,7 @@
     }
     if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? 'needed when you send the price back' : 'optional' + (inFlow ? ', saved with the step or the cancellation' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
     h += '<div class="sx-err" id="sxErr" role="alert"></div><div class="sx-actions">';
+    if (x.status === 'quoted' && !(x.paidAmount > 0)) h += '<button type="button" class="btn-secondary" id="sxRefreshPrice">Refresh price at today\u2019s costs</button>';
     if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve ' + peso(x.proposedAmount || 0) + '</button><button type="button" class="btn-secondary" id="sxReturnPrice">Send back to cashier</button>';
     if (inFlow && x.next) h += '<button type="button" class="btn-primary" id="sxStep">' + esc(x.nextLabel === 'Preparing' ? 'Start preparing' : x.next === 'completed' ? 'Mark ' + String(x.nextLabel).toLowerCase() : 'Mark ' + String(x.nextLabel).toLowerCase()) + '</button>';
     if (!inFlow && x.status !== 'completed') h += '<button type="button" class="' + (x.status === 'pending_approval' ? 'btn-secondary' : 'btn-primary') + '" id="sxSend">' + (x.status === 'pending_approval' ? 'Send my own price instead' : x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
@@ -252,8 +384,11 @@
         '<div class="sx-actions"><button type="button" class="btn-danger" id="sxCloseGo">' + (inFlow ? 'Cancel quote' : 'Close request') + '</button><button type="button" class="btn-secondary" id="sxCloseBack">Back</button></div></div>';
     }
     h += '</div>';
+    h += '<div class="sx-box sx-log" id="sxLog"><b>Decision log</b><span class="faint">Loading\u2026</span></div>';
     $('sxBody').innerHTML = h;
     if ($('sxJob')) loadJob(x);
+    loadLog(x);
+    if ($('sxRefreshPrice')) $('sxRefreshPrice').addEventListener('click', function () { post(x, '/refresh-price', {}, x.id + ' was refreshed at today\u2019s costs.'); });
     if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Approved: ' + x.id + ' is sent to the customer at ' + peso(x.proposedAmount || 0) + '.'); });
     if ($('sxReturnPrice')) $('sxReturnPrice').addEventListener('click', function () {
       var note = $('sxNote').value.trim(); $('sxErr').classList.remove('show');
@@ -271,6 +406,17 @@
     if ($('sxCloseGo')) $('sxCloseGo').addEventListener('click', function () { submitQuote(x, 'closed'); });
     if ($('sxReopen')) $('sxReopen').addEventListener('click', function () { submitQuote(x, 'new'); });
   }
+  var logSeq = 0;
+  async function loadLog(x) {
+    var my = ++logSeq, rows;
+    try { rows = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/decisions'); } catch (e) { if ($('sxLog')) $('sxLog').innerHTML = '<b>Decision log</b><span class="sx-err show">' + esc(e.message) + '</span>'; return; }
+    if (my !== logSeq || !$('sxLog')) return;
+    $('sxLog').innerHTML = '<b>Decision log</b>' + (rows.length ? '<ul style="margin:6px 0 0;padding-left:18px">' + rows.map(function (d) {
+      var n = d.numbers || {}, fig = [n.cashierTotal != null ? 'price ' + peso(n.cashierTotal) : '', n.systemTotal != null ? 'system ' + peso(n.systemTotal) : '', n.costTotal != null ? 'cost ' + peso(n.costTotal) : '', n.marginPct != null ? 'margin ' + n.marginPct + '%' : ''].filter(Boolean).join(' \u00B7 ');
+      return '<li><b>' + esc(String(d.action).replace(/_/g, ' ')) + '</b>' + ((d.rules || []).length ? ' \u2014 ' + esc(d.rules.map(function (r) { return RULE_LABEL[r] || r; }).join(', ')) : '') +
+        (d.reason ? '<br>' + esc(d.reason) : '') + '<small>' + esc(d.by) + (d.role ? ' (' + esc(d.role) + ')' : '') + ' \u00B7 ' + esc(when(d.at)) + (fig ? ' \u00B7 ' + esc(fig) : '') + '</small></li>';
+    }).join('') + '</ul>' : '<span class="faint">No decisions yet.</span>');
+  }
   /* ---------------- job order (custom items) ---------------- */
   var jobSeq = 0;
   var newKey = function () { return (window.crypto && crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : Date.now().toString(36) + Math.random().toString(36).slice(2, 12)); };
@@ -282,12 +428,14 @@
     if (my !== jobSeq || !$('sxJob')) return;
     box = $('sxJob');
     var cost = function (j) { return j.materialCost != null ? peso(j.materialCost) : '\u2014'; };
-    if (d.job) {
+    if (d.job && d.job.status !== 'draft') {
       var j = d.job, margin = d.quoted ? d.quoted - j.materialCost : null;
-      box.innerHTML = '<b>Job order ' + esc(j.ref) + ': materials issued</b><span class="faint">By ' + esc(j.issuedBy) + ' \u00B7 ' + esc(j.issuedAt) + '</span>' +
+      box.innerHTML = '<b>Job order ' + esc(j.ref) + ': materials issued' + (j.status === 'finished' ? ' \u00B7 finished ' + esc(j.finishedAt || '') : '') + '</b><span class="faint">By ' + esc(j.issuedBy) + ' \u00B7 ' + esc(j.issuedAt) + '</span>' +
         '<table class="sx-jobtable"><thead><tr><th>Material</th><th>Department</th><th class="r">Used</th><th class="r">Cost</th></tr></thead><tbody>' +
         j.items.map(function (i) { return '<tr><td>' + esc(i.name) + '<div class="faint">' + esc(i.sku) + ' \u00B7 ' + esc(i.movementRef || '') + '</div></td><td>' + esc(i.department) + '</td><td class="r">' + i.quantity + ' ' + esc(i.unit) + '</td><td class="r">' + (i.unitCost != null ? peso(i.quantity * i.unitCost) : '\u2014') + '</td></tr>'; }).join('') +
-        '</tbody></table><div class="sx-jobsum">Material cost <b>' + cost(j) + '</b>' + (margin != null ? ' \u00B7 quoted ' + peso(d.quoted) + ' \u00B7 left for labour and margin <b>' + peso(margin) + '</b>' : '') + '</div>' + (j.note ? '<div class="faint">' + esc(j.note) + '</div>' : '');
+        '</tbody></table><div class="sx-jobsum">Material cost <b>' + cost(j) + '</b>' + (margin != null ? ' \u00B7 quoted ' + peso(d.quoted) + ' \u00B7 left for labour and margin <b>' + peso(margin) + '</b>' : '') + '</div>' + (j.note ? '<div class="faint">' + esc(j.note) + '</div>' : '') +
+        (d.canFinish ? '<div class="sx-actions"><button type="button" class="btn-primary" id="sxJobFinish">Job finished \u2014 mark ' + (x.fulfillment === 'Delivery' ? 'out for delivery' : 'ready for pickup') + '</button></div>' : '');
+      if ($('sxJobFinish')) $('sxJobFinish').addEventListener('click', function () { post(x, '/job/finish', {}, x.id + ': job finished, the customer was told.'); });
       return;
     }
     if (!d.canIssue) {
@@ -301,14 +449,14 @@
         return '<optgroup label="' + dep + '">' + d.materials.filter(function (m) { return m.department === dep; }).map(function (m) {
           return '<option value="' + esc(m.sku) + '"' + (m.sku === sel ? ' selected' : '') + ' data-unit="' + esc(m.unit) + '" data-onhand="' + m.onHand + '">' + esc(m.name) + ' (' + esc(m.sku) + ') \u00B7 ' + m.onHand + ' ' + esc(m.unit) + ' on hand</option>'; }).join('') + '</optgroup>'; }).join('');
     };
-    var line = function (sku, why) {
+    var line = function (sku, why, qty) {
       var m = d.materials.find(function (z) { return z.sku === sku; });
-      return '<div class="sx-jobline"><select class="form-input" data-jsku>' + opts(sku) + '</select><input class="form-input mono" data-jqty inputmode="decimal" autocomplete="off" placeholder="Qty"><span class="sx-junit">' + esc(m ? m.unit : '') + '</span>' +
+      return '<div class="sx-jobline"><select class="form-input" data-jsku>' + opts(sku) + '</select><input class="form-input mono" data-jqty inputmode="decimal" autocomplete="off" placeholder="Qty" value="' + esc(qty != null ? qty : '') + '"><span class="sx-junit">' + esc(m ? m.unit : '') + '</span>' +
         '<button type="button" class="btn-secondary btn-sm" data-jdel aria-label="Remove line">\u00D7</button>' + (why ? '<small class="faint">Suggested from the ' + esc(why) + '</small>' : '') + '<span class="sx-jerr" data-jerr></span></div>';
     };
-    box.innerHTML = '<b>Job order: issue the materials for this custom item</b>' +
-      '<span class="faint">Each line leaves stock as \u201CUsed in production\u201D when you confirm. The suggestions come from the quote\u2019s material and finish; enter what this job really uses.</span>' +
-      '<div id="sxJobLines">' + (d.suggestions.length ? d.suggestions.map(function (sg) { return line(sg.sku, sg.why); }).join('') : line('')) + '</div>' +
+    box.innerHTML = '<b>Job order' + (d.job ? ' ' + esc(d.job.ref) + ' (draft)' : '') + ': issue the materials for this custom item</b>' +
+      '<span class="faint">Each line leaves stock as \u201CUsed in production\u201D when you confirm' + (x.status === 'accepted' ? ', and the quote moves to Preparing' : '') + '. ' + (d.job ? 'The quantities come from the quote\u2019s recipe for the whole order; change them to what this job really uses.' : 'The suggestions come from the quote\u2019s material and finish; enter what this job really uses.') + '</span>' +
+      '<div id="sxJobLines">' + (d.suggestions.length ? d.suggestions.map(function (sg) { return line(sg.sku, sg.why, sg.quantity); }).join('') : line('')) + '</div>' +
       '<button type="button" class="btn-secondary btn-sm" id="sxJobAdd" style="margin-top:8px">+ Add material</button>' +
       '<label for="sxJobNote" style="display:block;margin:10px 0 4px;font-weight:600;font-size:13px">Note <span class="faint" style="font-weight:400">(optional)</span></label><input id="sxJobNote" class="form-input" maxlength="300" placeholder="e.g. cut from 2 ingots, extra coat on the flange">' +
       '<div class="sx-err" id="sxJobErr" role="alert"></div><div class="sx-actions"><button type="button" class="btn-primary" id="sxJobGo">Issue materials</button></div>';

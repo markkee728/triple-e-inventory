@@ -1,8 +1,9 @@
 /* pricing-admin.js — Finance > Products > "Pricing rules".
    One place for every number the automatic prices use (pricing.js on the server):
      - finished goods markup (selling price = unit cost + markup, default 20%)
-     - quote markup and the calculator rates for made-to-order items (material scrap, process, finish, service, tooling, weights)
-   Saving re-prices every finished good on automatic pricing straight away. Loaded after api-bridge.js. */
+     - quote markup, and the ESTIMATES the quick recipe of a made-to-order quote starts from (weights, fill factor, density,
+       scrap, finishing supply per kg). They are first guesses, labelled as estimates; the cashier / Finance can still correct
+       the recipe lines on each quote. Saving re-prices every finished good on automatic pricing straight away. Loaded after api-bridge.js. */
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -11,19 +12,16 @@
   const peso = (n) => '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   // which rate groups are shown, in what order, with what unit
   const GROUPS = [
-    ['processPerKg', 'Process cost per kg', '₱/kg', 'Casting, forging or fitting work, per kg of the piece.'],
-    ['finishPerKg', 'Finish cost per kg', '₱/kg', 'Powder coat, plating, polishing … per kg of the piece. 0 = no charge.'],
-    ['servicePerPc', 'Service per piece', '₱/pc', 'Extra work done on every piece.'],
-    ['toolingPerOrder', 'Tooling / mould per order', '₱', 'One-time cost shared by every piece of the order.'],
+    ['finishUsePerKg', 'Finishing supply used per kg of the piece', 'unit/kg', 'How much of the finishing supply (powder, plating salt, polishing compound …, in its stock unit) one kg of the piece uses. 0 = the finish uses no stock item.'],
     ['rangeWeightKg', 'Weight of a size range (aluminum)', 'kg', 'Brass weighs more: it is scaled by the densities below.'],
     ['pipeWeightKg', 'Weight of a fitting by pipe size (brass)', 'kg', 'Typed sizes between two of these are worked out in between.'],
     ['density', 'Density', 'g/cm³', 'Used for typed dimensions (length × width × height).']
   ];
   const SINGLES = [
-    ['scrapPct', 'Material scrap allowance', '%'], ['processMinPerPc', 'Minimum process cost per piece', '₱'],
-    ['finishMinPerPc', 'Minimum finish cost per piece', '₱'], ['fillFactor', 'Fill factor for typed dimensions', '0–1'],
+    ['scrapPct', 'Material scrap allowance', '%'], ['fillFactor', 'Fill factor for typed dimensions', '0–1'],
     ['thicknessRefMm', 'Reference wall thickness', 'mm']
   ];
+  const EST = ' <em class="pr-est">estimate</em>';
   let data = null;
 
   function ensureModal() {
@@ -45,24 +43,25 @@
     $('prBody').addEventListener('input', preview);
     return ov;
   }
-  const field = (name, label, unit, value, step) =>
-    '<label class="pr-f"><span>' + esc(label) + '</span><span class="pr-in"><input type="number" min="0" step="' + (step || 'any') + '" inputmode="decimal" name="' + esc(name) + '" value="' + esc(value) + '"><i>' + esc(unit) + '</i></span></label>';
+  const field = (name, label, unit, value, step, est) =>
+    '<label class="pr-f"><span>' + esc(label) + (est ? EST : '') + '</span><span class="pr-in"><input type="number" min="0" step="' + (step || 'any') + '" inputmode="decimal" name="' + esc(name) + '" value="' + esc(value) + '"><i>' + esc(unit) + '</i></span></label>';
 
   function render() {
-    const r = data.rates, mp = data.materialPrices || {};
+    const r = data.rates, mp = data.materialItems || {};
     $('prBody').innerHTML =
       '<div class="form-section-label">Finished goods</div>' +
       '<div class="pr-grid">' + field('fgMarkupPct', 'Markup on cost', '%', data.fgMarkupPct, '0.01') + '</div>' +
       '<p class="field-hint" id="prFgHint"></p>' +
       '<div class="form-section-label">Custom made-to-order quotes</div>' +
       '<div class="pr-grid">' + field('quoteMarkupPct', 'Markup on the computed cost', '%', data.quoteMarkupPct, '0.01') +
-        SINGLES.map((s) => field('rates.' + s[0], s[1], s[2], r[s[0]])).join('') + '</div>' +
-      '<p class="field-hint">Material is priced from the stock cost per kg: ' + Object.keys(mp).map((m) => esc(m) + ' ' + peso(mp[m].perKg) + '/kg').join(' · ') +
-        '. It changes by itself when the raw material’s average cost changes.</p>' +
-      GROUPS.map((g) => '<details class="pr-group"><summary>' + esc(g[1]) + '</summary><p class="field-hint">' + esc(g[3]) + '</p><div class="pr-grid">' +
+        SINGLES.map((s) => field('rates.' + s[0], s[1], s[2], r[s[0]], null, true)).join('') + '</div>' +
+      '<p class="field-hint">The quick recipe uses the stock item that matches each material, at its current unit cost: ' + Object.keys(mp).map((m) => esc(m) + ' → ' +
+        (mp[m] ? esc(mp[m].name) + ' ' + (mp[m].unitCost > 0 ? peso(mp[m].unitCost) + '/' + esc(mp[m].unit) : '<b>no cost yet: cannot price</b>') : '<b>no stock item: cannot price</b>')).join(' · ') + '.</p>' +
+      GROUPS.map((g) => '<details class="pr-group"><summary>' + esc(g[1]) + EST + '</summary><p class="field-hint">' + esc(g[3]) + '</p><div class="pr-grid">' +
         Object.keys(r[g[0]] || {}).map((k) => field('rates.' + g[0] + '.' + k, k, g[2], r[g[0]][k])).join('') + '</div></details>').join('') +
-      '<p class="field-hint">Formula per piece: material (weight × (1 + scrap) × ₱/kg) + process + finish + service + tooling ÷ quantity = cost; ' +
-        'price = cost × (1 + markup), rounded up to the next peso. A cashier price below the cost goes to Finance.' +
+      '<p class="field-hint">Quick recipe per piece: raw material = estimated weight × (1 + scrap), finishing supply = weight × its use per kg. ' +
+        'Cost = each quantity × the item’s current unit cost (materials only, the same formula as a finished good’s recipe); price = cost × (1 + markup). ' +
+        'Fields marked <em class="pr-est">estimate</em> are first guesses: the cashier or Finance can correct the recipe on each quote.' +
         (data.updatedAt ? ' Last changed ' + esc(new Date(data.updatedAt).toLocaleString('en-PH')) + (data.updatedBy ? ' by ' + esc(data.updatedBy) : '') + '.' : '') + '</p>';
     preview();
   }
@@ -106,7 +105,8 @@
       '.pr-f{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--text-dim);min-width:0}.pr-in{display:flex;align-items:center;gap:6px}' +
       '.pr-in input{flex:1 1 auto;min-width:0;background:var(--black);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font:inherit}' +
       '.pr-in i{font-style:normal;color:var(--text-faint);white-space:nowrap;font-size:12px}.pr-group{margin:8px 0;border:1px solid var(--border);border-radius:10px;padding:8px 12px}' +
-      '.pr-group summary{cursor:pointer;font-weight:650;color:var(--text)}#pricingRulesBtn{white-space:nowrap}';
+      '.pr-group summary{cursor:pointer;font-weight:650;color:var(--text)}#pricingRulesBtn{white-space:nowrap}' +
+      '.pr-est{font-style:normal;font-size:11px;font-weight:650;color:var(--amber);border:1px solid var(--amber);border-radius:99px;padding:0 6px;margin-left:4px;text-transform:uppercase;letter-spacing:.4px}';
     document.head.appendChild(st);
   }
   window.TripleEPricing = { open };
