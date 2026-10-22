@@ -921,8 +921,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         const it = await client.query('SELECT * FROM pos_sale_items WHERE sale_id=$1 ORDER BY item_id', [prior.rows[0].sale_id]);
         return saleJson(prior.rows[0], it.rows);
       }
-      const shiftResult = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
+      const shiftResult = await client.query('SELECT shift_id, opened_at FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
       if (!shiftResult.rowCount) throw bad('cashShift', 'Open your Cash Shift before completing a sale.');
+      if (app.locals.shiftIsStale && app.locals.shiftIsStale(shiftResult.rows[0].opened_at)) throw bad('cashShift', 'Your cash shift from an earlier day is still open. Count and close it, then open a new shift, before completing a sale.');
       const cashShiftId = shiftResult.rows[0].shift_id;
       const items = await loadSellable(client, lines, { lock: true });
       if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);     // minimum order; the maximum is the stock, checked in loadSellable
@@ -1868,8 +1869,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           cashReceived = Number(b.cashReceived);
           if (!Number.isFinite(cashReceived) || !/^\d+(?:\.\d{1,2})?$/.test(String(b.cashReceived)) || cashReceived < collect || cashReceived > collect + 100000)
             throw bad('cashReceived', `Enter the cash received; it must cover the ${peso(collect)} balance`);
-          const shift = await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
+          const shift = await client.query('SELECT shift_id, opened_at FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
           if (!shift.rowCount) throw bad('cashReceived', 'Open your Cash Shift before collecting payment');
+          if (app.locals.shiftIsStale && app.locals.shiftIsStale(shift.rows[0].opened_at)) throw bad('cashReceived', 'Your cash shift from an earlier day is still open. Count and close it, then open a new shift, before collecting payment');
           shiftId = shift.rows[0].shift_id;
         }
       }

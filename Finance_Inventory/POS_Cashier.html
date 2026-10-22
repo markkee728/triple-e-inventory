@@ -10,7 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="app-ui.css?v=3">
-<link rel="stylesheet" href="cash-shift.css?v=3">
+<link rel="stylesheet" href="cash-shift.css?v=4">
 <link rel="stylesheet" href="cashier-orders.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="quotes.css?v=10">
@@ -41,6 +41,8 @@
 </style>
 </head>
 <body>
+<!-- cash shift gate: full screen, no dismiss; cash-shift-ui.js fills it and lifts it once a shift is open -->
+<div class="sg" id="shiftGate" role="dialog" aria-modal="true" aria-labelledby="sgTitle"><div class="sg-card" id="sgCard"><h1 id="sgTitle">Checking your cash shift…</h1><p class="sg-lead dim">One moment.</p></div></div>
 <a class="skip-link" href="#main">Skip to content</a>
 
 <!-- ================= SIDEBAR ================= -->
@@ -1119,7 +1121,7 @@ $('prodGrid').innerHTML = '<div class="skeleton"></div>'.repeat(6);
   }, 20000);
 })();
 </script>
-<script src="cash-shift-ui.js?v=8"></script>
+<script src="cash-shift-ui.js?v=9"></script>
 <script src="notification-center.js?v=8"></script>
 <script src="page-memory.js?v=1"></script>
 <script src="cashier-orders.js?v=8"></script>

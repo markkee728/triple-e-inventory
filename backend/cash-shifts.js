@@ -1,5 +1,6 @@
 // Cash shifts: cashier drawer reconciliation + Finance monitoring.
 // Mount from server.js AFTER auth(), wrap(), tx() are defined.
+const rules = require('./cash-shift-rules');
 module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn}) {
  const TZ = tzIn || 'Asia/Manila';
  const VARIANCE_ALERT = Number(process.env.CASH_VARIANCE_ALERT || 100);   // |difference| at or above this needs Finance review
@@ -58,6 +59,13 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
     amount NUMERIC(12,2) NOT NULL CHECK (amount > 0), reason TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
    await pool.query('CREATE INDEX IF NOT EXISTS pos_cash_movements_shift_idx ON pos_cash_movements(shift_id, created_at)');
    await pool.query('ALTER TABLE pos_cash_shifts ADD COLUMN IF NOT EXISTS closing_breakdown JSONB');
+   // cash taken out of the drawer for the bank / safe right after counting; the next shift starts with closing cash minus this
+   await pool.query('ALTER TABLE pos_cash_shifts ADD COLUMN IF NOT EXISTS closing_deposit NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (closing_deposit >= 0)');
+   // one row: a closing difference ABOVE reason_threshold needs a written reason (Finance edits it on the Cash Shifts screen)
+   await pool.query(`CREATE TABLE IF NOT EXISTS cash_shift_rules (id INT PRIMARY KEY CHECK (id = 1),
+    reason_threshold NUMERIC(12,2) NOT NULL DEFAULT ${rules.DEFAULT_REASON_THRESHOLD} CHECK (reason_threshold >= 0 AND reason_threshold <= 10000),
+    updated_by INT REFERENCES users(user_id), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+   await pool.query('INSERT INTO cash_shift_rules (id) VALUES (1) ON CONFLICT DO NOTHING');
    console.log('[cash] cash shift schema ready');
   } catch(err){ console.warn('[cash] could not prepare the cash shift schema:', err.message); }
  })();
@@ -69,7 +77,7 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
  const summarySql = `SELECT s.shift_id AS id, s.cashier_id AS "cashierId", s.cashier_name AS "cashierName",
    s.opened_at AS "openedAt", s.closed_at AS "closedAt",
    s.opening_cash::float8 AS "openingCash", s.closing_cash::float8 AS "closingCash", s.closing_note AS "closingNote",
-   s.closing_breakdown AS "closingBreakdown",
+   s.closing_breakdown AS "closingBreakdown", s.closing_deposit::float8 AS "closingDeposit",
    (cs.cash_sales + oc.order_cash)::float8 AS "cashSales", (cs.cash_tx + oc.order_cash_tx)::int AS "cashTransactions",
    cs.card_sales::float8 AS "cardSales", cs.card_tx AS "cardTransactions", cs.pending_voids AS "pendingVoids",
    mv.cash_in::float8 AS "cashIn", mv.cash_out::float8 AS "cashOut",
@@ -108,7 +116,26 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   const m = new Map(); r.rows.forEach(x => { (m.get(String(x.shiftId)) || m.set(String(x.shiftId), []).get(String(x.shiftId))).push(x); }); return m;
  };
 
+ const getThreshold = async (db) => Number((await (db||pool).query('SELECT reason_threshold::float8 AS t FROM cash_shift_rules WHERE id=1')).rows[0]?.t ?? rules.DEFAULT_REASON_THRESHOLD);
+ const dayOf = ts => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ts));
+ // an open shift that began on an earlier (Philippine) day: counted and closed before anything else happens
+ app.locals.shiftIsStale = (openedAt) => dayOf(openedAt) < clock().date;
+
  /* ---------- cashier ---------- */
+ // One call tells the POS which screen to show after sign-in: open form (pre-filled), store closed, or close yesterday's shift first.
+ app.get('/api/pos/cash-shifts/gate',auth('cashier'),wrap(async(req,res)=>{
+  const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);
+  const cur=r.rows[0]||null, h=hours();
+  const state=rules.gateState({clock:{state:h.state,date:h.date},canOpenShift:h.canOpenShift,current:cur&&{id:cur.id,openedDay:dayOf(cur.openedAt)}});
+  const out={state,hours:h,reasonThreshold:await getThreshold(),shift:null,suggested:null};
+  if(cur){cur.movements=(await movementsFor([cur.id])).get(String(cur.id))||[];cur.hours=h;out.shift=cur;}
+  else{
+   const p=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "closedAt" IS NOT NULL ORDER BY "closedAt" DESC LIMIT 1`);   // the drawer carries over whoever closed last
+   out.suggested=rules.suggestOpening(p.rows[0]);
+  }
+  res.json(out);
+ }));
+
  app.get('/api/pos/cash-shifts/current',auth('cashier'),wrap(async(req,res)=>{
   const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);
   const s=r.rows[0]; if(!s) return res.json(null);
@@ -128,16 +155,21 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
    const old=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL',[req.user.id]);
    if(old.rowCount)return {error:'You already have an open cash shift.'};
+   const prev=(await client.query(`SELECT * FROM (${summarySql}) x WHERE "closedAt" IS NOT NULL ORDER BY "closedAt" DESC LIMIT 1`)).rows[0];
+   const sug=rules.suggestOpening(prev);
    const r=await client.query('INSERT INTO pos_cash_shifts(cashier_id,cashier_name,opening_cash) VALUES ($1,$2,$3) RETURNING shift_id',[req.user.id,req.user.name,amount]);
-   await log(client,req.user,`Shift #${r.rows[0].shift_id} opened — starting cash ${peso(amount)}`);
+   await log(client,req.user,`Shift #${r.rows[0].shift_id} opened — starting cash ${peso(amount)}`
+     +(sug?(Math.abs(amount-sug.amount)<0.005?` (confirmed as carried over from shift #${sug.fromShiftId})`:` — carried over from shift #${sug.fromShiftId} was ${peso(sug.amount)}, cashier entered ${peso(amount)} (${amount<sug.amount?'short ':'over '}${peso(Math.abs(amount-sug.amount))})`):' (no earlier shift to carry over)'));
    return {id:r.rows[0].shift_id};
   });if(result.error)return fail(res,409,result.error);res.status(201).json(result);
  }));
 
  app.post('/api/pos/cash-shifts/close',auth('cashier'),wrap(async(req,res)=>{
-  const amount=req.body?.closingCash, note=req.body?.note ?? '', breakdown=req.body?.breakdown;
+  const amount=req.body?.closingCash, note=req.body?.note ?? '', breakdown=req.body?.breakdown, deposit=req.body?.deposit===undefined||req.body?.deposit===null||req.body?.deposit===''?0:req.body.deposit;
   if(!money(amount))return fail(res,400,'Enter the actual cash counted (0 or more, up to 2 decimals).','closingCash');
   if(typeof note!=='string'||note.length>500)return fail(res,400,'Closing note must be at most 500 characters.','note');
+  if(!money(deposit))return fail(res,400,'Enter the deposit as 0 or more, up to 2 decimals.','deposit');
+  const dp=rules.depositProblem(deposit,amount); if(dp)return fail(res,400,dp,'deposit');
   let bd=null;
   if(breakdown!==undefined&&breakdown!==null){
    if(typeof breakdown!=='object'||Array.isArray(breakdown))return fail(res,400,'Invalid cash count.','breakdown');
@@ -154,14 +186,15 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
    if(!r.rowCount)return {error:'No open shift found.'};
    const id=r.rows[0].shift_id;
    const cur=(await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id])).rows[0];
-   const diff=r2(amount-cur.expectedCash);
-   if(diff!==0&&note.trim().length<5)return {error:'The count is '+(diff<0?'short':'over')+' by ₱'+Math.abs(diff).toFixed(2)+'. Please write a short explanation (at least 5 characters).',field:'note',status:400};
-   await client.query('UPDATE pos_cash_shifts SET closed_at=now(),closing_cash=$2,closing_note=$3,closing_breakdown=$4 WHERE shift_id=$1',[id,amount,note.trim(),bd?JSON.stringify(bd):null]);
+   const diff=r2(amount-cur.expectedCash), limit=await getThreshold(client);
+   if(rules.reasonRequired(diff,limit)&&note.trim().length<5)return {error:'The count is '+(diff<0?'short':'over')+' by ₱'+Math.abs(diff).toFixed(2)+', more than the ₱'+limit.toFixed(2)+' allowed without a reason. Please write a short explanation (at least 5 characters).',field:'note',status:400};
+   await client.query('UPDATE pos_cash_shifts SET closed_at=now(),closing_cash=$2,closing_note=$3,closing_breakdown=$4,closing_deposit=$5 WHERE shift_id=$1',[id,amount,note.trim(),bd?JSON.stringify(bd):null,deposit]);
    const report=await client.query(`SELECT * FROM (${summarySql}) x WHERE id=$1`,[id]);
    const c=report.rows[0];
    await log(client,req.user,`Shift #${id} closed — expected ${peso(c.expectedCash)}, counted ${peso(amount)}, `
      +(diff===0?'balanced':(diff<0?'SHORT ':'OVER ')+peso(Math.abs(diff))+(Math.abs(diff)>=VARIANCE_ALERT?' (flagged for Finance review)':''))
-     +(c.cashReturns?` · cash returns ${peso(c.cashReturns)}`:'')+(note.trim()?` · Note: ${note.trim()}`:''));
+     +(c.cashReturns?` · cash returns ${peso(c.cashReturns)}`:'')+(deposit>0?` · deposit ${peso(deposit)} taken out, ${peso(r2(amount-deposit))} stays for the next shift`:'')+(note.trim()?` · Note: ${note.trim()}`:''));
+   c.nextOpening=r2(amount-deposit);
    return c;
   });if(result.error)return fail(res,result.status||409,result.error,result.field);res.json(result);
  }));
@@ -199,6 +232,23 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   const finance=req.user.role==='finance';
   const q=finance?`SELECT * FROM (${summarySql}) x ORDER BY "openedAt" DESC LIMIT 200`:`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 ORDER BY "openedAt" DESC LIMIT 50`;
   const r=await pool.query(q,finance?[]:[req.user.id]);res.json(r.rows);
+ }));
+
+ /* ---------- Finance: the difference above which a closing reason is required ---------- */
+ app.get('/api/finance/cash-shifts/rules',auth('finance'),wrap(async(req,res)=>{
+  const r=(await pool.query('SELECT reason_threshold::float8 AS "reasonThreshold", updated_at AS "updatedAt", u.full_name AS "updatedBy" FROM cash_shift_rules c LEFT JOIN users u ON u.user_id=c.updated_by WHERE c.id=1')).rows[0];
+  res.json(r);
+ }));
+ app.put('/api/finance/cash-shifts/rules',auth('finance'),wrap(async(req,res)=>{
+  const v=req.body?.reasonThreshold;
+  if(!money(v)||v>10000)return fail(res,400,'Enter an amount from 0 to 10,000 pesos (up to 2 decimals).','reasonThreshold');
+  const out=await tx(async client=>{
+   const old=await getThreshold(client);
+   await client.query('UPDATE cash_shift_rules SET reason_threshold=$1,updated_by=$2,updated_at=now() WHERE id=1',[v,req.user.id]);
+   await log(client,req.user,`Cash shift rule changed: a closing reason is required above ${peso(v)} (was ${peso(old)})`);
+   return {reasonThreshold:v};
+  });
+  res.json(out);
  }));
 
  /* ---------- Finance monitor: shifts + payment summary (POS and online) for a date range ---------- */
@@ -240,7 +290,7 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
                  WHERE r.status='approved' AND o2.payment_method=o.payment_method
                    AND (o2.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date),0)::float8 AS refunded
     FROM orders o WHERE (o.created_at AT TIME ZONE $1)::date BETWEEN $2::date AND $3::date GROUP BY o.payment_method ORDER BY o.payment_method`,[TZ,f,t])).rows;
-  res.json({from:f,to:t,varianceAlert:VARIANCE_ALERT,totals,shifts,payments:{pos,online}});
+  res.json({from:f,to:t,varianceAlert:VARIANCE_ALERT,reasonThreshold:await getThreshold(),totals,shifts,payments:{pos,online}});
  }));
  /* ---------- automation: close-of-day reminders (runs with the other automation jobs every 15 minutes) ---------- */
  async function shiftHours() {
