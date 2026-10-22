@@ -5153,3 +5153,42 @@ html[data-theme="light"] #sales .pos-date-fields input{color-scheme:light;backgr
 .eu-row dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
 .eu-lock { margin: 12px 0 0; }
 @media (max-width: 560px) { .eu-grid { grid-template-columns: 1fr; } }
+
+/* Sales log tables readable typography & row card clicks */
+.sales-log-panel table th {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    padding: 12px 14px !important;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+}
+.sales-log-panel table td {
+    font-size: 14px !important;
+    padding: 14px 14px !important;
+    vertical-align: middle;
+}
+.sales-log-panel .faint {
+    font-size: 12.5px !important;
+    color: var(--text-dim) !important;
+}
+.order-click-row, .pos-click-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+.order-click-row:hover, .pos-click-row:hover {
+    background: rgba(74, 144, 217, 0.08) !important;
+}
+html[data-theme="light"] .order-click-row:hover, html[data-theme="light"] .pos-click-row:hover {
+    background: rgba(28, 92, 157, 0.07) !important;
+}
+.order-ref {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--blue-bright);
+    white-space: nowrap;
+    font-family: 'IBM Plex Mono', monospace;
+}
+html[data-theme="light"] .order-ref {
+    color: #1d4ed8;
+}
