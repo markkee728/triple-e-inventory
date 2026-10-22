@@ -16,6 +16,8 @@ process.on('unhandledRejection', (err) => console.error('[server] unhandled reje
 process.on('uncaughtException', (err) => console.error('[server] uncaught exception:', err && err.stack || err));
 
 const app = express();
+const security = require('./security');   // OWASP Top 10:2025 — headers, CSRF, rate limits, append-only audit, proxy (security.js)
+security.mount({ app, pool });
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 // Low-stock alerts (email + text). Registered this early so it also sees every change made by the routes below.
@@ -770,7 +772,7 @@ app.post('/api/auth/login', wrap(async (req, res) => {
   const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
   await audit(pool, user, 'Login', 'Successful login');
   res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
-    httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
+    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
   res.json(user);
 }));
 app.post('/api/auth/logout', wrap(async (req, res) => {
@@ -902,7 +904,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
   // the session cookie carries the display name, so refresh it
   const user = { id: req.user.id, name: result.full_name, role: req.user.role, roleLabel: req.user.roleLabel };
   res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
-    httpOnly: true, sameSite: 'lax', secure: process.env.COOKIE_SECURE === 'true', maxAge: 8 * 3600 * 1000 });
+    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
   res.json({ ...profileJson(result), message });
 }));
 // change password: any signed-in user.

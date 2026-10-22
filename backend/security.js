@@ -1,0 +1,147 @@
+/* security.js — web-application hardening for TRIPLE-E (OWASP Top 10:2025 A01, A02, A04, A07, A09).
+   No extra packages. Mounted FIRST in server.js:  const security = require('./security'); security.mount({ app, pool });
+
+   What it adds
+     • Security headers on every response (CSP, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, HSTS in production)
+     • Origin check on every state-changing /api request (CSRF defence on top of the sameSite cookie)
+     • Rate limits: a general one for /api and a stricter one for sign-in, sign-up, OTP and password routes
+     • "Cache-Control: no-store" on /api so personal data is never kept by the browser or a proxy
+     • The audit log becomes append-only (a database trigger refuses UPDATE and DELETE)
+     • A real client IP behind a proxy (trust proxy), so the existing per-IP limits in login-lockout.js, auth-signup.js,
+       password-otp.js and phone-otp.js no longer treat every visitor as the same address
+
+   Settings (all optional, see .env.example):
+     TRUST_PROXY        number of proxy hops in front of the app (default 1 in production, 0 otherwise)
+     ALLOWED_ORIGINS    extra hosts allowed to send state-changing requests, comma separated (e.g. shop.example.com)
+     RATE_LIMIT_PER_MIN general limit per IP for /api (default 600: a shop counter shares one IP)
+     AUTH_RATE_LIMIT    sign-in / sign-up / OTP limit per IP per 10 minutes (default 40)
+     COOKIE_SECURE      true or false; when not set it is true in production */
+'use strict';
+
+const isProd = () => process.env.NODE_ENV === 'production';
+const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
+
+/* ---------- cookies ---------- */
+// The session cookie is "Secure" (HTTPS only) in production unless COOKIE_SECURE=false is set on purpose.
+function cookieSecure() {
+  const v = String(process.env.COOKIE_SECURE || '').trim().toLowerCase();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  return isProd();
+}
+
+/* ---------- headers ---------- */
+// 'unsafe-inline' stays for scripts and styles because the pages still contain inline <script> blocks and style attributes.
+// Moving them to files and using nonces is the next hardening step. Everything else is locked down.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+  "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self'",
+  "frame-src 'none'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'"
+].join('; ');
+
+function securityHeaders() {
+  return (req, res, next) => {
+    res.setHeader('Content-Security-Policy', CSP);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), usb=(), payment=()');
+    if (isProd()) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+    next();
+  };
+}
+
+/* ---------- CSRF: the Origin of a state-changing request must be this site ---------- */
+function originGuard(extraHosts) {
+  const allowed = new Set((extraHosts || []).map((h) => String(h).trim().toLowerCase()).filter(Boolean));
+  const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
+  const firstOf = (v) => String(v || '').split(',')[0].trim().toLowerCase();
+  return (req, res, next) => {
+    if (SAFE.has(req.method)) return next();
+    const from = req.get('origin') || req.get('referer');
+    if (!from) return next();                        // not a browser (a script, a server callback): the sameSite cookie is not in play
+    let host;
+    try { host = new URL(from).host.toLowerCase(); } catch (_) { host = null; }
+    const ok = host && (host === firstOf(req.get('host')) || host === firstOf(req.get('x-forwarded-host')) || allowed.has(host));
+    if (ok) return next();
+    res.status(403).json({ error: 'Request blocked: it did not come from this site' });
+  };
+}
+
+/* ---------- rate limiting (in memory, per IP) ---------- */
+function rateLimiter({ windowMs, max, message }) {
+  const hits = new Map();
+  const timer = setInterval(() => { const now = Date.now(); for (const [k, v] of hits) if (v.reset <= now) hits.delete(k); }, Math.min(windowMs, 60000));
+  if (timer.unref) timer.unref();
+  return (req, res, next) => {
+    const now = Date.now(), key = req.ip || 'unknown';
+    let h = hits.get(key);
+    if (!h || h.reset <= now) { h = { count: 0, reset: now + windowMs }; hits.set(key, h); }
+    h.count += 1;
+    res.setHeader('X-RateLimit-Limit', String(max));
+    res.setHeader('X-RateLimit-Remaining', String(Math.max(0, max - h.count)));
+    if (h.count > max) {
+      res.setHeader('Retry-After', String(Math.max(1, Math.ceil((h.reset - now) / 1000))));
+      return res.status(429).json({ error: message || 'Too many requests. Please wait a moment and try again.' });
+    }
+    next();
+  };
+}
+
+/* ---------- audit log: append-only ---------- */
+const AUDIT_SQL = `
+CREATE OR REPLACE FUNCTION block_audit_changes() RETURNS trigger AS $f$
+BEGIN
+  RAISE EXCEPTION 'audit_log is append-only: % is not allowed', TG_OP USING ERRCODE = '42501';
+END $f$ LANGUAGE plpgsql;
+DO $d$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_audit_append_only') THEN
+    CREATE TRIGGER trg_audit_append_only BEFORE UPDATE OR DELETE ON audit_log
+      FOR EACH ROW EXECUTE FUNCTION block_audit_changes();
+  END IF;
+END $d$;`;
+
+async function ensureAuditAppendOnly(pool, tries = 3) {
+  for (let i = 1; i <= tries; i++) {
+    try { await pool.query(AUDIT_SQL); console.log('[security] audit_log is append-only'); return true; }
+    catch (e) {
+      if (i === tries) { console.warn('[security] could not make audit_log append-only:', e.message); return false; }
+      await new Promise((r) => setTimeout(r, 15000 * i));   // the table may not exist yet on a first start
+    }
+  }
+}
+
+/* ---------- mount ---------- */
+function mount({ app, pool, limits } = {}) {
+  app.disable('x-powered-by');
+  const hops = process.env.TRUST_PROXY !== undefined && process.env.TRUST_PROXY !== '' ? Number(process.env.TRUST_PROXY) : (isProd() ? 1 : 0);
+  app.set('trust proxy', Number.isFinite(hops) ? hops : 0);
+
+  const secret = String(process.env.JWT_SECRET || '');
+  if (isProd() && (secret.length < 32 || /replace-with|changeme|secret$/i.test(secret)))
+    console.warn('[security] JWT_SECRET is short or still a placeholder. Use at least 32 random characters in production.');
+  if (isProd() && !cookieSecure()) console.warn('[security] COOKIE_SECURE is off in production: the session cookie can travel over plain HTTP.');
+
+  const general = rateLimiter({ windowMs: 60000, max: (limits && limits.general) || num(process.env.RATE_LIMIT_PER_MIN, 600) });
+  const strict = rateLimiter({ windowMs: 600000, max: (limits && limits.auth) || num(process.env.AUTH_RATE_LIMIT, 40),
+    message: 'Too many attempts from this connection. Please wait a few minutes and try again.' });
+  const sensitive = /^\/(auth|signup|invitations)(\/|$)/i;
+
+  app.use(securityHeaders());
+  app.use('/api', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
+  app.use('/api', originGuard((process.env.ALLOWED_ORIGINS || '').split(',')));
+  app.use('/api', general);
+  app.use('/api', (req, res, next) => (req.method === 'POST' && sensitive.test(req.path) ? strict(req, res, next) : next()));
+
+  if (pool) ensureAuditAppendOnly(pool).catch(() => {});
+}
+
+module.exports = { mount, cookieSecure, securityHeaders, originGuard, rateLimiter, CSP, AUDIT_SQL };
