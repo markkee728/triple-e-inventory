@@ -442,7 +442,7 @@ async function submitPay() {
 function printPaymentReceipt(r) {
   if (!r) { say('That invoice is no longer on the screen. Print it from the order details.', true); return; }
   const o = r.order || {};
-  const html = `<!doctype html><html><head><title>${esc(r.receiptNo || 'invoice')}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
+  const html = `<!doctype html><html><head><title>Invoice ${esc(r.receiptNo || '')}</title><style>body{font:13px Arial,sans-serif;margin:18px;color:#000}h1{font-size:18px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin:10px 0}td,th{border-bottom:1px solid #999;padding:5px 3px;text-align:left}.sig{margin-top:38px;border-top:1px solid #000;width:260px;padding-top:4px}</style></head><body>
     <h1>Triple E Metal Products \u2014 sales invoice</h1>
     <div><b>${esc(r.receiptNo || '')}</b> \u00B7 ${esc(when(Date.now()))}</div>
     <div>Order: ${esc(o.id || '')} \u00B7 Customer: ${esc(o.customer || '')}</div>

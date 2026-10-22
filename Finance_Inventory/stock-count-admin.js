@@ -44,6 +44,8 @@
       '.sc-row-diff td{background:rgba(217,164,65,.07)}' +
       '.sc-bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 14px}' +
       '.sc-bar .sp{flex:1}' +
+      '.sc-auto{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--blue-bright);border:1px solid var(--blue-bright);vertical-align:1px}' +
+      '.sc-sched .panel-head{align-items:flex-start;gap:12px}.sc-sched .panel-sub b{color:var(--text)}.sc-top[hidden]{display:none!important}' +
       '.sc-acts{display:flex;gap:10px;align-items:center;flex-wrap:nowrap;margin-left:auto}.sc-acts>button{height:40px;white-space:nowrap}' +
       '@media (max-width:640px){.sc-acts{flex-wrap:wrap;width:100%}.sc-acts>button{flex:1 1 auto}}' +
       '.sc-sum{display:flex;gap:10px 22px;flex-wrap:wrap;margin:0 0 14px;font-size:14.5px}.sc-sum b{font-size:17px}' +
@@ -85,7 +87,7 @@
   function renderList() {
     cur = null;
     var open = list.filter(function (c) { return c.status === 'open'; })[0];
-    var html = '<div class="panel" style="margin-bottom:18px"><div class="panel-head"><div><div class="panel-title">' + (open ? 'Count in progress' : 'Start a new count') + '</div>' +
+    var html = scheduleHtml() + '<div class="panel" style="margin-bottom:18px"><div class="panel-head"><div><div class="panel-title">' + (open ? 'Count in progress' : 'Start a new count') + '</div>' +
       '<div class="panel-sub">' + (open ? 'Only one count can be open at a time.' : 'The system quantities are saved when you start, so you can count at your own pace.') + '</div></div></div>';
     if (open) {
       html += '<div class="sc-sum"><span>' + esc(open.no) + ' · ' + esc(open.scope) + '</span><span>' + open.counted + ' of ' + open.lines + ' counted</span><span>started ' + esc(when(open.createdAt)) + ' by ' + esc(open.createdBy) + '</span></div>' +
@@ -100,7 +102,7 @@
     html += '</div><div class="panel"><div class="panel-head"><div><div class="panel-title">Count history</div><div class="panel-sub">Posted counts have already corrected the stock</div></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Count</th><th>Scope</th><th>Status</th><th class="r">Counted</th><th class="r">Differences</th><th class="r">Net value</th><th>Date</th><th></th></tr></thead><tbody>' +
       (list.length ? list.map(function (c) {
-        return '<tr><td class="mono">' + esc(c.no) + '</td><td>' + esc(c.scope) + '</td><td>' + statusPill(c.status) + '</td><td class="r">' + c.counted + ' / ' + c.lines + '</td>' +
+        return '<tr><td class="mono">' + esc(c.no) + (c.scheduled ? ' <span class="sc-auto" title="Started by the weekly schedule">Weekly</span>' : '') + '</td><td>' + esc(c.scope) + '</td><td>' + statusPill(c.status) + '</td><td class="r">' + c.counted + ' / ' + c.lines + '</td>' +
           '<td class="r">' + (c.status === 'cancelled' ? '—' : c.differences) + '</td><td class="r ' + (c.netValue < 0 ? 'sc-down' : c.netValue > 0 ? 'sc-up' : '') + '">' + (c.status === 'posted' ? peso(c.netValue) : '—') + '</td>' +
           '<td class="dim">' + esc(when(c.closedAt || c.createdAt)) + '</td><td class="r"><button class="btn-secondary btn-sm" data-sc="open" data-id="' + esc(c.id) + '">' + (c.status === 'open' ? 'Continue' : 'View') + '</button></td></tr>';
       }).join('') : '<tr><td colspan="8" class="dim" style="text-align:center;padding:22px">No stock counts yet.</td></tr>') +
@@ -178,7 +180,24 @@
   /* ---------------- actions ---------------- */
   function showErr(msg) { var e = $('scErr'); if (!e) return toast(msg, true); e.textContent = msg; e.classList.toggle('show', !!msg); }
 
-  async function loadList() { list = await api('/stock-counts'); }
+  var sched = null;
+  async function loadList() { list = await api('/stock-counts'); try { sched = await api('/stock-counts/schedule'); } catch (e) { sched = null; } }
+  // weekly schedule card: the system starts the count by itself on count day (stock-count.js weeklyCount)
+  var DAYNAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  function scheduleHtml() {
+    if (!sched) return '';
+    var next = sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+    return '<div class="panel sc-sched" style="margin-bottom:18px"><div class="panel-head"><div><div class="panel-title">Weekly count schedule</div>' +
+      '<div class="panel-sub">' + (sched.enabled ? 'Every <b>' + esc(sched.day) + '</b> at store opening the system starts a count of <b>' + esc(sched.scopeLabel) + '</b> and tells Finance. Post it within ' + sched.dueDays + ' day' + (sched.dueDays === 1 ? '' : 's') + '.' +
+        (next ? ' Next count: <b>' + esc(next) + '</b>.' : '') : 'Switched off: counts are only started by hand.') + '</div></div>' +
+      '<button class="btn-secondary btn-sm" data-sc="sched-edit">Change schedule</button></div>' +
+      '<div class="sc-top" id="scSchedForm" hidden>' +
+        '<div class="grow"><label for="scSchedOn">Weekly count</label><select id="scSchedOn" class="form-select"><option value="1"' + (sched.enabled ? ' selected' : '') + '>On</option><option value="0"' + (sched.enabled ? '' : ' selected') + '>Off</option></select></div>' +
+        '<div class="grow"><label for="scSchedDay">Day</label><select id="scSchedDay" class="form-select">' + DAYNAMES.map(function (d, i) { return '<option value="' + i + '"' + (i === sched.weekday ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
+        '<div class="grow"><label for="scSchedScope">What to count</label><select id="scSchedScope" class="form-select"><option value="">All departments</option>' + DEPTS.map(function (d) { return '<option' + (d === sched.scope ? ' selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="grow"><label for="scSchedDue">Post within</label><select id="scSchedDue" class="form-select">' + [1, 2, 3, 4, 5, 6].map(function (n) { return '<option value="' + n + '"' + (n === sched.dueDays ? ' selected' : '') + '>' + n + ' day' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></div>' +
+        '<button class="btn-primary" data-sc="sched-save">Save schedule</button></div><div class="sc-err" id="scSchedErr"></div></div>';
+  }
   async function openCount(id) {
     cur = await api('/stock-counts/' + encodeURIComponent(id)); dirty = false; term = ''; filter = 'all'; renderCount();
   }
@@ -252,6 +271,14 @@
       var act = b.getAttribute('data-sc');
       try {
         if (act === 'open') await openCount(b.getAttribute('data-id'));
+        else if (act === 'sched-edit') { var f = $('scSchedForm'); if (f) f.hidden = !f.hidden; }
+        else if (act === 'sched-save') {
+          var se = $('scSchedErr'); if (se) se.textContent = '';
+          try {
+            sched = await api('/stock-counts/schedule', { method: 'PUT', body: JSON.stringify({ enabled: $('scSchedOn').value === '1', weekday: Number($('scSchedDay').value), scope: $('scSchedScope').value, dueDays: Number($('scSchedDue').value) }) });
+            toast(sched.enabled ? 'Weekly count: every ' + sched.day + '.' : 'Weekly count switched off.'); renderList();
+          } catch (e2) { if (se) se.textContent = e2.message; }
+        }
         else if (act === 'back') { if (dirty && !(await save(true))) return; await showList(); }
         else if (b.id === 'scStart') {
           showErr('');

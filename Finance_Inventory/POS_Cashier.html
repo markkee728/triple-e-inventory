@@ -885,14 +885,14 @@ async function showReceipt(s, reprint) {
 }
 $('rcSave').onclick = () => {
   if (!lastReceipt) return; const a = document.createElement('a');
-  a.href = lastReceipt.url; a.download = lastReceipt.s.receiptNo + '.png'; document.body.appendChild(a); a.click(); a.remove();
+  a.href = lastReceipt.url; a.download = 'Invoice-' + lastReceipt.s.receiptNo + '.png'; document.body.appendChild(a); a.click(); a.remove();
 };
 $('rcPrint').onclick = () => {                    // prints only the invoice image, 80 mm wide, in a hidden frame (no A4 page of dashboard)
   if (!lastReceipt) return;
   const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
   document.body.appendChild(f);
   const d = f.contentWindow.document; d.open();
-  d.write('<!doctype html><html><head><title>' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"></body></html>');
+  d.write('<!doctype html><html><head><title>Invoice ' + esc(lastReceipt.s.receiptNo) + '</title><style>@page{size:80mm auto;margin:0}html,body{margin:0;padding:0;background:#fff}img{display:block;width:80mm;height:auto}</style></head><body><img src="' + lastReceipt.url + '"></body></html>');
   d.close();
   const img = d.querySelector('img'), go = () => { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Could not open the print dialog.', true); } setTimeout(() => f.remove(), 60000); };
   img.complete ? go() : (img.onload = go);
