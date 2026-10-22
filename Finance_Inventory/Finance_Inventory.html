@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="style.css?v=11">
     <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
-    <link rel="stylesheet" href="sidebar.css?v=3">
+    <link rel="stylesheet" href="sidebar.css?v=6">
     <link rel="stylesheet" href="customers.css?v=6">
 
     <!-- Google Fonts -->
@@ -68,47 +68,31 @@
              Top links are always visible. Each section below can be collapsed; the section that
              contains the current page opens automatically (see sidebar.js). Keep every button's
              data-page value: script.js and the other admin scripts use it. -->
-        <nav id="sidebarNav" aria-label="Primary">
-
-            <div class="nav-group nav-top">
-                <button type="button" class="nav-item active" data-page="dashboard"><span class="dot"></span> Dashboard</button>
-                <button type="button" class="nav-item" data-page="sales-hub"><span class="dot"></span> Sales <span class="ngt-ind attn" id="salesNavAttention" hidden>0</span></button>
-                <button type="button" class="nav-item" data-page="reports"><span class="dot"></span> Reports</button>
-                <button type="button" class="nav-item" data-page="notifications"><span class="dot"></span> Notifications</button>
-            </div>
-
-            <div class="nav-group" data-group="inventory">
-                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-inventory">
-                    <span class="ngt-label">Inventory</span>
-                    <span class="ngt-ind" hidden></span>
-                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-                </button>
-                <div class="nav-items" id="navg-inventory">
-                    <div class="nav-items-inner">
-                        <button type="button" class="nav-item" data-page="inventory"><span class="dot"></span> Inventory Monitoring</button>
-                        <button type="button" class="nav-item" data-page="stockflow"><span class="dot"></span> Stock In / Out</button>
-                        <button type="button" class="nav-item" data-page="stockcount"><span class="dot"></span> Stock Count</button>
-                        <button type="button" class="nav-item" data-page="products"><span class="dot"></span> Products</button>
-                        <button type="button" class="nav-item" data-page="suppliers"><span class="dot"></span> Suppliers</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="nav-group" data-group="admin">
-                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-admin">
-                    <span class="ngt-label">Admin</span>
-                    <span class="ngt-ind" hidden></span>
-                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-                </button>
-                <div class="nav-items" id="navg-admin">
-                    <div class="nav-items-inner">
-                        <button type="button" class="nav-item" data-page="usermgmt"><span class="dot"></span> User Management</button>
-                        <button type="button" class="nav-item" data-page="auditlog"><span class="dot"></span> Audit Log</button>
-                    </div>
-                </div>
-            </div>
-
-        </nav>
+<nav id="sidebarNav" aria-label="Primary">
+<div class="nav-section" data-group="main" role="group" aria-labelledby="navl-main">
+<div class="nav-label-head" id="navl-main"><span>Main Menu</span></div>
+<button type="button" class="nav-item active" data-page="dashboard" data-label="Dashboard" title="Dashboard"><span class="dot"></span><span class="nav-text">Dashboard</span></button>
+<button type="button" class="nav-item" data-page="reports" data-label="Reports" title="Reports"><span class="dot"></span><span class="nav-text">Reports</span></button>
+<button type="button" class="nav-item" data-page="notifications" data-label="Notifications" title="Notifications"><span class="dot"></span><span class="nav-text">Notifications</span></button>
+</div>
+<div class="nav-section" data-group="inventory" role="group" aria-labelledby="navl-inventory">
+<div class="nav-label-head" id="navl-inventory"><span>Inventory</span></div>
+<button type="button" class="nav-item" data-page="inventory" data-label="Inventory Monitoring" title="Inventory Monitoring"><span class="dot"></span><span class="nav-text">Inventory Monitoring</span></button>
+<button type="button" class="nav-item" data-page="stockflow" data-label="Stock In / Out" title="Stock In / Out"><span class="dot"></span><span class="nav-text">Stock In / Out</span></button>
+<button type="button" class="nav-item" data-page="stockcount" data-label="Stock Count" title="Stock Count"><span class="dot"></span><span class="nav-text">Stock Count</span></button>
+<button type="button" class="nav-item" data-page="products" data-label="Products" title="Products"><span class="dot"></span><span class="nav-text">Products</span></button>
+<button type="button" class="nav-item" data-page="suppliers" data-label="Suppliers" title="Suppliers"><span class="dot"></span><span class="nav-text">Suppliers</span></button>
+</div>
+<div class="nav-section" data-group="sales" role="group" aria-labelledby="navl-sales">
+<div class="nav-label-head" id="navl-sales"><span>Sales &amp; Transactions</span></div>
+<button type="button" class="nav-item" data-page="sales-hub" data-label="Sales" title="Sales"><span class="dot"></span><span class="nav-text">Sales</span><span class="ngt-ind attn" id="salesNavAttention" hidden>0</span></button>
+</div>
+<div class="nav-section" data-group="admin" role="group" aria-labelledby="navl-admin">
+<div class="nav-label-head" id="navl-admin"><span>Administration</span></div>
+<button type="button" class="nav-item" data-page="usermgmt" data-label="User Management" title="User Management"><span class="dot"></span><span class="nav-text">User Management</span></button>
+<button type="button" class="nav-item" data-page="auditlog" data-label="Audit Log" title="Audit Log"><span class="dot"></span><span class="nav-text">Audit Log</span></button>
+</div>
+</nav>
 
         <div class="sidebar-foot">
             <button type="button" class="rail-toggle" id="railToggle" aria-pressed="false" aria-label="Collapse sidebar">
@@ -3720,7 +3704,7 @@
     <script src="customer-profiles-admin.js?v=7"></script>
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=8"></script>
-    <script src="sidebar.js?v=2"></script>
+    <script src="sidebar.js?v=3"></script>
     <script src="sales-hub.js?v=2"></script>
 
 </body>
