@@ -94,19 +94,11 @@
             </div>
 
             <div class="nav-group" data-group="sales">
-                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-sales">
-                    <span class="ngt-label">Sales</span>
-                    <span class="ngt-ind" id="salesNavAttention" hidden></span>
-                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+                <button type="button" class="nav-item sales-parent" data-page="sales-overview">
+                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                    <span>Sales</span>
+                    <span class="ngt-ind attn" id="salesNavAttention" hidden>0</span>
                 </button>
-                <div class="nav-items" id="navg-sales">
-                    <div class="nav-items-inner">
-                        <button type="button" class="nav-item" data-page="sales-overview"><span class="dot"></span> Overview</button>
-                        <button type="button" class="nav-item" data-page="orders"><span class="dot"></span> Online Orders</button>
-                        <button type="button" class="nav-item" data-page="sales"><span class="dot"></span> POS Sales &amp; Shifts</button>
-                        <button type="button" class="nav-item" data-page="payment-terms"><span class="dot"></span> Payment Terms</button>
-                    </div>
-                </div>
             </div>
 
             <div class="nav-group" data-group="admin">
@@ -270,16 +262,11 @@
 
             <!-- Sales pages share one tab strip (shown only on those pages: see navigateToPage in script.js) -->
             <div class="sales-nav-container" id="salesNavContainer" hidden>
-                <div class="sales-breadcrumb" id="salesBreadcrumb">
-                    <span class="sales-bc-root">Sales</span>
-                    <span class="sales-bc-sep">/</span>
-                    <span class="sales-bc-current" id="salesBreadcrumbCurrent">Overview</span>
-                </div>
                 <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections">
                     <button type="button" class="sales-tab active" role="tab" data-page="sales-overview">Overview</button>
-                    <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders <span class="tab-badge" id="ordersTabBadge" hidden>0</span></button>
                     <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
-                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Terms</button>
+                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Payment Policies</button>
                 </div>
             </div>
 
@@ -1311,7 +1298,7 @@
                  SALES & TRANSACTIONS OVERVIEW
             ================================================== -->
             <section id="sales-overview" class="page">
-                <div class="catalog-header"><div><div class="catalog-eyebrow">Sales / Overview</div>
+                <div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div>
                     <h1 class="catalog-title">Sales Overview</h1>
                     <div class="panel-sub">Every POS sale and online order in one read-only ledger. The cashier processes them; you monitor, and approve the requests sent to you.</div>
                 </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
@@ -1327,7 +1314,7 @@
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Sales / Online Orders</div>
+                        <div class="catalog-eyebrow">Sales &amp; Transactions</div>
                         <h1 class="catalog-title">Online Orders</h1>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
@@ -1375,7 +1362,7 @@
 
                 <div class="catalog-header">
                     <div>
-                        <div class="catalog-eyebrow">Sales / POS</div>
+                        <div class="catalog-eyebrow">Sales &amp; Transactions</div>
                         <h1 class="catalog-title">POS Sales &amp; Cash Shifts</h1>
                     </div>
                     <button class="btn-secondary btn-sm so-refresh" type="button">Refresh</button>
@@ -1491,6 +1478,7 @@
                             >
                                 2 accounts
                             </div>
+                            <div class="faint" style="font-size:12px;color:var(--text-dim);margin-top:3px">Click any account row to view card, edit role, or manage status</div>
 
                         </div>
 
@@ -1524,7 +1512,6 @@
                                     <th>Role</th>
                                     <th>Status</th>
                                     <th>Last Login</th>
-                                    <th>Actions</th>
                                 </tr>
 
                             </thead>

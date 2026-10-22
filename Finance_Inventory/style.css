@@ -4855,73 +4855,135 @@ html:not([data-theme="light"]) input[type="date"]::-webkit-calendar-picker-indic
 .sales-nav-group .nav-symbol {display:inline-block;min-width:19px;font-size:18px;text-align:center}
 .sales-nav-group .sales-section-active:not(.active) {background:rgba(59,130,246,.09)}
 .sales-nav-container {
-    margin: 12px 0 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-.sales-breadcrumb {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-faint, #64748b);
+    margin: 8px 0 18px;
     display: flex;
     align-items: center;
-    gap: 6px;
-    letter-spacing: 0.2px;
-}
-.sales-bc-root {
-    color: var(--text-dim, #475569);
-}
-.sales-bc-sep {
-    color: var(--border, #cbd5e1);
-}
-.sales-bc-current {
-    color: var(--primary, #1e40af);
-    font-weight: 600;
 }
 .sales-page-tabs {
     display: inline-flex;
     align-items: center;
-    background: var(--surface-sunken, #f1f5f9);
-    border: 1px solid var(--border, #e2e8f0);
+    background: rgba(13, 26, 38, 0.95);
+    border: 1px solid var(--border);
     border-radius: 9999px;
     padding: 3px;
     gap: 4px;
     width: fit-content;
     max-width: 100%;
     overflow-x: auto;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 .sales-tab {
-    border: none;
+    border: 1px solid transparent;
     background: transparent;
-    color: var(--text-dim, #64748b);
+    color: var(--text-dim);
     border-radius: 9999px;
-    padding: 7px 18px;
+    padding: 6px 16px;
     cursor: pointer;
-    font-size: 13.5px;
+    font-size: 13px;
     font-weight: 500;
     font-family: inherit;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
     transition: all 0.15s ease;
 }
 .sales-tab:hover:not(.active) {
-    color: var(--text, #0f172a);
-    background: rgba(0, 0, 0, 0.04);
+    color: var(--text);
+    background: rgba(74, 144, 217, 0.1);
 }
 .sales-tab.active {
-    background: var(--surface, #ffffff);
-    color: #1d4ed8 !important;
+    background: var(--blue);
+    color: #ffffff !important;
+    border-color: var(--blue-bright);
     font-weight: 600;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 2px 8px rgba(35, 103, 157, 0.35);
 }
-html[data-theme="dark"] .sales-page-tabs {
-    background: var(--surface-sunken, #0f172a);
-    border-color: var(--border, #334155);
+.tab-badge {
+    background: #e35b5b;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 99px;
+    line-height: 1.4;
 }
-html[data-theme="dark"] .sales-tab.active {
-    background: #1e293b;
-    color: #38bdf8 !important;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+html[data-theme="light"] .sales-page-tabs {
+    background: rgba(227, 235, 242, 0.85);
+    border-color: #cbd8e5;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+html[data-theme="light"] .sales-tab {
+    color: #475569;
+}
+html[data-theme="light"] .sales-tab:hover:not(.active) {
+    color: #0f172a;
+    background: rgba(255, 255, 255, 0.6);
+}
+html[data-theme="light"] .sales-tab.active {
+    background: #ffffff;
+    color: #1c5c9d !important;
+    border-color: #9cb9d8;
+    box-shadow: 0 1px 4px rgba(28, 92, 157, 0.18);
+}
+
+/* Automated policy cards */
+.policy-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    padding: 14px 18px 18px;
+}
+.policy-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+.policy-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+}
+.policy-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+}
+.policy-card-rule {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.5;
+}
+.policy-card-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: 4px;
+}
+html[data-theme="light"] .policy-card-metrics {
+    background: rgba(20, 45, 70, 0.04);
+}
+.policy-metric-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+}
+.policy-metric-val {
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    margin-top: 2px;
 }
 
 /* POS Management: accessible sales and cash-shift tabs */

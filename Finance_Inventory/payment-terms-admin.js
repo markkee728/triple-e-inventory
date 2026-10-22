@@ -64,19 +64,48 @@
     var host = $('payment-terms');
     if (!host || host.dataset.built === '1') return;
     host.dataset.built = '1';
-    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales / Payment Terms</div><h1 class="catalog-title">Payment Terms</h1>'
-      + '<div class="panel-sub">Part-payment rules, approvals and balances.</div></div>'
+    host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div><h1 class="catalog-title">Payment Policies &amp; Terms</h1>'
+      + '<div class="panel-sub">Automated part-payment policies, cash rules, approvals, and balances.</div></div>'
       + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
       + PANELS.map(function (p) {
+        var isPolicy = p[0] === 'ptrPolicy';
         return '<div class="panel" id="' + p[0] + 'Box" style="margin-bottom:18px">'
-          + '<div class="panel-head"><div><div class="panel-title">' + p[1] + '</div><div class="panel-sub">' + p[2] + '</div></div>'
-          + '<div class="inv-filters"><button type="button" class="btn-secondary btn-sm" data-reload="' + p[0] + '">Reload</button></div></div>'
+          + '<div class="panel-head"><div><div class="panel-title">' + (isPolicy ? 'Automated Payment Terms Policy' : p[1]) + '</div>'
+          + '<div class="panel-sub">' + (isPolicy ? 'The policy engine enforces these rules automatically for cashiers and online checkouts. No manual calculation required.' : p[2]) + '</div></div>'
+          + '<div class="inv-filters">'
+          + (isPolicy ? '<button type="button" class="btn-secondary btn-sm" id="ptrTogglePolicyEdit">Configure Parameters</button> ' : '')
+          + '<button type="button" class="btn-secondary btn-sm" data-reload="' + p[0] + '">Reload</button></div></div>'
           + '<div class="faint" id="' + p[0] + 'Status" data-status="' + p[0] + '" style="padding:8px 16px 0;min-height:18px"></div>'
-          + '<div class="table-wrapper"><table><thead><tr>' + p[3] + '</tr></thead>'
+          + (isPolicy ? '<div id="ptrPolicyCards" class="policy-cards-grid"></div>' : '')
+          + '<div class="table-wrapper" id="' + p[0] + 'TableWrapper"' + (isPolicy ? ' hidden' : '') + '><table><thead><tr>' + p[3] + '</tr></thead>'
           + '<tbody id="' + p[0] + 'Body"><tr><td class="faint">Loading\u2026</td></tr></tbody></table></div></div>';
       }).join('');
     // cash on delivery / pickup rules sit right under the terms they go with
     var pol = $('ptrPolicyBox'); if (pol) pol.insertAdjacentHTML('afterend', codPanel());
+
+    var btnPol = $('ptrTogglePolicyEdit');
+    if (btnPol) {
+      btnPol.addEventListener('click', function () {
+        var cards = $('ptrPolicyCards'), tbl = $('ptrPolicyTableWrapper');
+        if (!cards || !tbl) return;
+        var showEdit = tbl.hidden;
+        tbl.hidden = !showEdit;
+        cards.hidden = showEdit;
+        btnPol.textContent = showEdit ? 'View Active Policies' : 'Configure Parameters';
+      });
+    }
+
+    var btnCod = $('ptrToggleCodEdit');
+    if (btnCod) {
+      btnCod.addEventListener('click', function () {
+        var cards = $('ptrCodCards'), inputs = $('ptrCodInputs');
+        if (!cards || !inputs) return;
+        var showEdit = inputs.hidden;
+        inputs.hidden = !showEdit;
+        cards.hidden = showEdit;
+        btnCod.textContent = showEdit ? 'View Active Policies' : 'Configure Parameters';
+      });
+    }
   }
 
   /* ---------------- cash on delivery / pickup rules (order_rules) ---------------- */
@@ -88,10 +117,11 @@
         + '<div class="faint" style="margin-top:5px">' + hint + '</div><div class="faint" data-coderr="' + id + '" role="alert" style="color:var(--red,#c0392b)"></div></div>';
     };
     return '<div class="panel" id="ptrCodBox" style="margin-bottom:18px">'
-      + '<div class="panel-head"><div><div class="panel-title">Cash on delivery and pickup</div>'
-      + '<div class="panel-sub">Cash on delivery: the customer pays the delivery fee and a down payment online first, the rider collects the rest in cash. '
-      + 'Cash on pickup: a down payment is paid online first (taken off the total), the rest in cash at the counter; a no-show keeps the down payment. '
-      + 'The checkout hides cash when a rule says no, and the server checks again.</div></div></div>'
+      + '<div class="panel-head"><div><div class="panel-title">Automated Cash on Delivery &amp; Pickup Policies</div>'
+      + '<div class="panel-sub">Real-time checkout safeguards. Orders exceeding limits or high-risk accounts are automatically guided to secure online payment.</div></div>'
+      + '<div class="inv-filters"><button type="button" class="btn-secondary btn-sm" id="ptrToggleCodEdit">Configure Parameters</button></div></div>'
+      + '<div id="ptrCodCards" class="policy-cards-grid"></div>'
+      + '<div id="ptrCodInputs" hidden>'
       + '<div style="display:flex;gap:18px;flex-wrap:wrap;padding:4px 16px 0">'
       + f('codLimit', 'Cash on delivery limit (\u20B1)', 'Bigger delivery orders must be paid online. 0 = no limit.', 'placeholder="10000"')
       + f('codShows', 'Missed deliveries or pickups before cash is blocked', 'The customer can then only pay online. 0 = never block.', 'placeholder="2"')
@@ -101,14 +131,60 @@
       + f('copHours', 'Hours to hold a cash-on-pickup order', 'Counted from \u201CReady for pickup\u201D. Not picked up by then: cancelled, restocked, and the down payment is kept.', 'placeholder="48"')
       + f('codDeposit', 'Cash on delivery down payment (\u20B1)', 'Paid online together with the delivery fee; taken off what the rider collects. 0 = delivery fee only.', 'placeholder="200"')
       + '</div><div style="display:flex;gap:12px;align-items:center;padding:14px 16px 16px"><button type="button" class="btn-primary btn-sm" data-cod-save>Save rules</button>'
-      + '<span class="faint" id="codStatus"></span></div></div>';
+      + '<span class="faint" id="codStatus"></span></div>'
+      + '</div></div>';
   }
   function renderCod() {
-    if (!RULES || !$('codLimit')) return;
-    $('codLimit').value = RULES.codLimit; $('codShows').value = RULES.maxNoShows; $('codHold').value = RULES.pickupHoldDays;
-    $('copDeposit').value = RULES.copDeposit != null ? RULES.copDeposit : 200; $('copHours').value = RULES.copHoldHours != null ? RULES.copHoldHours : 48;
-    $('codDeposit').value = RULES.codDeposit != null ? RULES.codDeposit : 200;
-    $('codStatus').textContent = RULES.updatedBy ? 'Last changed by ' + RULES.updatedBy + ' \u00B7 ' + when(RULES.updatedAt) : 'Default rules (not changed yet)';
+    if (!RULES) return;
+    var cards = $('ptrCodCards');
+    if (cards) {
+      cards.innerHTML = '<div class="policy-card">'
+        + '<div class="policy-card-head">'
+        + '<div><div class="policy-card-title">Cash on Delivery (COD)</div><div class="faint">Delivery fulfillment safeguard</div></div>'
+        + '<span class="status-pill in">Active Policy</span>'
+        + '</div>'
+        + '<div class="policy-card-rule">Customer pays online reservation deposit + delivery fee; courier collects remaining cash on turnover.</div>'
+        + '<div class="policy-card-metrics">'
+        + '<div><div class="policy-metric-label">Maximum Order Limit</div><div class="policy-metric-val">' + (Number(RULES.codLimit) > 0 ? peso(RULES.codLimit) : 'No limit') + '</div></div>'
+        + '<div><div class="policy-metric-label">Online Deposit Required</div><div class="policy-metric-val">' + (Number(RULES.codDeposit) > 0 ? peso(RULES.codDeposit) + ' + fee' : 'Delivery fee only') + '</div></div>'
+        + '<div><div class="policy-metric-label">Abuse Safeguard</div><div class="policy-metric-val">' + (Number(RULES.maxNoShows) > 0 ? 'Blocked after ' + RULES.maxNoShows + ' no-shows' : 'Never blocked') + '</div></div>'
+        + '<div><div class="policy-metric-label">Checkout Behavior</div><div class="policy-metric-val">Auto-locks when exceeding limit</div></div>'
+        + '</div>'
+        + '</div>'
+        + '<div class="policy-card">'
+        + '<div class="policy-card-head">'
+        + '<div><div class="policy-card-title">Cash on Counter Pickup</div><div class="faint">In-store pickup safeguard</div></div>'
+        + '<span class="status-pill in">Active Policy</span>'
+        + '</div>'
+        + '<div class="policy-card-rule">Customer reserves online with initial deposit; balance paid in cash or card at counter checkout.</div>'
+        + '<div class="policy-card-metrics">'
+        + '<div><div class="policy-metric-label">Reservation Deposit</div><div class="policy-metric-val">' + (Number(RULES.copDeposit) > 0 ? peso(RULES.copDeposit) : 'Pay at counter') + '</div></div>'
+        + '<div><div class="policy-metric-label">Unpaid Hold Window</div><div class="policy-metric-val">' + (Number(RULES.copHoldHours) || 48) + ' hours from Ready status</div></div>'
+        + '<div><div class="policy-metric-label">Prepaid Hold Window</div><div class="policy-metric-val">' + (Number(RULES.pickupHoldDays) || 7) + ' days before restock</div></div>'
+        + '<div><div class="policy-metric-label">No-Show Ruling</div><div class="policy-metric-val">Stock auto-released to inventory</div></div>'
+        + '</div>'
+        + '</div>'
+        + '<div class="policy-card">'
+        + '<div class="policy-card-head">'
+        + '<div><div class="policy-card-title">Policy Engine Ruling</div><div class="faint">System automation status</div></div>'
+        + '<span class="status-pill ok">Automated</span>'
+        + '</div>'
+        + '<div class="policy-card-rule">Checkout dynamically evaluates user credit standing, order value, and item availability in real time.</div>'
+        + '<div class="policy-card-metrics">'
+        + '<div><div class="policy-metric-label">Risk Evaluation</div><div class="policy-metric-val">Instant verification</div></div>'
+        + '<div><div class="policy-metric-label">Manual Calculation</div><div class="policy-metric-val">0 manual steps</div></div>'
+        + '<div><div class="policy-metric-label">Audit Log Tracking</div><div class="policy-metric-val">Enforced &amp; logged</div></div>'
+        + '<div><div class="policy-metric-label">Last Policy Update</div><div class="policy-metric-val">' + (RULES.updatedBy ? esc(RULES.updatedBy) : 'System defaults') + '</div></div>'
+        + '</div>'
+        + '</div>';
+    }
+
+    if ($('codLimit')) {
+      $('codLimit').value = RULES.codLimit; $('codShows').value = RULES.maxNoShows; $('codHold').value = RULES.pickupHoldDays;
+      $('copDeposit').value = RULES.copDeposit != null ? RULES.copDeposit : 200; $('copHours').value = RULES.copHoldHours != null ? RULES.copHoldHours : 48;
+      $('codDeposit').value = RULES.codDeposit != null ? RULES.codDeposit : 200;
+      $('codStatus').textContent = RULES.updatedBy ? 'Last changed by ' + RULES.updatedBy + ' \u00B7 ' + when(RULES.updatedAt) : 'Default rules (not changed yet)';
+    }
   }
   async function saveCod(btn) {
     document.querySelectorAll('[data-coderr]').forEach(function (x) { x.textContent = ''; });
@@ -167,11 +243,41 @@
     return t.key === 'full' ? 'Always on' : t.enabled ? 'On since ' + esc(when(t.enabledAt)) + ' \u00B7 ' + esc(t.enabledBy || 'Finance') : 'Off';
   }
 
+  function policyCard(t) {
+    var lock = t.key === 'full';
+    var payNowText = lock ? '100% of order total' : (t.basis === 'fixed' ? peso(t.fixedAmount) + ' fixed down payment' : (t.percent || 50) + '% of order total');
+    var scopeText = lock ? 'Ready stock & Custom projects' : [t.retailAllowed ? 'Ready stock' : '', t.madeToOrderAllowed ? 'Made-to-order' : ''].filter(Boolean).join(' and ') || 'Disabled';
+    var balanceText = lock ? 'Settled upfront (no remainder)' : (t.balanceCondition || 'Before pickup / delivery');
+    var approvalText = lock ? 'Instant automated clearance' : (t.autoApproveLimit ? 'Auto-approved up to ' + peso(t.autoApproveLimit) + ' (above routes to Finance)' : 'Requires Finance approval');
+    var statusClass = (lock || t.enabled) ? 'in' : 'low';
+    var statusLabel = lock ? 'Active · Default' : (t.enabled ? 'Active · Auto-enforced' : 'Disabled');
+
+    return '<div class="policy-card">'
+      + '<div class="policy-card-head">'
+      + '<div><div class="policy-card-title">' + esc(t.label) + '</div>'
+      + '<div class="faint">' + (lock ? 'Standard payment ruling' : 'Configured part-payment policy') + '</div></div>'
+      + '<span class="status-pill ' + statusClass + '">' + statusLabel + '</span>'
+      + '</div>'
+      + '<div class="policy-card-rule">'
+      + (lock ? 'Default policy for transactions. Customers pay in full at checkout or cashier counter.'
+        : 'Automated installment policy. Cashier can propose this schedule and the system validates limits instantly.')
+      + '</div>'
+      + '<div class="policy-card-metrics">'
+      + '<div><div class="policy-metric-label">Upfront Requirement</div><div class="policy-metric-val">' + esc(payNowText) + '</div></div>'
+      + '<div><div class="policy-metric-label">Applicable Orders</div><div class="policy-metric-val">' + esc(scopeText) + '</div></div>'
+      + '<div><div class="policy-metric-label">Balance Due</div><div class="policy-metric-val">' + esc(balanceText) + '</div></div>'
+      + '<div><div class="policy-metric-label">Automation Ruling</div><div class="policy-metric-val">' + esc(approvalText) + '</div></div>'
+      + '</div>'
+      + '</div>';
+  }
+
   function renderPolicy() {
     var body = $('ptrPolicyBody');
+    var cards = $('ptrPolicyCards');
     if (!body) return;
     renderPolicyStatus();
     body.innerHTML = POLICY.map(policyRow).join('');
+    if (cards) cards.innerHTML = POLICY.map(policyCard).join('');
   }
   function renderPolicyStatus() {
     var offered = POLICY.filter(function (t) { return t.enabled && (t.key === 'full' || t.retailAllowed || t.madeToOrderAllowed); });
@@ -311,7 +417,7 @@
       var ah = tr.querySelector('[data-auto-hint]'), oh = tr.querySelector('[data-on-hint]');
       if (ah) ah.innerHTML = autoHint(out.term);
       if (oh) oh.innerHTML = onHint(out.term);
-      if (saved) saved.textContent = '✓ Saved ' + new Date().toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+      if (saved) saved.textContent = 'Saved ' + new Date().toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
       renderPolicyStatus();
       if (was !== out.term.enabled) toast(out.term.enabled ? out.term.label + ' is now offered where you allowed it.' : out.term.label + ' is no longer offered.');
     } catch (e) {

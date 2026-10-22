@@ -22,7 +22,7 @@
 
   /* ---------- small helpers ---------- */
   async function api(path, options) {
-    const res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, options));
+    const res = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' } }, options));
     if (res.status === 401) { window.location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw Object.assign(new Error(data.error || 'Request failed'), { fields: data.fields });
@@ -310,6 +310,15 @@
     const section = $('sales-overview');
     if (!section || !$('salesAdminRoot')) return;
     build();
+    const ovBtn = $('saOverviewRefresh');
+    if (ovBtn) {
+      ovBtn.addEventListener('click', () => {
+        load(true);
+        if (window.CashReports && typeof window.CashReports.show === 'function') {
+          window.CashReports.show();
+        }
+      });
+    }
     new MutationObserver(() => { if (pageActive()) load(true); }).observe(section, { attributes: true, attributeFilter: ['class'] });
     load(true);
     setInterval(() => { if (!document.hidden && !busy && !openRef) load(); }, 10000);

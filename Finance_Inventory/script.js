@@ -4562,7 +4562,7 @@ function renderAccountsTable() {
 
         tableBody.innerHTML = `
             <tr class="no-results-row">
-                <td colspan="6">${statusWanted === "disabled" ? "No disabled accounts." : statusWanted === "active" ? "No active accounts match this filter." : "No accounts found."}</td>
+                <td colspan="5">${statusWanted === "disabled" ? "No disabled accounts." : statusWanted === "active" ? "No active accounts match this filter." : "No accounts found."}</td>
             </tr>
         `;
 

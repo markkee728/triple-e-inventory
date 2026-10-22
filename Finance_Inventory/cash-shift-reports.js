@@ -40,7 +40,7 @@
   document.head.appendChild(css);
 
   async function api(path) {
-    const r = await fetch('/api' + path, { credentials: 'same-origin' });
+    const r = await fetch('/api' + path, { credentials: 'same-origin', cache: 'no-store' });
     if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(d.error || 'Request failed');
@@ -170,7 +170,7 @@
     if (from && to) show();
   });
   document.addEventListener('click', (e) => {
-    if (e.target && (e.target.id === 'soPayRefreshBtn' || e.target.closest('#soPayRefreshBtn'))) {
+    if (e.target && (e.target.id === 'soPayRefreshBtn' || e.target.closest('#soPayRefreshBtn') || e.target.id === 'saOverviewRefresh' || e.target.closest('#saOverviewRefresh'))) {
       show();
     }
   });

@@ -18,7 +18,7 @@
     el.textContent = msg; document.body.appendChild(el); setTimeout(() => el.remove(), 4000);
   }
   async function api(path, opts) {
-    const r = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } }, opts));
+    const r = await fetch('/api' + path, Object.assign({ credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json' } }, opts));
     if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
     const d = await r.json().catch(() => ({}));
     if (!r.ok) throw Object.assign(new Error(d.error || 'Request failed'), { fields: d.fields });
@@ -87,9 +87,9 @@
   }
 
   function updateSalesBadge() {
+    const count = (ORDERS || []).filter(o => o.status === 'Pending Confirmation' || o.cancelRequested).length;
     const attn = document.getElementById('salesNavAttention');
     if (attn) {
-      const count = (ORDERS || []).filter(o => o.status === 'Pending Confirmation' || o.cancelRequested).length;
       if (count > 0) {
         attn.textContent = count;
         attn.hidden = false;
@@ -97,6 +97,11 @@
       } else {
         attn.hidden = true;
       }
+    }
+    const tabBadge = document.getElementById('ordersTabBadge');
+    if (tabBadge) {
+      tabBadge.textContent = count;
+      tabBadge.hidden = count <= 0;
     }
   }
 
