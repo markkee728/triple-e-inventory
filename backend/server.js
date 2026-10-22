@@ -1341,7 +1341,7 @@ app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 5000);
   const { rows } = await pool.query(
     `SELECT m.ref, m.reason, p.name AS product, m.movement_type, m.quantity, p.unit, p.department, m.source_type, m.source_id,
-            COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.invoice_no, m.note,
+            COALESCE(u.full_name, '—') AS handled_by, s.name AS supplier, m.invoice_no, m.note, COALESCE(m.unit_cost, p.unit_cost) AS unit_cost,
             to_char(m.created_at AT TIME ZONE $2, 'Mon DD, HH12:MI AM') AS dt,
             to_char(m.created_at AT TIME ZONE $2, 'YYYY-MM-DD') AS d
        FROM stock_movements m JOIN products p USING (product_id) LEFT JOIN users u ON u.user_id = m.handled_by
@@ -1355,7 +1355,7 @@ app.get('/api/movements', auth('finance'), wrap(async (req, res) => {
     const pr = r.source_type === 'production' ? prodInfo.get(String(r.source_id)) : null;
     return { ref: r.ref, product: r.product, type: r.movement_type, qty: +r.quantity,
       reason: REASONS.in[r.reason] || REASONS.out[r.reason] || LEGACY_REASON_LABELS[r.reason] || r.reason,
-      unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d,
+      unit: r.unit, department: r.department, handledBy: r.handled_by, dateTime: r.dt, date: r.d, unitCost: r.unit_cost != null ? +r.unit_cost : null,
       supplier: r.supplier || undefined, invoiceNo: r.invoice_no || undefined, note: r.note || undefined,
       productionRef: pr ? pr.ref : undefined, relatedProduct: pr ? pr.product : undefined };
   }));

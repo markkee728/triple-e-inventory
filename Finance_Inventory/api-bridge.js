@@ -1661,8 +1661,7 @@
         '<td class="dim">' + esc(m.reason || '') + (m.productionRef ? '<div style="font-size:12.5px">' + esc(m.productionRef) + (m.relatedProduct ? ' \u00B7 for ' + esc(m.relatedProduct) : '') + '</div>' : '') + '</td>' +
         '<td class="dim">' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</td>' +
         '<td class="dim">' + esc(m.department) + '</td>' +
-        '<td class="dim">' + (m.supplier || m.invoiceNo
-          ? (m.supplier ? esc(m.supplier) : '') + (m.invoiceNo ? '<div style="font-size:12.5px">Inv. ' + esc(m.invoiceNo) + '</div>' : '') : '\u2014') + '</td>' +
+        '<td class="dim">' + (m.unitCost != null && !isNaN(m.unitCost) ? (typeof formatCurrency === 'function' ? formatCurrency(m.unitCost) : '\u20B1' + Number(m.unitCost).toFixed(2)) : '\u2014') + '</td>' +
         '<td class="dim">' + esc(m.handledBy) + '</td>' +
         '<td class="dim">' + esc(m.dateTime) + '</td></tr>';
     }).join('');
