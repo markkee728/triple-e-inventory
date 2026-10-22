@@ -341,6 +341,17 @@
     badge('orders', cancelCount, 'cancellation request(s) to answer');
     badge('sales', voidReturnCount, 'void / return request(s) to answer');
     badge('sales-overview', cancelCount + voidReturnCount + quoteCount, 'decision request(s) to answer');
+    const totalAttn = cancelCount + voidReturnCount + quoteCount;
+    const attn = document.getElementById('salesNavAttention');
+    if (attn) {
+      if (totalAttn > 0) {
+        attn.textContent = totalAttn > 99 ? '99+' : String(totalAttn);
+        attn.hidden = false;
+        attn.className = 'ngt-ind attn';
+      } else {
+        attn.hidden = true;
+      }
+    }
     const otb = document.getElementById('ordersTabBadge');
     if (otb) {
       otb.textContent = cancelCount;

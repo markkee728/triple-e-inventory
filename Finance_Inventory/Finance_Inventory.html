@@ -86,7 +86,7 @@
                     <div class="nav-items-inner">
                         <button type="button" class="nav-item" data-page="inventory"><span class="dot"></span> Inventory Monitoring</button>
                         <button type="button" class="nav-item" data-page="stockflow"><span class="dot"></span> Stock In / Out</button>
-                        <button type="button" class="nav-item" data-page="stock-count"><span class="dot"></span> Stock Count</button>
+                        <button type="button" class="nav-item" data-page="stockcount"><span class="dot"></span> Stock Count</button>
                         <button type="button" class="nav-item" data-page="products"><span class="dot"></span> Products</button>
                         <button type="button" class="nav-item" data-page="suppliers"><span class="dot"></span> Suppliers</button>
                     </div>
@@ -94,11 +94,21 @@
             </div>
 
             <div class="nav-group" data-group="sales">
-                <button type="button" class="nav-item sales-parent" data-page="sales-overview">
-                    <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" style="width:18px;height:18px"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4Z"/><path d="M3 6h18"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
-                    <span>Sales</span>
+                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-sales">
+                    <span class="ngt-label">Sales</span>
                     <span class="ngt-ind attn" id="salesNavAttention" hidden>0</span>
+                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
                 </button>
+                <div class="nav-items" id="navg-sales">
+                    <div class="nav-items-inner">
+                        <button type="button" class="nav-item" data-page="sales-overview"><span class="dot"></span> Overview</button>
+                        <button type="button" class="nav-item" data-page="orders"><span class="dot"></span> Online Orders</button>
+                        <button type="button" class="nav-item" data-page="sales"><span class="dot"></span> POS Counter Sales</button>
+                        <button type="button" class="nav-item" data-page="quotes"><span class="dot"></span> Quote Approvals</button>
+                        <button type="button" class="nav-item" data-page="customers"><span class="dot"></span> Customer Profiles</button>
+                        <button type="button" class="nav-item" data-page="payment-terms"><span class="dot"></span> Policies &amp; Rates</button>
+                    </div>
+                </div>
             </div>
 
             <div class="nav-group" data-group="admin">

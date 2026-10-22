@@ -102,15 +102,27 @@
       '<div id="scBody"></div>';
     after.parentNode.insertBefore(sec, after.nextSibling);
 
-    var nav = document.querySelector('.nav-item[data-page="stockflow"]');
-    if (nav && !document.querySelector('.nav-item[data-page="stockcount"]')) {
-      var b = document.createElement('button');
-      b.className = 'nav-item'; b.setAttribute('data-page', 'stockcount');
-     b.innerHTML = '<svg class="ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="18" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="m9 13 2 2 4-4"/><path d="M9 18h6"/></svg> Stock Count';
-      nav.parentNode.insertBefore(b, nav.nextSibling);
-      b.addEventListener('click', function () { if (typeof navigateToPage === 'function') navigateToPage('stockcount'); else onOpen(); });
+    var existingNav = document.querySelector('.nav-item[data-page="stockcount"], .nav-item[data-page="stock-count"]');
+    if (existingNav) {
+      existingNav.setAttribute('data-page', 'stockcount');
+      existingNav.addEventListener('click', function () {
+        if (typeof navigateToPage === 'function') navigateToPage('stockcount');
+        else onOpen();
+      });
+    } else {
+      var nav = document.querySelector('.nav-item[data-page="stockflow"]');
+      if (nav) {
+        var b = document.createElement('button');
+        b.className = 'nav-item'; b.setAttribute('data-page', 'stockcount');
+        b.innerHTML = '<span class="dot"></span> Stock Count';
+        nav.parentNode.insertBefore(b, nav.nextSibling);
+        b.addEventListener('click', function () {
+          if (typeof navigateToPage === 'function') navigateToPage('stockcount');
+          else onOpen();
+        });
+      }
     }
-    try { if (typeof pageInformation !== 'undefined') pageInformation.stockcount = { title: 'Stock Count', subtitle: 'Compare the physical count with the system' }; } catch (e) {}
+    try { if (typeof pageInformation !== 'undefined') pageInformation.stockcount = { title: 'Stock Count', subtitle: 'Physical inventory audit and variance reconciliation' }; } catch (e) {}
     return true;
   }
 

@@ -526,7 +526,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     try {
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS request_id TEXT');
       // POS documents are sales INVOICES: new numbers are SI-1001, SI-1002 ... (older R- numbers stay as they were and can still be looked up)
-      await pool.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'pos_sales' AND column_name = 'receipt_no' AND column_default LIKE '%''R-''%') THEN ALTER TABLE pos_sales ALTER COLUMN receipt_no SET DEFAULT ('SI-' || nextval('receipt_no_seq')); END IF; END $$`);
+      await pool.query('CREATE SEQUENCE IF NOT EXISTS receipt_seq START 1001');
+      await pool.query('CREATE SEQUENCE IF NOT EXISTS receipt_no_seq START 1001');
+      await pool.query(`DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'pos_sales' AND column_name = 'receipt_no' AND column_default LIKE '%''R-''%') THEN ALTER TABLE pos_sales ALTER COLUMN receipt_no SET DEFAULT ('SI-' || nextval('receipt_seq')); END IF; END $$`);
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_name TEXT');
       await pool.query('ALTER TABLE pos_sales ADD COLUMN IF NOT EXISTS customer_phone TEXT');
       // POS delivery mode: 'Walk-in' (taken at the counter) or 'Delivery' (address + fee kept on the sale; the fee is part of total)

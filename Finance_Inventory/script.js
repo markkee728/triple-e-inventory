@@ -70,6 +70,11 @@ const pageInformation = {
         subtitle: "Movement entry"
     },
 
+    stockcount: {
+        title: "Stock Count",
+        subtitle: "Physical inventory audit and variance reconciliation"
+    },
+
     products: {
         title: "Products",
         subtitle: "Manage products and inventory information"
@@ -112,6 +117,26 @@ const pageInformation = {
         subtitle: "System activity record"
     },
 
+    notifications: {
+        title: "Notifications",
+        subtitle: "System alerts, reorder triggers, and approval notices"
+    },
+
+    "sales-overview": {
+        title: "Sales Overview",
+        subtitle: "Comprehensive transactions, approvals, and performance metrics"
+    },
+
+    orders: {
+        title: "Online Orders",
+        subtitle: "Customer orders, order queue, dispatch, and cancellation decisions"
+    },
+
+    sales: {
+        title: "POS Counter Sales",
+        subtitle: "Store register transactions, cashier shifts, and void/return decisions"
+    },
+
     reports: {
         title: "Reports",
         subtitle: "View reports and analytics"
@@ -125,14 +150,10 @@ function navigateToPage(pageId) {
     const navItems = document.querySelectorAll(".nav-item");
     const pages = document.querySelectorAll(".page");
 
-    const SALES_PAGES = ['sales-overview','orders','sales','payment-terms'];   // the pages in the Sales module
+    const SALES_PAGES = ['sales-overview', 'orders', 'sales', 'quotes', 'customers', 'payment-terms'];   // the pages in the Sales module
     const inSales = SALES_PAGES.includes(pageId);
     navItems.forEach(item => {
-        if (inSales && item.dataset.page === 'sales-overview') {
-            item.classList.add("active");
-        } else {
-            item.classList.toggle("active", item.dataset.page === pageId);
-        }
+        item.classList.toggle('active', item.dataset.page === pageId);
     });
     const parent = document.querySelector('.sales-parent');
     if (parent) parent.classList.toggle('sales-section-active', inSales);
@@ -151,6 +172,8 @@ function navigateToPage(pageId) {
                     'sales-overview': 'Overview \u00B7 Realtime Activity',
                     'orders': 'Online Orders \u00B7 Order Queue',
                     'sales': 'POS Counter \u00B7 In-Store Ledger',
+                    'quotes': 'Quote Approvals \u00B7 Price Review',
+                    'customers': 'Customer Profiles \u00B7 Directory',
                     'payment-terms': 'Policies & Rates \u00B7 Automated Engine'
                 };
                 statusEl.textContent = STATUS_MAP[pageId] || 'Sales Ledger \u00B7 Automated Sync';
@@ -164,6 +187,8 @@ function navigateToPage(pageId) {
       'sales-overview': 'Overview',
       'orders': 'Online Orders',
       'sales': 'POS Sales & Shifts',
+      'quotes': 'Quote Approvals',
+      'customers': 'Customer Profiles',
       'payment-terms': 'Policies & Rates'
     };
     if (bcCurrent && TAB_NAMES[pageId]) {
