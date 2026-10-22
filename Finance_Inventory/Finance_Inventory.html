@@ -3521,6 +3521,12 @@
                 </div>
                 <div class="field-hint" id="npReorderHint" style="margin:-4px 0 12px"></div>
 
+                <div class="form-group" id="npWeightWrap" style="display:none">
+                    <label class="form-label" for="npWeight">Weight per piece (kg)</label>
+                    <input type="text" id="npWeight" class="form-input" placeholder="Optional, e.g. 1.25" inputmode="decimal" maxlength="10" autocomplete="off">
+                    <div class="field-hint" id="npWeightHint">Used to work out the delivery fee for heavy orders. Leave blank if not known: the delivery fee is then just the area rate.</div>
+                </div>
+
                 <div class="form-row">
 
                     <div class="form-group">
@@ -3657,7 +3663,7 @@
     <script src="ui-confirm.js?v=1"></script>
     <script src="form-assist.js?v=1"></script>
     <script src="script.js?v=28"></script>
-    <script src="api-bridge.js?v=33"></script>
+    <script src="api-bridge.js?v=34"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3682,7 +3688,7 @@
     <script src="quick-stock.js?v=3"></script>
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=14"></script>
-    <script src="delivery-rates-admin.js?v=2"></script>
+    <script src="delivery-rates-admin.js?v=3"></script>
     <script src="payment-terms-admin.js?v=8"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
     <script src="walkin-customers-admin.js?v=1"></script>

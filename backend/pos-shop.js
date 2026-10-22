@@ -105,6 +105,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   const { notify, shopInfo } = makeOrderMail(pool, () => app.locals.notifications);
   // courier / rider details, dispatch + delivery times and proof photos for Delivery orders (also registers its own /api/orders/:no/delivery... routes)
   const delivery = makeDelivery({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+  // delivery fee by weight + estimated arrival date (also registers GET / PUT /api/delivery-settings)
+  const dcalc = require('./delivery-calc')({ app, pool, auth, wrap, tx, audit, ValidationError, TZ });
   const later = (fn) => { Promise.resolve().then(fn).catch((e) => console.warn('[notify]', e.message)); };
   const nc = () => app.locals.notifications;
   const asPeso = (n) => (nc() && nc().peso ? nc().peso(n) : ('\u20B1' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })));
@@ -220,7 +222,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     if (name.length < 2 || name.length > 50 || !/^[\p{L}][\p{L}\p{M} .'’-]*$/u.test(name)) throw bad('customerName', 'Enter the customer’s full name (2–50 characters: letters, spaces, . \' and -)');
     if (!/^(\+63|0)9\d{9}$/.test(phone)) throw bad('customerPhone', 'Enter a valid mobile number, e.g. 0917 123 4567');
     const ship = await validateShipTo(Object.assign({}, b.shipTo || {}, { recipient: name }));
-    const q = await deliveryFeeFor(db, ship);
+    const q = await deliveryQuote(db, ship, await loadSellable(db, readLines(b.items), { lock: false }));   // area rate + weight charge
     if (!q.available) throw bad('region', `Sorry, we do not deliver to ${ship.province || ship.region} yet.`);
     return { name, phone, ship, fee: round2(q.fee) };
   }
@@ -707,6 +709,21 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const def = rows.find((r) => r.scope === 'default');
     return { fee: def ? +def.fee : DELIVERY_FEE, rate: def ? def.name : 'Standard rate', scope: 'default', available: def ? def.available !== false : false };   // no "all other areas" row: not covered
   }
+  // The whole delivery quote for these goods: the area rate + the weight charge, and the estimated arrival. items = loadSellable() rows.
+  async function deliveryQuote(db, place, items) {
+    const base = await deliveryFeeFor(db, place);
+    if (!base.available) return base;
+    const q = await dcalc.quote(db, place, base, items);
+    return { ...base, fee: q.fee, baseFee: q.base, weightKg: q.weightKg, extraKg: q.extraKg, weightCharge: q.weightCharge, free: q.free, feeNote: q.note, eta: q.eta };
+  }
+  // the cart a fee screen sends: items=SKU:qty,SKU:qty. No items = no weight, so the plain area rate (as before).
+  const cartFromQuery = (v) => String(v || '').split(',').filter(Boolean).slice(0, 100).map((p) => { const [sku, qty] = p.split(':'); return { sku, qty: Number(qty) }; });
+  async function quoteForRequest(db, place, itemsParam) {
+    const cart = cartFromQuery(itemsParam);
+    const items = cart.length ? await loadSellable(db, readLines(cart), { lock: false }) : [];
+    return deliveryQuote(db, place, items);
+  }
+  const feeJson = (q) => ({ fee: q.fee, rate: q.rate, scope: q.scope, available: q.available, baseFee: q.baseFee, weightKg: q.weightKg, extraKg: q.extraKg, weightCharge: q.weightCharge, free: q.free, feeNote: q.feeNote || undefined, eta: q.eta });
   // shared with the quote forms (shop-extras.js), so a quotation can never promise delivery to an area the shop and the POS refuse
   app.locals.deliveryCoverage = (place) => deliveryFeeFor(pool, place || {});
   const ratesSummary = async () => {
@@ -756,8 +773,9 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
 
   // Loads the sellable finished-goods rows for these SKUs (sorted by id so concurrent sales lock in the same order).
   async function loadSellable(client, lines, { lock }) {
+    await dcalc.ready;   // products.weight_kg
     const { rows } = await client.query(
-      `SELECT product_id, sku, name, unit, selling_price, on_hand
+      `SELECT product_id, sku, name, unit, selling_price, on_hand, weight_kg
          FROM products
         WHERE upper(sku) = ANY($1) AND department = $2 AND NOT is_archived AND selling_price > 0 AND shop_visible = TRUE
         ORDER BY product_id ${lock ? 'FOR UPDATE' : ''}`, [[...lines.keys()], FG]);
@@ -813,8 +831,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.get('/api/pos/delivery-fee', auth('cashier'), wrap(async (req, res) => {
     const region = str(req.query.region), province = str(req.query.province);
     if (!region && !province) throw bad('region', 'Choose the delivery region first');
-    const q = await deliveryFeeFor(pool, { region, province });
-    res.json({ fee: q.fee, rate: q.rate, scope: q.scope, available: q.available });
+    res.json(feeJson(await quoteForRequest(pool, { region, province }, req.query.items)));
   }));
 
   // ret = returnInfo() result for the sales being sent (optional). total / vat stay as originally charged;
@@ -1231,8 +1248,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.get('/api/shop/delivery-fee', auth('customer'), wrap(async (req, res) => {
     const region = str(req.query.region), province = str(req.query.province);
     if (!region && !province) throw bad('region', 'Choose the delivery region first');
-    const q = await deliveryFeeFor(pool, { region, province });
-    res.json({ fee: q.fee, rate: q.rate, scope: q.scope, available: q.available });
+    res.json(feeJson(await quoteForRequest(pool, { region, province }, req.query.items)));
   }));
   // Public: the Help page (delivery, refunds, contact) can be read without signing in. Nothing secret is in here.
   app.get('/api/shop/info', wrap(async (req, res) => {
@@ -1469,7 +1485,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const subtotal = round2(items.reduce((n, i) => n + i.price * i.qty, 0));
       let fee = 0;
       if (fulfillment === 'Delivery') {                       // by the delivery address' province / region
-        const q = await deliveryFeeFor(client, ship);
+        const q = await deliveryQuote(client, ship, items);        // area rate + weight charge
         if (!q.available) throw bad('region', `Sorry, we do not deliver to ${ship.province || ship.region} yet. Choose another address or pick up in store.`);
         fee = q.fee;
       }

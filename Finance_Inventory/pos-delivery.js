@@ -174,16 +174,20 @@
     const s = read(); const any = s.addressLine || s.barangay || s.city;
     box.hidden = !any; if (any) box.innerHTML = '<span class="faint">Will be written as:</span> ' + cfg.esc(written(s)) + (s.landmark ? ' <span class="faint">(Landmark: ' + cfg.esc(s.landmark) + ')</span>' : '');
   }
+  // the cart as SKU:qty,SKU:qty - the server adds a weight charge for heavy orders, so the fee depends on what is being sold
+  const itemsParam = () => (cfg && cfg.items ? cfg.items().map((i) => i.sku + ':' + i.qty).join(',') : '');
+  let lastSig = '';
   async function quoteFee() {
+    lastSig = itemsParam();
     const region = val('pd_region'), province = val('pd_province'), t = ++tokens.fee, box = $('pdFee');
     if (!region && !province) { quote = { known: false, available: true, fee: 0, rate: '' }; if (box) box.hidden = true; cfg.onChange && cfg.onChange(); return; }
     try {
-      const q = await cfg.api(`/api/pos/delivery-fee?region=${encodeURIComponent(region)}&province=${encodeURIComponent(province)}`); if (t !== tokens.fee) return;
-      quote = { known: true, available: q.available !== false, fee: +q.fee || 0, rate: q.rate || '' };
+      const q = await cfg.api(`/api/pos/delivery-fee?region=${encodeURIComponent(region)}&province=${encodeURIComponent(province)}&items=${encodeURIComponent(lastSig)}`); if (t !== tokens.fee) return;
+      quote = { known: true, available: q.available !== false, fee: +q.fee || 0, rate: q.rate || '', eta: q.eta ? q.eta.text : '', weightCharge: +q.weightCharge || 0, weightKg: +q.weightKg || 0 };
     } catch (e) { if (t === tokens.fee) quote = { known: false, available: true, fee: 0, rate: '' }; }
     if (box) {
       box.hidden = !quote.known;
-      box.innerHTML = quote.available ? 'Delivery fee for this area: <b>₱' + Number(quote.fee).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b>' : '<b>We do not deliver to this area yet.</b> Choose another address or switch the sale to Pickup.';
+      box.innerHTML = quote.available ? 'Delivery fee for this area: <b>₱' + Number(quote.fee).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b>' + (quote.weightCharge > 0 ? ' <span class="faint">(includes ₱' + Number(quote.weightCharge).toLocaleString('en-PH', { minimumFractionDigits: 2 }) + ' for ' + quote.weightKg + ' kg)</span>' : '') + (quote.eta ? '<br>Estimated arrival: <b>' + cfg.esc(quote.eta) + '</b>' : '') : '<b>We do not deliver to this area yet.</b> Choose another address or switch the sale to Pickup.';
       box.classList.toggle('bad', !quote.available);
     }
     cfg.onChange && cfg.onChange();
@@ -241,6 +245,8 @@
 
   window.PosDelivery = {
     init(o) { cfg = o; }, mount, collect, reset, showServerErrors,
+    // the cart changed: ask for the fee again (only when the items really differ, so the page's re-draw cannot loop)
+    refresh() { if (!mounted || !cfg || itemsParam() === lastSig) return; if (val('pd_region') || val('pd_province')) quoteFee(); else lastSig = itemsParam(); },
     fee() { return quote.known && quote.available ? quote.fee : 0; },
     feeState() { return { known: quote.known, available: quote.available, rate: quote.rate }; }
   };

@@ -877,6 +877,14 @@
     suggestSku();
   }
 
+  // weight per piece: only finished goods are delivered, so only they have it
+  function syncWeightField(product) {
+    const wrap = $('npWeightWrap'); if (!wrap) return;
+    const fg = $('npDept').value === 'Finished Goods';
+    wrap.style.display = fg ? '' : 'none';
+    if (!fg) $('npWeight').value = '';
+    else if (product !== undefined) $('npWeight').value = product && product.weightKg != null ? String(product.weightKg) : '';
+  }
   function onProductModalOpen() {
     const form = $('newProductForm');
     clearErrors(form); hideBanner($('newProductFormError'));
@@ -904,9 +912,10 @@
     syncUnitField(product);
     fillCategories(product ? product.category : '');          // the department is set by now: Finished Goods only lists its two product lines
     productAssistOpen(product);
+    syncWeightField(product);
   }
 
-  const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
+  const PRODUCT_FIELDS = { weightKg: 'npWeight', sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
     unitCost: 'npUnitCost', costOverrideReason: 'npCostReason', listPrice: 'npListPrice', reorderLevel: 'npReorder', onHand: 'npOnHand', location: 'npLocation', supplier: 'npSupplier' };
 
   function setupProductModal() {
@@ -914,7 +923,7 @@
     if (!overlay || !form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
     $('npDept').addEventListener('change', () => {
-      fillCategories(); syncCostField(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
+      fillCategories(); syncCostField(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick(); syncWeightField();
       const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
       applyDeptDefaults(); suggestSku();
     });
@@ -944,7 +953,7 @@
     });
     api('/reorder-settings').then((r) => { if (r && r.leadDays != null) { REORDER = r; syncReorderUI(null); } }).catch(() => {});
     $('npCategory').addEventListener('change', () => { syncCategoryNew(); if ($('npCategory').value === NEW_CATEGORY) $('npCategoryNew').focus(); });
-    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); if ($('npPriceManual')) $('npPriceManual').checked = false; if ($('npCostOverride')) $('npCostOverride').checked = false; syncCostField(); syncPriceField(); }, 0));
+    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); syncWeightField(null); if ($('npPriceManual')) $('npPriceManual').checked = false; if ($('npCostOverride')) $('npCostOverride').checked = false; syncCostField(); syncPriceField(); }, 0));
     new MutationObserver(() => { if (overlay.classList.contains('open')) onProductModalOpen(); })
       .observe(overlay, { attributes: true, attributeFilter: ['class'] });
 
@@ -977,6 +986,11 @@
       const reorderManual = $('npReorderManual').checked;
       const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level', { noLeadingZero: true }) : null;
       const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand', { noLeadingZero: true });
+      let weightKg = null;
+      if (department === 'Finished Goods') {
+        const w = clean($('npWeight').value);
+        if (w) { if (!/^\d{1,6}(\.\d{1,3})?$/.test(w) || !(Number(w) > 0)) errs.npWeight = 'Enter the weight of one piece in kg, e.g. 1.25'; else weightKg = Number(w); }
+      }
       const location = chosenLocation(errs);
       let supplierCode = '';
       if (!editing && NEEDS_SUPPLIER.indexOf(department) >= 0) { supplierCode = $('npSupplier').value; if (!supplierCode) errs.npSupplier = 'Choose the supplier for this material'; }
@@ -992,6 +1006,7 @@
       if (department === 'Finished Goods' && costOverridden()) payload.costOverrideReason = costReason;
       if (department === 'Finished Goods' && editing && !costOverridden()) { const cur = productCatalogData.find((p) => p.sku === editing); if (cur && cur.costMode === 'override') payload.costBackToAuto = true; }
       if (reorderManual) payload.reorderLevel = reorderLevel;
+      if (department === 'Finished Goods') payload.weightKg = weightKg;
       if (!editing) { payload.onHand = onHand; if (supplierCode) payload.supplierCode = supplierCode; }
       try {
         if (editing) await api('/products/' + encodeURIComponent(editing), { method: 'PUT', body: JSON.stringify(payload) });

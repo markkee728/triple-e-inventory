@@ -122,4 +122,50 @@
 
   api('GET').then((d) => { rows = d.sort(order); draw(); })
     .catch((er) => { if (er.status === 403) panel.remove(); else $('drBody').innerHTML = `<tr><td colspan="5" class="faint">${esc(er.message)}</td></tr>`; });
+
+  /* ---------- weight charge + estimated arrival (delivery-calc.js) ---------- */
+  const FIELDS = [
+    ['freeWeightKg', 'Free weight allowance (kg)', 'No weight charge up to this weight per order.'],
+    ['perKgFee', 'Charge per extra kg (₱)', 'Added for every started kg above the allowance. 0 switches the weight charge off.'],
+    ['freeOverAmount', 'Free delivery on orders of (₱)', 'Goods total that earns free delivery. 0 = no free delivery.'],
+    ['packDays', 'Packing time (working days)', 'From the order to handing the parcel to the courier.'],
+    ['transitMetro', 'Travel time, Metro Manila (working days)', 'Added to the packing time.'],
+    ['transitOther', 'Travel time, other areas (working days)', 'Added to the packing time.'],
+    ['rangeDays', 'Arrival range (working days)', 'The customer is shown "earliest to latest"; the latest is this many days after the earliest.']
+  ];
+  const sp = document.createElement('div');
+  sp.className = 'panel'; sp.style.marginTop = '18px';
+  sp.innerHTML = '<div class="panel-head"><div><div class="panel-title">Delivery fee by weight &amp; arrival date</div>' +
+    '<div class="panel-sub">The fee is the area rate above plus a weight charge for heavy orders, worked out from each product&rsquo;s weight (set in Products). ' +
+    'The arrival date shown to customers and cashiers counts working days only: no Sundays, no fixed-date holidays. Orders placed after 3 PM count from the next working day.</div></div>' +
+    '<div class="inv-filters"><button type="button" class="btn-primary btn-sm" id="dsSave">Save</button></div></div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;padding:4px 16px 8px">' +
+    FIELDS.map((x) => '<div><label class="form-label" for="ds_' + x[0] + '">' + esc(x[1]) + '</label><input class="inv-search" style="width:100%" id="ds_' + x[0] + '" inputmode="decimal" autocomplete="off">' +
+      '<div class="faint" style="font-size:12px;margin-top:4px">' + esc(x[2]) + '</div></div>').join('') + '</div>' +
+    '<div class="faint" id="dsExample" style="padding:6px 16px 4px"></div><div class="faint" id="dsMsg" style="padding:6px 16px 12px;min-height:18px"></div>';
+  panel.insertAdjacentElement('afterend', sp);
+  const $s = (id) => sp.querySelector('#' + id);
+  async function sapi(method, body) {
+    const r = await fetch('/api/delivery-settings', { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    if (r.status === 401) { location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(d.error || (d.errors && Object.values(d.errors)[0]) || 'Request failed'); e.status = r.status; throw e; }
+    return d;
+  }
+  const readS = () => { const o = {}; FIELDS.forEach((x) => { o[x[0]] = $s('ds_' + x[0]).value.replace(/[,\s₱]/g, ''); }); return o; };
+  function example() {
+    const v = readS(), free = Number(v.freeWeightKg), per = Number(v.perKgFee);
+    if (![free, per].every(Number.isFinite) || v.freeWeightKg === '' || v.perKgFee === '') { $s('dsExample').textContent = ''; return; }
+    const kg = Math.max(60, Math.ceil(free) + 40), extra = Math.max(0, Math.ceil(kg - free));
+    $s('dsExample').innerHTML = per > 0 ? 'Example: a ' + kg + ' kg order pays the area rate + <b>' + extra + ' kg × ₱' + per.toLocaleString('en-PH') + ' = ₱' + (extra * per).toLocaleString('en-PH', { minimumFractionDigits: 2 }) + '</b>.' : 'Weight charge is off: the fee is just the area rate.';
+  }
+  sp.addEventListener('input', () => { $s('dsMsg').textContent = ''; example(); });
+  function fillS(d) { FIELDS.forEach((x) => { $s('ds_' + x[0]).value = d[x[0]]; }); example(); }
+  $s('dsSave').onclick = async () => {
+    const btn = $s('dsSave'), msg = $s('dsMsg'); msg.textContent = ''; btn.disabled = true;
+    try { fillS(await sapi('PUT', readS())); toast('Delivery fee and arrival settings saved. New orders use them right away.'); }
+    catch (er) { msg.textContent = er.message; }
+    btn.disabled = false;
+  };
+  sapi('GET').then(fillS).catch((er) => { if (er.status === 403) sp.remove(); else $s('dsMsg').textContent = er.message; });
 })();

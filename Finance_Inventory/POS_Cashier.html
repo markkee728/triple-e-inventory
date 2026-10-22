@@ -482,7 +482,7 @@
 <script src="form-assist.js?v=1"></script>
 <script src="quote-fields.js?v=12"></script>
 <script src="quote-desk-ui.js?v=14"></script>
-<script src="pos-delivery.js?v=2"></script>
+<script src="pos-delivery.js?v=3"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 /* ===== Role check: only cashiers belong here. Uses the session cookie from Login_Inventory.html ===== */
@@ -713,6 +713,7 @@ function renderCart() {
   const t = total(), units = cart.length;
   $('total').textContent = peso(t); $('vat').textContent = peso(t * VAT_RATE / (1 + VAT_RATE));
   $('feeRow').hidden = fulfil !== 'Delivery'; $('feeAmt').textContent = PosDelivery.feeState().known ? peso(dlvFee()) : 'Choose the region';
+  if (fulfil === 'Delivery' && window.PosDelivery) PosDelivery.refresh();   // heavier cart = higher fee: ask again
   $('cartCount').textContent = units; $('clear').disabled = !cart.length;
   updatePay(); updateFab(); renderProducts(); updateHeldBtn(); writeStore();
 }
@@ -1016,7 +1017,7 @@ function readDelivery() {
   return ship;
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-fulfil]'); if (b) setFulfil(b.dataset.fulfil); });
-PosDelivery.init({ api, esc, toast, onChange: () => { if (ready) renderCart(); } });
+PosDelivery.init({ api, esc, toast, items: () => cart.map(l => ({ sku: l.sku, qty: l.qty })), onChange: () => { if (ready) renderCart(); } });
 PosDelivery.mount($('dlvHost'));
 
 function resetSale() { pendingSaleRequestId = null; cart = []; approval = null; $('custName').value = ''; $('custPhone').value = ''; if (window.FormAssist) FormAssist.note($('custPhone'), ''); setFulfil('Pickup'); PosDelivery.reset(); custErr('custName', ''); custErr('custPhone', ''); $('tendered').value = ''; $('cardRef').value = ''; $('cardOk').checked = false; renderCart(); }

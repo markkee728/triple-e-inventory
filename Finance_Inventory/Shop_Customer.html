@@ -467,6 +467,7 @@ async function requestCancel(id, reason, details) { return api('/api/shop/orders
 
 /* ===== App ===== */
 let DELIVERY_FEE = 150, FEE_FROM = null;                 // DELIVERY_FEE: fallback rate; FEE_FROM: the lowest rate (for the "from ₱…" labels)
+let shipEta = '', shipFeeNote = '';   // estimated arrival and how the fee was made up (from the server)
 let shipFee = null, shipRate = '', shipBlock = '', shipNoCover = false, feeSeq = 0;   // shipBlock: why delivery to the chosen address is not possible (not covered / could not calculate)            // fee for the chosen delivery address (null until a region is chosen)
 const ONLINE = ['Xendit'];
 const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
@@ -771,6 +772,8 @@ function renderFeeRow() {
   else {
     s2.textContent = shipFee ? peso(shipFee) : 'Free';
     text = (area ? 'Delivery to ' + esc(area) : 'Delivery rate') + (shipRate && shipRate !== area ? ' · ' + esc(shipRate) + ' rate' : '') + '.';
+    if (shipFeeNote) text += ' ' + esc(shipFeeNote) + '.';
+    if (shipEta) text += ' <b>Estimated arrival: ' + esc(shipEta) + '</b>.';
     if (feeShown != null && shipFee !== feeShown) {      // the address changed and so did the price
       text += ' <b>Fee updated: ' + (feeShown ? peso(feeShown) : 'Free') + ' → ' + (shipFee ? peso(shipFee) : 'Free') + '</b>';
       cls = 'changed'; s2.classList.add('fee-flash'); $('s3').classList.remove('fee-flash'); void $('s3').offsetWidth; $('s3').classList.add('fee-flash');
@@ -791,10 +794,10 @@ async function refreshFee() {
   const place = ShopAddress.place(), seq = ++feeSeq;
   if (!place.region && !place.province) { if (shipFee != null || shipBlock) { shipFee = null; shipRate = ''; shipBlock = ''; shipNoCover = false; renderTotals(); } return; }
   try {
-    const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(place.region) + '&province=' + encodeURIComponent(place.province));
+    const q = await api('/api/shop/delivery-fee?region=' + encodeURIComponent(place.region) + '&province=' + encodeURIComponent(place.province) + '&items=' + encodeURIComponent(cart.map(l => l.sku + ':' + l.qty).join(',')));   // the cart's weight is part of the fee
     if (seq !== feeSeq) return;                                   // a newer choice is already on its way
     if (q.available === false) { shipFee = null; shipRate = ''; shipNoCover = true; shipBlock = 'Sorry, we do not deliver to ' + (place.province || place.region) + ' yet.'; }
-    else { shipFee = q.fee; shipRate = q.rate || ''; shipBlock = ''; shipNoCover = false; }
+    else { shipFee = q.fee; shipRate = q.rate || ''; shipBlock = ''; shipNoCover = false; shipEta = q.eta ? q.eta.text : ''; shipFeeNote = q.weightCharge > 0 ? 'Includes a weight charge of ' + peso(q.weightCharge) + ' (' + q.weightKg + ' kg in total)' : (q.free ? q.feeNote || '' : ''); }
   } catch (e) { if (seq !== feeSeq) return; shipFee = null; shipRate = ''; shipNoCover = false; shipBlock = 'Could not work out the delivery fee. Check your connection and choose the address again.'; }   // never guess a fee: the order stays blocked until the server answers
   renderTotals();
 }

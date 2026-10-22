@@ -590,9 +590,11 @@ function validateProduct(b, { creating }) {
   const reorderLevel = reorderAuto === true ? null : number(e, 'reorderLevel', b.reorderLevel, 'Reorder level', { max: 1e8 });
   const onHand = creating ? number(e, 'onHand', b.onHand, 'On hand', { max: 1e8 }) : null;
   const location = text(e, 'location', b.location, 'Storage location', { min: 2, max: 100 });
+  // weight of one piece, in kg: the delivery fee adds a weight charge from it (delivery-calc.js). Blank = not recorded; undefined = form did not send it, keep what is saved.
+  const weightKg = department !== 'Finished Goods' ? null : b.weightKg === undefined ? undefined : number(e, 'weightKg', b.weightKg, 'Weight per piece', { max: 100000, dp: 3, required: false });
 
   if (Object.keys(e).length) throw new ValidationError(e);
-  return { sku, name, department, category, unit, unitCost, listPrice, priceAuto, reorderLevel, reorderAuto, onHand, location: location || null };
+  return { sku, name, department, category, unit, unitCost, listPrice, priceAuto, reorderLevel, reorderAuto, onHand, location: location || null, weightKg };
 }
 function validateSupplier(b, stored, creating) {
   // `stored` = the supplier's current phone/email when editing; an old value left unchanged is not re-checked
@@ -1003,7 +1005,7 @@ const productSelect = `
        WHERE ps.product_id = v.product_id), '[]'::json) AS suppliers
     FROM v_inventory v WHERE NOT v.is_archived ORDER BY v.department, v.name`;
 // reorder_auto / reorder_basis live on products (the view does not have them), so the list adds them here
-const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, p.price_auto, p.cost_mode, p.cost_note, p.cost_override_reason, COALESCE((')
+const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.weight_kg, p.reorder_auto, p.reorder_basis, p.price_auto, p.cost_mode, p.cost_note, p.cost_override_reason, COALESCE((')
   .replace('FROM v_inventory v WHERE', 'FROM v_inventory v JOIN products p ON p.product_id = v.product_id WHERE');
 
 app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
@@ -1015,6 +1017,7 @@ app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
 
 app.get('/api/products', auth('finance'), wrap(async (req, res) => {
   await reorder.ready;
+  await pool.query('ALTER TABLE products ADD COLUMN IF NOT EXISTS weight_kg NUMERIC(10,3) CHECK (weight_kg IS NULL OR weight_kg >= 0)').catch(() => {});   // delivery-calc.js adds it too; this just makes the order of start-up irrelevant
   if (app.locals.pricing) await app.locals.pricing.ready;   // price_auto column + trigger
   if (app.locals.recipeCosting) await app.locals.recipeCosting.ready;   // cost_mode / cost_note columns
   const archivedOnly = String(req.query.archived || '') === '1';
@@ -1022,7 +1025,7 @@ app.get('/api/products', auth('finance'), wrap(async (req, res) => {
   res.json(rows.map(r => ({ archived: !!r.is_archived, sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
     grade: r.grade || '', form: r.form || '', unit: r.unit, costUnit: r.unit, status: r.stock_status, available: +r.on_hand,
     reorderLevel: +r.reorder_level, reorderAuto: !!r.reorder_auto, reorderBasis: r.reorder_basis || '',
-    stdCost: +r.unit_cost, listPrice: +r.selling_price, priceAuto: r.department === 'Finished Goods' ? r.price_auto !== false : undefined, location: r.location,
+    weightKg: r.weight_kg == null ? null : +r.weight_kg, stdCost: +r.unit_cost, listPrice: +r.selling_price, priceAuto: r.department === 'Finished Goods' ? r.price_auto !== false : undefined, location: r.location,
     margin: r.selling_price > 0 ? +(((r.selling_price - r.unit_cost) / r.selling_price) * 100).toFixed(1) : 0,
     costMode: r.department === 'Finished Goods' ? (r.cost_mode || 'auto') : undefined, costNote: r.cost_note || undefined, costOverrideReason: r.cost_override_reason || undefined,
     primarySource: r.primary_source || (r.suppliers.length ? r.suppliers[0].name : null),
@@ -1092,9 +1095,9 @@ app.post('/api/products', auth('finance'), wrap(async (req, res) => {
       if (!supplier) throw new ValidationError({ supplier: 'That supplier is missing or archived. Choose another' });
     }
     const ins = await client.query(
-      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location,price_auto)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost == null ? 0 : p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false]);
+      `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location,price_auto,weight_kg)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING product_id`,
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost == null ? 0 : p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false, p.weightKg == null ? null : p.weightKg]);
     const id = ins.rows[0].product_id;
     if (supplier) await client.query('INSERT INTO product_suppliers (product_id, supplier_id, is_primary) VALUES ($1,$2,TRUE)', [id, supplier.supplier_id]);
     // the stock a new product starts with is its own ledger entry ("Opening balance"), valued at the cost it was entered with
@@ -1128,9 +1131,10 @@ app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
               selling_price=COALESCE($7, selling_price), reorder_level=COALESCE($8, reorder_level), location=$9,
               reorder_auto=COALESCE($10::boolean, reorder_auto),
               reorder_basis=CASE WHEN $10::boolean IS FALSE THEN NULL ELSE reorder_basis END,
-              price_auto=COALESCE($11::boolean, price_auto)
+              price_auto=COALESCE($11::boolean, price_auto),
+              weight_kg=CASE WHEN $12::boolean THEN $13::numeric ELSE weight_kg END
         WHERE sku=$1 AND NOT is_archived RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location, p.reorderAuto, p.priceAuto]);
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice, p.reorderLevel, p.location, p.reorderAuto, p.priceAuto, p.weightKg !== undefined, p.weightKg === undefined ? null : p.weightKg]);
     if (!r.rowCount) return false;
     await reorder.recalc(client, p.sku);   // if it is (now) automatic, work the level out straight away
     await audit(client, req.user, 'Record edited', `Product ${p.sku}`);
