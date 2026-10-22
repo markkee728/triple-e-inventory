@@ -80,6 +80,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS close_reason TEXT');
       // the system price (pricing.js) saved next to the cashier's price, and the computed cost behind it
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS suggested_amount NUMERIC(14,2)');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS cost_stale_at TIMESTAMPTZ');            // set by recipe-costing.js when a material cost moved after this quote was priced
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS cost_stale_note TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS suggested_cost NUMERIC(14,2)');          // why Finance closed the request (CLOSE_REASONS)
       // a closed request ALWAYS has a reason, even if something skips the API. Requests closed before reasons existed are marked "other".
       await pool.query(`DO $$ BEGIN
@@ -323,6 +325,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       proposedLeadTime: q.proposed_lead_time || undefined, proposedValidDays: q.proposed_valid_days || undefined,
       proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined,
       suggestedAmount: q.suggested_amount == null ? undefined : +q.suggested_amount, suggestedCost: q.suggested_cost == null ? undefined : +q.suggested_cost,
+      costStale: q.cost_stale_note || undefined,
       closeReason: q.close_reason ? (CLOSE_REASON_LABEL[q.close_reason] || q.close_reason) : undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
       leadTime: q.lead_time || undefined, validUntil,
       estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
@@ -828,7 +831,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
         lead_time=CASE WHEN $2='quoted' THEN $4 ELSE lead_time END,
         valid_until=CASE WHEN $2='quoted' THEN $7::date ELSE valid_until END,
         reply_note=CASE WHEN $2='quoted' THEN $8 ELSE reply_note END, handled_by=$9, updated_at=now(),
-        proposed_by=$9, proposed_at=now(), finance_note=NULL, suggested_amount=$10, suggested_cost=$11
+        proposed_by=$9, proposed_at=now(), finance_note=NULL, suggested_amount=$10, suggested_cost=$11,
+        cost_stale_at=NULL, cost_stale_note=NULL
         WHERE quote_id=$1 RETURNING *`, [cur.quote_id, exceptional?'pending_approval':'quoted', v.amount, v.leadTime, v.days,
           exceptional?approvalReason:null, addDays(todayPH(),v.days),v.note||null,req.user.id, est && est.ok ? est.total : null, costTotal]);
       await audit(client,req.user,'Record edited',`Cashier ${exceptional?'requested approval for':'priced'} quote ${cur.quote_no}`);

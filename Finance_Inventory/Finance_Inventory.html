@@ -3465,8 +3465,8 @@
 
                     <div class="form-group">
                         <label class="form-label" for="npUnitCost">
-                            Unit Cost (&#8369;)
-                            <span class="required-mark">*</span>
+                            <span id="npUnitCostLabel">Unit Cost (&#8369;)</span>
+                            <span class="required-mark" id="npUnitCostReq">*</span>
                         </label>
                         <input
                             type="text"
@@ -3476,6 +3476,9 @@
                             placeholder="0.00"
                             inputmode="decimal"
                             required autocomplete="off">
+                        <label class="check-row" id="npCostOverrideRow" style="margin-top:6px;display:none"><input type="checkbox" id="npCostOverride"><span class="check-label">Override</span></label>
+                        <input type="text" id="npCostReason" class="form-input" style="display:none;margin-top:6px" maxlength="200" placeholder="Why is the cost overridden? (required)" autocomplete="off">
+                        <div class="field-hint" id="npCostHint"></div>
                     </div>
 
                     <div class="form-group">

@@ -205,6 +205,7 @@
         (x.proposedAmount ? (function (d) { return d === 0 ? 'same as the cashier' : 'cashier is ' + Math.abs(d).toFixed(1) + '% ' + (d < 0 ? 'lower' : 'higher'); })(Math.round(((x.proposedAmount - x.suggestedAmount) / x.suggestedAmount) * 1000) / 10) : '') +
         (x.suggestedCost != null ? ' \u00B7 cost ' + peso(x.suggestedCost) : '') + '</small></div>' : '') +
       '<div><span>Ready in</span><strong>' + esc(x.proposedLeadTime || '\u2014') + '</strong></div><div><span>Price valid</span><strong>' + esc(x.proposedValidDays ? x.proposedValidDays + ' days' : '\u2014') + '</strong></div></div>' +
+      (x.costStale ? '<p class="sx-stale" style="color:#b32929"><span>Cost changed</span>' + esc(x.costStale) + '</p>' : '') +
       '<p><span>Why it needs you</span>' + esc(x.approvalReason || 'Not given') + '</p>' +
       '<p class="faint">Approve to send this price to the customer, or send it back to the cashier with a note on what to change. You can also type your own price below.</p></div>';
     if (ap) h = h.replace('<dl class="sx-info">', ap + '<dl class="sx-info">');                       // first thing Finance sees

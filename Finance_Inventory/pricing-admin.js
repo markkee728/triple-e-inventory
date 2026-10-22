@@ -52,7 +52,7 @@
     const r = data.rates, mp = data.materialPrices || {};
     $('prBody').innerHTML =
       '<div class="form-section-label">Finished goods</div>' +
-      '<div class="pr-grid">' + field('fgMarkupPct', 'Markup on unit cost', '%', data.fgMarkupPct, '0.01') + '</div>' +
+      '<div class="pr-grid">' + field('fgMarkupPct', 'Markup on cost', '%', data.fgMarkupPct, '0.01') + '</div>' +
       '<p class="field-hint" id="prFgHint"></p>' +
       '<div class="form-section-label">Custom made-to-order quotes</div>' +
       '<div class="pr-grid">' + field('quoteMarkupPct', 'Markup on the computed cost', '%', data.quoteMarkupPct, '0.01') +
@@ -68,8 +68,8 @@
   }
   function preview() {
     const f = $('prForm'), m = Number(f.elements.fgMarkupPct && f.elements.fgMarkupPct.value), h = $('prFgHint'); if (!h) return;
-    h.textContent = Number.isFinite(m) && m >= 0 ? 'Selling price = unit cost × ' + (1 + m / 100).toFixed(2) + '. Example: unit cost ₱100.00 → ' + peso(100 * (1 + m / 100)) +
-      '. Every finished good on automatic pricing is updated when you save.' : 'Enter the markup in percent.';
+    h.textContent = Number.isFinite(m) && m >= 0 ? 'Markup is on COST, not on the price. Selling price = unit cost × ' + (1 + m / 100).toFixed(2) + '. Example: cost ₱100.00 → price ' + peso(100 * (1 + m / 100)) +
+      ', which is a margin of ' + (m / (100 + m) * 100).toFixed(1) + '%. The unit cost of a finished good comes from its recipe (materials only). Every finished good on automatic pricing is updated when you save.' : 'Enter the markup in percent.';
   }
   async function open() {
     const ov = ensureModal(); ov.classList.add('open'); document.body.style.overflow = 'hidden'; document.documentElement.style.overflow = 'hidden';

@@ -90,6 +90,7 @@ module.exports = function mountQuoteDesk({ app, pool, auth, wrap, tx, audit, Val
       flexibleDate: q.flexible_date === true, company: q.company_name || null,
       fulfillment: q.fulfillment || null, area: q.area || null, source: q.source || 'shop', requestDate: ms(q.created_at),
       amount: money(total), proposedAmount: money(q.proposed_amount), leadTime: q.lead_time || null,
+      costStale: q.cost_stale_note || null,          // recipe-costing.js: a material cost moved after this price was worked out
       estimatedReady: ((app.locals.quoteReadyBy && app.locals.quoteReadyBy(q)) || null),
       lateForNeededBy: !!(app.locals.quoteReadyBy && app.locals.quoteReadyBy(q) && dateStr(q.needed_by) && app.locals.quoteReadyBy(q) > dateStr(q.needed_by)),
       validUntil: dateStr(q.valid_until) || null, expired, status: q.status, statusLabel: labelFor(q.status, q.fulfillment, expired),

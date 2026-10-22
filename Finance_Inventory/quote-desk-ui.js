@@ -180,6 +180,7 @@
         row('Where they pay', esc(payWhere)) ])),
 
       sec('Price', kv([
+        d.costStale ? row('Cost changed', '<span class="qd-pill warn">Check the price</span> ' + esc(d.costStale)) : '',
         row('Quoted amount', money(d.amount) || '—'),
         row('Paid so far', money(d.paidAmount) || '₱0.00'),
         row('Balance', d.balance != null ? money(d.balance) : '—'),

@@ -480,7 +480,8 @@
           method: 'POST',
           body: JSON.stringify({ sku: $('movementProduct').value, type, reason, quantity: qty, note, supplier: supplier || undefined, invoiceNo: invoiceNo || undefined, unitCost: unitCost || undefined })
         });
-        toast('Saved. Reference no. ' + r.ref + (r.previousCost != null && r.unitCost !== r.previousCost ? ' \u00B7 average cost is now \u20B1' + Number(r.unitCost).toFixed(2) : ''));
+        toast('Saved. Reference no. ' + r.ref + (r.previousCost != null && r.unitCost !== r.previousCost ? ' \u00B7 average cost is now \u20B1' + Number(r.unitCost).toFixed(2) : '') +
+          (r.ripple ? ' \u00B7 ' + r.ripple.recalculated + ' finished good cost' + (r.ripple.recalculated === 1 ? '' : 's') + ' updated, ' + r.ripple.repriced + ' repriced' + (r.ripple.quotesFlagged ? ', ' + r.ripple.quotesFlagged + ' open quote' + (r.ripple.quotesFlagged === 1 ? '' : 's') + ' to check' : '') + (r.ripple.blocked ? ', ' + r.ripple.blocked + ' cannot be priced yet' : '') : ''));
         if ($('movementCostHint')) $('movementCostHint').textContent = '';
         form.reset();
         await load();
@@ -663,9 +664,44 @@
       const v = autoPrice();
       if (window.MoneyInput) MoneyInput.set(input, v == null ? '' : v.toFixed(2)); else input.value = v == null ? '' : v.toFixed(2);
       showLive('npListPrice', '');
-      if (hint) hint.textContent = v == null ? 'Automatic: unit cost + ' + FG_MARKUP + '% markup. Enter the unit cost to see the price.'
-        : 'Automatic: unit cost \u20B1' + (v / (1 + FG_MARKUP / 100)).toFixed(2) + ' + ' + FG_MARKUP + '% markup = \u20B1' + v.toFixed(2) + '. It follows the cost by itself. Tick \u201CSet manually\u201D only for a special price.';
-    } else if (hint) hint.textContent = 'Manual price: it no longer follows the unit cost. Untick to go back to unit cost + ' + FG_MARKUP + '%.';
+      if (hint) hint.textContent = v == null ? 'Automatic: markup on cost ' + FG_MARKUP + '%. The price appears once the unit cost is known.'
+        : (function (cost) { return 'Automatic: unit cost \u20B1' + cost.toFixed(2) + ' + markup on cost ' + FG_MARKUP + '% = \u20B1' + v.toFixed(2) + ' \u00B7 margin ' + (v > 0 ? (((v - cost) / v) * 100).toFixed(1) : '0.0') + '%. It follows the cost by itself. Tick \u201CSet manually\u201D only for a special price.'; })(v / (1 + FG_MARKUP / 100));
+    } else if (hint) {
+      const raw = window.MoneyInput ? MoneyInput.raw($('npListPrice').value) : $('npListPrice').value, c = Number(window.MoneyInput ? MoneyInput.raw($('npUnitCost').value) : $('npUnitCost').value), p = Number(raw);
+      hint.textContent = 'Manual price: it no longer follows the unit cost.' + (p > 0 && c > 0 ? ' Margin ' + (((p - c) / p) * 100).toFixed(1) + '%' + (p < c ? ' \u2014 BELOW COST' : '') + '.' : '') + ' Untick to go back to unit cost + markup on cost ' + FG_MARKUP + '%.';
+    }
+  }
+
+  // Finished goods: the unit cost is "auto" (worked out from the materials needed, product-materials.js). Override needs a reason.
+  const costOverridden = () => !!($('npCostOverride') && $('npCostOverride').checked);
+  const costAuto = () => sellsNow() && !costOverridden();
+  function syncCostField() {
+    const input = $('npUnitCost'); if (!input) return;
+    const fg = sellsNow(), row = $('npCostOverrideRow'), reason = $('npCostReason'), hint = $('npCostHint'), lab = $('npUnitCostLabel'), req = $('npUnitCostReq');
+    const sku = productModalState(), product = sku ? productCatalogData.find((p) => p.sku === sku) : null, bom = window.TripleEBom;
+    const has = !!(fg && bom && bom.hasRecipe());
+    if (lab) lab.innerHTML = 'Unit Cost (&#8369;)' + (fg ? ' <span class="auto-tag" style="font-weight:600;font-size:11px;padding:1px 6px;border-radius:8px;background:#e8f1ff;color:#1d4f9f">' + (costOverridden() ? 'override' : 'auto') + '</span>' : '');
+    if (req) req.style.display = fg ? 'none' : '';
+    input.required = !fg;
+    if (row) row.style.display = fg && has ? '' : 'none';
+    if (reason) reason.style.display = fg && costOverridden() ? '' : 'none';
+    if (!fg) { input.readOnly = false; if (hint) hint.textContent = ''; return; }
+    if (costOverridden()) {
+      input.readOnly = false;
+      if (hint) hint.textContent = 'Overridden: this cost no longer follows the recipe and the reason is logged. Untick Override to go back to auto.';
+      return;
+    }
+    input.readOnly = true;
+    const c = bom ? bom.cost() : { total: 0, complete: false, problems: [] };
+    let v = '';
+    if (has && c.complete && c.total > 0) v = c.total.toFixed(2);
+    else if (product && product.stdCost > 0 && !(bom && bom.dirty())) v = Number(product.stdCost).toFixed(2);
+    if (window.MoneyInput) MoneyInput.set(input, v); else input.value = v;
+    input.placeholder = 'Auto';
+    if (hint) hint.textContent = !has ? 'Auto: add the materials needed below and the cost is worked out from them (materials only, no labour, process or tooling).'
+      : c.problems.length ? 'Cannot price yet: ' + c.problems[0] + (c.problems.length > 1 ? ' (+' + (c.problems.length - 1) + ' more)' : '')
+      : 'Auto: materials per piece \u00D7 their current cost (materials only, no labour, process or tooling). It updates by itself when a material cost or the recipe changes.';
+    if (sellsNow() && !priceManual()) syncPriceField();
   }
 
   // duplicate checks against the loaded product list (the server re-checks on save)
@@ -696,6 +732,9 @@
     syncReorderUI(product);
     MoneyInput.set($('npListPrice'), product && product.listPrice ? product.listPrice : '');
     if ($('npPriceManual')) $('npPriceManual').checked = !!(product && product.department === 'Finished Goods' && product.priceAuto === false);
+    if ($('npCostOverride')) $('npCostOverride').checked = !!(product && product.department === 'Finished Goods' && product.costMode === 'override');
+    if ($('npCostReason')) $('npCostReason').value = product && product.costOverrideReason ? product.costOverrideReason : '';
+    syncCostField();
     syncPriceField();
     // SKU and opening stock are fixed once a product exists (stock only changes through Stock In / Out)
     $('npSku').readOnly = !!product;
@@ -707,18 +746,20 @@
   }
 
   const PRODUCT_FIELDS = { sku: 'npSku', name: 'npName', department: 'npDept', category: 'npCategory', unit: 'npUnit',
-    unitCost: 'npUnitCost', listPrice: 'npListPrice', reorderLevel: 'npReorder', onHand: 'npOnHand', location: 'npLocation', supplier: 'npSupplier' };
+    unitCost: 'npUnitCost', costOverrideReason: 'npCostReason', listPrice: 'npListPrice', reorderLevel: 'npReorder', onHand: 'npOnHand', location: 'npLocation', supplier: 'npSupplier' };
 
   function setupProductModal() {
     const overlay = $('newProductModalOverlay'), form = $('newProductForm');
     if (!overlay || !form || form.dataset.bridge) return;
     form.dataset.bridge = '1';
     $('npDept').addEventListener('change', () => {
-      fillCategories(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
+      fillCategories(); syncCostField(); syncPriceField(); validateField('npListPrice', false); syncSupplierPick();
       const sku = productModalState(); syncUnitField(sku ? productCatalogData.find((p) => p.sku === sku) : null); validateField('npUnit', false);
     });
     $('npLocation').addEventListener('change', () => { syncLocationNew(); if ($('npLocation').value === NEW_LOCATION) $('npLocationNew').focus(); });
     if ($('npPriceManual')) $('npPriceManual').addEventListener('change', () => { syncPriceField(); if (priceManual()) $('npListPrice').focus(); });
+    if ($('npCostOverride')) $('npCostOverride').addEventListener('change', () => { syncCostField(); if (costOverridden()) { $('npUnitCost').focus(); if ($('npCostReason')) $('npCostReason').value = ''; } else syncPriceField(); });
+    document.addEventListener('triplee:recipe-changed', () => { if (sellsNow()) syncCostField(); });
     $('npUnitCost').addEventListener('input', () => { if (sellsNow() && !priceManual()) syncPriceField(); });
     $('npUnitCost').addEventListener('blur', () => { if (sellsNow() && !priceManual()) syncPriceField(); });
     api('/pricing').then((r) => { if (r && r.fgMarkupPct != null) { FG_MARKUP = +r.fgMarkupPct; syncPriceField(); } }).catch(() => {});
@@ -730,7 +771,7 @@
     });
     api('/reorder-settings').then((r) => { if (r && r.leadDays != null) { REORDER = r; syncReorderUI(null); } }).catch(() => {});
     $('npCategory').addEventListener('change', () => { syncCategoryNew(); if ($('npCategory').value === NEW_CATEGORY) $('npCategoryNew').focus(); });
-    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); if ($('npPriceManual')) $('npPriceManual').checked = false; syncPriceField(); }, 0));
+    form.addEventListener('reset', () => setTimeout(() => { fillCategories(''); fillLocations(''); syncSupplierPick(); $('npReorderManual').checked = false; syncReorderUI(null); syncUnitField(null); if ($('npPriceManual')) $('npPriceManual').checked = false; if ($('npCostOverride')) $('npCostOverride').checked = false; syncCostField(); syncPriceField(); }, 0));
     new MutationObserver(() => { if (overlay.classList.contains('open')) onProductModalOpen(); })
       .observe(overlay, { attributes: true, attributeFilter: ['class'] });
 
@@ -754,9 +795,12 @@
       if (!unit) errs.npUnit = 'Unit is required';
       else if (!/^[A-Za-z][A-Za-z./ ]{0,19}$/.test(unit)) errs.npUnit = 'Unit must be letters only, e.g. kg or pcs';
       else if (department === 'Finished Goods' && unit !== 'pcs') errs.npUnit = 'Finished goods are sold by the piece. Choose pcs';
-      const unitCost = vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
+      const fgAuto = costAuto();               // Finished Goods: the server works the cost out from the recipe, so it is never sent
+      const unitCost = fgAuto ? null : vNum(errs, 'npUnitCost', 'Unit cost', { max: 1e7 });
+      const costReason = clean(($('npCostReason') || {}).value);
+      if (sellsNow() && costOverridden() && costReason.length < 5) errs.npCostReason = 'Give a reason for overriding the cost (at least 5 characters)';
       const listPrice = sellsNow() && priceManual() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : sellsNow() ? autoPrice() : 0;
-      if (sellsNow() && !priceManual() && autoPrice() == null && !errs.npUnitCost) errs.npUnitCost = 'Enter the unit cost: the selling price is worked out from it';
+      if (sellsNow() && !priceManual() && !fgAuto && autoPrice() == null && !errs.npUnitCost) errs.npUnitCost = 'Enter the unit cost: the selling price is worked out from it';
       const reorderManual = $('npReorderManual').checked;
       const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level', { noLeadingZero: true }) : null;
       const onHand = editing ? null : vNum(errs, 'npOnHand', 'On hand', { noLeadingZero: true });
@@ -769,15 +813,18 @@
       if (Object.keys(errs).length) return showErrors(form, banner, errs);
 
       clearErrors(form); hideBanner(banner);
-      const payload = { sku, name, department, category, unit, unitCost, listPrice, reorderAuto: !reorderManual, location: location || null };
+      const payload = { sku, name, department, category, unit, listPrice, reorderAuto: !reorderManual, location: location || null };
+      if (unitCost != null) payload.unitCost = unitCost;
       if (department === 'Finished Goods') payload.priceAuto = !priceManual();
+      if (department === 'Finished Goods' && costOverridden()) payload.costOverrideReason = costReason;
+      if (department === 'Finished Goods' && editing && !costOverridden()) { const cur = productCatalogData.find((p) => p.sku === editing); if (cur && cur.costMode === 'override') payload.costBackToAuto = true; }
       if (reorderManual) payload.reorderLevel = reorderLevel;
       if (!editing) { payload.onHand = onHand; if (supplierCode) payload.supplierCode = supplierCode; }
       try {
         if (editing) await api('/products/' + encodeURIComponent(editing), { method: 'PUT', body: JSON.stringify(payload) });
         else await api('/products', { method: 'POST', body: JSON.stringify(payload) });
         let bomMsg = '';
-        try { const n = window.TripleEBom ? await window.TripleEBom.saveWithProduct(sku) : 0; if (n) bomMsg = ' · ' + n + ' material' + (n === 1 ? '' : 's') + ' saved'; }
+        try { const n = window.TripleEBom ? await window.TripleEBom.saveWithProduct(sku) : 0; if (n) { bomMsg = ' · ' + n + ' material' + (n === 1 ? '' : 's') + ' saved'; const rr = window.TripleEBom && window.TripleEBom.lastResult && window.TripleEBom.lastResult.cost; if (rr && rr.newCost != null) bomMsg += ' · cost \u20B1' + Number(rr.newCost).toFixed(2) + (rr.newPrice != null ? ', price \u20B1' + Number(rr.newPrice).toFixed(2) : ''); if (rr && rr.problems && rr.problems.length) bomMsg += ' · cannot price yet: ' + rr.problems[0]; } }
         catch (bomErr) { toast('Product saved, but the materials needed were NOT saved: ' + bomErr.message + ' Open Edit to add them again.', 'error'); closeNewProductModal(); await load(); return; }
         let shopMsg = '';
         try { if (window.TripleEShop && await window.TripleEShop.saveWithProduct(sku)) shopMsg = ' · online shop details saved'; }

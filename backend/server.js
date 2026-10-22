@@ -571,7 +571,8 @@ function validateProduct(b, { creating }) {
   // Triple E only sells its two product lines; Raw Materials / Finishing Supplies keep free categories
   if (department === 'Finished Goods' && category && !FINISHED_GOODS_CATEGORIES.some((c) => c.toLowerCase() === category.toLowerCase()))
     e.category = 'Finished goods are ' + FINISHED_GOODS_CATEGORIES.join(' or ');
-  const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7 });
+  // a finished good's cost is worked out from its recipe (recipe-costing.js): the form does not have to send it
+  const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7, required: department !== 'Finished Goods' });
   // only Finished Goods are sold: they need a selling price; every other department has none (stored as 0)
   // priceAuto (finished goods): the selling price is unit cost + the markup (pricing.js keeps it right in the database).
   // true = automatic (default), false = Finance typed its own price, null = flag not sent: keep what is saved.
@@ -579,7 +580,6 @@ function validateProduct(b, { creating }) {
   const listPrice = department === 'Finished Goods'
     ? (priceAuto === true ? null : number(e, 'listPrice', b.listPrice, 'Selling price', { max: 1e7, gt: true }))
     : 0;
-  if (department === 'Finished Goods' && priceAuto === true && !(unitCost > 0) && !e.unitCost) e.unitCost = 'Enter the unit cost: the selling price is worked out from it';
   // Reorder level is worked out automatically from usage (reorder.js) unless Finance ticks "Set manually".
   // reorderAuto: true = automatic, false = manual, null = flag not sent (an older form): keep the saved flag and read the level as before.
   const reorderAuto = b.reorderAuto === undefined ? (creating ? true : null) : b.reorderAuto === true;
@@ -991,7 +991,7 @@ const productSelect = `
        WHERE ps.product_id = v.product_id), '[]'::json) AS suppliers
     FROM v_inventory v WHERE NOT v.is_archived ORDER BY v.department, v.name`;
 // reorder_auto / reorder_basis live on products (the view does not have them), so the list adds them here
-const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, p.price_auto, COALESCE((')
+const productSelectFull = productSelect.replace('SELECT v.*, COALESCE((', 'SELECT v.*, p.reorder_auto, p.reorder_basis, p.price_auto, p.cost_mode, p.cost_note, p.cost_override_reason, COALESCE((')
   .replace('FROM v_inventory v WHERE', 'FROM v_inventory v JOIN products p ON p.product_id = v.product_id WHERE');
 
 app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
@@ -1004,6 +1004,7 @@ app.get('/api/inventory', auth('finance'), wrap(async (req, res) => {
 app.get('/api/products', auth('finance'), wrap(async (req, res) => {
   await reorder.ready;
   if (app.locals.pricing) await app.locals.pricing.ready;   // price_auto column + trigger
+  if (app.locals.recipeCosting) await app.locals.recipeCosting.ready;   // cost_mode / cost_note columns
   const archivedOnly = String(req.query.archived || '') === '1';
   const { rows } = await pool.query(archivedOnly ? productSelectFull.replace('WHERE NOT v.is_archived', 'WHERE v.is_archived') : productSelectFull);
   res.json(rows.map(r => ({ archived: !!r.is_archived, sku: r.sku, name: r.name, department: r.department, category: r.category || 'Uncategorized',
@@ -1011,6 +1012,7 @@ app.get('/api/products', auth('finance'), wrap(async (req, res) => {
     reorderLevel: +r.reorder_level, reorderAuto: !!r.reorder_auto, reorderBasis: r.reorder_basis || '',
     stdCost: +r.unit_cost, listPrice: +r.selling_price, priceAuto: r.department === 'Finished Goods' ? r.price_auto !== false : undefined, location: r.location,
     margin: r.selling_price > 0 ? +(((r.selling_price - r.unit_cost) / r.selling_price) * 100).toFixed(1) : 0,
+    costMode: r.department === 'Finished Goods' ? (r.cost_mode || 'auto') : undefined, costNote: r.cost_note || undefined, costOverrideReason: r.cost_override_reason || undefined,
     primarySource: r.primary_source || (r.suppliers.length ? r.suppliers[0].name : null),
     suppliers: r.suppliers })));
 }));
@@ -1080,7 +1082,7 @@ app.post('/api/products', auth('finance'), wrap(async (req, res) => {
     const ins = await client.query(
       `INSERT INTO products (sku,name,department,category_id,unit,unit_cost,selling_price,reorder_level,reorder_auto,location,price_auto)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING product_id`,
-      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false]);
+      [p.sku, p.name, p.department, await categoryId(client, p.category), p.unit, p.unitCost == null ? 0 : p.unitCost, p.listPrice || 0, p.reorderLevel == null ? 0 : p.reorderLevel, p.reorderAuto === true, p.location, p.priceAuto !== false]);
     const id = ins.rows[0].product_id;
     if (supplier) await client.query('INSERT INTO product_suppliers (product_id, supplier_id, is_primary) VALUES ($1,$2,TRUE)', [id, supplier.supplier_id]);
     if (p.onHand > 0) await client.query(
@@ -1099,6 +1101,15 @@ app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
   const found = await tx(async (client) => {
     await client.query(`SELECT set_config('app.user_id', $1, true)`, [String(req.user.id)]);
     await assertProductNameFree(client, p.name, p.sku);
+    const rc = app.locals.recipeCosting && (await app.locals.recipeCosting.ready) ? app.locals.recipeCosting : null;
+    const before = (await client.query('SELECT product_id, unit_cost, department FROM products WHERE sku = $1 AND NOT is_archived FOR UPDATE', [p.sku])).rows[0];
+    // a finished good with a recipe does not take a typed cost (it is "auto"); Finance can override it, with a reason that is logged
+    let guard = null;
+    if (rc && before && p.department === 'Finished Goods' && before.department === 'Finished Goods') {
+      guard = await rc.guardProductCost(client, p, req.body || {}, req.user);
+      p.unitCost = guard.unitCost;
+    }
+    if (p.unitCost == null) p.unitCost = before ? +before.unit_cost : 0;
     const r = await client.query(
       `UPDATE products SET name=$2, department=$3, category_id=$4, unit=$5, unit_cost=$6,
               selling_price=COALESCE($7, selling_price), reorder_level=COALESCE($8, reorder_level), location=$9,
@@ -1110,6 +1121,10 @@ app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
     if (!r.rowCount) return false;
     await reorder.recalc(client, p.sku);   // if it is (now) automatic, work the level out straight away
     await audit(client, req.user, 'Record edited', `Product ${p.sku}`);
+    // cost ripple: a material whose cost was changed by hand moves every finished good that uses it
+    if (rc && before && ['Raw Materials', 'Finishing Supplies'].includes(p.department) && Math.abs(+before.unit_cost - p.unitCost) >= 0.005)
+      await rc.ripple(client, before.product_id, { user: req.user, name: p.name, oldCost: +before.unit_cost, newCost: p.unitCost });
+    if (guard && guard.recalc) await rc.recalcOne(client, before.product_id, { user: req.user, why: 'override removed' });
     return true;
   });
   if (!found) return res.status(404).json({ error: 'Product not found' });
@@ -1364,9 +1379,14 @@ app.post('/api/movements', auth('finance'), wrap(async (req, res) => {
       `Stock ${m.type === 'in' ? 'In' : 'Out'} — ${ins.rows[0].ref}, ${prod.name}, ${m.type === 'in' ? '+' : '-'}${m.quantity} ${prod.unit} (${REASONS[m.type][m.reason]})` +
       (supplierName ? `, from ${supplierName}` : '') + (m.invoiceNo ? `, invoice ${m.invoiceNo}` : '') +
       (m.unitCost != null ? `, at ₱${m.unitCost.toFixed(2)} each — average cost ₱${oldCost.toFixed(2)} → ₱${newCost.toFixed(2)}` : ''));
-    return { ref: ins.rows[0].ref, unitCost: newCost, previousCost: oldCost };
+    // cost ripple: every finished good that uses this material is recalculated, repriced, and its open quotes flagged (same transaction)
+    let ripple = null;
+    const rc = app.locals.recipeCosting;
+    if (newCost !== oldCost && ['Raw Materials', 'Finishing Supplies'].includes(prod.department) && rc && (await rc.ready))
+      ripple = await rc.ripple(client, prod.product_id, { user: req.user, name: prod.name, oldCost, newCost });
+    return { ref: ins.rows[0].ref, unitCost: newCost, previousCost: oldCost, ripple };
   });
-  res.status(201).json({ ref: result.ref, unitCost: result.unitCost, previousCost: result.previousCost });
+  res.status(201).json({ ref: result.ref, unitCost: result.unitCost, previousCost: result.previousCost, ripple: result.ripple && result.ripple.affected ? result.ripple : undefined });
 }));
 
 /* ---------- stock count (physical inventory) ---------- */
@@ -1379,6 +1399,7 @@ reorder.start();   // recalculate automatic reorder levels now and every 6 hours
 
 /* ---------- production (material requirements, produced-internally Stock In, production history) ---------- */
 productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
+app.locals.production = productionApi;
 
 /* Customer directory belongs to the cashier, not Finance. Never expose other staff accounts. */
 app.get('/api/pos/customer-directory', auth('cashier'), wrap(async (req, res) => {
@@ -1588,6 +1609,8 @@ require('./shop-extras')({ app, pool, auth, wrap, tx, audit, ValidationError, st
 require('./job-orders')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 // automatic prices: finished goods = unit cost + markup (20%), custom quotes from a formula (pricing.js)
 app.locals.pricing = require('./pricing')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+// recipe costing: a finished good's cost = its recipe x the materials' current cost; ripples to prices and open quotes (recipe-costing.js)
+app.locals.recipeCosting = require('./recipe-costing')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 
 /* ---------- automation: follow-ups that run by themselves ----------
