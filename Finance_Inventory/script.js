@@ -1969,6 +1969,52 @@ function openProductDetails(sku) {
                 : `<button type="button" class="btn-secondary pd-archive" data-pd="archive">${PD_ICONS.archive} Archive</button>
                    <button type="button" class="btn-primary" data-pd="edit">${PD_ICONS.edit} Edit</button>`}
         </div>`;
+    let statusBtn = document.getElementById("editUserStatusBtn");
+    if (!statusBtn) {
+        statusBtn = document.createElement("button");
+        statusBtn.type = "button";
+        statusBtn.id = "editUserStatusBtn";
+        const footer = overlay.querySelector(".modal-footer");
+        if (footer) footer.insertBefore(statusBtn, footer.firstChild);
+    }
+    if (user.isYou) {
+        statusBtn.style.display = "none";
+    } else {
+        statusBtn.style.display = "";
+        statusBtn.textContent = user.status === "active" ? "Disable account" : "Enable account";
+        statusBtn.className = user.status === "active" ? "btn-danger-sm" : "btn-secondary";
+        statusBtn.onclick = async () => {
+            const next = user.status === "active" ? "disabled" : "active";
+            if (!(await uiConfirm({
+                title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`,
+                message: next === "disabled"
+                    ? (user.roleKey === "finance"
+                        ? "This Finance-Admin is signed out right away and cannot sign in until another Finance-Admin re-enables the account."
+                        : "They are signed out right away and cannot sign in until the account is re-enabled.")
+                    : "They will be able to sign in again.",
+                confirm: next === "disabled" ? "Disable" : "Re-enable",
+                danger: next === "disabled"
+            }))) return;
+
+            try {
+                const res = await fetch("/api/users/" + user.id + "/status", {
+                    method: "PATCH",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: next })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || "Request failed");
+                user.status = next;
+                renderAccountsTable();
+                inviteToast(`${user.name} ${next === "disabled" ? "disabled" : "re-enabled"}`);
+                closeEditUserModal();
+            } catch (err) {
+                inviteToast(err.message, true);
+            }
+        };
+    }
+
     overlay.classList.add("open");
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
@@ -4526,7 +4572,7 @@ function renderAccountsTable() {
     tableBody.innerHTML =
         visible.map(({ user, index }) => `
 
-            <tr>
+            <tr class="user-row" data-index="${index}" style="cursor:pointer">
 
                 <td>
                     <div class="user-row-name">
@@ -4558,108 +4604,19 @@ function renderAccountsTable() {
                     ${escapeHTML(user.lastLogin)}
                 </td>
 
-                <td>
-                    <div class="row-actions">
-
-                        <button
-                            type="button"
-                            class="btn-secondary btn-sm user-edit-btn"
-                            data-index="${index}"
-                            title="${user.roleKey === "customer" || user.isYou ? "See the account details (personal details are changed by the owner in My Profile)" : "Change this person\u2019s role"}"
-                        >
-                            ${user.roleKey === "customer" || user.isYou ? "View" : "Change role"}
-                        </button>
-
-                        ${user.isYou ? `<span class="um-you" title="Another Finance-Admin has to disable your account">You</span>` : `
-                        <button
-                            type="button"
-                            class="${user.status === "active" ? "btn-danger-sm" : "btn-secondary btn-sm"} user-disable-btn"
-                            data-index="${index}"
-                        >
-                            ${user.status === "active" ? "Disable" : "Enable"}
-                        </button>`}
-                        ${user.roleKey === "customer" ? `<button type="button" class="btn-danger-sm user-delete-btn" data-index="${index}" title="Only an account with no orders, quotations or reviews can be deleted">Delete</button>` : ""}
-
-                    </div>
-                </td>
-
             </tr>
 
         `).join("");
 
-
     tableBody
-        .querySelectorAll(".user-edit-btn")
-        .forEach(button => {
-
-            button.addEventListener("click", () => {
-
-                openEditUserModal(
-                    Number(button.dataset.index)
-                );
-
+        .querySelectorAll("tr.user-row")
+        .forEach(row => {
+            row.addEventListener("click", () => {
+                openEditUserModal(Number(row.dataset.index));
             });
-
-        });
-
-    tableBody
-        .querySelectorAll(".user-delete-btn")
-        .forEach(button => {
-            button.addEventListener("click", async () => {
-                const user = userAccountsData[Number(button.dataset.index)];
-                if (!(await uiConfirm({ title: `Delete ${user.name}?`, message: "The customer account is removed for good. This only works for an account with no orders, quotations or reviews; otherwise disable it instead.", confirm: "Delete account", danger: true }))) return;
-                button.disabled = true;
-                try {
-                    const res = await fetch("/api/users/" + user.id, { method: "DELETE", credentials: "same-origin" });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) throw new Error((data.fields && Object.values(data.fields)[0]) || data.error || "Could not delete the account");
-                    const at = userAccountsData.indexOf(user); if (at >= 0) userAccountsData.splice(at, 1);
-                    renderAccountsTable();
-                    inviteToast(user.name + "\u2019s account was deleted.");
-                } catch (err) {
-                    button.disabled = false;
-                    inviteToast(err.message, true);
-                }
-            });
-        });
-
-    tableBody
-        .querySelectorAll(".user-disable-btn")
-        .forEach(button => {
-
-            button.addEventListener("click", async () => {
-
-                const user =
-                    userAccountsData[Number(button.dataset.index)];
-
-                const next = user.status === "active" ? "disabled" : "active";
-
-                if (!(await uiConfirm({ title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`, message: next === "disabled" ? (user.roleKey === "finance" ? "This Finance-Admin is signed out right away and cannot sign in until another Finance-Admin re-enables the account. At least one Finance-Admin must stay active." : "They are signed out right away and cannot sign in until the account is re-enabled.") : "They will be able to sign in again.", confirm: next === "disabled" ? "Disable" : "Re-enable", danger: next === "disabled" }))) {
-                    return;
-                }
-
-                try {
-                    const res = await fetch("/api/users/" + user.id + "/status", {
-                        method: "PATCH",
-                        credentials: "same-origin",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ status: next })
-                    });
-                    const data = await res.json().catch(() => ({}));
-                    if (!res.ok) throw new Error(data.error || "Request failed");
-                    user.status = next;
-                    renderAccountsTable();
-                    inviteToast(`${user.name} ${next === "disabled" ? "disabled" : "re-enabled"}`);
-                } catch (err) {
-                    inviteToast(err.message, true);
-                }
-
-            });
-
         });
 
 }
-
 
 function inviteToast(message, isError) {
 

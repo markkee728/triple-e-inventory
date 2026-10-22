@@ -86,7 +86,22 @@
     } finally { loading = false; }
   }
 
+  function updateSalesBadge() {
+    const attn = document.getElementById('salesNavAttention');
+    if (attn) {
+      const count = (ORDERS || []).filter(o => o.status === 'Pending Confirmation' || o.cancelRequested).length;
+      if (count > 0) {
+        attn.textContent = count;
+        attn.hidden = false;
+        attn.className = 'ngt-ind attn';
+      } else {
+        attn.hidden = true;
+      }
+    }
+  }
+
   function renderOrders() {
+    updateSalesBadge();
     const q = $('soSearch').value.trim().toLowerCase(), st = $('soStatus').value, ty = $('soType') ? $('soType').value : 'all';
     const rows = ORDERS.filter(o => (st === 'all' || o.status === st) && (ty === 'all' || o.fulfillment === ty) &&
       (!q || (o.id + ' ' + o.customer + ' ' + (o.customerPhone || '') + ' ' + (o.phone || '') + ' ' + (o.recipient || '') + ' ' + [(o.delivery || {}).driverName, (o.delivery || {}).trackingNo, (o.delivery || {}).vehiclePlate, (o.delivery || {}).courier].filter(Boolean).join(' ') + ' ' + o.items.map(i => i.name + ' ' + i.sku).join(' ')).toLowerCase().includes(q)));

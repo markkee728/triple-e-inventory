@@ -140,12 +140,27 @@
         '<button class="btn-primary" data-sc="open" data-id="' + esc(open.id) + '">' + (open.status === 'submitted' ? 'Review count' : 'Open count') + '</button>';
     } else {
       var cadOn = !sched || sched.cadenceOn !== false;
-      html += '<div class="sc-top"><div class="grow"><label for="scDept">Department</label><select id="scDept" class="form-select"><option value="">All departments</option>' +
-        DEPTS.map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
-        '<div class="grow"><label for="scMode">Which items?</label><select id="scMode" class="form-select"><option value="due"' + (cadOn ? ' selected' : '') + '>Items due now (weekly + slow ones due this month)</option><option value="all"' + (cadOn ? '' : ' selected') + '>All products</option></select></div>' +
-        '<div class="grow"><label for="scNote">Note (optional)</label><input id="scNote" class="form-input" maxlength="300" placeholder="e.g. Month-end count, warehouse A" autocomplete="off"></div>' +
-        '<button class="btn-primary" id="scStart">Start count</button></div><div class="sc-err" id="scErr"></div>' +
-        '<p class="sc-hint">Tip: stop sales and stock movements for the area while you count, so the numbers match exactly.</p>';
+      var nextDateStr = sched && sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Oct 26';
+      html += '<div class="sc-lock-card" style="padding:16px 20px;background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:10px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+          '<div style="display:flex;align-items:center;gap:10px">' +
+            '<span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.3px">WEEKLY AUDIT CADENCE LOCKED</span>' +
+            '<span style="font-size:13px;color:var(--text-dim);font-weight:500">Next automated cycle opens <b>' + esc(nextDateStr) + ' at 8:00 AM</b></span>' +
+          '</div>' +
+          '<button type="button" class="btn-secondary btn-sm" id="scToggleManualBtn">Unlock manual count</button>' +
+        '</div>' +
+        '<div id="scManualStartForm" hidden style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">' +
+          '<div class="sc-top">' +
+            '<div class="grow"><label for="scDept">Department</label><select id="scDept" class="form-select"><option value="">All departments</option>' +
+            DEPTS.map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
+            '<div class="grow"><label for="scMode">Which items?</label><select id="scMode" class="form-select"><option value="due"' + (cadOn ? ' selected' : '') + '>Items due now (weekly + slow ones)</option><option value="all"' + (cadOn ? '' : ' selected') + '>All products</option></select></div>' +
+            '<div class="grow"><label for="scNote">Supervisor reason (required for ad-hoc count)</label><input id="scNote" class="form-input" maxlength="300" placeholder="e.g. Discrepancy spot check" autocomplete="off"></div>' +
+            '<button class="btn-primary" id="scStart">Start count</button>' +
+          '</div>' +
+          '<div class="sc-err" id="scErr"></div>' +
+          '<p class="sc-hint" style="margin-top:8px">Unscheduled manual counts are logged in the audit trail. Stop sales and stock movements for the area while counting.</p>' +
+        '</div>' +
+      '</div>';
     }
     html += '</div><div class="panel"><div class="panel-head"><div><div class="panel-title">Count history</div><div class="panel-sub">Posted counts have already corrected the stock</div></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Count</th><th>Scope</th><th>Status</th><th class="r">Counted</th><th class="r">Differences</th><th class="r">Net value</th><th>Date</th><th></th></tr></thead><tbody>' +

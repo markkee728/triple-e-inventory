@@ -51,7 +51,7 @@
     built = true;
     root.innerHTML =
       '<div class="sa-kpis" id="saKpis"></div>' +
-      '<div class="sa-source-tabs" role="tablist" aria-label="Transaction source"><button type="button" class="sa-source-tab active" data-source-tab="POS" role="tab" aria-selected="true">POS Transactions</button><button type="button" class="sa-source-tab" data-source-tab="Shop" role="tab" aria-selected="false">Online Orders</button></div>' +
+      '<div style="margin:16px 0 12px"><div style="font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text-faint);margin-bottom:6px">Ledger Channel View</div><div class="sa-source-tabs" role="tablist" aria-label="Transaction channel"><button type="button" class="sa-source-tab active" data-source-tab="POS" role="tab" aria-selected="true">In-Store Counter (POS)</button><button type="button" class="sa-source-tab" data-source-tab="Shop" role="tab" aria-selected="false">Online Customer Orders</button></div></div>' +
       '<div class="panel sales-log-panel">' +
         '<div class="panel-head">' +
           '<div><div class="panel-title">Combined Transaction Ledger</div><div class="panel-sub" id="saSub">Loading…</div></div>' +

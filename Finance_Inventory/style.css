@@ -1328,14 +1328,16 @@ tbody td.mono {
 #productTableBody tr.product-row,
 #supplierTableBody tr.supplier-row,
 #movementLogTableBody tr.mov-row,
-#prodHistBody tr.prod-row {
+#prodHistBody tr.prod-row,
+#userTableBody tr.user-row {
     cursor: pointer;
     transition: background 0.15s ease;
 }
 #productTableBody tr.product-row:hover,
 #supplierTableBody tr.supplier-row:hover,
 #movementLogTableBody tr.mov-row:hover,
-#prodHistBody tr.prod-row:hover {
+#prodHistBody tr.prod-row:hover,
+#userTableBody tr.user-row:hover {
     background: var(--hover, rgba(255, 255, 255, 0.05));
 }
 #movementLogTableBody tr.mov-detail td,
@@ -4937,7 +4939,45 @@ html[data-theme="dark"] .sales-tab.active {
 #sales .pos-management-section .panel-head{gap:12px;flex-wrap:wrap}
 
 /* Read-only sales overview: source tabs and row-based detail access */
-.sa-source-tabs{display:flex;gap:8px;margin:16px 0;flex-wrap:wrap}.sa-source-tab{padding:10px 18px;border:1px solid #cbd5e1;background:transparent;color:inherit;border-radius:9px;cursor:pointer;font:inherit;font-weight:600}.sa-source-tab.active{background:#1d5fa8;color:white;border-color:#1d5fa8}.sa-source-tab:focus-visible,.sa-table tbody tr[data-ref]:focus-visible{outline:3px solid #7bb4f1;outline-offset:2px}.sa-table tbody tr[data-ref]{cursor:pointer}.sa-table tbody tr[data-ref]:hover{background:rgba(70,130,190,.09)}
+.sa-source-tabs {
+    display: inline-flex;
+    align-items: center;
+    background: var(--surface-sunken, #f1f5f9);
+    border: 1px solid var(--border, #e2e8f0);
+    border-radius: 9999px;
+    padding: 3px;
+    gap: 4px;
+}
+.sa-source-tab {
+    padding: 7px 18px;
+    border: none;
+    background: transparent;
+    color: var(--text-dim, #64748b);
+    border-radius: 9999px;
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+.sa-source-tab:hover:not(.active) {
+    color: var(--text, #0f172a);
+    background: rgba(0, 0, 0, 0.04);
+}
+.sa-source-tab.active {
+    background: var(--surface, #ffffff);
+    color: #1d4ed8 !important;
+    font-weight: 600;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+html[data-theme="dark"] .sa-source-tabs {
+    background: var(--surface-sunken, #0f172a);
+    border-color: var(--border, #334155);
+}
+html[data-theme="dark"] .sa-source-tab.active {
+    background: #1e293b;
+    color: #38bdf8 !important;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}.sa-source-tab:focus-visible,.sa-table tbody tr[data-ref]:focus-visible{outline:3px solid #7bb4f1;outline-offset:2px}.sa-table tbody tr[data-ref]{cursor:pointer}.sa-table tbody tr[data-ref]:hover{background:rgba(70,130,190,.09)}
 
 /* Unified sidebar icons: clean stroke SVG masks, never font glyphs. */
 .sales-nav-group .nav-symbol,.customer-nav-group .nav-symbol{display:inline-block;flex:0 0 19px;width:19px;height:19px;min-width:19px;background:currentColor;mask:var(--side-icon) center/contain no-repeat;-webkit-mask:var(--side-icon) center/contain no-repeat;font-size:0;vertical-align:middle}
