@@ -79,3 +79,15 @@ FORM HELPERS (Task 9)
          rewritten as +63 917 123 4567 (landlines +63 2 8123 4567); email typos get "Did you mean …@gmail.com?"; sign-up warns when the mobile number is
          already on an account; the cashier sees "this number / email belongs to …" (accounts, earlier walk-in sales and quotes); suppliers have a lead time.
   Everywhere: errors beside the field while typing, a warning before unsaved changes are lost, Enter moves to the next field (Ctrl+Enter submits).
+
+
+PAYMENT TERMS AUTOMATION
+  Code:  backend/payment-terms.js (autoApproval, recommendKey, attachTerms), backend/shop-extras.js (price route), Finance_Inventory/payment-terms-admin.js,
+         Finance_Inventory/quote-desk-ui.js. Tests: node --no-warnings backend/test/payment-terms-auto.test.js
+  Finance > Payment Terms: rows save by themselves (no Save button, no typed reason; the audit log records who changed what). Only the % or the peso box
+         is shown, whichever the basis is. New "Approve automatically up to" per partial term (empty = Finance approves each one, as before).
+  Cashier quotations: the term is pre-selected (ready stock -> Full Payment; made-to-order -> the allowed part-payment with the biggest deposit) and each
+         choice says whether it is approved at once or goes to Finance. A part-payment is approved by the system when the term is on and allowed for that
+         order type, the total is within the limit, and the customer owes nothing on another order or quotation (account by customer, walk-in by phone).
+         Otherwise it goes to Finance with the reason. The term is attached together with the price, so the customer's "quote ready" message carries it.
+  Columns added automatically at start: payment_terms.auto_approve_limit, quote_requests.terms_auto_note.

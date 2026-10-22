@@ -38,8 +38,8 @@
   /* ---------------- the page ---------------- */
   var PANELS = [
     ['ptrPolicy', 'Payment terms on offer',
-     'Switch a term on to offer it. Payments already recorded are not affected.',
-     '<th style="min-width:160px">Term</th><th style="width:190px">Pay now</th><th style="width:160px">Allowed for</th><th style="width:200px">Balance due</th><th style="width:220px">Status</th><th style="width:90px"></th>'],
+     'Changes save by themselves. Switch a term on to offer it; set an automatic limit and part-payments up to it are approved without you. Payments already recorded are not affected.',
+     '<th style="min-width:160px">Term</th><th style="width:190px">Pay now</th><th style="width:160px">Allowed for</th><th style="width:200px">Balance due</th><th style="width:230px">Approval</th><th style="width:220px">Status</th>'],
     ['ptrProposed', 'Waiting for your approval',
      'Part-payments a cashier proposed. The customer only sees them after you approve.',
      '<th>Quotation</th><th>Customer</th><th class="mono">Quoted</th><th>Proposed</th><th>Balance due</th><th style="width:280px">Decision</th>'],
@@ -138,8 +138,9 @@
         : '<label class="faint" style="display:block">Basis</label>'
           + '<select data-f="basis"><option value="percent"' + (t.basis === 'fixed' ? '' : ' selected') + '>Percentage</option>'
           + '<option value="fixed"' + (t.basis === 'fixed' ? ' selected' : '') + '>Fixed amount</option></select>'
-          + '<div style="margin-top:6px"><input data-f="percent" class="mono" inputmode="decimal" placeholder="50" aria-label="percentage" value="' + (t.percent == null ? '' : esc(t.percent)) + '" style="width:80px"> %</div>'
-          + '<div style="margin-top:6px"><input data-f="fixedAmount" class="mono" inputmode="decimal" placeholder="5000" aria-label="fixed amount" value="' + (t.fixedAmount == null ? '' : esc(t.fixedAmount)) + '" style="width:110px"> \u20B1</div>') + '</td>'
+          // only the box that matches the basis is shown
+          + '<div data-basis="percent" style="margin-top:6px"' + (t.basis === 'fixed' ? ' hidden' : '') + '><input data-f="percent" class="mono" inputmode="decimal" placeholder="50" aria-label="percentage" value="' + (t.percent == null ? '' : esc(t.percent)) + '" style="width:80px"> %</div>'
+          + '<div data-basis="fixed" style="margin-top:6px"' + (t.basis === 'fixed' ? '' : ' hidden') + '>\u20B1 <input data-f="fixedAmount" class="mono" inputmode="decimal" placeholder="5000" aria-label="fixed amount" value="' + (t.fixedAmount == null ? '' : esc(t.fixedAmount)) + '" style="width:110px"></div>') + '</td>'
       + '<td>' + (lock ? '<label><input type="checkbox" data-f="retailAllowed" checked disabled> Ready stock</label>'
         : '<label style="display:block"><input type="checkbox" data-f="retailAllowed"' + (t.retailAllowed ? ' checked' : '') + '> Ready stock</label>'
           + '<label style="display:block"><input type="checkbox" data-f="madeToOrderAllowed"' + (t.madeToOrderAllowed ? ' checked' : '') + '> Made-to-order</label>') + '</td>'
@@ -147,23 +148,36 @@
         : '<select data-f="balanceCondition" aria-label="when the balance is due">' + BALANCE_DUE.map(function (c) {
             return '<option value="' + esc(c[0]) + '"' + (c[0] === t.balanceCondition ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('')
           + (BALANCE_DUE.some(function (c) { return c[0] === t.balanceCondition; }) || !t.balanceCondition ? '' : '<option selected value="' + esc(t.balanceCondition) + '">' + esc(t.balanceCondition) + '</option>') + '</select>') + '</td>'
+      // automation: up to this total the system signs a cashier's part-payment itself (empty = Finance approves each one)
+      + '<td>' + (lock ? '<span class="faint">No approval needed</span>'
+        : '<label class="faint" style="display:block">Approve automatically up to</label>'
+          + '\u20B1 <input data-f="autoApproveLimit" class="mono" inputmode="decimal" placeholder="e.g. 50000" aria-label="approve automatically up to" value="' + (t.autoApproveLimit == null ? '' : esc(t.autoApproveLimit)) + '" style="width:120px">'
+          + '<div class="faint" data-auto-hint>' + autoHint(t) + '</div>') + '</td>'
       + '<td><label><input type="checkbox" data-f="enabled"' + (lock ? ' checked disabled' : (t.enabled ? ' checked' : '')) + '> Offer this term</label>'
-        + '<div class="faint">' + (lock ? 'Always on'
-          : (t.enabled ? 'On since ' + esc(when(t.enabledAt)) + ' \u00B7 ' + esc(t.enabledBy || 'Finance') : 'Off')) + '</div>'
-        + (lock ? '' : '<input data-f="note" maxlength="300" aria-label="reason, for the audit trail" value="' + esc(t.note || '') + '" placeholder="Reason (for the audit log)" style="margin-top:6px;width:100%">') + '</td>'
-      + '<td>' + (lock ? '' : '<button type="button" class="btn-primary btn-sm" data-save>Save</button>')
+        + '<div class="faint" data-on-hint>' + onHint(t) + '</div>'
+        + '<div class="faint" data-saved aria-live="polite" style="margin-top:6px"></div>'
         + '<div class="faint" data-err role="alert" style="color:var(--red,#c0392b);margin-top:6px"></div></td>'
       + '</tr>';
+  }
+  function autoHint(t) {
+    return t.autoApproveLimit ? 'Up to ' + peso(t.autoApproveLimit) + ' the system approves it, when the customer owes nothing elsewhere. Above that it comes to you.'
+      : 'Empty: every ' + esc(t.label || t.key) + ' comes to you to approve.';
+  }
+  function onHint(t) {
+    return t.key === 'full' ? 'Always on' : t.enabled ? 'On since ' + esc(when(t.enabledAt)) + ' \u00B7 ' + esc(t.enabledBy || 'Finance') : 'Off';
   }
 
   function renderPolicy() {
     var body = $('ptrPolicyBody');
     if (!body) return;
+    renderPolicyStatus();
+    body.innerHTML = POLICY.map(policyRow).join('');
+  }
+  function renderPolicyStatus() {
     var offered = POLICY.filter(function (t) { return t.enabled && (t.key === 'full' || t.retailAllowed || t.madeToOrderAllowed); });
     $('ptrPolicyStatus').innerHTML = POLICY.length
       + ' term(s) on file \u00B7 offered now: ' + (offered.map(function (t) { return esc(t.label); }).join(', ') || 'none')
       + (LEDGER_READY ? '' : ' \u00B7 <b style="color:var(--red,#c0392b)">the payment ledger is not active in this database. Run backend/db/020_payment_terms.sql before relying on any balance below.</b>');
-    body.innerHTML = POLICY.map(policyRow).join('');
   }
 
   /* ---------------- proposals waiting for Finance ---------------- */
@@ -275,25 +289,43 @@
     var key = tr.dataset.term,
       val = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return el ? el.value : ''; },
       on = function (f) { var el = tr.querySelector('[data-f="' + f + '"]'); return !!(el && el.checked); };
-    var enabled = key === 'full' ? true : on('enabled');
+    var enabled = key === 'full' ? true : on('enabled'), saved = tr.querySelector('[data-saved]');
     setErr(tr, '');
-    // the same two rules the server enforces, checked here only so the row answers straight away
-    if (enabled && key !== 'full' && !on('retailAllowed') && !on('madeToOrderAllowed')) return setErr(tr, 'Say which orders this term covers before offering it.');
-    if (enabled && key !== 'full' && String(val('note') || '').trim().length < 5) return setErr(tr, 'Write why you are switching this on \u2014 it goes in the audit log.');
+    // the rule the server enforces, checked here only so the row answers straight away
+    if (enabled && key !== 'full' && !on('retailAllowed') && !on('madeToOrderAllowed')) return setErr(tr, 'Tick which orders this term covers (ready stock and / or made-to-order) and it is saved.');
+    var basis = val('basis');
+    if (key !== 'full' && !String(basis === 'fixed' ? val('fixedAmount') : val('percent')).trim()) return setErr(tr, basis === 'fixed' ? 'Enter the amount to pay now.' : 'Enter the percentage to pay now.');
     // Full Payment has no scope or percentage to choose: it is always 100% and always allowed, so the row must not
     // send those fields at all — leaving them out is what keeps the stored policy as it is.
-    var body = { enabled: enabled, balanceCondition: val('balanceCondition'), note: val('note') };
-    if (key !== 'full') { body.retailAllowed = on('retailAllowed'); body.madeToOrderAllowed = on('madeToOrderAllowed');
-      body.basis = val('basis'); body.percent = val('percent'); body.fixedAmount = val('fixedAmount'); }
+    // Who changed what is written to the audit log by the server, so nothing has to be typed for it.
+    var body = { enabled: enabled, balanceCondition: val('balanceCondition') };
+    if (key !== 'full') { body.retailAllowed = on('retailAllowed'); body.madeToOrderAllowed = on('madeToOrderAllowed'); body.basis = basis;
+      if (basis === 'fixed') body.fixedAmount = val('fixedAmount'); else body.percent = val('percent');
+      body.autoApproveLimit = val('autoApproveLimit'); }
+    var was = (POLICY.find(function (t) { return t.key === key; }) || {}).enabled;
+    if (saved) saved.textContent = 'Saving…';
     try {
       var out = await api('/finance/payment-terms/' + encodeURIComponent(key), { method: 'POST', body: JSON.stringify(body) });
       POLICY = POLICY.map(function (t) { return t.key === key ? out.term : t; });
-      renderPolicy();
-      toast(out.term.enabled ? out.term.label + ' is now offered where you allowed it.' : out.term.label + ' is no longer offered.');
+      // only the row's notes are repainted, so the box being typed in keeps its focus
+      var ah = tr.querySelector('[data-auto-hint]'), oh = tr.querySelector('[data-on-hint]');
+      if (ah) ah.innerHTML = autoHint(out.term);
+      if (oh) oh.innerHTML = onHint(out.term);
+      if (saved) saved.textContent = '✓ Saved ' + new Date().toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+      renderPolicyStatus();
+      if (was !== out.term.enabled) toast(out.term.enabled ? out.term.label + ' is now offered where you allowed it.' : out.term.label + ' is no longer offered.');
     } catch (e) {
       if (e.message === 'Not signed in') return;
-      setErr(tr, (e.fields && (e.fields.percent || e.fields.fixedAmount || e.fields.scope || e.fields.note)) || e.message);
+      if (saved) saved.textContent = '';
+      setErr(tr, (e.fields && (e.fields.percent || e.fields.fixedAmount || e.fields.scope || e.fields.autoApproveLimit || e.fields.note)) || e.message);
     }
+  }
+  // a row saves itself: at once for a tick box or a list, a moment after typing stops in a box
+  var saveTimers = {};
+  function queueSave(tr, delay) {
+    var key = tr.dataset.term;
+    clearTimeout(saveTimers[key]);
+    saveTimers[key] = setTimeout(function () { saveTerm(tr); }, delay);
   }
 
   async function decide(row, action) {
@@ -324,10 +356,18 @@
       if (reload) { e.preventDefault(); loadAll(); return; }
       var cod = e.target.closest('[data-cod-save]');
       if (cod) { e.preventDefault(); saveCod(cod); return; }
-      var save = e.target.closest('[data-save]');
-      if (save) { e.preventDefault(); var tr = save.closest('tr[data-term]'); if (tr) saveTerm(tr); return; }
       var ap = e.target.closest('[data-approve]'), rf = e.target.closest('[data-refuse]');
       if (ap || rf) { e.preventDefault(); var row = (ap || rf).closest('tr[data-quote]'); if (row) decide(row, ap ? 'approve' : 'refuse'); }
+    });
+    // the policy rows save themselves (no Save button)
+    host.addEventListener('change', function (e) {
+      var tr = e.target.closest && e.target.closest('#ptrPolicyBody tr[data-term]'); if (!tr) return;
+      if (e.target.dataset.f === 'basis') tr.querySelectorAll('[data-basis]').forEach(function (x) { x.hidden = x.dataset.basis !== e.target.value; });
+      queueSave(tr, 0);
+    });
+    host.addEventListener('input', function (e) {
+      var tr = e.target.closest && e.target.closest('#ptrPolicyBody tr[data-term]'); if (!tr || e.target.type === 'checkbox') return;
+      queueSave(tr, 900);
     });
     // finance lives with this screen open; refresh it when it comes back into view
     new MutationObserver(function () { if (host.classList.contains('active-page')) loadAll(); }).observe(host, { attributes: true, attributeFilter: ['class'] });

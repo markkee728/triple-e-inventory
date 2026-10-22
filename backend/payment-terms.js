@@ -78,6 +78,35 @@ function isMadeToOrder(q) {
   return !!service && !NO_SERVICE_RE.test(service.toLowerCase());
 }
 
+/* ---------------- automation: which term to suggest, and when a part-payment needs no human signature ----------------
+   Finance sets, per partial term, "approve automatically up to ₱X" (payment_terms.auto_approve_limit; empty = Finance signs
+   every one, which is how it worked before). A cashier's part-payment is then approved by the system when ALL of these hold:
+     • the term is switched on and allowed for this kind of order (ready stock / made-to-order) — the same check as always;
+     • the quoted total is not above that term's limit;
+     • the customer has no balance still owed on another order or quotation (a part-payment is credit: not on top of credit).
+   Anything else goes to Finance exactly as before, with the reason. Pure, so test/payment-terms-auto.test.js runs it without a database. */
+const pesoText = (n) => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function autoApproval({ policy, total, madeToOrder, owed }) {
+  const reasons = [];
+  if (!policy || policy.term_key === 'full') return { ok: true, reasons };
+  const limit = policy.auto_approve_limit == null ? null : Number(policy.auto_approve_limit);
+  if (policy.enabled !== true) reasons.push('the term is switched off');
+  if (!(madeToOrder ? policy.made_to_order_allowed : policy.retail_allowed)) reasons.push(`the term is not allowed for ${madeToOrder ? 'made-to-order' : 'ready-stock'} requests`);
+  if (limit == null || !(limit > 0)) reasons.push('Finance signs every ' + (policy.label || policy.term_key) + ' (no automatic limit set)');
+  else if (Number(total) > limit + 0.004) reasons.push(`${pesoText(total)} is over the automatic limit of ${pesoText(limit)}`);
+  if (Number(owed) > 0.004) reasons.push(`the customer still owes ${pesoText(owed)} on another order or quotation`);
+  return { ok: !reasons.length, reasons };
+}
+/* The term a screen pre-selects. Ready stock: Full Payment. Made-to-order: a deposit protects the material the shop buys
+   and cuts for one customer, so the allowed part-payment with the BIGGEST deposit is suggested; Full when none is allowed.
+   `options` = what optionsFor() returned (already only the terms switched on and allowed here). */
+function recommendKey(options, madeToOrder) {
+  if (!madeToOrder) return 'full';
+  const partial = (options || []).filter((o) => o.key !== 'full' && o.key !== 'custom');
+  if (!partial.length) return 'full';
+  return partial.slice().sort((a, b) => (Number(b.percent) || 0) - (Number(a.percent) || 0))[0].key;
+}
+
 module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ = 'Asia/Manila' }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
   const ymd = (v) => (/^\d{4}-\d{2}-\d{2}$/.test(String(v || '')) && !Number.isNaN(Date.parse(String(v))) ? String(v) : null);
@@ -171,6 +200,9 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       'terms_customer_seen_at TIMESTAMPTZ'])
       await run(`ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ${col}`, 'quote terms column');
     await run("ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS terms_state TEXT NOT NULL DEFAULT 'none' CHECK (terms_state IN ('none','proposed','approved','rejected'))", 'quote terms_state');
+    // automation: Finance's "approve automatically up to ₱X" per term, and why the system signed a quotation's terms by itself
+    await run('ALTER TABLE payment_terms ADD COLUMN IF NOT EXISTS auto_approve_limit NUMERIC(14,2) CHECK (auto_approve_limit IS NULL OR auto_approve_limit > 0)', 'auto approve limit');
+    await run('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS terms_auto_note TEXT', 'quote terms auto note');
     for (const col of ['terms_key TEXT', 'terms_percent NUMERIC(5,2)', 'terms_amount NUMERIC(14,2)', 'terms_condition TEXT', 'terms_approved_by INT REFERENCES users(user_id)'])
       await run(`ALTER TABLE orders ADD COLUMN IF NOT EXISTS ${col}`, 'order terms column');
     // §8: the only way an order with money still outstanding can be released — Finance grants it, by name, with a reason.
@@ -223,6 +255,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     fixedAmount: t.fixed_amount == null ? null : +t.fixed_amount,
     retailAllowed: t.retail_allowed === true, madeToOrderAllowed: t.made_to_order_allowed === true,
     balanceCondition: t.balance_condition || '', enabled: t.enabled === true,
+    autoApproveLimit: t.auto_approve_limit == null ? null : +t.auto_approve_limit,
     enabledBy: t.enabled_by_name || undefined, enabledAt: ms(t.enabled_at) || undefined, note: t.note || undefined
   });
 
@@ -277,7 +310,8 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       amount: q.terms_amount == null ? null : round2(+q.terms_amount),
       balance: q.terms_balance == null ? (total == null || q.terms_amount == null ? null : round2(total - +q.terms_amount)) : round2(+q.terms_balance),
       condition: q.terms_condition || undefined, availability: q.terms_availability || undefined,
-      state: q.terms_state || 'none', decidedBy: q.terms_decided_by_name || undefined, decidedAt: ms(q.terms_decided_at) || undefined,
+      state: q.terms_state || 'none', decidedBy: q.terms_decided_by_name || (q.terms_auto_note && q.terms_state === 'approved' ? 'the system (automatic)' : undefined), decidedAt: ms(q.terms_decided_at) || undefined,
+      auto: q.terms_auto_note && q.terms_state === 'approved' ? q.terms_auto_note : undefined,
       seenAt: ms(q.terms_customer_seen_at) || undefined, total
     };
   }
@@ -508,6 +542,15 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       if (!(fixed > 0)) throw bad('fixedAmount', 'Enter an amount greater than 0');
     }
     if (key === 'custom' && fixed != null) throw bad('fixedAmount', 'A custom payment is agreed as a percentage of each quote');
+    // "approve automatically up to ₱X": empty = Finance signs every one (not sent = keep what is saved)
+    let autoLimit = current.auto_approve_limit == null ? null : +current.auto_approve_limit;
+    if (b.autoApproveLimit !== undefined) {
+      const raw = String(b.autoApproveLimit == null ? '' : b.autoApproveLimit).replace(/[,₱\s]/g, '');
+      if (raw === '' || /^0+(\.0+)?$/.test(raw)) autoLimit = null;
+      else if (!/^\d{1,9}(\.\d{1,2})?$/.test(raw)) throw bad('autoApproveLimit', 'Enter the automatic approval limit in pesos, e.g. 50000, or leave it empty');
+      else autoLimit = round2(Number(raw));
+    }
+    if (key === 'full') autoLimit = null;
     // 'full' has no percentage choice: whatever is stored, it must stay 100% / the whole amount.
     if (key === 'full') { percent = 100; fixed = null; }
     const retail = flag(b.retailAllowed, current.retail_allowed === true);
@@ -520,17 +563,18 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
 
     const row = await tx(async (client) => {
       const r = await client.query(`UPDATE payment_terms SET basis=$2, percent=$3, fixed_amount=$4, retail_allowed=$5, made_to_order_allowed=$6,
-              balance_condition=$7, enabled=$8, enabled_by=CASE WHEN $8::boolean THEN $9::int ELSE enabled_by END,
-              enabled_at=CASE WHEN $8::boolean THEN now() ELSE enabled_at END, note=$10, updated_at=now()
+              balance_condition=$7, enabled=$8, enabled_by=CASE WHEN $8::boolean AND NOT enabled THEN $9::int ELSE enabled_by END,
+              enabled_at=CASE WHEN $8::boolean AND NOT enabled THEN now() ELSE enabled_at END, note=COALESCE($10, note), auto_approve_limit=$11, updated_at=now()
              WHERE term_key=$1 RETURNING *`,
-        [key, basis, percent, fixed, retail, mto, condition, enabled, req.user.id, note || null]);
+        [key, basis, percent, fixed, retail, mto, condition, enabled, req.user.id, note || null, autoLimit]);
       await audit(client, req.user, 'Record edited',
-        `Payment term ${key}: ${enabled ? 'switched ON' : 'switched off'} — ${basis === 'fixed' ? 'fixed ' + peso(fixed || 0) : (percent || 0) + '%'}${key === 'full' ? '' : `, ${[retail && 'ready stock', mto && 'made-to-order'].filter(Boolean).join(' + ') || 'nowhere'}`}`);
+        `Payment term ${key}: ${enabled ? 'switched ON' : 'switched off'} — ${basis === 'fixed' ? 'fixed ' + peso(fixed || 0) : (percent || 0) + '%'}${key === 'full' ? '' : `, ${[retail && 'ready stock', mto && 'made-to-order'].filter(Boolean).join(' + ') || 'nowhere'}` +
+          `, ${autoLimit ? 'approved automatically up to ' + peso(autoLimit) : 'Finance approves each one'}`}`);
       return r.rows[0];
     });
     const joined = await pool.query(`SELECT pt.*, u.full_name AS enabled_by_name FROM payment_terms pt LEFT JOIN users u ON u.user_id = pt.enabled_by WHERE pt.term_key = $1`, [key]);
     res.json({ ok: true, term: json(joined.rows[0] || row) });
-    if (enabled && key !== 'full') Promise.resolve(pingFinance({ category: 'system', title: 'A payment term is now live',
+    if (enabled && key !== 'full' && current.enabled !== true) Promise.resolve(pingFinance({ category: 'system', title: 'A payment term is now live',
       body: `${row.label} is switched on for ${[retail && 'ready stock', mto && 'made-to-order'].filter(Boolean).join(' and ') || 'no order type'}.`,
       link: 'Finance_Inventory.html#payment-terms', entityType: 'payment_term', entityId: key })).catch(() => {});
   }));
@@ -540,7 +584,10 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const madeToOrder = str(req.query.madeToOrder) === 'true' || str(req.query.kind) === 'made_to_order';
     const raw = String(req.query.total == null ? '' : req.query.total).replace(/[,₱\s]/g, '');
     const total = raw ? Number(raw) : 0;
-    res.json({ options: await optionsFor({ madeToOrder, total }), madeToOrder, total: total > 0 ? round2(total) : null });
+    const options = (await optionsFor({ madeToOrder, total })).map((o) => Object.assign(o, {
+      // would the system sign it by itself at this total? (the customer's own balances are checked again when it is attached)
+      autoApproved: o.key === 'full' || (o.autoApproveLimit > 0 && total > 0 && total <= o.autoApproveLimit + 0.004) }));
+    res.json({ options, recommended: recommendKey(options, madeToOrder), madeToOrder, total: total > 0 ? round2(total) : null });
   }));
 
   /* ---------------- quotation payment terms (§2) ----------------
@@ -582,16 +629,63 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     return { key, percent, due, balance: round2(total - due), condition, availability,
       label: policy.label, note: str(b.note).slice(0, 300) };
   }
-  const termsSql = async (client, q, t, { state, user, note }) => {
-    const decided = ['approved', 'rejected'].includes(state) ? user.id : null;
+  const termsSql = async (client, q, t, { state, user, note, decidedBy, autoNote = null }) => {
+    const decided = decidedBy !== undefined ? decidedBy : ['approved', 'rejected'].includes(state) ? user.id : null;
+    // signed by the system: no person is named, the time is still recorded, and the reason is kept on the quotation
     const r = await client.query(`UPDATE quote_requests SET terms_key=$2, terms_percent=$3, terms_amount=$4, terms_balance=$5, terms_condition=$6,
-            terms_availability=$7, terms_state=$8, terms_decided_by=$9, terms_decided_at=CASE WHEN $9::int IS NULL THEN terms_decided_at ELSE now() END,
-            updated_at=now() WHERE quote_id=$1 RETURNING *`,
-      [q.quote_id, t.key, t.percent, t.due, t.balance, t.condition, t.availability, state, decided]);
+            terms_availability=$7, terms_state=$8, terms_decided_by=$9,
+            terms_decided_at=CASE WHEN $9::int IS NULL AND $10::text IS NULL THEN terms_decided_at ELSE now() END,
+            terms_auto_note=$10, updated_at=now() WHERE quote_id=$1 RETURNING *`,
+      [q.quote_id, t.key, t.percent, t.due, t.balance, t.condition, t.availability, state, decided, autoNote]);
     await audit(client, user, 'Record edited', `Quote ${q.quote_no}: payment terms ${state} — ` +
       `${t.percent}% now (${peso(t.due)}), balance ${peso(t.balance)}, ${t.condition}` + (note ? ` — ${note}` : ''));
     return r.rows[0];
   };
+
+  /* What this customer still owes elsewhere: balances on orders and accepted quotations that were part-paid
+     (an order simply not paid yet is not a debt). An account is matched by customer_id, a walk-in by phone number. */
+  async function owedElsewhere(client, q) {
+    const key = String(q.phone || '').replace(/\D/g, '').slice(-10);
+    if (!q.customer_id && key.length < 10) return 0;
+    const r = (await client.query(`SELECT COALESCE((SELECT SUM(GREATEST(o.total - o.paid_amount, 0)) FROM orders o
+          WHERE $1::int IS NOT NULL AND o.customer_id = $1 AND o.status <> 'Cancelled' AND o.paid_amount > 0 AND o.total - o.paid_amount > 0.005), 0)
+        + COALESCE((SELECT SUM(GREATEST(x.quoted_amount - x.paid_amount, 0)) FROM quote_requests x
+          WHERE x.quote_id <> $3 AND x.converted_order_id IS NULL AND x.status IN ('accepted','preparing','ready') AND x.paid_amount > 0
+            AND x.quoted_amount - x.paid_amount > 0.005
+            AND (($1::int IS NOT NULL AND x.customer_id = $1) OR ($2 <> '' AND right(regexp_replace(coalesce(x.phone, ''), '\\D', '', 'g'), 10) = $2))), 0) AS owed`,
+      [q.customer_id || null, key.length >= 10 ? key : '', q.quote_id])).rows[0];
+    return round2(Number(r.owed) || 0);
+  }
+  // can the system sign this part-payment on this quotation by itself?  -> { ok, reasons }
+  async function autoTermsCheck(client, q, key, total) {
+    if (key === 'full') return { ok: true, reasons: [] };
+    const policy = (await termRows(client)).find((t) => t.term_key === key);
+    if (!policy) return { ok: false, reasons: ['unknown payment term'] };
+    return autoApproval({ policy, total, madeToOrder: isMadeToOrder(q), owed: await owedElsewhere(client, q) });
+  }
+  // the cashier attaches a term (the price route does it too, in the same transaction as the price): signed by the system when the rules allow it
+  async function attachTerms(client, cur, body, user) {
+    const t = await readTermsBody(client, cur, body || {}, { actorIsFinance: false });
+    let state = 'approved', autoNote = null, auto = null;
+    if (t.key !== 'full') {
+      auto = await autoTermsCheck(client, cur, t.key, round2(t.due + t.balance));
+      state = auto.ok ? 'approved' : 'proposed';
+      if (auto.ok) autoNote = `Approved automatically: within the automatic limit of ${t.label}, allowed for this kind of order, and the customer owes nothing elsewhere`;
+    }
+    const out = await termsSql(client, cur, t, { state, user, note: autoNote || t.note, decidedBy: autoNote ? null : undefined, autoNote });
+    return { t, out, auto };
+  }
+  // after the commit: Finance only hears about the part-payments the system could not sign; the customer hears about signed ones
+  function afterTermsAttached(cur, r) {
+    if (!r || !r.out) return;
+    if (r.out.terms_state === 'proposed') Promise.resolve(pingFinance({ category: 'quote', title: 'Payment terms to approve',
+      body: `${cur.quote_no}: ${r.t.percent}% (${peso(r.t.due)}) now, ${peso(r.t.balance)} balance. Needs you because ${(r.auto && r.auto.reasons.join('; ')) || 'no reason was recorded'}.`,
+      link: 'Finance_Inventory.html#payment-terms', entityType: 'quote', entityId: cur.quote_no })).catch(() => {});
+    else if (r.out.terms_auto_note && r.out.customer_id && r.out.status === 'quoted') Promise.resolve(nc() ? nc().notifyUser(r.out.customer_id, {
+      category: 'quote', title: 'Payment terms approved',
+      body: `${r.out.quote_no}: ${r.out.terms_percent}% of ${peso(r.out.quoted_amount)} now, balance ${peso(r.out.terms_balance)}. ${r.out.terms_condition || ''}`.trim(),
+      link: 'Shop_Customer.html', entityType: 'quote', entityId: r.out.quote_no }, 'customer') : null).catch(() => {});
+  }
 
   app.post('/api/pos/quotes/:no/terms', auth('cashier'), wrap(async (req, res) => {
     const b = req.body || {};
@@ -600,15 +694,10 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       if (!cur) throw bad('id', 'Quote request not found');
       if (!TERMS_SETTABLE.includes(cur.status)) throw bad('status', 'The terms of a quotation can only be set before the customer accepts it');
       if (round2(Number(cur.paid_amount) || 0) > 0) throw bad('payment', 'A payment has already been recorded, so these terms are fixed');
-      const t = await readTermsBody(client, cur, b, { actorIsFinance: false });
-      const out = await termsSql(client, cur, t, { state: t.key === 'full' ? 'approved' : 'proposed', user: req.user, note: t.note });
-      return { cur, t, out };
+      return Object.assign({ cur }, await attachTerms(client, cur, b, req.user));
     });
-    // A partial term the cashier proposed still has to be signed by Finance before it can be used.
-    if (q.out.terms_state === 'proposed') Promise.resolve(pingFinance({ category: 'quote', title: 'Payment terms to approve',
-      body: `${q.cur.quote_no}: ${q.t.percent}% (${peso(q.t.due)}) now, ${peso(q.t.balance)} balance.`, link: 'Finance_Inventory.html#payment-terms',
-      entityType: 'quote', entityId: q.cur.quote_no })).catch(() => {});
-    res.json({ ok: true, terms: quoteTerms(q.out) });
+    afterTermsAttached(q.cur, q);
+    res.json({ ok: true, terms: quoteTerms(q.out), auto: q.auto || undefined });
   }));
 
   app.post('/api/finance/quotes/:no/terms', auth('finance'), wrap(async (req, res) => {
@@ -1034,10 +1123,13 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
   app.get('/api/pos/payment-ledger/:kind/:no', auth('cashier'), wrap(ledgerView));
 
   app.locals.paymentTerms = {
-    ready, listTerms, optionsFor, amountFor, quoteTerms, approvedDueOf, isMadeToOrder,
+    ready, listTerms, optionsFor, amountFor, quoteTerms, approvedDueOf, isMadeToOrder, autoTermsCheck, attachTerms, afterTermsAttached,
     applyPayment, ledgerFor, termRows, moveQuotePaymentsToOrder, inheritTerms, DEFAULT_TERMS, METHODS, TERMS,
     orderMoney, owedOnOrder, orderTerms, setOrderTerms, releaseDecision, refundOrderPayments,
     ledgerForOrder: (no) => ledgerFor(pool, { kind: 'order', no }),
     markTermsSeen: (client, quoteId) => client.query(`UPDATE quote_requests SET terms_customer_seen_at = now() WHERE quote_id = $1 AND terms_customer_seen_at IS NULL`, [quoteId])
   };
 };
+module.exports.autoApproval = autoApproval;
+module.exports.recommendKey = recommendKey;
+module.exports.isMadeToOrder = isMadeToOrder;

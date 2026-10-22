@@ -358,7 +358,9 @@
       '<span class="qd-term-name">' + esc(o.label || TERM_NAME[o.key] || o.key) + '</span>' +
       '<span class="qd-term-calc">Pay now <b>' + (money(o.dueNow) || '—') + '</b> · balance <b>' + (money(o.balance) || '₱0.00') + '</b>' +
       (o.balanceCondition ? ' <em>— ' + esc(o.balanceCondition) + '</em>' : '') + '</span>' +
-      (o.enabledBy ? '<span class="qd-term-by">switched on by ' + esc(o.enabledBy) + '</span>' : '') + '</label>';
+      // automation: the suggested term, and whether the system signs it by itself at this total (Finance's limit)
+      '<span class="qd-term-by">' + (o.recommended ? '<b>Suggested</b> · ' : '') +
+      (o.key === 'full' ? 'no approval needed' : o.autoApproved ? 'approved automatically (within Finance’s limit)' : 'goes to Finance to approve') + '</span></label>';
   }
 
   async function loadTermOptions(root, total, current) {
@@ -370,9 +372,12 @@
       const r = await call('/api/pos/payment-terms?total=' + encodeURIComponent(Number(total).toFixed(2)) +
         '&madeToOrder=' + (d && d.madeToOrder ? 'true' : 'false'));
       if (seq !== termSeq || !box.isConnected) return;
-      const opts = (r && r.options) || [];
+      const opts = ((r && r.options) || []).map((o) => Object.assign(o, { recommended: o.key === r.recommended }));
       S.termOpts = opts;
-      box.innerHTML = opts.length ? opts.map((o) => termOptionHtml(o, current)).join('')
+      // keep what the cashier already picked; otherwise the saved term; otherwise the system's suggestion
+      const picked = box.querySelector('input[name=term]:checked');
+      const pick = (picked && picked.value) || current || r.recommended || 'full';
+      box.innerHTML = opts.length ? opts.map((o) => termOptionHtml(o, pick)).join('')
         : '<p class="q-hint">Only Full Payment is allowed for this item.</p>';
       syncTermFields(root);
     } catch (e) { if (seq === termSeq && box.isConnected) box.innerHTML = '<p class="q-hint qd-bad">The payment policy could not be read: ' + esc(fieldErr(e)) + '</p>'; }
@@ -403,7 +408,7 @@
         '<div class="err-text wide" data-terms-err role="alert"></div>' +
         '<div class="wide" style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-secondary" data-act="cancelterms">Cancel</button>' +
         '<button type="submit" class="btn-primary">Save terms</button></div></form>' +
-        '<p class="q-hint">Part-payments need Finance approval before the customer sees them.</p>';
+        '<p class="q-hint">A part-payment within Finance’s automatic limit is approved at once; anything else goes to Finance first.</p>';
     }
     return kv([
       row('Payment term', t ? '<b>' + esc(TERM_NAME[t.key] || t.key) + '</b>' + (t.percent != null ? ' — ' + t.percent + '%' : '') : '<b>Full Payment</b> — everything before release'),
@@ -429,6 +434,7 @@
     const o = (S.termOpts || []).find((x) => x.key === key) || {};
     const go = await pqConfirm({ title: 'Attach these payment terms to the quotation?',
       description: key === 'full' ? 'Full Payment: the customer settles everything before the goods are released.'
+        : o.autoApproved ? 'Within Finance’s automatic limit: approved at once, unless the customer still owes money on another order (then Finance decides).'
         : 'This is sent to Finance as a proposal. The customer is not shown partial terms until Finance signs them.',
       rows: [['Quotation', d.id], ['Customer', d.customer], ['Total quoted', money(d.amount) || '—'],
         ['Term', o.label || TERM_NAME[key] || key], ['Pay now', money(o.dueNow) || '—'], ['Balance', money(o.balance) || '₱0.00'],
@@ -438,7 +444,8 @@
     const btn = form.querySelector('button[type=submit]'); btn.disabled = true;
     try {
       const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/terms', { method: 'POST', body: JSON.stringify({ termKey: key, condition: condition || undefined, note: note || undefined }) });
-      toast(r.terms && r.terms.state === 'proposed' ? 'Sent to Finance to approve the terms.' : 'Payment terms saved for this quotation.');
+      toast(r.terms && r.terms.state === 'proposed' ? 'Sent to Finance to approve the terms: ' + ((r.auto && r.auto.reasons || []).join('; ') || 'needs a signature') + '.'
+        : r.terms && r.terms.auto ? 'Payment terms approved automatically.' : 'Payment terms saved for this quotation.');
       S.openTerms = false; await openDetail(d.id); loadDesk();
     } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; }
   }
@@ -610,7 +617,9 @@
     if (!(R.valueLimit > 0)) why.push('no order-value limit is set');
     else if (total > R.valueLimit) why.push(peso(total) + ' is over the cashier limit of ' + peso(R.valueLimit));
     const term = form && form.querySelector('input[name=term]:checked');
-    if (term && term.value !== 'full') why.push('partial-payment terms are approved by Finance');
+    // a part-payment within Finance's automatic limit is signed by the system (the server also checks the customer owes nothing elsewhere)
+    const termOpt = term && (S.termOpts || []).find((x) => x.key === term.value);
+    if (term && term.value !== 'full' && !(termOpt && termOpt.autoApproved)) why.push('partial-payment terms over Finance’s automatic limit are approved by Finance');
     return why;
   }
   function syncRoute(form, total) {
@@ -655,14 +664,16 @@
       const recipe = d.sku ? undefined : S.recipeMode === 'edited' ? validLines() : S.recipeMode === 'auto' ? null : undefined;
       const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/price', { method: 'POST', body: JSON.stringify({ amount: total.toFixed(2), leadTime, validDays, note, termKey, recipe }) });
       // The terms are attached to the price the customer is shown, so they go on straight after it exists.
-      let termsState = null;
-      if (termKey !== ((d.terms || {}).key || 'full')) {
+      // the server attaches the term together with the price; only an older server needs the separate call
+      let termsState = r.quote && r.quote.terms && r.quote.terms.key === termKey ? r.quote.terms.state : null;
+      if (!termsState && termKey !== ((d.terms || {}).key || 'full')) {
         try { const t = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/terms', { method: 'POST', body: JSON.stringify({ termKey }) }); termsState = t.terms && t.terms.state; }
         catch (te) { err.textContent = 'The price was saved, but the payment terms were not: ' + fieldErr(te); S.openPrice = false; await openDetail(d.id); loadDesk(); return; }
       }
       const dec = r.decision || {};
       toast(r.status === 'pending_approval' ? 'Sent to Finance automatically: ' + ((dec.reasons || []).join('; ') || 'needs approval') + '.'
         : termsState === 'proposed' ? 'Price sent. The partial payment terms now go to Finance for a signature.'
+        : termsState === 'approved' && termKey !== 'full' ? 'Within the rules: the customer has the price, and the part-payment was approved automatically.'
         : 'Within the rules: the customer has the price now.');
       S.openPrice = false; await openDetail(d.id); loadDesk();
     } catch (e) { err.textContent = fieldErr(e); btn.disabled = false; }

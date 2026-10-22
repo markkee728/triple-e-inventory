@@ -822,14 +822,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const termKey = str(b.termKey);
     if (termKey && !TERM_NAMES[termKey]) throw bad('termKey', 'Choose a payment term');
     if (qa) await qa.ready;
-    const q = await tx(async client => {
+    const priced = await tx(async client => {
       let cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quotation not found');
       if (!['new','pending_approval'].includes(cur.status)) throw bad('status', 'Only new or pending quotations can be priced');
       // the recipe lines the cashier adjusted belong to this price: they are saved first, so the checks below use them
       if (qa && !cur.product_sku && b.recipe !== undefined) cur = await qa.saveRecipe(client, cur, b.recipe, req.user);
-      // partial-payment terms always go to Finance (the existing terms flow); terms Finance already signed do not
-      const partialKey = termKey ? (termKey !== 'full' ? termKey : null) : (cur.terms_key && cur.terms_key !== 'full' && cur.terms_state !== 'approved' ? cur.terms_key : null);
+      // partial-payment terms go to Finance only when the system cannot sign them (payment-terms.js autoTermsCheck:
+      // within Finance's automatic limit, allowed for this order type, customer owes nothing elsewhere); signed terms never do
+      const pt = app.locals.paymentTerms;
+      let partialKey = termKey ? (termKey !== 'full' ? termKey : null) : (cur.terms_key && cur.terms_key !== 'full' && cur.terms_state !== 'approved' ? cur.terms_key : null);
+      if (partialKey && pt && pt.autoTermsCheck && (await pt.autoTermsCheck(client, cur, partialKey, v.amount)).ok) partialKey = null;
       let decision, draft = null;
       if (qa) {
         draft = await qa.draftForQuote(client, cur);
@@ -849,8 +852,17 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
           draft && draft.ok ? draft.total : null, draft && draft.ok ? draft.costTotal : null, JSON.stringify(decision)]);
       if (qa) await qa.logDecision(client, { quote: cur, action: toFinance ? 'sent_to_finance' : 'auto_quoted', decision, user: req.user });
       else await audit(client, req.user, 'Record edited', `Cashier price for quote ${cur.quote_no} sent to Finance: ${decision.reasons[0]}`);
-      return result.rows[0];
+      // the chosen payment term goes on with the price, so the customer's "your quote is ready" message already carries it
+      let row = result.rows[0], terms = null;
+      if (termKey && pt && pt.attachTerms && termKey !== (row.terms_key || 'full') && !(Number(row.paid_amount) > 0)) {
+        terms = await pt.attachTerms(client, row, { termKey }, req.user);
+        row = terms.out;
+      }
+      return { row, terms, cur };
     });
+    const q = priced.row;
+    // Finance hears about terms the system could not sign; the customer hears about the terms in the "quote ready" message below
+    if (priced.terms && app.locals.paymentTerms) app.locals.paymentTerms.afterTermsAttached(priced.cur, { ...priced.terms, out: { ...priced.terms.out, customer_id: null } });
     if (q.status === 'pending_approval') afterSentToFinance(q, req.user); else afterQuoted(q);
     const d = q.approval_check || {};
     res.json({ ok: true, status: q.status, quote: quoteJson(q), decision: { route: d.route, rules: d.rules, reasons: d.reasons, numbers: d.numbers, summary: d.summary } });
