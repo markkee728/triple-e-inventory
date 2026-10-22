@@ -180,6 +180,8 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
       await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC(14,2)`);
       await pool.query(`ALTER TABLE purchase_suggestions ADD COLUMN IF NOT EXISTS lead_time_days INT`);
       await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS uq_open_low_stock_suggestion ON purchase_suggestions (product_id) WHERE status = 'open' AND source = 'low_stock'`);
+      await pool.query(`ALTER TABLE purchase_suggestions DROP CONSTRAINT IF EXISTS purchase_suggestions_status_check`);
+      await pool.query(`ALTER TABLE purchase_suggestions ADD CONSTRAINT purchase_suggestions_status_check CHECK (status IN ('open','ordered','dismissed','received'))`);
       console.log('[quote-automation] draft recipes, approval rules and the decision log are ready');
       return true;
     } catch (err) { console.warn('[quote-automation] setup failed:', err.message); return false; }
@@ -531,34 +533,46 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
 
   /* ---------------- Finance: purchase suggestions from accepted quotes & low stock ---------------- */
   app.get('/api/finance/purchase-suggestions', auth('finance'), wrap(async (req, res) => {
-    const st = ['open', 'ordered', 'dismissed', 'all'].includes(str(req.query.status)) ? str(req.query.status) : 'open';
+    const st = ['open', 'ordered', 'received', 'dismissed', 'all'].includes(str(req.query.status)) ? str(req.query.status) : 'open';
     const { rows } = await pool.query(`SELECT s.*, p.on_hand, COALESCE(s.unit_cost, p.unit_cost) AS effective_unit_cost, u.full_name AS decided_by_name FROM purchase_suggestions s
         JOIN products p ON p.product_id = s.product_id LEFT JOIN users u ON u.user_id = s.decided_by
-       WHERE ($1 = 'all' OR s.status = $1) ORDER BY s.status = 'open' DESC, s.created_at DESC LIMIT 200`, [st]);
-    res.json(rows.map((s) => ({
-      id: +s.suggestion_id,
-      sku: s.sku,
-      name: s.name,
-      unit: s.unit,
-      quantity: +s.quantity,
-      onHand: +s.on_hand,
-      unitCost: +s.effective_unit_cost || null,
-      estimatedCost: s.estimated_cost != null ? +s.estimated_cost : (s.effective_unit_cost ? Math.round(+s.quantity * +s.effective_unit_cost * 100) / 100 : null),
-      supplierId: s.supplier_id ? +s.supplier_id : null,
-      supplierName: s.supplier_name || null,
-      leadTimeDays: s.lead_time_days != null ? +s.lead_time_days : null,
-      source: s.source || (s.quote_no ? 'quote' : 'low_stock'),
-      quote: s.quote_no,
-      status: s.status,
-      note: s.note || undefined,
-      decidedBy: s.decided_by_name || undefined,
-      createdAt: s.created_at ? new Date(s.created_at).getTime() : undefined
-    })));
+       WHERE ($1 = 'all' OR s.status = $1) ORDER BY s.status = 'open' DESC, s.status = 'ordered' DESC, s.created_at DESC LIMIT 200`, [st]);
+    const now = Date.now();
+    res.json(rows.map((s) => {
+      const lead = s.lead_time_days != null ? +s.lead_time_days : 7;
+      const orderTime = s.decided_at ? new Date(s.decided_at).getTime() : (s.created_at ? new Date(s.created_at).getTime() : now);
+      const expectedTime = s.status === 'ordered' ? orderTime + lead * 86400000 : null;
+      const isOverdue = expectedTime != null && now > expectedTime;
+      const daysOverdue = isOverdue ? Math.floor((now - expectedTime) / 86400000) : 0;
+      return {
+        id: +s.suggestion_id,
+        sku: s.sku,
+        name: s.name,
+        unit: s.unit,
+        quantity: +s.quantity,
+        onHand: +s.on_hand,
+        unitCost: +s.effective_unit_cost || null,
+        estimatedCost: s.estimated_cost != null ? +s.estimated_cost : (s.effective_unit_cost ? Math.round(+s.quantity * +s.effective_unit_cost * 100) / 100 : null),
+        supplierId: s.supplier_id ? +s.supplier_id : null,
+        supplierName: s.supplier_name || null,
+        leadTimeDays: lead,
+        expectedArrival: expectedTime,
+        isOverdue,
+        daysOverdue,
+        source: s.source || (s.quote_no ? 'quote' : 'low_stock'),
+        quote: s.quote_no,
+        status: s.status,
+        note: s.note || undefined,
+        decidedBy: s.decided_by_name || undefined,
+        decidedAt: s.decided_at ? new Date(s.decided_at).getTime() : undefined,
+        createdAt: s.created_at ? new Date(s.created_at).getTime() : undefined
+      };
+    }));
   }));
   app.post('/api/finance/purchase-suggestions/:id', auth('finance'), wrap(async (req, res) => {
     const id = Number(req.params.id), st = str((req.body || {}).status), note = str((req.body || {}).note);
     if (!Number.isInteger(id)) throw bad('id', 'Purchase suggestion not found');
-    if (!['ordered', 'dismissed', 'open'].includes(st)) throw bad('status', 'Mark it ordered, dismissed or open');
+    if (!['ordered', 'dismissed', 'open', 'received'].includes(st)) throw bad('status', 'Mark it ordered, received, dismissed or open');
     if (note.length > 200) throw bad('note', 'Keep the note within 200 characters');
     const r = await tx(async (client) => {
       const s = (await client.query(`UPDATE purchase_suggestions SET status = $2, note = COALESCE(NULLIF($3, ''), note), decided_by = $4, decided_at = now() WHERE suggestion_id = $1 RETURNING *`,

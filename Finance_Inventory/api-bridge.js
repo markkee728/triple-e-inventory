@@ -451,10 +451,13 @@
     const rg = $('movementReceiptGroup');
     if (rg) {
       rg.style.display = isReceipt ? '' : 'none';
-      if (isReceipt) fillMovementSuppliers(item);
-      else {
-        ['movementSupplier', 'movementInvoice', 'movementUnitCost'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
+      if (isReceipt) {
+        fillMovementSuppliers(item);
+        syncDeliveryTiming();
+      } else {
+        ['movementSupplier', 'movementInvoice', 'movementUnitCost', 'movementOrderDate'].forEach((id) => { const el = $(id); if (el) { el.value = ''; el.classList.remove('field-invalid'); } });
         rg.querySelectorAll('.field-msg').forEach((n) => n.remove());
+        if ($('movementDeliveryTiming')) $('movementDeliveryTiming').innerHTML = '<span class="faint">Select supplier &amp; order date to check timing</span>';
       }
     }
 
@@ -522,6 +525,34 @@
       else if (m.linkedOnly && m.list.length === 1) sel.value = m.list[0].id;
     }
     syncSupplierLeadHint(item);
+    syncDeliveryTiming();
+  }
+
+  function syncDeliveryTiming() {
+    const timingBox = $('movementDeliveryTiming');
+    if (!timingBox) return;
+    const supId = ($('movementSupplier') || {}).value;
+    const orderDateVal = ($('movementOrderDate') || {}).value;
+    if (!supId || !orderDateVal) {
+      timingBox.innerHTML = '<span class="faint">Select supplier &amp; order date to check timing</span>';
+      return;
+    }
+    const sup = (supplierData || []).find((s) => String(s.id) === String(supId));
+    const lead = sup && sup.leadTimeDays != null ? sup.leadTimeDays : 7;
+    const orderDate = new Date(orderDateVal + 'T00:00:00');
+    const expectedArrival = new Date(orderDate.getTime() + lead * 86400000);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expStr = expectedArrival.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
+    const diffDays = Math.round((today.getTime() - expectedArrival.getTime()) / 86400000);
+    if (diffDays > 0) {
+      timingBox.innerHTML = '<span style="color:#b91c1c;font-weight:700">⚠️ LATE: ' + diffDays + ' day' + (diffDays === 1 ? '' : 's') + ' past expected delivery (' + expStr + ')</span>';
+    } else if (diffDays === 0) {
+      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">✅ On time: Expected arrival today (' + expStr + ')</span>';
+    } else {
+      const earlyDays = Math.abs(diffDays);
+      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">✅ On time: ' + earlyDays + ' day' + (earlyDays === 1 ? '' : 's') + ' ahead of schedule (' + expStr + ')</span>';
+    }
   }
 
   function refreshMovementForm() {
@@ -573,10 +604,15 @@
     // last supplier / last cost: filled in when a supplier delivery is being recorded; a value typed or picked by hand is kept
     $('movementProduct').addEventListener('change', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x && x.dataset.auto) { x.value = ''; delete x.dataset.auto; } }); prefillReceipt(); });
     $('movementReason').addEventListener('change', prefillReceipt);
-    if ($('movementSupplier')) $('movementSupplier').addEventListener('change', () => syncSupplierLeadHint(movementItem()));
+    if ($('movementSupplier')) $('movementSupplier').addEventListener('change', () => { syncSupplierLeadHint(movementItem()); syncDeliveryTiming(); });
+    if ($('movementOrderDate')) $('movementOrderDate').addEventListener('change', syncDeliveryTiming);
     ['movementSupplier', 'movementUnitCost'].forEach((id) => { const x = $(id); if (x) { x.addEventListener('input', (e) => { if (e.isTrusted) delete x.dataset.auto; }); x.addEventListener('change', (e) => { if (e.isTrusted) delete x.dataset.auto; }); } });
     if ($('movementUnitCost')) $('movementUnitCost').addEventListener('input', syncCostWarning);
-    form.addEventListener('reset', () => { ['movementSupplier', 'movementUnitCost'].forEach((id) => { if ($(id)) delete $(id).dataset.auto; }); if (FA) ['last', 'jump'].forEach((k) => FA.note($('movementUnitCost'), '', '', k)); });
+    form.addEventListener('reset', () => {
+      ['movementSupplier', 'movementUnitCost', 'movementOrderDate'].forEach((id) => { if ($(id)) delete $(id).dataset.auto; });
+      if (FA) ['last', 'jump'].forEach((k) => FA.note($('movementUnitCost'), '', '', k));
+      if ($('movementDeliveryTiming')) $('movementDeliveryTiming').innerHTML = '<span class="faint">Select supplier &amp; order date to check timing</span>';
+    });
     if (FA) { FA.keyboard(form); FA.guard(form); }
     ['movementSupplier', 'movementInvoice', 'movementUnitCost'].forEach((id) => {       // clear an old error message as soon as the field is changed
       const el = $(id); if (!el) return;
@@ -1792,7 +1828,7 @@
     return el;
   }
 
-  function goStockIn(sku, suggestedQty, supplierId, unitCost) {
+  function goStockIn(sku, suggestedQty, supplierId, unitCost, orderDate) {
     const item = inventoryCache.find((i) => i.sku === sku);
     if (!item) return;
     const nav = document.querySelector('.nav-item[data-page="stockflow"]');
@@ -1822,6 +1858,10 @@
     if (unitCost != null && $('movementUnitCost')) {
       $('movementUnitCost').value = Number(unitCost).toFixed(2);
       $('movementUnitCost').dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    if (orderDate && $('movementOrderDate')) {
+      $('movementOrderDate').value = orderDate;
+      $('movementOrderDate').dispatchEvent(new Event('change', { bubbles: true }));
     }
   }
   window.goStockIn = goStockIn;

@@ -884,6 +884,16 @@
                                     </div>
                                 </div>
                                 <div class="field-hint" id="movementCostHint"></div>
+                                <div class="form-row" style="margin-top:10px">
+                                    <div class="form-group">
+                                        <label class="form-label" for="movementOrderDate">Order / PO date <span class="q-optional" style="font-weight:400;color:var(--text-faint)">(optional)</span></label>
+                                        <input type="date" id="movementOrderDate" class="form-input" autocomplete="off">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label" for="movementDeliveryTiming">Delivery timeliness</label>
+                                        <div id="movementDeliveryTiming" style="padding:8px 12px;background:var(--surface-sunken, #f8fafc);border:1px solid var(--border-subtle, #e2e8f0);border-radius:6px;font-size:12.5px;min-height:38px;display:flex;align-items:center"><span class="faint">Select supplier &amp; order date to check timing</span></div>
+                                    </div>
+                                </div>
                             </div>
 
 <div id="productionPreview" class="prod-preview" style="display:none"></div>
@@ -3663,7 +3673,7 @@
     <script src="ui-confirm.js?v=1"></script>
     <script src="form-assist.js?v=1"></script>
     <script src="script.js?v=28"></script>
-    <script src="api-bridge.js?v=35"></script>
+    <script src="api-bridge.js?v=36"></script>
     <script src="sales-orders.js?v=13"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
@@ -3687,7 +3697,7 @@
     <script src="pricing-admin.js?v=2"></script>
     <script src="quick-stock.js?v=3"></script>
     <script src="finished-goods-shop.js?v=5"></script>
-    <script src="shop-extras-admin.js?v=15"></script>
+    <script src="shop-extras-admin.js?v=16"></script>
     <script src="delivery-rates-admin.js?v=3"></script>
     <script src="payment-terms-admin.js?v=8"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
