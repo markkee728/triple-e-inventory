@@ -1,0 +1,52 @@
+/* sales-hub.css — Finance > Sales as ONE scrollable page.
+   The chip bar reuses the Reports bar (.rep-nav / .rep-tab from reports-sales.css); this file only adds
+   what is specific to the Sales page. Behaviour: sales-hub.js. */
+
+#sales-hub { --rep-sticky: 64px; --rep-offset: 132px; }
+.content.sh-content { overflow: visible; }            /* set by sales-hub.js while Sales is open, so the chip bar sticks to the window */
+html.sh-scroll, html.sh-scroll body { height: auto; } /* the page grows with its sections, so the sticky sidebar stays in view */
+
+/* ---- every section one after another, same gap ---- */
+.sales-flow { display: flex; flex-direction: column; gap: 52px; }
+.sales-flow > * { min-width: 0; }
+#sales-hub .sales-sec { scroll-margin-top: var(--rep-offset, 132px); }
+
+/* each section's own heading becomes a clear section title (the "Sales & Transactions" eyebrow repeated six times is hidden) */
+#sales-hub .sales-sec .catalog-eyebrow { display: none; }
+#sales-hub .sales-sec > .catalog-header {
+  margin: 0 0 18px;
+  padding: 2px 0 14px 16px;
+  border-bottom: 1px solid var(--border);
+  border-left: 5px solid var(--blue-bright);
+  border-radius: 2px;
+}
+#sales-hub .sales-sec > .catalog-header .catalog-title { font-size: 27px; line-height: 1.2; }
+
+/* counts that need a decision (set by sales-admin.js) sit on the chip they belong to */
+.rep-tab .sa-nav-badge,
+.rep-tab .tab-badge {
+  margin-left: 8px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--amber);
+  color: #1b1303;
+  font-size: 12px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+}
+.rep-tab .tab-badge[hidden] { display: none; }
+
+/* six chips plus the pill must fit on a laptop: the chips get the room, the pill stays small and only shows on wide screens */
+#salesHubTabs .rep-nav-links { flex: 1 1 auto; }
+#salesHubTabs .rep-nav-period { max-width: 210px; }
+@media (max-width: 1500px) { #salesHubTabs .rep-nav-period { display: none; } }
+
+@media (max-width: 760px) {
+  .sales-flow { gap: 38px; }
+  #sales-hub .sales-sec > .catalog-header .catalog-title { font-size: 23px; }
+}

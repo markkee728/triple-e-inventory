@@ -560,7 +560,7 @@
   $('soPosSearch') && $('soPosSearch').addEventListener('input', renderPos);
   $('soType') && $('soType').addEventListener('change', renderOrders);
   document.querySelectorAll('.so-refresh').forEach(b => b.addEventListener('click', load));
-  document.querySelectorAll('.nav-item[data-page="sales"], .nav-item[data-page="orders"], .nav-item[data-page="sales-overview"], .sales-tab[data-page="sales"], .sales-tab[data-page="orders"], .sales-tab[data-page="sales-overview"]').forEach(n => n.addEventListener('click', load));
+  document.querySelectorAll('.nav-item[data-page="sales-hub"], .nav-item[data-page="sales"], .nav-item[data-page="orders"], .nav-item[data-page="sales-overview"], .sales-tab[data-page="sales"], .sales-tab[data-page="orders"], .sales-tab[data-page="sales-overview"]').forEach(n => n.addEventListener('click', load));
   const watching = () => ['orders', 'sales', 'sales-overview'].some(id => $(id) && $(id).classList.contains('active-page'));
   if (watching()) load();
   // Load whenever any sales page is opened, however it was opened (menu, tab strip, dashboard link, refresh on #orders, Back button)

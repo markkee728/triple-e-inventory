@@ -9,10 +9,10 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=10">
+    <link rel="stylesheet" href="style.css?v=11">
     <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
-    <link rel="stylesheet" href="sidebar.css?v=2">
+    <link rel="stylesheet" href="sidebar.css?v=3">
     <link rel="stylesheet" href="customers.css?v=6">
 
     <!-- Google Fonts -->
@@ -72,6 +72,7 @@
 
             <div class="nav-group nav-top">
                 <button type="button" class="nav-item active" data-page="dashboard"><span class="dot"></span> Dashboard</button>
+                <button type="button" class="nav-item" data-page="sales-hub"><span class="dot"></span> Sales <span class="ngt-ind attn" id="salesNavAttention" hidden>0</span></button>
                 <button type="button" class="nav-item" data-page="reports"><span class="dot"></span> Reports</button>
                 <button type="button" class="nav-item" data-page="notifications"><span class="dot"></span> Notifications</button>
             </div>
@@ -89,24 +90,6 @@
                         <button type="button" class="nav-item" data-page="stockcount"><span class="dot"></span> Stock Count</button>
                         <button type="button" class="nav-item" data-page="products"><span class="dot"></span> Products</button>
                         <button type="button" class="nav-item" data-page="suppliers"><span class="dot"></span> Suppliers</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="nav-group" data-group="sales">
-                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-sales">
-                    <span class="ngt-label">Sales</span>
-                    <span class="ngt-ind attn" id="salesNavAttention" hidden>0</span>
-                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-                </button>
-                <div class="nav-items" id="navg-sales">
-                    <div class="nav-items-inner">
-                        <button type="button" class="nav-item" data-page="sales-overview"><span class="dot"></span> Overview</button>
-                        <button type="button" class="nav-item" data-page="orders"><span class="dot"></span> Online Orders</button>
-                        <button type="button" class="nav-item" data-page="sales"><span class="dot"></span> POS Counter Sales</button>
-                        <button type="button" class="nav-item" data-page="quotes"><span class="dot"></span> Quote Approvals</button>
-                        <button type="button" class="nav-item" data-page="customers"><span class="dot"></span> Customer Profiles</button>
-                        <button type="button" class="nav-item" data-page="payment-terms"><span class="dot"></span> Policies &amp; Rates</button>
                     </div>
                 </div>
             </div>
@@ -149,6 +132,9 @@
             <button type="button" class="burger" id="burgerBtn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
                 <span class="burger-bar"></span><span class="burger-bar"></span><span class="burger-bar"></span>
             </button>
+
+            <!-- Page name: filled in by navigateToPage() in script.js -->
+            <div class="topbar-title" id="pageTitle">Dashboard</div>
 
             <div class="topbar-right">
 
@@ -270,22 +256,7 @@
 
         <div class="content">
 
-            <!-- Sales pages share one tab strip (placed below page headers on active sales subpage: see navigateToPage in script.js) -->
-            <div class="sales-nav-container" id="salesNavContainer" hidden>
-                <div class="sales-page-tabs" id="salesTabs" role="tablist" aria-label="Sales sections">
-                    <button type="button" class="sales-tab active" role="tab" data-page="sales-overview">Overview</button>
-                    <button type="button" class="sales-tab" role="tab" data-page="orders">Online Orders <span class="tab-badge" id="ordersTabBadge" hidden>0</span></button>
-                    <button type="button" class="sales-tab" role="tab" data-page="sales">POS Sales &amp; Shifts</button>
-                    <button type="button" class="sales-tab" role="tab" data-page="payment-terms">Policies &amp; Rates</button>
-                </div>
-                <div class="sales-nav-status">
-                    <span class="sales-nav-dot" aria-hidden="true"></span>
-                    <span id="salesNavStatusText">Sales Ledger &middot; Automated Sync</span>
-                </div>
-            </div>
-
-
-            <!-- =================================================
+                        <!-- =================================================
                  DASHBOARD
             ================================================== -->
 
@@ -1308,10 +1279,37 @@
             </section>
 
 
-            <!-- =================================================
-                 SALES & TRANSACTIONS OVERVIEW
+<!-- =================================================
+                 SALES: ONE scrollable page.
+                 Header bar (chips) jumps to each section and follows your scroll (see sales-hub.js).
+                 The sections keep their old ids (sales-overview, orders, sales, quotes, customers, payment-terms)
+                 because the scripts that fill them look them up by id; navigateToPage('orders') etc. still work
+                 and simply open this page scrolled to that section.
             ================================================== -->
-            <section id="sales-overview" class="page">
+            <section id="sales-hub" class="page">
+
+                <div class="catalog-header rep-header">
+                    <div>
+                        <h1 class="catalog-title">Sales &amp; Transactions</h1>
+                        <p class="rep-lede">Everything on one page, top to bottom: the overview, online orders, POS sales and cash shifts, quote approvals, customer profiles and policies &amp; rates. Use the bar below to jump between them.</p>
+                    </div>
+                </div>
+
+                <nav class="rep-nav" id="salesHubTabs" aria-label="Sales sections">
+                    <div class="rep-nav-links">
+                        <button type="button" class="rep-tab active" data-stab="sales-overview" data-target="sales-overview" aria-current="true">Overview</button>
+                        <button type="button" class="rep-tab" data-stab="orders" data-target="orders">Online Orders</button>
+                        <button type="button" class="rep-tab" data-stab="sales" data-target="sales">POS Sales &amp; Shifts</button>
+                        <button type="button" class="rep-tab" data-stab="quotes" data-target="quotes">Quote Approvals</button>
+                        <button type="button" class="rep-tab" data-stab="customers" data-target="customers">Customer Profiles</button>
+                        <button type="button" class="rep-tab" data-stab="payment-terms" data-target="payment-terms">Policies &amp; Rates</button>
+                    </div>
+                    <div class="rep-nav-period" title="The section you are reading"><span class="rep-nav-dot" aria-hidden="true"></span><span id="shNavStatus">Realtime activity</span></div>
+                </nav>
+
+                <div class="sales-flow" id="salesFlow">
+
+<section id="sales-overview" class="page sales-sec">
                 <div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div>
                     <h1 class="catalog-title">Sales Overview</h1>
                     <div class="panel-sub">Every POS sale and online order in one read-only ledger. The cashier processes them; you monitor, and approve the requests sent to you.</div>
@@ -1320,11 +1318,7 @@
                 <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div><button type="button" class="btn-secondary btn-sm" id="soPayRefreshBtn">Refresh</button></div><div id="soPay" style="padding:0 18px 18px"></div></div>
             </section>
 
-            <!-- =================================================
-                 SALES TRANSACTIONS
-            ================================================== -->
-
-            <section id="orders" class="page">
+<section id="orders" class="page sales-sec">
 
                 <div class="catalog-header">
                     <div>
@@ -1372,8 +1366,7 @@
 
             </section>
 
-
-            <section id="sales" class="page">
+<section id="sales" class="page sales-sec">
 
                 <div class="catalog-header">
                     <div>
@@ -1424,17 +1417,10 @@
                     <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Cash Shifts</div><div class="panel-sub" id="soShiftSub">Loading…</div></div></div><div id="soShifts" style="padding:0 18px 18px"></div></div>
                 </div>
             </section>
-            <!-- =================================================
-                 USER MANAGEMENT
-            ================================================== -->
 
-            <!-- Quote requests and product reviews: filled in by shop-extras-admin.js -->
-            <section id="quotes" class="page"></section>
-            <section id="reviews" class="page"></section>
-            <!-- Payment terms policy, approvals, receivables and the payment ledger: filled in by payment-terms-admin.js -->
-            <section id="payment-terms" class="page"></section>
+<section id="quotes" class="page sales-sec"></section>
 
-            <section id="customers" class="page">
+<section id="customers" class="page sales-sec">
               <div class="catalog-header"><div><div class="catalog-eyebrow">Customer Management</div><h1 class="catalog-title">Customer Profiles</h1></div></div>
               <div class="customer-tabs" role="tablist" aria-label="Customer type"><button type="button" role="tab" class="customer-tab active" id="custTabReg" aria-selected="true" data-cust-tab="reg">Registered customers</button><button type="button" role="tab" class="customer-tab" id="custTabWalk" aria-selected="false" data-cust-tab="walk">Walk-in customers</button></div>
               <div class="panel customer-directory" id="registeredDirectory"><div class="panel-head"><div><div class="panel-title">Registered Customers</div><div class="panel-sub" id="customerCount">Loading customers…</div></div><button type="button" class="btn-secondary" id="customerRefresh">↻ Refresh</button></div>
@@ -1447,6 +1433,27 @@
               <div class="customer-modal" id="customerProfileModal" hidden><div class="customer-modal-backdrop" data-close-customer></div><div class="customer-modal-card" role="dialog" aria-modal="true" aria-labelledby="customerProfileTitle" tabindex="-1"><div class="customer-modal-head"><div><div class="catalog-eyebrow">Customer Management</div><h2 id="customerProfileTitle">Customer Profile</h2></div><button class="customer-modal-close" type="button" id="customerProfileClose" aria-label="Close profile">×</button></div><div id="customerProfileContent" class="customer-modal-content"></div><div class="customer-modal-footer"><span>Read-only customer information</span><button class="btn-secondary" type="button" data-close-customer>Close</button></div></div></div>
               <div class="customer-modal" id="customerEditModal" hidden><div class="customer-modal-backdrop" data-close-customer-edit></div><div class="customer-modal-card customer-edit-card" role="dialog" aria-modal="true" aria-labelledby="customerEditTitle" tabindex="-1"><form id="customerEditForm" novalidate><div class="customer-modal-head"><div><div class="catalog-eyebrow">Customer Management</div><h2 id="customerEditTitle">Edit Customer Profile</h2></div><button class="customer-modal-close" type="button" data-close-customer-edit aria-label="Close">×</button></div><div class="customer-modal-content"><div id="customerEditMount"></div><p class="customer-edit-error" id="customerEditError" role="alert" hidden style="margin-top:12px"></p></div><div class="customer-modal-footer"><span>Password is not changed here</span><span class="customer-edit-actions"><button class="btn-secondary" type="button" data-close-customer-edit>Cancel</button><button class="btn-primary" type="submit" id="customerEditSave">Save changes</button></span></div></form></div></div>
             </section>
+
+<section id="payment-terms" class="page sales-sec"></section>
+
+                    <!-- Quote requests: filled in by shop-extras-admin.js -->
+                    <!-- Payment terms policy, approvals, receivables and the payment ledger: filled in by payment-terms-admin.js -->
+
+                </div>
+
+            </section>
+
+            <!-- =================================================
+                 USER MANAGEMENT
+            ================================================== -->
+
+            <!-- Quote requests and product reviews: filled in by shop-extras-admin.js -->
+            
+            <section id="reviews" class="page"></section>
+            <!-- Payment terms policy, approvals, receivables and the payment ledger: filled in by payment-terms-admin.js -->
+            
+
+            
             <section id="usermgmt" class="page">
 
                 <div class="catalog-header">
@@ -3681,15 +3688,16 @@
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
     <script src="form-assist.js?v=1"></script>
-    <script src="script.js?v=32"></script>
+    <script src="script.js?v=33"></script>
     <script src="api-bridge.js?v=39"></script>
-    <script src="sales-orders.js?v=14"></script>
+    <script src="sales-orders.js?v=15"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
+    <link rel="stylesheet" href="sales-hub.css?v=3">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <link rel="stylesheet" href="inventory-priority.css?v=4">
     <link rel="stylesheet" href="product-details.css?v=2">
-    <script src="sales-admin.js?v=12"></script>
+    <script src="sales-admin.js?v=13"></script>
     <script src="reports-tabs.js?v=3"></script>
     <script src="reports-jump.js?v=3"></script>
     <script src="reports-sales.js?v=4"></script>
@@ -3713,6 +3721,7 @@
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=8"></script>
     <script src="sidebar.js?v=2"></script>
+    <script src="sales-hub.js?v=2"></script>
 
 </body>
 

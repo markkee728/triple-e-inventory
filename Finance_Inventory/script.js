@@ -122,6 +122,11 @@ const pageInformation = {
         subtitle: "System alerts, reorder triggers, and approval notices"
     },
 
+    "sales-hub": {
+        title: "Sales",
+        subtitle: "Overview, online orders, POS sales, quotes, customers, and policies on one page"
+    },
+
     "sales-overview": {
         title: "Sales Overview",
         subtitle: "Comprehensive transactions, approvals, and performance metrics"
@@ -150,62 +155,31 @@ function navigateToPage(pageId) {
     const navItems = document.querySelectorAll(".nav-item");
     const pages = document.querySelectorAll(".page");
 
-    const SALES_PAGES = ['sales-overview', 'orders', 'sales', 'quotes', 'customers', 'payment-terms'];   // the pages in the Sales module
-    const inSales = SALES_PAGES.includes(pageId);
+    // Sales is ONE page (#sales-hub) that holds six sections, each keeping its old id.
+    // Asking for one of those ids (a link, a notification, a dashboard shortcut, a saved #hash)
+    // opens the Sales page and scrolls to that section.
+    const SALES_SECTIONS = ['sales-overview', 'orders', 'sales', 'quotes', 'customers', 'payment-terms'];
+    const salesTarget = SALES_SECTIONS.includes(pageId) ? pageId : null;
+    if (salesTarget) pageId = 'sales-hub';
+    const inSales = pageId === 'sales-hub';
+
     navItems.forEach(item => {
         item.classList.toggle('active', item.dataset.page === pageId);
     });
-    const parent = document.querySelector('.sales-parent');
-    if (parent) parent.classList.toggle('sales-section-active', inSales);
-    const salesNavContainer = document.getElementById('salesNavContainer');
-    if (salesNavContainer) {
-        salesNavContainer.hidden = !inSales;
-        if (inSales) {
-            const activePage = document.getElementById(pageId);
-            const header = activePage ? activePage.querySelector('.catalog-header') : null;
-            if (header && salesNavContainer.previousElementSibling !== header) {
-                header.insertAdjacentElement('afterend', salesNavContainer);
-            }
-            const statusEl = document.getElementById('salesNavStatusText');
-            if (statusEl) {
-                const STATUS_MAP = {
-                    'sales-overview': 'Overview \u00B7 Realtime Activity',
-                    'orders': 'Online Orders \u00B7 Order Queue',
-                    'sales': 'POS Counter \u00B7 In-Store Ledger',
-                    'quotes': 'Quote Approvals \u00B7 Price Review',
-                    'customers': 'Customer Profiles \u00B7 Directory',
-                    'payment-terms': 'Policies & Rates \u00B7 Automated Engine'
-                };
-                statusEl.textContent = STATUS_MAP[pageId] || 'Sales Ledger \u00B7 Automated Sync';
-            }
-        }
-    }
-    const salesTabs = document.getElementById('salesTabs');
-    if (salesTabs) salesTabs.hidden = !inSales;
-    const bcCurrent = document.getElementById('salesBreadcrumbCurrent');
-    const TAB_NAMES = {
-      'sales-overview': 'Overview',
-      'orders': 'Online Orders',
-      'sales': 'POS Sales & Shifts',
-      'quotes': 'Quote Approvals',
-      'customers': 'Customer Profiles',
-      'payment-terms': 'Policies & Rates'
-    };
-    if (bcCurrent && TAB_NAMES[pageId]) {
-      bcCurrent.textContent = TAB_NAMES[pageId];
-    }
-    document.querySelectorAll('.sales-tab').forEach(tab => {
-        const on = tab.dataset.page === pageId;
-        tab.classList.toggle('active', on);
-        tab.setAttribute('aria-selected', String(on));
-    });
 
     pages.forEach(page => {
+        // the sections inside the Sales page switch on and off together with it
+        const insideSales = inSales && page.classList.contains('sales-sec');
         page.classList.toggle(
             "active-page",
-            page.id === pageId
+            page.id === pageId || insideSales
         );
     });
+
+    if (salesTarget) {
+        // after the page is shown (and after api-bridge.js scrolls to the top)
+        setTimeout(() => { if (window.TripleESalesHub) window.TripleESalesHub.show(salesTarget); }, 80);
+    }
 
     const information = pageInformation[pageId];
 

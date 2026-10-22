@@ -374,3 +374,7 @@ html.sb-noanim .sidebar.sb2 * { transition: none !important; }
 @media (min-width: 1025px) {
     html.sb-rail .sidebar.sb2 .nav-sub { display: none; }
 }
+
+/* the red "needs a decision" count on the single Sales item */
+.sidebar.sb2 .nav-item .ngt-ind.attn { margin-left: auto; flex: none; }
+@media (min-width: 1025px) { html.sb-rail .sidebar.sb2 .nav-item .ngt-ind.attn { position: absolute; top: 3px; right: 2px; margin: 0; min-width: 17px; height: 17px; padding: 0 4px; font-size: 10px; line-height: 17px; } }

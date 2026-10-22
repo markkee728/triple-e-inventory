@@ -326,7 +326,8 @@
 
   // Count only what Finance must answer. Online Orders: customer cancellation requests. POS Sales & Shifts: void / return requests. Quotes: terms proposed.
   function badge(page, n, title) {
-    const nav = document.querySelector('.nav-item[data-page="' + page + '"]');
+    // the count sits on the Sales page chip for that section (falls back to a sidebar item if one exists)
+    const nav = document.querySelector('.rep-tab[data-stab="' + page + '"]') || document.querySelector('.nav-item[data-page="' + page + '"]');
     if (!nav) return;
     let b = nav.querySelector('.sa-nav-badge');
     if (!n) { if (b) b.remove(); return; }
