@@ -31,6 +31,7 @@ a.nav-item{text-decoration:none}
 #checkout #termNote{margin-top:10px;line-height:1.5}
 #checkout #payPlan:not([hidden]){border-top:1px solid var(--border,#e2e8f0);padding-top:12px;margin-top:12px}
 </style>
+<style>html.gate body{visibility:hidden}</style><script>document.documentElement.classList.add("gate")</script>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
@@ -410,13 +411,16 @@ a.nav-item{text-decoration:none}
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
 const HOME = { finance: 'Finance_Inventory.html', cashier: 'POS_Cashier.html', customer: 'Shop_Customer.html' };
-let USER = { name: 'Demo Customer', role: 'customer' };          // used when the API is not reachable (preview mode)
+let USER = { name: 'Customer', role: 'customer' };
 async function guard() {
+  // Fail closed: anything other than "signed in as a customer" goes to the login page, and the shop stays hidden until then.
   try {
     const r = await fetch('/api/auth/me', { credentials: 'same-origin' });
-    if (r.status === 401) { location.href = 'Login_Inventory.html'; return false; }
-    if (r.ok) { USER = await r.json(); if (USER.role !== 'customer') { location.href = HOME[USER.role] || 'Login_Inventory.html'; return false; } }
-  } catch (e) { /* preview mode */ }
+    if (!r.ok) { location.replace('Login_Inventory.html'); return false; }
+    USER = await r.json();
+    if (USER.role !== 'customer') { location.replace(HOME[USER.role] || 'Login_Inventory.html'); return false; }
+  } catch (e) { location.replace('Login_Inventory.html'); return false; }
+  document.documentElement.classList.remove('gate');
   return true;
 }
 

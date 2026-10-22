@@ -1687,6 +1687,28 @@ require('./reports')({ app, pool, auth, wrap, TZ });
 
 /* ---------- static front-end (dev convenience) ---------- */
 const dir = path.resolve(__dirname, process.env.FRONTEND_DIR || '../Finance_Inventory');
+/* ---------- page gate: private pages are only sent to a signed-in user ----------
+   The landing, login and help pages stay public. Everything else needs the session cookie, otherwise the visitor is
+   sent to the login page (the data routes under /api were already protected; this stops the page itself from opening). */
+const PRIVATE_PAGES = {
+  'shop_customer.html': ['customer'],            // online shop: customers only
+  'pos_cashier.html': null,                      // null = any signed-in role (the page itself still checks its own role)
+  'finance_inventory.html': null,
+  'finance_cash_shifts.html': null
+};
+const PAGE_HOME = { finance: '/Finance_Inventory.html', cashier: '/POS_Cashier.html', customer: '/Shop_Customer.html' };
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  let name;
+  try { name = decodeURIComponent(req.path).split('/').pop().toLowerCase(); } catch (e) { return res.redirect('/Login_Inventory.html'); }
+  if (!Object.prototype.hasOwnProperty.call(PRIVATE_PAGES, name)) return next();
+  res.set('Cache-Control', 'no-store');          // so the Back button after logging out cannot show the page again
+  let user;
+  try { user = jwt.verify(req.cookies.session, process.env.JWT_SECRET); } catch (e) { return res.redirect('/Login_Inventory.html'); }
+  const roles = PRIVATE_PAGES[name];
+  if (roles && !roles.includes(user.role)) return res.redirect(PAGE_HOME[user.role] || '/Login_Inventory.html');
+  next();
+});
 app.use(express.static(dir));
 
 app.get('/', (req, res) => {
