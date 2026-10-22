@@ -9,7 +9,7 @@
 
     <script>try{var t=localStorage.getItem("tripleE.theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
     <script>try{if(localStorage.getItem("tripleE.sidebarRail")==="1")document.documentElement.classList.add("sb-rail");document.documentElement.classList.add("sb-noanim")}catch(e){}</script>
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=8">
     <link rel="stylesheet" href="production.css?v=2">
     <link rel="stylesheet" href="notifications.css?v=7">
     <link rel="stylesheet" href="sidebar.css?v=2">
@@ -72,8 +72,9 @@
 
             <div class="nav-group nav-top">
                 <button type="button" class="nav-item active" data-page="dashboard"><span class="dot"></span> Dashboard</button>
-                <button type="button" class="nav-item" data-page="notifications"><span class="dot"></span> Notifications</button>
+                <button type="button" class="nav-item" data-page="sales-overview"><span class="dot"></span> Sales</button>
                 <button type="button" class="nav-item" data-page="reports"><span class="dot"></span> Reports</button>
+                <button type="button" class="nav-item" data-page="notifications"><span class="dot"></span> Notifications</button>
             </div>
 
             <div class="nav-group" data-group="inventory">
@@ -92,24 +93,7 @@
                 </div>
             </div>
 
-            <div class="nav-group sales-nav-group" data-group="sales">
-                <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-sales">
-                    <span class="ngt-label">Sales</span>
-                    <span class="ngt-ind" hidden></span>
-                    <svg class="ngt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
-                </button>
-                <div class="nav-items" id="navg-sales">
-                    <div class="nav-items-inner">
-                        <div class="nav-sub" role="presentation">Monitor</div>
-                        <button type="button" class="nav-item sales-parent" data-page="sales-overview" data-title="Sales Overview"><span class="nav-symbol icon-chart" aria-hidden="true"></span> Overview</button>
-                        <button type="button" class="nav-item" data-page="orders" data-title="Online Orders"><span class="nav-symbol icon-bag" aria-hidden="true"></span> Online Orders</button>
-                        <button type="button" class="nav-item" data-page="sales" data-title="POS Sales &amp; Shifts"><span class="nav-symbol icon-pos" aria-hidden="true"></span> POS Sales &amp; Shifts</button>
-                        <button type="button" class="nav-item" data-page="quotes" data-title="Quote Approvals"><span class="nav-symbol icon-quote" aria-hidden="true"></span> Quote Approvals</button>
-                        <div class="nav-sub" role="presentation">Payments</div>
-                        <button type="button" class="nav-item" data-page="payment-terms" data-title="Payment Terms"><span class="nav-symbol icon-coins" aria-hidden="true"></span> Payment Terms</button>
-                    </div>
-                </div>
-            </div>
+
 
             <div class="nav-group" data-group="admin">
                 <button type="button" class="nav-group-toggle" aria-expanded="false" aria-controls="navg-admin">
@@ -1064,6 +1048,7 @@
                         <div>
                             <div class="panel-title">Production history</div>
                             <div class="panel-sub" id="prodHistSub">Confirmed production records and the materials they used</div>
+                            <div class="faint" style="font-size:12px;color:var(--text-dim);margin-top:3px">Click any production row to view material breakdown and stock refs</div>
                         </div>
                         <div class="inv-filters">
                             <input type="text" id="prodHistSearch" class="inv-search" placeholder="Search ref or product..." autocomplete="off">
@@ -1310,7 +1295,7 @@
                     <div class="panel-sub">Every POS sale and online order in one read-only ledger. The cashier processes them; you monitor, and approve the requests sent to you.</div>
                 </div><button class="btn-secondary btn-sm" type="button" id="saOverviewRefresh">Refresh summary</button></div>
                 <div id="salesAdminRoot"></div>
-                <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div></div><div id="soPay" style="padding:0 18px 18px"></div></div>
+                <div class="panel sales-log-panel" style="margin-top:20px"><div class="panel-head"><div><div class="panel-title">Payment Summary (POS + Online)</div><div class="panel-sub" id="soPaySub">Loading…</div></div><button type="button" class="btn-secondary btn-sm" id="soPayRefreshBtn">Refresh</button></div><div id="soPay" style="padding:0 18px 18px"></div></div>
             </section>
 
             <!-- =================================================
@@ -3672,9 +3657,9 @@
     <script src="profile-edit-fields.js?v=2"></script>
     <script src="ui-confirm.js?v=1"></script>
     <script src="form-assist.js?v=1"></script>
-    <script src="script.js?v=29"></script>
-    <script src="api-bridge.js?v=37"></script>
-    <script src="sales-orders.js?v=13"></script>
+    <script src="script.js?v=30"></script>
+    <script src="api-bridge.js?v=38"></script>
+    <script src="sales-orders.js?v=14"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=12">
     <link rel="stylesheet" href="quick-stock.css?v=2">
@@ -3688,11 +3673,11 @@
     <script src="reports-low-stock.js?v=2"></script>
     <script src="reports-inventory.js?v=7"></script>
     <script src="reports-highlights.js?v=1"></script>
-    <script src="cash-shift-reports.js?v=9"></script>
+    <script src="cash-shift-reports.js?v=10"></script>
 
     <script src="refund-admin.js?v=2"></script>
     <script src="stock-count-admin.js?v=8"></script>
-    <script src="production-admin.js?v=4"></script>
+    <script src="production-admin.js?v=5"></script>
     <script src="product-materials.js?v=1"></script>
     <script src="pricing-admin.js?v=3"></script>
     <script src="quick-stock.js?v=4"></script>

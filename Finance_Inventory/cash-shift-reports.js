@@ -169,5 +169,29 @@
     from = b.querySelector('[data-crdate="from"]').value; to = b.querySelector('[data-crdate="to"]').value;
     if (from && to) show();
   });
+  document.addEventListener('click', (e) => {
+    if (e.target && (e.target.id === 'soPayRefreshBtn' || e.target.closest('#soPayRefreshBtn'))) {
+      show();
+    }
+  });
+
+  function watchSalesPages() {
+    ['sales-overview', 'sales'].forEach((id) => {
+      const sec = $(id);
+      if (sec) {
+        new MutationObserver(() => {
+          if (sec.classList.contains('active-page')) show();
+        }).observe(sec, { attributes: true, attributeFilter: ['class'] });
+        if (sec.classList.contains('active-page')) show();
+      }
+    });
+    window.addEventListener('focus', () => {
+      if (['sales-overview', 'sales'].some((id) => $(id) && $(id).classList.contains('active-page'))) show();
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', watchSalesPages);
+  else watchSalesPages();
+
   window.CashReports = { show };
 })();

@@ -1725,6 +1725,7 @@
   /* =====================================================
      MOVEMENT LOG  (fills the table on Stock In / Out and filters it)
   ===================================================== */
+  const openMovements = new Set();
   function renderMovementLog() {
     const body = $('movementLogTableBody');
     if (!body) return;
@@ -1744,17 +1745,43 @@
     }
     body.innerHTML = rows.map((m) => {
       const isIn = m.type === 'in';
-      return '<tr>' +
+      const isOpen = openMovements.has(m.ref);
+      const totalCost = (m.unitCost != null && !isNaN(m.unitCost)) ? (Number(m.unitCost) * Number(m.qty)) : null;
+      const formattedTotal = totalCost != null ? (typeof formatCurrency === 'function' ? formatCurrency(totalCost) : 'PHP ' + totalCost.toFixed(2)) : '—';
+      const formattedUnit = (m.unitCost != null && !isNaN(m.unitCost)) ? (typeof formatCurrency === 'function' ? formatCurrency(m.unitCost) : 'PHP ' + Number(m.unitCost).toFixed(2)) : '—';
+
+      return '<tr class="mov-row' + (isOpen ? ' mov-open' : '') + '" data-mov-ref="' + esc(m.ref) + '">' +
         '<td class="mono">' + esc(m.ref) + '</td>' +
         '<td>' + esc(m.product) + '</td>' +
         '<td><span class="status-pill ' + (isIn ? 'in' : 'out') + '">' + (isIn ? 'In' : 'Out') + '</span></td>' +
-        '<td class="dim">' + esc(m.reason || '') + (m.productionRef ? '<div style="font-size:12.5px">' + esc(m.productionRef) + (m.relatedProduct ? ' \u00B7 for ' + esc(m.relatedProduct) : '') + '</div>' : '') + '</td>' +
+        '<td class="dim">' + esc(m.reason || '') + (m.productionRef ? '<div style="font-size:12.5px">' + esc(m.productionRef) + (m.relatedProduct ? ' · for ' + esc(m.relatedProduct) : '') + '</div>' : '') + '</td>' +
         '<td class="dim">' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</td>' +
         '<td class="dim">' + esc(m.department) + '</td>' +
-        '<td class="dim">' + (m.unitCost != null && !isNaN(m.unitCost) ? (typeof formatCurrency === 'function' ? formatCurrency(m.unitCost) : '\u20B1' + Number(m.unitCost).toFixed(2)) : '\u2014') + '</td>' +
+        '<td class="dim">' + formattedUnit + '</td>' +
         '<td class="dim">' + esc(m.handledBy) + '</td>' +
-        '<td class="dim">' + esc(m.dateTime) + '</td></tr>';
+        '<td class="dim">' + esc(m.dateTime) + '</td></tr>' +
+        (isOpen ? '<tr class="mov-detail"><td colspan="9"><div class="mov-detail-card">' +
+          '<div class="mov-detail-grid">' +
+            '<div><span class="mov-dt-label">Movement Reference</span><div class="mono" style="font-weight:600">' + esc(m.ref) + '</div></div>' +
+            '<div><span class="mov-dt-label">Transaction Type</span><div style="font-weight:600">' + (isIn ? 'Stock In (Replenishment)' : 'Stock Out (Deduction)') + '</div></div>' +
+            '<div><span class="mov-dt-label">Quantity &amp; Unit</span><div><b>' + (isIn ? '+' : '-') + esc(formatNumber(m.qty)) + ' ' + esc(m.unit) + '</b></div></div>' +
+            '<div><span class="mov-dt-label">Unit Cost / Total Value</span><div>' + formattedUnit + ' (Total: <b>' + formattedTotal + '</b>)</div></div>' +
+            '<div><span class="mov-dt-label">Supplier / Source</span><div>' + (m.supplier ? esc(m.supplier) : '<span class="dim">Internal / Not specified</span>') + '</div></div>' +
+            '<div><span class="mov-dt-label">Invoice / PO Reference</span><div>' + (m.invoiceNo ? esc(m.invoiceNo) : '<span class="dim">None recorded</span>') + '</div></div>' +
+            '<div><span class="mov-dt-label">Production Batch</span><div>' + (m.productionRef ? esc(m.productionRef) + (m.relatedProduct ? ' (for ' + esc(m.relatedProduct) + ')' : '') : '<span class="dim">Not linked</span>') + '</div></div>' +
+            '<div><span class="mov-dt-label">Handled By &amp; Date</span><div>' + esc(m.handledBy) + ' · ' + esc(m.dateTime) + '</div></div>' +
+          '</div>' +
+          (m.note ? '<div style="margin-top:10px;font-size:12.5px;color:var(--text-dim)"><b>Transaction note:</b> ' + esc(m.note) + '</div>' : '') +
+        '</div></td></tr>' : '');
     }).join('');
+
+    body.querySelectorAll('tr.mov-row').forEach((row) => {
+      row.addEventListener('click', () => {
+        const ref = row.dataset.movRef;
+        if (openMovements.has(ref)) openMovements.delete(ref); else openMovements.add(ref);
+        renderMovementLog();
+      });
+    });
   }
 
   function setupMovementLog() {

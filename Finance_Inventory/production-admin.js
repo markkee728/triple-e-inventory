@@ -234,7 +234,8 @@
     body.innerHTML = rows.map((h) => {
       const all = h.rawMaterials.concat(h.finishingSupplies);
       const isOpen = open.has(h.ref);
-      return '<tr><td class="mono">' + esc(h.ref) + '</td><td>' + esc(h.product) + '</td>' +
+      return '<tr class="prod-row' + (isOpen ? ' prod-open' : '') + '" data-prod-ref="' + esc(h.ref) + '" style="cursor:pointer">' +
+        '<td class="mono">' + esc(h.ref) + '</td><td>' + esc(h.product) + '</td>' +
         '<td class="dim">+' + esc(fmt(h.quantity)) + ' ' + esc(h.unit) + '</td>' +
         '<td class="dim">' + summary(h.rawMaterials) + '</td><td class="dim">' + summary(h.finishingSupplies) + '</td>' +
         '<td class="dim">' + esc(h.dateTime) + '</td><td class="dim">' + esc(h.recordedBy) + '</td>' +
@@ -245,8 +246,8 @@
             '<td class="dim">' + esc(fmt(m.calculated)) + ' ' + esc(m.unit) + '</td><td>' + esc(fmt(m.actual)) + ' ' + esc(m.unit) + '</td><td class="mono dim">' + esc(m.movementRef || '—') + '</td></tr>').join('') : '<tr><td colspan="6" class="dim">No materials were recorded.</td></tr>') +
           '</tbody></table></div><p class="prod-note">Finished goods Stock-In ref: <span class="mono">' + esc(h.stockInRef || '—') + '</span>' + (h.note ? ' · Note: ' + esc(h.note) : '') + '</p></td></tr>' : '');
     }).join('');
-    body.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
-      const r = b.dataset.view; if (open.has(r)) open.delete(r); else open.add(r); renderHistory();
+    body.querySelectorAll('tr.prod-row').forEach((row) => row.addEventListener('click', (e) => {
+      const r = row.dataset.prodRef; if (open.has(r)) open.delete(r); else open.add(r); renderHistory();
     }));
   }
 

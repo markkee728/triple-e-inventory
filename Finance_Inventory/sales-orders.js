@@ -233,11 +233,11 @@
   $('soPosSearch') && $('soPosSearch').addEventListener('input', renderPos);
   $('soType') && $('soType').addEventListener('change', renderOrders);
   document.querySelectorAll('.so-refresh').forEach(b => b.addEventListener('click', load));
-  document.querySelectorAll('.nav-item[data-page="sales"], .nav-item[data-page="orders"], .sales-tab[data-page="sales"], .sales-tab[data-page="orders"]').forEach(n => n.addEventListener('click', load));
-  const watching = () => ['orders', 'sales'].some(id => $(id) && $(id).classList.contains('active-page'));
+  document.querySelectorAll('.nav-item[data-page="sales"], .nav-item[data-page="orders"], .nav-item[data-page="sales-overview"], .sales-tab[data-page="sales"], .sales-tab[data-page="orders"], .sales-tab[data-page="sales-overview"]').forEach(n => n.addEventListener('click', load));
+  const watching = () => ['orders', 'sales', 'sales-overview'].some(id => $(id) && $(id).classList.contains('active-page'));
   if (watching()) load();
-  // Load whenever either page is opened, however it was opened (menu, tab strip, dashboard link, refresh on #orders, Back button)
-  ['orders', 'sales'].forEach(id => { const sec = $(id); if (sec) new MutationObserver(() => { if (sec.classList.contains('active-page')) load(); }).observe(sec, { attributes: true, attributeFilter: ['class'] }); });
+  // Load whenever any sales page is opened, however it was opened (menu, tab strip, dashboard link, refresh on #orders, Back button)
+  ['orders', 'sales', 'sales-overview'].forEach(id => { const sec = $(id); if (sec) new MutationObserver(() => { if (sec.classList.contains('active-page')) load(); }).observe(sec, { attributes: true, attributeFilter: ['class'] }); });
   // Monitoring page: keep it current while it is open, since the cashier is moving orders along
   setInterval(() => { if (!document.hidden && watching()) load(); }, 15000);
 })();

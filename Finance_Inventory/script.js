@@ -125,11 +125,15 @@ function navigateToPage(pageId) {
     const navItems = document.querySelectorAll(".nav-item");
     const pages = document.querySelectorAll(".page");
 
-    navItems.forEach(item => {
-        item.classList.toggle("active", item.dataset.page === pageId);
-    });
-    const SALES_PAGES = ['sales-overview','orders','sales','payment-terms'];   // the pages in the sidebar's Sales group
+    const SALES_PAGES = ['sales-overview','orders','sales','payment-terms'];   // the pages in the Sales module
     const inSales = SALES_PAGES.includes(pageId);
+    navItems.forEach(item => {
+        if (inSales && item.dataset.page === 'sales-overview') {
+            item.classList.add("active");
+        } else {
+            item.classList.toggle("active", item.dataset.page === pageId);
+        }
+    });
     const parent = document.querySelector('.sales-parent');
     if (parent) parent.classList.toggle('sales-section-active', inSales);
     const salesTabs = document.getElementById('salesTabs');

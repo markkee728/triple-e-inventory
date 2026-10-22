@@ -1316,13 +1316,40 @@ tbody td.mono {
     white-space: nowrap;
 }
 #productTableBody tr.product-row,
-#supplierTableBody tr.supplier-row {
+#supplierTableBody tr.supplier-row,
+#movementLogTableBody tr.mov-row,
+#prodHistBody tr.prod-row {
     cursor: pointer;
     transition: background 0.15s ease;
 }
 #productTableBody tr.product-row:hover,
-#supplierTableBody tr.supplier-row:hover {
+#supplierTableBody tr.supplier-row:hover,
+#movementLogTableBody tr.mov-row:hover,
+#prodHistBody tr.prod-row:hover {
     background: var(--hover, rgba(255, 255, 255, 0.05));
+}
+#movementLogTableBody tr.mov-detail td,
+#prodHistBody tr.prod-detail td {
+    background: var(--surface-sunken, rgba(0, 0, 0, 0.2));
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+}
+.mov-detail-card {
+    font-size: 13px;
+    line-height: 1.5;
+}
+.mov-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px 20px;
+}
+.mov-dt-label {
+    display: block;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-faint);
+    margin-bottom: 3px;
 }
 
 .form-label {
