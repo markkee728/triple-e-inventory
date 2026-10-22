@@ -11,7 +11,7 @@
   const esc = (v) => (typeof escapeHTML === 'function' ? escapeHTML(String(v)) : String(v).replace(/[&<>"']/g, (c) => '&#' + c.charCodeAt(0) + ';'));
   const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
   const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
-  const NOTE_REQUIRED = ['other', 'count_correction_up', 'count_correction_down'];
+  const NOTE_REQUIRED = ['other'];
 
   let REASONS = { in: {}, out: {} };
   const ALL_D = DEPARTMENTS;
@@ -22,18 +22,15 @@
       supplier_receipt: ['Raw Materials', 'Finishing Supplies'], // finished goods are produced in-house
       customer_return: ['Finished Goods'],
       produced_batch: ['Finished Goods'],
-      count_correction_up: ALL_D,
       other: ALL_D
     },
     out: {
       rust_corrosion: ['Raw Materials', 'Finished Goods'],
       damaged: ALL_D,
       scrap_cutting_waste: ['Raw Materials'],
-      production_use: ['Raw Materials', 'Finishing Supplies'],
       quality_rejection: ['Raw Materials', 'Finished Goods'],
       lost_missing: ALL_D,
       returned_to_supplier: ['Raw Materials', 'Finishing Supplies'],
-      count_correction_down: ALL_D,
       other: ALL_D
     }
   };
@@ -244,16 +241,13 @@
     'in:supplier_receipt': 'New stock delivered by a supplier.',
     'in:customer_return': 'A customer sent finished goods back and they are going back on the shelf.',
     'in:produced_batch': 'Finished goods produced in a new batch and added to stock.',
-    'in:count_correction_up': 'The physical count is higher than the system. Note required: what was counted and why.',
     'in:other': 'Anything not listed. Note required: explain what happened.',
     'out:rust_corrosion': 'Stock lost to rust or corrosion.',
     'out:damaged': 'Bent, cracked or broken stock.',
     'out:scrap_cutting_waste': 'Offcuts and cutting waste that cannot be used.',
-    'out:production_use': 'Materials used in production that was NOT recorded as Produced Internally. Do not enter materials again if a production record already deducted them.',
     'out:quality_rejection': 'Failed quality inspection.',
     'out:lost_missing': 'Cannot be found.',
     'out:returned_to_supplier': 'Sent back to the supplier.',
-    'out:count_correction_down': 'The physical count is lower than the system. Note required: what was counted and why.',
     'out:other': 'Anything not listed. Note required: explain what happened.'
   };
 
@@ -352,13 +346,15 @@
     if (conv) {
       if (item && from && from !== item.unit && qty > 0) {
         FA.note(conv, '= <b>' + formatNumber(qty) + ' ' + esc(item.unit) + '</b> (saved in the product’s unit)', 'info', 'conv');
-      } else if (item && type === 'in' && item.reorderLevel > 0 && item.onHand <= item.reorderLevel && (!qty || qty === 0)) {
+      } else if (item && type === 'in' && item.reorderLevel > 0 && item.onHand <= item.reorderLevel) {
         const suggest = Math.max(1, Math.round(item.reorderLevel - item.onHand));
-        FA.note(conv, 'Below reorder level (' + formatNumber(item.onHand) + ' / ' + formatNumber(item.reorderLevel) + ' ' + esc(item.unit) + '). <a href="#" id="faSuggestFill" style="font-weight:bold;text-decoration:underline">Auto-fill suggested ' + suggest + ' ' + esc(item.unit) + '</a>', 'warn', 'lowstock');
-        setTimeout(() => {
-          const btn = document.getElementById('faSuggestFill');
-          if (btn) btn.onclick = (e) => { e.preventDefault(); $('movementQuantity').value = suggest; syncMovementForm(); syncCostHint(); };
-        }, 0);
+        const qBox = $('movementQuantity');
+        if (qBox && (!qBox.value || qBox.dataset.autoFill)) {
+          qBox.value = suggest;
+          qBox.dataset.autoFill = '1';
+          setTimeout(() => { syncCostHint(); }, 0);
+        }
+        FA.note(conv, 'Auto-filled needed stock (<b>' + suggest + ' ' + esc(item.unit) + '</b> to reach reorder level). You can adjust.', 'info', 'lowstock');
       } else {
         FA.note(conv, '', '', 'lowstock');
       }
@@ -501,7 +497,7 @@
       const arrDate = new Date(Date.now() + lead * 86400000);
       const dateStr = arrDate.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
       h.innerHTML = (baseText ? '<div style="margin-bottom:4px">' + esc(baseText) + '</div>' : '') +
-        '<div style="color:#0369a1;font-weight:600;font-size:12.5px"><span style="margin-right:4px">📅</span>Supplier lead time: ' +
+        '<div style="color:#0369a1;font-weight:600;font-size:12.5px">Supplier lead time: ' +
         lead + ' day' + (lead === 1 ? '' : 's') + ' &mdash; Estimated delivery by <b>' + dateStr + '</b></div>';
     } else {
       h.innerHTML = esc(baseText);
@@ -546,12 +542,12 @@
     const expStr = expectedArrival.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
     const diffDays = Math.round((today.getTime() - expectedArrival.getTime()) / 86400000);
     if (diffDays > 0) {
-      timingBox.innerHTML = '<span style="color:#b91c1c;font-weight:700">⚠️ LATE: ' + diffDays + ' day' + (diffDays === 1 ? '' : 's') + ' past expected delivery (' + expStr + ')</span>';
+      timingBox.innerHTML = '<span style="color:#b91c1c;font-weight:700">LATE: ' + diffDays + ' day' + (diffDays === 1 ? '' : 's') + ' past expected delivery (' + expStr + ')</span>';
     } else if (diffDays === 0) {
-      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">✅ On time: Expected arrival today (' + expStr + ')</span>';
+      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">On time: Expected arrival today (' + expStr + ')</span>';
     } else {
       const earlyDays = Math.abs(diffDays);
-      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">✅ On time: ' + earlyDays + ' day' + (earlyDays === 1 ? '' : 's') + ' ahead of schedule (' + expStr + ')</span>';
+      timingBox.innerHTML = '<span style="color:#15803d;font-weight:600">On time: ' + earlyDays + ' day' + (earlyDays === 1 ? '' : 's') + ' ahead of schedule (' + expStr + ')</span>';
     }
   }
 

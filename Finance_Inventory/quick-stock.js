@@ -41,6 +41,11 @@
 
   function renderForm(keep) {
     keep = keep || {};
+    if (type === 'in' && !keep.qty && item) {
+      if (item.onHand <= 0 || (item.reorderLevel > 0 && item.onHand <= item.reorderLevel)) {
+        keep.qty = item.reorderLevel > item.onHand ? Math.max(1, Math.round(item.reorderLevel - item.onHand)) : 1;
+      }
+    }
     const rs = reasons();
     const modal = $('qsModal');
     modal.innerHTML =

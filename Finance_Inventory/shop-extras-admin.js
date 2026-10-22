@@ -242,7 +242,7 @@
     catch (e) { $('sxpSub').textContent = 'Could not load the purchase suggestions: ' + e.message; return; }
     var overdueCount = suggestions.filter(function(s) { return s.status === 'ordered' && s.isOverdue; }).length;
     var subMsg = suggestions.length ? suggestions.length + ' item' + (suggestions.length === 1 ? '' : 's') + ' in this view.' : 'No items in this view.';
-    if (overdueCount > 0) subMsg += ' <b style="color:#b91c1c;margin-left:6px">⚠️ ' + overdueCount + ' supplier deliver' + (overdueCount === 1 ? 'y is' : 'ies are') + ' OVERDUE!</b>';
+    if (overdueCount > 0) subMsg += ' <b style="color:#b91c1c;margin-left:6px">' + overdueCount + ' supplier deliver' + (overdueCount === 1 ? 'y is' : 'ies are') + ' OVERDUE!</b>';
     $('sxpSub').innerHTML = subMsg;
     $('sxpBody').innerHTML = suggestions.length ? suggestions.map(function (s) {
       var srcBadge = s.source === 'low_stock'
@@ -259,7 +259,7 @@
       if (s.status === 'ordered') {
         var expDateStr = s.expectedArrival ? new Date(s.expectedArrival).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '\u2014';
         if (s.isOverdue) {
-          timingText = '<span style="background:#fee2e2;color:#b91c1c;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:700">⚠️ LATE (' + s.daysOverdue + 'd overdue)</span><div class="faint" style="font-size:11px;margin-top:2px">Expected: ' + expDateStr + '</div>';
+          timingText = '<span style="background:#fee2e2;color:#b91c1c;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:700">LATE (' + s.daysOverdue + 'd overdue)</span><div class="faint" style="font-size:11px;margin-top:2px">Expected: ' + expDateStr + '</div>';
         } else {
           timingText = '<span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:600">Pending Delivery</span><div class="faint" style="font-size:11px;margin-top:2px">Expected: ' + expDateStr + '</div>';
         }

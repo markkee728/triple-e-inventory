@@ -23,17 +23,19 @@
   ];
   const EST = ' <em class="pr-est">estimate</em>';
   let data = null;
+  let isEditMode = false;
 
   function ensureModal() {
     let ov = $('pricingOverlay'); if (ov) return ov;
     ov = document.createElement('div'); ov.className = 'modal-overlay'; ov.id = 'pricingOverlay';
     ov.innerHTML = '<div class="account-modal supplier-modal product-modal pr-modal" role="dialog" aria-modal="true" aria-labelledby="prTitle">' +
       '<button type="button" class="modal-close" id="prClose" aria-label="Close">×</button>' +
-      '<div class="supplier-modal-head"><div class="supplier-modal-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>' +
-      '<div><div class="modal-eyebrow">Catalog</div><h2 class="modal-title" id="prTitle" style="margin-bottom:0">Pricing rules</h2></div></div>' +
+      '<div class="supplier-modal-head" style="align-items:center"><div class="supplier-modal-icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>' +
+      '<div style="flex:1"><div class="modal-eyebrow">Catalog</div><h2 class="modal-title" id="prTitle" style="margin-bottom:0">Automated Pricing Rules</h2></div>' +
+      '<button type="button" class="btn-secondary btn-sm" id="prModeToggle" style="margin-right:24px">Edit parameters</button></div>' +
       '<form id="prForm" novalidate><div id="prBody"><p class="dim">Loading…</p></div>' +
-      '<p class="form-error" id="prErr"></p><div class="modal-footer"><button type="button" class="btn-secondary" id="prCancel">Cancel</button>' +
-      '<button type="submit" class="btn-primary" id="prSave">Save pricing rules</button></div></form></div>';
+      '<p class="form-error" id="prErr"></p><div class="modal-footer"><button type="button" class="btn-secondary" id="prCancel">Close</button>' +
+      '<button type="submit" class="btn-primary" id="prSave" style="display:none">Save pricing rules</button></div></form></div>';
     document.body.appendChild(ov);
     const close = () => { ov.classList.remove('open'); if (!document.querySelector('.modal-overlay.open')) { document.body.style.overflow = ''; document.documentElement.style.overflow = ''; } };
     $('prClose').addEventListener('click', close); $('prCancel').addEventListener('click', close);
@@ -41,6 +43,12 @@
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && ov.classList.contains('open')) close(); });
     $('prForm').addEventListener('submit', (e) => { e.preventDefault(); save(close); });
     $('prBody').addEventListener('input', preview);
+    if ($('prModeToggle')) $('prModeToggle').addEventListener('click', () => {
+      isEditMode = !isEditMode;
+      $('prModeToggle').textContent = isEditMode ? 'View guidelines' : 'Edit parameters';
+      $('prSave').style.display = isEditMode ? '' : 'none';
+      render();
+    });
     return ov;
   }
   const field = (name, label, unit, value, step, est) =>
@@ -48,6 +56,35 @@
 
   function render() {
     const r = data.rates, mp = data.materialItems || {};
+    if (!isEditMode) {
+      const fgM = Number(data.fgMarkupPct) || 20;
+      const margin = (fgM / (100 + fgM) * 100).toFixed(1);
+      $('prBody').innerHTML =
+        '<div style="background:var(--surface-sunken, #f8fafc);border:1px solid var(--border, #e2e8f0);border-radius:8px;padding:16px;margin-bottom:14px">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">' +
+            '<div style="font-weight:700;font-size:15px;color:var(--text, #0f172a)">Automated Cost-Plus Engine</div>' +
+            '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700">Fully Automated</span>' +
+          '</div>' +
+          '<p style="margin:0 0 12px;font-size:13px;color:var(--text-dim, #64748b)">All finished goods selling prices are computed mathematically from recipe material costs with zero manual inputting.</p>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border:1px solid var(--border-subtle, #e2e8f0)">' +
+              '<div style="font-size:11.5px;color:var(--text-faint, #64748b);text-transform:uppercase;font-weight:600">Finished Goods Markup</div>' +
+              '<div style="font-size:20px;font-weight:700;color:#1e40af;margin-top:2px">' + fgM + '% <span style="font-size:13px;font-weight:400;color:var(--text-dim)">(' + margin + '% margin)</span></div>' +
+              '<div style="font-size:12px;color:var(--text-dim);margin-top:3px">Price = Unit Cost × ' + (1 + fgM / 100).toFixed(2) + ' (Example: ₱100 → ₱' + (100 * (1 + fgM / 100)).toFixed(2) + ')</div>' +
+            '</div>' +
+            '<div style="background:rgba(255,255,255,0.7);padding:10px 12px;border-radius:6px;border:1px solid var(--border-subtle, #e2e8f0)">' +
+              '<div style="font-size:11.5px;color:var(--text-faint, #64748b);text-transform:uppercase;font-weight:600">Custom Quotes Markup</div>' +
+              '<div style="font-size:20px;font-weight:700;color:#1e40af;margin-top:2px">' + (data.quoteMarkupPct || 25) + '%</div>' +
+              '<div style="font-size:12px;color:var(--text-dim);margin-top:3px">Auto-computed by weight, scrap, & material rates</div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div style="font-size:12.5px;color:var(--text-dim, #64748b);padding:0 4px">' +
+          'Prices and quote costs update automatically as supplier purchase costs or recipes change. ' +
+          'To adjust corporate markup percentages or base conversion rates, click <b>Edit parameters</b> above.' +
+        '</div>';
+      return;
+    }
     $('prBody').innerHTML =
       '<div class="form-section-label">Finished goods</div>' +
       '<div class="pr-grid">' + field('fgMarkupPct', 'Markup on cost', '%', data.fgMarkupPct, '0.01') + '</div>' +

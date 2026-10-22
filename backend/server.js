@@ -44,18 +44,15 @@ const REASONS = {
     supplier_receipt: 'Received from supplier',
     customer_return: 'Returned by customer',
     produced_batch: 'Produced \u2014 new batch',
-    count_correction_up: 'Stock count correction (+)',
     other: 'Other (explain in note)'
   },
   out: {
     rust_corrosion: 'Rust / corrosion',
     damaged: 'Damaged (bent, cracked, broken)',
     scrap_cutting_waste: 'Scrap / cutting waste',
-    production_use: 'Used in production',
     quality_rejection: 'Rejected — failed quality inspection',
     lost_missing: 'Lost / missing',
     returned_to_supplier: 'Returned to supplier',
-    count_correction_down: 'Stock count correction (−)',
     other: 'Other (explain in note)'
   }
 };
@@ -63,6 +60,9 @@ const REASONS = {
 // so the movement log, reports and the printed PDF never show a raw code such as "online_order"
 const LEGACY_REASON_LABELS = {
   production_output: 'Produced in-house',
+  production_use: 'Used in production',
+  count_correction_up: 'Stock count correction (+)',
+  count_correction_down: 'Stock count correction (−)',
   sale: 'Sold at the POS counter',
   online_order: 'Online shop order',
   return: 'Returned by customer',
@@ -80,18 +80,15 @@ const REASON_DEPTS = {
     supplier_receipt: ['Raw Materials', 'Finishing Supplies'], // finished goods are produced in-house, never bought in
     customer_return: ['Finished Goods'],
     produced_batch: ['Finished Goods'],
-    count_correction_up: ALL_DEPTS,
     other: ALL_DEPTS
   },
   out: {
     rust_corrosion: ['Raw Materials', 'Finished Goods'],
     damaged: ALL_DEPTS,
     scrap_cutting_waste: ['Raw Materials'],
-    production_use: ['Raw Materials', 'Finishing Supplies'],
     quality_rejection: ['Raw Materials', 'Finished Goods'],
     lost_missing: ALL_DEPTS,
     returned_to_supplier: ['Raw Materials', 'Finishing Supplies'],
-    count_correction_down: ALL_DEPTS,
     other: ALL_DEPTS
   }
 };

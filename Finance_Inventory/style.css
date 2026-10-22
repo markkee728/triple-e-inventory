@@ -1290,6 +1290,39 @@ tbody td.mono {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
+    align-items: start;
+}
+.form-row .form-group {
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+}
+.form-row .form-label {
+    min-height: 22px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+.fa-onhand {
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-dim);
+    font-weight: 500;
+    margin-left: auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#productTableBody tr.product-row,
+#supplierTableBody tr.supplier-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+#productTableBody tr.product-row:hover,
+#supplierTableBody tr.supplier-row:hover {
+    background: var(--hover, rgba(255, 255, 255, 0.05));
 }
 
 .form-label {

@@ -1714,7 +1714,7 @@ function renderProductTable(items) {
     if (!items || items.length === 0) {
         tableBody.innerHTML = `
             <tr class="no-results-row">
-                <td colspan="9">
+                <td colspan="8">
                     ${archivedView
                         ? "No archived products. Archive a product from its details and it will be kept here."
                         : "No products match your search or category."}
@@ -1728,7 +1728,7 @@ function renderProductTable(items) {
         const costLabel = "/" + (item.costUnit || item.unit || "kg");
         const metaLine = [item.grade, item.form].filter(Boolean).join(" · ");
         return `
-            <tr class="product-row${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details">
+            <tr class="product-row${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details, BOM, or edit">
                 <td class="pt-name">
                     <div class="supplier-name">${escapeHTML(item.name)}</div>
                     <div class="supplier-meta mono">${escapeHTML(item.sku)}${metaLine ? " · " + escapeHTML(metaLine) : ""}</div>
@@ -1755,27 +1755,9 @@ function renderProductTable(items) {
                         ? `<span class="status-pill archived">Archived</span>`
                         : `<span class="status-pill ${item.status}">${getStockStatusLabel(item.status)}</span>`}
                 </td>
-                <td class="prod-actions">
-                    ${archivedView
-                        ? `<button type="button" class="btn-secondary btn-sm product-restore-btn" data-sku="${escapeHTML(item.sku)}">Restore</button>`
-                        : `<button type="button" class="btn-secondary btn-sm product-edit-btn" data-sku="${escapeHTML(item.sku)}">Edit</button>`}
-                </td>
             </tr>
         `;
     }).join("");
-
-    tableBody.querySelectorAll(".product-edit-btn").forEach(button => {
-        button.addEventListener("click", (e) => {
-            e.stopPropagation();
-            openNewProductModal(button.dataset.sku);
-        });
-    });
-    tableBody.querySelectorAll(".product-restore-btn").forEach(button => {
-        button.addEventListener("click", (e) => {
-            e.stopPropagation();
-            restoreProduct(button.dataset.sku);
-        });
-    });
 }
 
 // Suppliers shown in the Products table: every supplier linked to the product, primary first.
@@ -2537,7 +2519,7 @@ function renderSupplierTable(items) {
 
             <tr class="no-results-row">
 
-                <td colspan="6">
+                <td colspan="5">
                     No suppliers match your filters.
                 </td>
 
@@ -2603,43 +2585,9 @@ function renderSupplierTable(items) {
 
                 </td>
 
-                <td>
-
-                    <button
-                        type="button"
-                        class="btn-secondary btn-sm supplier-edit-btn"
-                        data-supplier-id="${escapeHTML(
-                            supplier.id
-                        )}"
-                    >
-                        Edit
-                    </button>
-
-                </td>
-
             </tr>
 
         `).join("");
-
-
-    tableBody
-        .querySelectorAll(
-            ".supplier-edit-btn"
-        )
-        .forEach(button => {
-
-            button.addEventListener(
-                "click",
-                () => {
-
-                    openNewSupplierModal(
-                        button.dataset.supplierId
-                    );
-
-                }
-            );
-
-        });
 
 }
 

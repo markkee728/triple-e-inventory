@@ -15,6 +15,31 @@
   var round2 = function (n) { return Math.round((n + Number.EPSILON) * 100) / 100; };
 
   var list = [], cur = null, busy = false, dirty = false, filter = 'all', term = '', blind = false;
+
+  var VARIANCE_REASONS = {
+    'Raw Materials': [
+      'Cutting offcut / scrap loss',
+      'Material oxidation / rust degradation',
+      'Scale / weighing tolerance variance',
+      'Material misplaced in storage rack',
+      'Supplier delivery packing discrepancy',
+      'Unrecorded workshop batch deduction'
+    ],
+    'Finished Goods': [
+      'Pallet packing count discrepancy',
+      'Handling damage / scratch during transfer',
+      'Sample / customer demonstration piece',
+      'Defective piece set aside for inspection',
+      'Customer return restock variance',
+      'Order staging discrepancy'
+    ],
+    'Finishing Supplies': [
+      'Evaporation / container residue loss',
+      'Application overspray / hopper residue',
+      'Chemical container tare weight discrepancy',
+      'Spillage / damaged packaging in store'
+    ]
+  };
   var ACTIVE = ['open', 'recount', 'submitted'];
   var isActive = function (st) { return ACTIVE.indexOf(st) >= 0; };
   var DEPTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
@@ -242,7 +267,8 @@
         '<div class="grow"><label for="scSchedDay">Day</label><select id="scSchedDay" class="form-select">' + DAYNAMES.map(function (d, i) { return '<option value="' + i + '"' + (i === sched.weekday ? ' selected' : '') + '>' + d + '</option>'; }).join('') + '</select></div>' +
         '<div class="grow"><label for="scSchedScope">What to count</label><select id="scSchedScope" class="form-select"><option value="">All departments</option>' + DEPTS.map(function (d) { return '<option' + (d === sched.scope ? ' selected' : '') + '>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
         '<div class="grow"><label for="scSchedDue">Post within</label><select id="scSchedDue" class="form-select">' + [1, 2, 3, 4, 5, 6].map(function (n) { return '<option value="' + n + '"' + (n === sched.dueDays ? ' selected' : '') + '>' + n + ' day' + (n === 1 ? '' : 's') + '</option>'; }).join('') + '</select></div>' +
-        '<div class="sc-sub">Weekly vs monthly items</div>' +
+        '<div class="sc-sub" style="display:flex;justify-content:space-between;align-items:center"><span>Weekly vs monthly rules</span>' +
+        '<span style="font-size:12px;text-transform:none;letter-spacing:normal"><button type="button" class="btn-secondary btn-sm" id="scPresetStd" style="margin-right:4px">Standard (Recommended)</button><button type="button" class="btn-secondary btn-sm" id="scPresetStrict">Strict</button></span></div>' +
         '<div class="grow"><label for="scCad">Use weekly / monthly rule</label><select id="scCad" class="form-select"><option value="1"' + (sched.cadenceOn !== false ? ' selected' : '') + '>On</option><option value="0"' + (sched.cadenceOn === false ? ' selected' : '') + '>Off (count everything)</option></select></div>' +
         field('scHV', 'High value: stock on hand worth (₱)', sched.highValue, 'min="0" step="any"') +
         field('scFM', 'Fast moving: stock-outs in the period', sched.fastMoves, 'min="0" step="1"') +
@@ -251,7 +277,7 @@
         '<div class="sc-sub">Recount when a difference is above</div>' +
         field('scVP', 'Percent of system quantity (%)', sched.varPct, 'min="0" max="100" step="any"') +
         field('scVV', 'Or value of the difference (₱)', sched.varValue, 'min="0" step="any"') +
-        '<button class="btn-primary" data-sc="sched-save">Save</button></div>' +
+        '<button class="btn-primary" data-sc="sched-save">Save rules</button></div>' +
         '<p class="sc-hint">Enter 0 to switch a rule off (0 and 0 together means every difference is counted again). Changes apply to the next count; a count already in progress keeps the limits it started with.</p></div>' +
       '<div class="sc-err" id="scSchedErr"></div></div>';
   }
@@ -329,8 +355,13 @@
       '<p class="dim">' + counted.length + ' product(s) counted, <b>' + diffs.length + '</b> will change stock. Products you left blank are not touched. This cannot be undone — it writes Stock In / Stock Out entries.</p>' +
       (diffs.length ? diffTable(diffs) + '<p style="margin:10px 0 0">Net value of corrections: <b class="' + (net < 0 ? 'sc-down' : net > 0 ? 'sc-up' : '') + '">' + peso(net) + '</b></p>'
         : '<p>Everything counted matches the system. Posting will just close this count.</p>') +
-      (explain.length ? '<div class="sc-explain"><b>Still above the variance limit after the recount — say why</b>' + explain.map(function (i) {
-        return '<div><label>' + esc(i.name) + ' (' + changeText(i) + ')</label><input class="form-input" maxlength="200" data-need-note="' + esc(i.sku) + '" value="' + esc(i.note) + '" placeholder="e.g. Two pallets were moved to the plating area" autocomplete="off"></div>'; }).join('') + '</div>' : '') +
+      (explain.length ? '<div class="sc-explain"><b>Still above the variance limit after recount — select reason</b>' + explain.map(function (i) {
+        var reasons = VARIANCE_REASONS[i.department] || VARIANCE_REASONS['Raw Materials'];
+        return '<div style="margin-bottom:8px"><label style="font-weight:600">' + esc(i.name) + ' (' + changeText(i) + ' · ' + esc(i.department) + ')</label>' +
+          '<select class="form-select" data-need-note="' + esc(i.sku) + '" style="margin-top:4px">' +
+          '<option value="">Select standard variance reason…</option>' +
+          reasons.map(function (r) { return '<option value="' + esc(r) + '"' + (i.note === r ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') +
+          '</select></div>'; }).join('') + '</div>' : '') +
       '<div class="sc-err" id="scPostErr"></div>' +
       '<div class="modal-actions" style="display:flex;gap:10px;margin-top:16px"><button class="btn-primary" id="scConfirm">Post corrections</button><button class="btn-secondary" id="scBack">Go back</button></div>');
     document.body.appendChild(ov);
@@ -360,7 +391,28 @@
 
   function bind() {
     document.addEventListener('click', async function (e) {
-      var b = e.target.closest('#stockcount button, #stockcount [data-sc]'); if (!b || !$('stockcount')) return;
+      var b = e.target.closest('#stockcount button, #stockcount [data-sc]');
+      if (!b || !$('stockcount')) return;
+      if (b.id === 'scPresetStd') {
+        if ($('scHV')) $('scHV').value = '50000';
+        if ($('scFM')) $('scFM').value = '4';
+        if ($('scFD')) $('scFD').value = '30';
+        if ($('scSD')) $('scSD').value = '28';
+        if ($('scVP')) $('scVP').value = '5';
+        if ($('scVV')) $('scVV').value = '2000';
+        toast('Standard rules preset applied');
+        return;
+      }
+      if (b.id === 'scPresetStrict') {
+        if ($('scHV')) $('scHV').value = '25000';
+        if ($('scFM')) $('scFM').value = '2';
+        if ($('scFD')) $('scFD').value = '30';
+        if ($('scSD')) $('scSD').value = '14';
+        if ($('scVP')) $('scVP').value = '3';
+        if ($('scVV')) $('scVV').value = '1000';
+        toast('Strict rules preset applied');
+        return;
+      }
       var act = b.getAttribute('data-sc');
       try {
         if (act === 'open') await openCount(b.getAttribute('data-id'));
