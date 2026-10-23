@@ -4723,6 +4723,7 @@ async function handleInviteAction(event) {
     }
 
     await loadPendingInvites();
+    await reloadUserAccounts();
 
 }
 
@@ -4775,11 +4776,43 @@ function closeInviteUserModal() {
 }
 
 
+async function reloadUserAccounts(showSpinner) {
+    const tableBody = document.getElementById("accountsTableBody");
+    if (showSpinner && tableBody && userAccountsData.length === 0) {
+        tableBody.innerHTML = `
+            <tr class="no-results-row">
+                <td colspan="5" class="dim">Loading accounts...</td>
+            </tr>
+        `;
+    }
+    try {
+        const res = await fetch("/api/users", {
+            credentials: "same-origin",
+            headers: { "Accept": "application/json" }
+        });
+        if (res.status === 401) return;
+        if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                userAccountsData.splice(0, userAccountsData.length, ...data);
+                renderAccountsTable();
+            }
+        }
+    } catch (err) {
+        console.warn("[users] could not reload accounts:", err.message);
+    }
+    if (typeof loadPendingInvites === "function") {
+        loadPendingInvites().catch(() => {});
+    }
+}
+window.reloadUserAccounts = reloadUserAccounts;
+
 function initUserManagement() {
 
     renderAccountsTable();
     renderPendingInvites();
     loadPendingInvites();
+    reloadUserAccounts(false);
     initEditUserModal();
 
     const accountRoleFilter = document.getElementById("accountRoleFilter");
@@ -4803,7 +4836,59 @@ function initUserManagement() {
             "click",
             openInviteUserModal
         );
+        const actions = inviteButton.parentElement;
+        if (actions && !document.getElementById("accountRefreshBtn")) {
+            const refreshBtn = document.createElement("button");
+            refreshBtn.type = "button";
+            refreshBtn.id = "accountRefreshBtn";
+            refreshBtn.className = "btn-secondary";
+            refreshBtn.textContent = "Refresh";
+            refreshBtn.title = "Reload user and customer accounts list";
+            refreshBtn.addEventListener("click", () => {
+                const orig = refreshBtn.textContent;
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = "Refreshing...";
+                reloadUserAccounts(true).finally(() => {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = orig;
+                });
+            });
+            actions.insertBefore(refreshBtn, inviteButton.nextSibling);
+        }
     }
+
+    document.querySelectorAll('[data-page="usermgmt"]').forEach(b => {
+        b.addEventListener("click", () => reloadUserAccounts(false));
+    });
+
+    const userPage = document.getElementById("usermgmt");
+    if (userPage) {
+        let wasActive = userPage.classList.contains("active-page");
+        if (wasActive) reloadUserAccounts(false);
+        new MutationObserver(() => {
+            const on = userPage.classList.contains("active-page");
+            if (on && !wasActive) reloadUserAccounts(false);
+            wasActive = on;
+        }).observe(userPage, { attributes: true, attributeFilter: ["class"] });
+    }
+
+    window.addEventListener("focus", () => {
+        const up = document.getElementById("usermgmt");
+        if (up && up.classList.contains("active-page")) reloadUserAccounts(false);
+    });
+    document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") {
+            const up = document.getElementById("usermgmt");
+            if (up && up.classList.contains("active-page")) reloadUserAccounts(false);
+        }
+    });
+
+    setInterval(() => {
+        const up = document.getElementById("usermgmt");
+        if (up && up.classList.contains("active-page") && document.visibilityState === "visible") {
+            reloadUserAccounts(false);
+        }
+    }, 10000);
 
 
     const overlay =
@@ -4911,6 +4996,7 @@ function initUserManagement() {
                 );
 
                 await loadPendingInvites();
+                await reloadUserAccounts();
 
             } catch (err) {
 

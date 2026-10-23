@@ -60,7 +60,8 @@
     // used by quick-stock.js (double-click a row in Inventory Monitoring)
     reasonsFor: (type, dept) => reasonKeysFor(type, dept).map((k) => ({ key: k, label: REASONS[type][k], help: REASON_HELP[type + ':' + k] || '' })),
     noteRequired: (reason) => NOTE_REQUIRED.indexOf(reason) >= 0,
-    suppliersFor: (item) => suppliersForItem(item) };
+    suppliersFor: (item) => suppliersForItem(item),
+    reloadUsers: () => (typeof window.reloadUserAccounts === "function" ? window.reloadUserAccounts() : null) };
 
   function toast(message, type) {
     const el = document.createElement('div');
