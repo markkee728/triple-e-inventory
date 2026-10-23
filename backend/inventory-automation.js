@@ -569,6 +569,91 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
     });
   }
 
+  // Receive an individual delivery schedule on demand
+  async function receiveDeliverySchedule(scheduleId, user) {
+    await needReady();
+    return await tx(async (client) => {
+      const { rows } = await client.query(`
+        SELECT
+          ds.schedule_id,
+          ds.name,
+          ds.department,
+          ds.product_id,
+          p.sku,
+          p.name AS product_name,
+          p.unit,
+          p.on_hand,
+          ds.supplier_id,
+          s.name AS supplier_name,
+          ds.quantity,
+          ds.frequency,
+          ds.day_of_week,
+          ds.day_of_month,
+          to_char(ds.next_delivery_date, 'YYYY-MM-DD') AS next_delivery_date,
+          ds.unit_cost
+        FROM delivery_schedules ds
+        JOIN products p ON p.product_id = ds.product_id
+        LEFT JOIN suppliers s ON s.supplier_id = ds.supplier_id
+        WHERE ds.schedule_id = $1
+        FOR UPDATE OF ds
+      `, [scheduleId]);
+
+      if (!rows.length) throw new Error('Delivery schedule not found');
+      const d = rows[0];
+      const qty = +d.quantity;
+      const note = `Received scheduled delivery: ${d.name} (${d.frequency})`;
+
+      const mv = await client.query(`
+        INSERT INTO stock_movements (
+          product_id, movement_type, reason, quantity, handled_by, supplier_id, unit_cost, note
+        ) VALUES ($1, 'in', 'supplier_receipt', $2, $3, $4, $5, $6)
+        RETURNING ref
+      `, [
+        d.product_id,
+        qty,
+        user ? user.id : null,
+        d.supplier_id || null,
+        d.unit_cost || null,
+        note
+      ]);
+
+      const updatedProd = await client.query('SELECT on_hand FROM products WHERE product_id = $1', [d.product_id]);
+      const newOnHand = updatedProd.rows[0].on_hand;
+
+      const nextDate = pure.advanceScheduleDate(d.next_delivery_date, d.frequency, d.day_of_week, d.day_of_month);
+      await client.query(`
+        UPDATE delivery_schedules
+        SET last_processed_at = now(),
+            next_delivery_date = $2,
+            updated_at = now()
+        WHERE schedule_id = $1
+      `, [d.schedule_id, nextDate]);
+
+      if (audit && user) {
+        await audit(
+          client,
+          user,
+          'Scheduled Delivery Received',
+          `${d.name} (${d.sku}): received ${qty} ${d.unit} from ${d.supplier_name || 'supplier'}. New on-hand: ${newOnHand} ${d.unit}.`
+        );
+      }
+
+      return {
+        scheduleId: d.schedule_id,
+        scheduleName: d.name,
+        department: d.department,
+        sku: d.sku,
+        productName: d.product_name,
+        quantity: qty,
+        unit: d.unit,
+        movementRef: mv.rows[0].ref,
+        previousOnHand: +d.on_hand,
+        newOnHand: +newOnHand,
+        nextDeliveryDate: nextDate
+      };
+    });
+  }
+
   /* ---------- Periodic Production Plans Management ---------- */
   async function listProductionPlans() {
     await needReady();
@@ -595,24 +680,41 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
       ORDER BY pp.is_active DESC, pp.next_run_date ASC
     `);
 
-    return rows.map((r) => ({
-      planId: r.plan_id,
-      name: r.name,
-      finishedProductId: r.finished_product_id,
-      sku: r.sku,
-      productName: r.product_name,
-      unit: r.unit,
-      onHand: +r.on_hand,
-      period: r.period,
-      targetVolume: +r.target_volume,
-      dayOfWeek: r.day_of_week,
-      dayOfMonth: r.day_of_month,
-      nextRunDate: r.next_run_date,
-      lastRunAt: r.last_run_at,
-      isActive: r.is_active,
-      autoExecute: r.auto_execute,
-      note: r.note || ''
-    }));
+    const plansWithReadiness = [];
+    for (const r of rows) {
+      let readiness = null;
+      try {
+        readiness = await calculatePlanMaterials(r.finished_product_id, +r.target_volume);
+      } catch (err) {
+        readiness = { isReady: false, shortages: [{ name: err.message }], rawMaterials: [], finishingSupplies: [], totalEstimatedCost: 0 };
+      }
+      plansWithReadiness.push({
+        planId: r.plan_id,
+        name: r.name,
+        finishedProductId: r.finished_product_id,
+        sku: r.sku,
+        productName: r.product_name,
+        unit: r.unit,
+        onHand: +r.on_hand,
+        period: r.period,
+        targetVolume: +r.target_volume,
+        dayOfWeek: r.day_of_week,
+        dayOfMonth: r.day_of_month,
+        nextRunDate: r.next_run_date,
+        lastRunAt: r.last_run_at,
+        isActive: r.is_active,
+        autoExecute: r.auto_execute,
+        note: r.note || '',
+        readiness: {
+          isReady: readiness.isReady,
+          shortages: readiness.shortages || [],
+          rawMaterials: readiness.rawMaterials || [],
+          finishingSupplies: readiness.finishingSupplies || [],
+          totalEstimatedCost: readiness.totalEstimatedCost || 0
+        }
+      });
+    }
+    return plansWithReadiness;
   }
 
   // Calculate material consumption for a finished good and target volume
@@ -943,6 +1045,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
     getDepartmentSummary,
     listDeliverySchedules,
     processDueDeliveries,
+    receiveDeliverySchedule,
     listProductionPlans,
     calculatePlanMaterials,
     executeProductionRun

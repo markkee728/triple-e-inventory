@@ -1449,6 +1449,12 @@ app.get('/api/inventory/automation/delivery-schedules', auth('finance'), wrap(as
   res.json(await inventoryAutomation.listDeliverySchedules());
 }));
 
+// Receive an individual delivery schedule immediately
+app.post('/api/inventory/automation/delivery-schedules/:id/receive', auth('finance'), wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  res.json(await inventoryAutomation.receiveDeliverySchedule(id, req.user));
+}));
+
 // Process due delivery schedules to automatically update stock levels for incoming Raw Materials & Finishing Supplies
 app.post('/api/inventory/automation/delivery-schedules/process-due', auth('finance'), wrap(async (req, res) => {
   const asOf = req.body && req.body.asOfDate;
