@@ -333,13 +333,51 @@
     b.textContent = n > 99 ? '99+' : String(n);
     b.title = n + ' ' + title;
   }
+  /* The sticky "Pending Approvals" bar (inside the Sales chip bar, so it stays in view while Finance scrolls).
+     It is a summary of decisionItems() — the same list the Overview panel shows — plus one button that opens the most
+     urgent request in the review dialog, so nothing needs scrolling. Hidden when nothing is waiting. */
+  function waitingText(since) {
+    const m = Math.max(0, Math.round((Date.now() - since) / 60000));
+    return m < 60 ? Math.max(1, m) + ' min' : m < 2880 ? Math.round(m / 60) + ' h' : Math.round(m / 1440) + ' days';
+  }
+  function renderPendingBar(n) {
+    const bar = document.getElementById('shPendingBar'); if (!bar) return;
+    const total = n.cancelCount + n.voidReturnCount + n.quoteCount, was = bar.hidden;
+    if (!total) { bar.hidden = true; bar.innerHTML = ''; if (!was && window.TripleESalesHub) window.TripleESalesHub.measure(); return; }
+    const parts = [];
+    if (n.quoteCount) parts.push(n.quoteCount + ' quote ' + (n.quoteCount === 1 ? 'approval' : 'approvals'));
+    if (n.cancelCount) parts.push(n.cancelCount + ' order ' + (n.cancelCount === 1 ? 'cancellation' : 'cancellations'));
+    if (n.voidReturnCount) parts.push(n.voidReturnCount + ' void / return');
+    const since = quotesData.filter((q) => q.status === 'pending_approval' && q.proposedAt).map((q) => q.proposedAt);
+    const oldest = since.length ? Math.min.apply(null, since) : 0;
+    const old = oldest ? ' · oldest waiting ' + waitingText(oldest) : '';
+    bar.innerHTML = '<span class="sh-pending-icon" aria-hidden="true"><svg viewBox="0 0 24 24" class="ico"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></span>' +
+      '<span class="sh-pending-text"><b>' + total + ' pending ' + (total === 1 ? 'approval' : 'approvals') + '</b> <span>' + esc(parts.join(' · ') + old) + '</span></span>' +
+      '<span class="sh-pending-actions"><button type="button" class="btn-primary btn-sm" data-sh-pending="next">Review next</button>' +
+      '<button type="button" class="btn-secondary btn-sm" data-sh-pending="list">See the list</button></span>';
+    bar.hidden = false;
+    if (was && window.TripleESalesHub) window.TripleESalesHub.measure();
+  }
+  (function wirePendingBar() {
+    const bar = document.getElementById('shPendingBar'); if (!bar) return;
+    bar.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-sh-pending]'); if (!b) return;
+      const items = decisionItems();
+      if (b.dataset.shPending === 'next') { if (items.length) openDecision(items[0].key); else toast('Nothing is waiting any more.'); return; }
+      const hub = window.TripleESalesHub; if (!hub) return;
+      hub.show(quotesData.some(needsFinance) ? 'quotes' : 'sales-overview');
+    });
+  })();
+
   function updateBadge() {
     const cancelCount = sales.filter((s) => s.source === 'Shop' && s.cancelRequest).length;
     const voidReturnCount = sales.filter((s) => s.source === 'POS' && (s.voidRequest || s.returnRequest)).length;
     const quoteCount = quotesData.filter(needsFinance).length;
     badge('orders', cancelCount, 'cancellation request(s) to answer');
     badge('sales', voidReturnCount, 'void / return request(s) to answer');
+    badge('quotes', quoteCount, 'quote price / terms approval(s) waiting for you');
     badge('sales-overview', cancelCount + voidReturnCount + quoteCount, 'decision request(s) to answer');
+    renderPendingBar({ cancelCount, voidReturnCount, quoteCount });
     const totalAttn = cancelCount + voidReturnCount + quoteCount;
     const attn = document.getElementById('salesNavAttention');
     if (attn) {

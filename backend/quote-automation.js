@@ -120,6 +120,24 @@ function routeQuote({ amount, draft, settings, terms }) {
     summary: ok ? `Within ±${+S.tolerancePct}% of the system price, margin ${numbers.marginPct}%, under the ${peso(S.valueLimit)} limit, fully costed and in stock` : reasons.join('; ') };
 }
 
+/* ---------------- pure: what the automatic price watch does with ONE sent quote the customer has not answered ----------------
+   The cost of its materials is checked again every automation run. Nothing is changed unless the cost moved by more than Finance's
+   cost-move limit. Then:
+     cost went DOWN, the new system price is lower, the drop is no more than maxDropPct of the price the customer holds, and the new
+       price would go straight out under the normal rules (route 'quoted')                       -> 'refresh'  (customer gets the lower price, valid again)
+     cost went UP                                                                                -> 'notify_up' (a price is never raised behind the customer's back)
+     anything else (a big drop, or the new price would need Finance)                             -> 'notify_review' (a person decides)
+   A quote with money on it, or one with no recorded cost to compare with, is never touched. */
+function priceWatchAction({ quoted, oldCost, newCost, newTotal, route, costMovePct, maxDropPct }) {
+  if (!(+oldCost > 0) || !(+newCost > 0) || !(+quoted > 0) || !(+newTotal > 0)) return { action: 'none' };
+  const movedPct = r1((newCost - oldCost) / oldCost * 100);
+  if (Math.abs(movedPct) <= +costMovePct) return { action: 'none', movedPct };
+  if (movedPct > 0) return { action: 'notify_up', movedPct };
+  const dropPct = r1((quoted - newTotal) / quoted * 100);
+  if (newTotal < quoted - 0.004 && dropPct <= +maxDropPct && route === 'quoted') return { action: 'refresh', movedPct, dropPct };
+  return { action: 'notify_review', movedPct, dropPct };
+}
+
 module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audit, ValidationError, str }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
   const pricing = () => app.locals.pricing;
@@ -621,9 +639,52 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
   }
   (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-approval-reminders', run: approvalReminders });
 
+  /* ---------------- automation: keep the price a customer is looking at in step with today's material cost ----------------
+     Every run, each sent quote that nobody has paid on is priced again at today's costs. Cost down -> the lower price goes out by itself
+     (same routing as a cashier's price, logged as "System (automatic)", the customer is told). Cost up, or a drop too big to hand out
+     unseen -> the cashier and Finance are told once and decide. QUOTE_AUTO_REFRESH=off turns the automatic refresh off (the alerts stay);
+     QUOTE_AUTO_REFRESH_MAX_DROP_PCT (default 25) is the largest cut it will make on its own. */
+  async function priceWatch() {
+    const off = String(process.env.QUOTE_AUTO_REFRESH || 'on').toLowerCase() === 'off';
+    const maxDropPct = Number(process.env.QUOTE_AUTO_REFRESH_MAX_DROP_PCT) > 0 ? Number(process.env.QUOTE_AUTO_REFRESH_MAX_DROP_PCT) : 25;
+    const S = await settings(), out = { checked: 0, refreshed: 0, alerted: 0 };
+    const { rows } = await pool.query(`SELECT * FROM quote_requests WHERE status = 'quoted' AND COALESCE(paid_amount, 0) = 0
+        AND suggested_cost > 0 AND quoted_amount > 0 ORDER BY quote_id LIMIT 100`);
+    for (const q of rows) {
+      out.checked++;
+      try {
+        const d = await draftForQuote(pool, q);
+        if (!d.ok) continue;
+        const pendingTerms = q.terms_key && q.terms_key !== 'full' && q.terms_state === 'proposed' ? { key: q.terms_key, label: q.terms_key } : null;
+        const route = routeQuote({ amount: d.total, draft: d, settings: S, terms: pendingTerms }).route;
+        const w = priceWatchAction({ quoted: +q.quoted_amount, oldCost: +q.suggested_cost, newCost: d.costTotal, newTotal: d.total, route, costMovePct: S.costMovePct, maxDropPct });
+        if (w.action === 'none') continue;
+        if (w.action === 'refresh' && !off) {
+          const r = await refreshPrice(q.quote_no, SYSTEM);
+          if (r.status === 'quoted') {
+            out.refreshed++;
+            const to = q.proposed_by || q.handled_by || q.created_by;
+            await pingUser(to, { category: 'orders', severity: 'info', title: 'Price lowered automatically', body: `${q.quote_no} (${q.contact_name}): material cost fell ${Math.abs(w.movedPct)}%, so the price went ${peso(r.before)} → ${peso(r.amount)} and the customer was told.`,
+              link: 'POS_Cashier.html#quotes', entityType: 'quote', entityId: q.quote_no, dedupeKey: 'qauto:' + q.quote_no + ':' + Math.round(d.costTotal) }, 'cashier');
+          }
+          continue;
+        }
+        const up = w.action === 'notify_up', key = 'qcost:' + q.quote_no + ':' + Math.round(d.costTotal);
+        const body = up ? `${q.quote_no} (${q.contact_name}): material cost rose ${w.movedPct}% since the price was set (${peso(q.suggested_cost)} → ${peso(d.costTotal)}). The customer still holds ${peso(q.quoted_amount)}; the system price is now ${peso(d.total)}. Refresh it only if you want to re-quote.`
+          : `${q.quote_no} (${q.contact_name}): material cost fell ${Math.abs(w.movedPct)}%, but the new system price ${peso(d.total)} is ${w.dropPct}% below the ${peso(q.quoted_amount)} the customer holds${route === 'quoted' ? '' : ' and would need Finance'}, so it was not changed automatically. Review it.`;
+        const spec = { category: 'orders', severity: 'warn', title: up ? 'Material cost went up on a sent quote' : 'Material cost fell on a sent quote: review the price', body, link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no, dedupeKey: key };
+        out.alerted += (await pingFinance(spec)) || 0;
+        await pingUser(q.proposed_by || q.handled_by || q.created_by, Object.assign({}, spec, { link: 'POS_Cashier.html#quotes' }), 'cashier');
+      } catch (err) { console.warn('[quote-automation] price watch failed for ' + q.quote_no + ':', err.message); }
+    }
+    if (out.refreshed || out.alerted) console.log(`[auto] quote price watch: ${out.refreshed} refreshed, ${out.alerted} alert(s)`);
+    return out;
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-price-watch', run: priceWatch });
+
   const api = { ready, settings, draft, draftForQuote, forCustomer, route: routeQuote, logDecision, saveRecipe, readLines, onAccept, afterAccept,
-    refreshPrice, materialItems, approvalReminders, RULE_LABEL, SYSTEM };
+    refreshPrice, materialItems, approvalReminders, priceWatch, RULE_LABEL, SYSTEM };
   app.locals.quoteAutomation = api;
   return api;
 };
-module.exports.pure = { priceLines, routeQuote, RULE_LABEL, NO_BULK, bulkBlocked };
+module.exports.pure = { priceLines, routeQuote, RULE_LABEL, NO_BULK, bulkBlocked, priceWatchAction };

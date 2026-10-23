@@ -654,7 +654,7 @@
     if (['new', 'pending_approval', 'awaiting_details'].indexOf(x.status) < 0) {           // nothing was sent to the customer yet in these
       var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed' + (x.closeReason ? ': ' + x.closeReason : ''), completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
       h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
-        (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (collect the payment, then record it below)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + (expiryInfo(x) ? ' (' + expiryInfo(x).text + ')' : '') + '\n' : '') +
+        (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (the cashier collects it and records it; you are told when it is recorded)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + (expiryInfo(x) ? ' (' + expiryInfo(x).text + ')' : '') + '\n' : '') +
         (x.handledBy ? 'Handled by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
         (x.respondedAt && x.status !== 'quoted' ? '\nAnswered: ' + esc(when(x.respondedAt)) + (x.responseNote ? ' \u2014 ' + esc(x.responseNote) : '') : '') + '</div>';
     }
@@ -688,11 +688,19 @@
     h += '<div class="sx-form">';
     if (inFlow) {
       if (x.balance > 0) {
-        var dep = x.dueNow > 0;
-        h += '<div class="sx-sub">' + (dep ? 'Record the ' + depWord(x) + ' \u2014 ' + peso(x.dueNow) + ' due now' : 'Record a payment') + '</div>' +
-          (dep ? '<p class="sx-depnote"><b>' + esc(termsLine(x) || 'Approved payment terms') + '</b>' + (x.payOnline ? '<br>The customer chose to pay online: Xendit records it when it arrives. Record it here only if it came another way.' : '') + '</p>' : '') + '<div class="sx-two"><div><label for="sxPayAmt">Amount received (\u20B1)</label><input type="text" data-money class="form-input" id="sxPayAmt" inputmode="decimal" autocomplete="off" placeholder="up to ' + Number(x.balance).toFixed(2) + '"></div>' +
-          '<div><label for="sxPayMethod">Paid by</label><select id="sxPayMethod" class="form-input"><option value="">Choose</option>' + ((qopts && qopts.payMethods) || []).map(function (m) { return '<option' + (x.payMethod === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
-          '<div class="sx-actions" style="margin-top:8px"><button type="button" class="' + (dep ? 'btn-primary' : 'btn-secondary') + '" id="sxPay">' + (dep ? 'Record ' + depWord(x) : 'Record payment') + '</button></div>';
+        /* Finance does not key payments in. Online money is recorded by Xendit itself; money taken on pickup / delivery is taken (and
+           recorded, into the cashier's own drawer) by the cashier. Finance sees it arrive and can nudge whoever has to move it. */
+        var ready = x.status === 'ready', later = !x.payOnline;
+        h += '<div class="sx-sub">Payment follow-up — ' + peso(x.balance) + ' still to pay</div>' +
+          '<p class="sx-depnote"><b>' + esc(x.dueNow > 0 ? (termsLine(x) || 'Approved payment terms') : (x.payOnline ? 'Paid online' : 'Paid at ' + (x.fulfillment === 'Delivery' ? 'delivery' : 'pickup'))) + '</b><br>' +
+          (x.payOnline ? 'The customer pays through Xendit and it is recorded automatically the moment it arrives. Nobody types it in.'
+            : 'The cashier collects it ' + (x.fulfillment === 'Delivery' ? 'on delivery' : 'at pickup') + ' and records it in the Quote Desk (cash goes into their open drawer). You are told when it is recorded.') +
+          (later && !ready ? '<br><span class="faint">Reminders to the cashier start once the order is ready.</span>' : '') + '</p>' +
+          '<div class="sx-actions">' +
+          (x.payOnline ? '<button type="button" class="btn-secondary" id="sxCheckPay">Check online payment</button>' : '') +
+          ((x.payOnline || ready) && x.source !== 'pos' ? '<button type="button" class="btn-secondary" id="sxRemindCust">Remind customer</button>' : '') +
+          (ready ? '<button type="button" class="btn-secondary" id="sxRemindCash">Remind cashier to collect</button>' : '') + '</div>' +
+          (x.source === 'pos' ? '<p class="faint" style="margin:6px 0 0">Walk-in quote: there is no online account, so the cashier is the one who calls the customer.</p>' : '');
       }
       if (x.next) {
         h += '<div class="sx-sub">Next step: ' + esc(x.nextLabel) + '</div>';
@@ -738,7 +746,9 @@
     });
     if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
     if ($('sxStep')) $('sxStep').addEventListener('click', function () { submitStep(x); });
-    if ($('sxPay')) $('sxPay').addEventListener('click', function () { submitPayment(x); });
+    if ($('sxCheckPay')) $('sxCheckPay').addEventListener('click', function () { checkOnline(x); });
+    if ($('sxRemindCust')) $('sxRemindCust').addEventListener('click', function () { remind(x, 'customer'); });
+    if ($('sxRemindCash')) $('sxRemindCash').addEventListener('click', function () { remind(x, 'cashier'); });
     if ($('sxCloseReq')) $('sxCloseReq').addEventListener('click', function () {        // pick a reason first; nothing is closed until "Close request"
       if (x.status === 'closed') { closeModal(); return; }
       $('sxCloseBox').hidden = false; $('sxCloseReq').closest('.sx-actions').style.display = 'none'; $('sxCloseReason').focus();
@@ -907,6 +917,21 @@
     } finally { busy = false; }
   }
 
+  // Finance does not record payments: it checks the online one and reminds the customer or the cashier
+  async function remind(x, to) {
+    if (busy) return; busy = true; $('sxErr').classList.remove('show'); overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    try { var r = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/remind', { method: 'POST', body: JSON.stringify({ to: to }) }); toast(r.message || 'Done.'); }
+    catch (e) { if (e.message !== 'Not signed in') showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
+    finally { busy = false; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); }
+  }
+  async function checkOnline(x) {
+    if (busy) return; busy = true; $('sxErr').classList.remove('show'); overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    try {
+      var r = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/check-payment', { method: 'POST', body: '{}' });
+      toast(r.balance > 0 ? 'Not paid online yet. Balance ' + peso(r.balance) + '.' : 'Paid. The payment is recorded.'); busy = false; await loadQuotes(); if (openQuote) paintQuote();
+    } catch (e) { busy = false; if (e.message !== 'Not signed in') showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
+    finally { busy = false; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = false; }); }
+  }
   async function post(x, path, body, doneMsg) {
     if (busy) return;
     busy = true; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });

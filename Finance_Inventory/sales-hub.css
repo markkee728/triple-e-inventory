@@ -281,3 +281,23 @@ html[data-theme="light"] #sales-hub .sa-dec-type-tag.return { color: #6b3fa8; }
 /* light theme: the small amber tag needs a darker text colour to stay readable */
 html[data-theme="light"] #sales-hub .sa-flag { color: #8a5a0b; background: rgba(183,121,31,.14); }
 html[data-theme="light"] #sales-hub .sa-decisions-status-badge.warn { color: #3d2a05; }
+
+/* ---- sticky "Pending Approvals" bar: a second row of the sticky chip bar, so it stays in view while Finance scrolls ---- */
+#salesHubTabs.rep-nav { flex-wrap: wrap; }
+#salesHubTabs .sh-pending {
+  flex: 1 1 100%; display: flex; align-items: center; gap: 12px; margin: 2px 0 0; padding: 9px 12px; border-radius: 11px;
+  background: rgba(217,164,65,.14); border: 1px solid rgba(217,164,65,.45); border-left: 4px solid var(--amber, #d9a441);
+}
+#salesHubTabs .sh-pending[hidden] { display: none; }
+#salesHubTabs .sh-pending-icon { flex: none; display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 8px; background: var(--amber, #d9a441); color: #1b1303; }
+#salesHubTabs .sh-pending-icon .ico { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+#salesHubTabs .sh-pending-text { flex: 1 1 auto; min-width: 0; font-size: 14.5px; line-height: 1.35; color: var(--text); }
+#salesHubTabs .sh-pending-text b { font-weight: 700; margin-right: 6px; }
+#salesHubTabs .sh-pending-text span { color: var(--text-dim); }
+#salesHubTabs .sh-pending-actions { flex: none; display: flex; gap: 8px; }
+html[data-theme="light"] #salesHubTabs .sh-pending { background: rgba(183,121,31,.12); border-color: rgba(183,121,31,.45); }
+@media (max-width: 760px) {
+  #salesHubTabs .sh-pending { flex-wrap: wrap; }
+  #salesHubTabs .sh-pending-actions { flex: 1 1 100%; }
+  #salesHubTabs .sh-pending-actions .btn-sm { flex: 1; }
+}

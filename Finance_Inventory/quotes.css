@@ -474,3 +474,9 @@
 #page-quotes .qd-jline{grid-template-columns:minmax(0,1fr) 110px 48px;margin:6px 0}
 #page-quotes .qd-recipe-actions{display:flex;gap:8px;flex-wrap:wrap}
 @media(max-width:560px){#page-quotes .qd-rline{grid-template-columns:minmax(0,1fr) 80px 64px auto}}
+
+/* ---- Collect payment (cashier records the money; see quote-desk-ui.js collectHtml) ---- */
+#page-quotes #qdCollectForm{display:grid;gap:10px;max-width:420px}
+#page-quotes #qdCollectForm label{display:grid;gap:4px;font-size:13px;font-weight:600}
+#page-quotes #qdCollectForm input,#page-quotes #qdCollectForm select{min-height:40px;padding:0 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:var(--text);font:inherit}
+#page-quotes .qd-err{min-height:1.2em;font-size:13px;color:var(--red)}

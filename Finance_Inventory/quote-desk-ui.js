@@ -197,6 +197,7 @@
         row('Customer answer', d.responseNote ? noteBox(d.responseNote) : '') ])),
 
       sec('Payment terms on this quotation', termsSectionHtml(d)),
+      collectHtml(d),
       sec('History', timelineHtml(d)),
       d.orderNo ? sec('Converted', '<div class="qd-callout ok">This quotation became order <b>' + esc(d.orderNo) + '</b>. A quotation is not a reservation: stock leaves inventory only at the sale or order-confirm step.</div>') : '',
       productionHtml(d),
@@ -693,6 +694,57 @@
     } catch (e) { toast(fieldErr(e), true); }
   }
 
+  /* ---- collecting the money (the cashier records it; Finance only follows up) ----
+     Online (Xendit) payments are recorded by themselves: the cashier can press "Check online payment" to look now. Anything paid at the
+     counter, on pickup or on delivery is recorded here; cash goes into this cashier's own open Cash Shift (the server refuses it without one). */
+  const PAY_METHODS = ['Cash', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card'];
+  function collectDue(d) {
+    const bal = Number(d.balance) || 0, t = d.terms;
+    if (t && t.state === 'approved' && t.key !== 'full' && Number(t.amount) > 0 && d.status === 'accepted') return Math.min(bal, Math.max(0, Math.round((Number(t.amount) - (Number(d.paidAmount) || 0)) * 100) / 100)) || bal;
+    return bal;
+  }
+  function collectHtml(d) {
+    if (!['accepted', 'preparing', 'ready'].includes(d.status) || !(Number(d.balance) > 0)) return '';
+    const online = d.payMethod === 'Xendit', where = d.fulfillment === 'Delivery' ? 'on delivery' : 'at pickup', due = collectDue(d);
+    const intro = online
+      ? '<div class="qd-callout">The customer chose to pay online. It is recorded automatically when it arrives. Only take money here if they pay you at the counter instead — the online link is closed first so they cannot pay twice.</div>'
+      : '<div class="qd-callout">Collect <b>' + money(due) + '</b> ' + (d.status === 'ready' ? where : 'when the customer pays') + ', then record it here. You are the one who records it; Finance is told.</div>';
+    return sec('Collect payment', intro +
+      '<form id="qdCollectForm" class="qd-form" novalidate><label>Amount received (₱)<input name="amount" inputmode="decimal" autocomplete="off" value="' + esc(String(due)) + '"></label>' +
+      '<label>Paid by<select name="method">' + PAY_METHODS.map((m) => '<option' + (m === 'Cash' ? ' selected' : '') + '>' + esc(m) + '</option>').join('') + '</select></label>' +
+      '<label data-refrow hidden>Reference <span class="q-optional">(from the app, receipt or statement)</span><input name="reference" maxlength="60" autocomplete="off"></label>' +
+      '<div class="qd-err" id="qdCollectErr" role="alert"></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" class="btn-primary" data-act="collect">Record payment</button>' +
+      (online ? '<button type="button" class="btn-secondary" data-act="checkpay">Check online payment</button>' : '') + '</div></form>');
+  }
+  async function doCollect() {
+    const d = S.detail, form = el('qdCollectForm'); if (!d || !form) return;
+    const err = el('qdCollectErr'); err.textContent = '';
+    const amount = form.elements.amount.value.replace(/[,₱\s]/g, ''), method = form.elements.method.value, reference = form.elements.reference.value.trim();
+    if (!(Number(amount) > 0)) { err.textContent = 'Enter the amount received.'; return; }
+    if (Number(amount) > Number(d.balance) + 0.004) { err.textContent = 'The balance is only ' + money(d.balance) + '.'; return; }
+    if (method !== 'Cash' && reference.length < 4) { err.textContent = 'Enter the reference (at least 4 characters).'; form.elements.reference.focus(); return; }
+    const go = await pqConfirm({ title: 'Record this payment for ' + d.id + '?', description: method === 'Cash' ? 'The cash goes into your open Cash Shift.' : 'Recorded as received by ' + method + '.',
+      rows: [['Amount', money(Number(amount))], ['Paid by', method]].concat(reference ? [['Reference', reference]] : []).concat([['Balance after', money(Math.max(0, Number(d.balance) - Number(amount)))]]),
+      acknowledgment: 'I have received this money.', confirmLabel: 'Record payment' });
+    if (!go) return;
+    S.collectKey = S.collectKey || requestId();
+    try {
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/payment', { method: 'POST', body: JSON.stringify({ amount, method, reference, requestId: S.collectKey }) });
+      S.collectKey = null;
+      toast(r.balance > 0 ? 'Payment recorded. Balance ' + money(r.balance) + '.' : 'Payment recorded. Fully paid.');
+      await openDetail(d.id); loadDesk();
+    } catch (e) { err.textContent = fieldErr(e); }
+  }
+  async function doCheckPay() {
+    const d = S.detail; if (!d) return;
+    try {
+      const r = await call('/api/pos/quotes/' + encodeURIComponent(d.id) + '/check-payment', { method: 'POST', body: '{}' });
+      toast(r.balance > 0 ? 'Not paid online yet. Balance ' + money(r.balance) + '.' : 'Paid online. It is recorded.');
+      await openDetail(d.id); loadDesk();
+    } catch (e) { toast(fieldErr(e), true); }
+  }
+
   /* ---- after acceptance: the job order of a custom item (cashier / production staff can run every step) ---- */
   function productionHtml(d) {
     if (!['accepted', 'preparing', 'ready'].includes(d.status) || d.sku) return '';
@@ -1036,6 +1088,12 @@
       if (b.dataset.act === 'terms') { S.openTerms = true; renderDetail(); }
       if (b.dataset.act === 'cancelterms') { S.openTerms = false; renderDetail(); }
       if (['jobissue', 'jobfinish', 'complete'].includes(b.dataset.act)) jobAction(b.dataset.act);
+      if (b.dataset.act === 'collect') doCollect();
+      if (b.dataset.act === 'checkpay') doCheckPay();
+    });
+    el('qdDrawerBody').addEventListener('change', (e) => {      // a reference is only asked for when the money did not come as cash
+      const f = e.target.closest('#qdCollectForm'); if (!f || e.target.name !== 'method') return;
+      f.querySelector('[data-refrow]').hidden = e.target.value === 'Cash';
     });
     el('qdDrawerBody').addEventListener('click', (e) => {
       const form = el('qdPriceForm'); if (!form || !form.contains(e.target)) return;

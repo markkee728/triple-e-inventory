@@ -18,6 +18,38 @@ const NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'\u2019-]*$/u;
 const MAX_OPEN_QUOTES = 5;           // a customer can have this many un-answered requests at once
 const BACK_IN_STOCK_DAYS = 7;        // how long the "Back in stock" tag shows for a customer who asked to be told
 
+/* ---------------- pure: who must be reminded about money still owed on an accepted quote, and when ----------------
+   Nobody keys a payment in from Finance. Online money arrives by itself (Xendit); money taken on pickup / delivery is taken by the
+   cashier at the counter. So the automation reminds the people who can actually move the money:
+     customer  online payment not made   6 h after accepting, then every 24 h, at most 3 times
+     Finance   online payment still not made after 72 h (once): chase the customer or close the quote
+     cashier   the order is ready / out for delivery and a balance is still owed: at once, then every 48 h
+     customer  same, every 48 h (the first "your order is ready" message already went out), at most 3 times
+     Finance   ready but still unpaid after 7 days (once)
+   Each action has a key; the notifications table (dedupeKey) is what stops the same reminder going out twice.
+   q: { status, pay_method, quoted_amount, paid_amount, accepted_at (ms), ready_at (ms), has_account }  now: ms */
+const HOUR = 3600000;
+function paymentReminderPlan(q, now, cfg) {
+  const c = Object.assign({ onlineFirstH: 6, onlineEveryH: 24, onlineMax: 3, onlineFinanceH: 72, readyEveryH: 48, readyMax: 3, readyFinanceH: 168 }, cfg || {});
+  const owed = Math.round((Number(q.quoted_amount) - (Number(q.paid_amount) || 0)) * 100) / 100, out = [];
+  if (!(owed > 0.004)) return out;
+  if (q.status === 'accepted' && q.pay_method === 'Xendit' && !(Number(q.paid_amount) > 0) && q.accepted_at) {
+    const h = (now - q.accepted_at) / HOUR;
+    if (h >= c.onlineFirstH && q.has_account) {
+      const n = Math.min(c.onlineMax, Math.floor((h - c.onlineFirstH) / c.onlineEveryH) + 1);
+      out.push({ to: 'customer', kind: 'online', n, key: 'qpay_online:' + n, owed });
+    }
+    if (h >= c.onlineFinanceH) out.push({ to: 'finance', kind: 'online_stale', n: 1, key: 'qpay_online_stale', owed });
+  }
+  if (q.status === 'ready' && q.ready_at) {
+    const h = (now - q.ready_at) / HOUR, n = Math.floor(h / c.readyEveryH);
+    out.push({ to: 'cashier', kind: 'collect', n, key: 'qpay_collect:' + n, owed });
+    if (n >= 1 && q.has_account && n <= c.readyMax) out.push({ to: 'customer', kind: 'pickup', n, key: 'qpay_pickup:' + n, owed });
+    if (h >= c.readyFinanceH) out.push({ to: 'finance', kind: 'ready_stale', n: 1, key: 'qpay_ready_stale', owed });
+  }
+  return out;
+}
+
 module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, ValidationError, str }) {
   const bad = (field, msg) => new ValidationError({ [field]: msg });
   const { shopInfo } = makeOrderMail(pool);
@@ -1423,6 +1455,156 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   }
   (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-expiry', run: remindExpiringQuotes });
 
+  /* ---------- Who records a payment ----------
+     Online (Xendit): nobody. The signed callback, or the server asking Xendit directly, records it.
+     Pay on pickup / cash on delivery: the CASHIER who takes the money records it, and cash goes into that cashier's own open
+     Cash Shift (so the drawer count adds up). Finance does not key payments in: it is told when money arrives and can send the
+     customer or the cashier a reminder (below). If the customer chose online payment, the open Xendit link is checked first
+     and closed before a counter payment is taken, so the same money can never be paid twice. */
+  async function settleOnlineInvoice(q, { close } = {}) {
+    if (!(q.pay_method === 'Xendit' && q.xendit_invoice_id && process.env.XENDIT_SECRET_KEY)) return { state: 'none' };
+    let inv; try { inv = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`); } catch (e) { console.warn('[xendit] quote payment check failed:', e.message); return { state: 'unavailable' }; }
+    const st = String(inv.status || '').toUpperCase();
+    if (['PAID', 'SETTLED'].includes(st)) { await applyQuoteInvoice(q, inv, q.xendit_invoice_id); return { state: 'paid' }; }
+    if (st === 'PENDING' && close) {
+      try { await xenditCall(`${xBase}/invoices/${encodeURIComponent(q.xendit_invoice_id)}/expire!`, { method: 'POST', body: {} }); return { state: 'closed' }; }
+      catch (e) { console.warn('[xendit] could not close the quote invoice:', e.message); return { state: 'unavailable' }; }
+    }
+    return { state: st === 'PENDING' ? 'pending' : 'expired' };
+  }
+  const quoteByNo = async (no) => (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1', [no])).rows[0];
+
+  app.post('/api/pos/quotes/:no/payment', auth('cashier'), wrap(async (req, res) => {
+    const b = req.body || {};
+    const raw = String(b.amount == null ? '' : b.amount).replace(/[,₱\s]/g, ''), method = str(b.method), note = str(b.note);
+    if (!raw) throw bad('amount', 'Enter the amount received');
+    let amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
+    amount = round2(amount);
+    if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
+    if (note.length > 100) throw bad('note', 'The note must be 100 characters or fewer');
+    const reference = method === 'Cash' ? '' : str(b.reference);
+    if (method !== 'Cash' && (reference.length < 4 || reference.length > 60)) throw bad('reference', 'Enter the reference from the app, receipt or statement (4 to 60 characters)');
+    const pt = app.locals.paymentTerms; if (!pt) throw bad('ledger', 'The payment ledger is not available');
+    const q0 = await quoteByNo(req.params.no);
+    if (!q0) throw bad('id', 'Quote request not found');
+    if (!accepting(q0)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
+    if (q0.pay_method === 'Xendit' && q0.xendit_invoice_id && round2(+q0.quoted_amount - (+q0.paid_amount || 0)) > 0.004) {
+      const r = await settleOnlineInvoice(q0, { close: true });
+      if (r.state === 'unavailable') throw bad('payment', 'The customer chose online payment and the payment link could not be checked right now. Try again in a minute so nobody is charged twice');
+      if (r.state === 'paid') {
+        const again = await quoteByNo(req.params.no);
+        if (!(round2(+again.quoted_amount - (+again.paid_amount || 0)) > 0.004)) throw bad('payment', 'The customer already paid this online. Nothing is left to collect');
+      }
+    }
+    const out = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quote request not found');
+      if (!accepting(cur)) throw bad('status', 'Payments can only be recorded on an accepted quote that is not completed yet');
+      let shiftId = null;
+      if (method === 'Cash') {
+        const shift = (await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id])).rows[0];
+        if (!shift) throw bad('method', 'Open your Cash Shift before taking cash for this quote');
+        shiftId = Number(shift.shift_id);
+      }
+      const paid = await pt.applyPayment(client, { kind: 'quote', no: cur.quote_no, amount, method, note, actor: req.user, requestId: str(b.requestId) || undefined,
+        providerRef: reference || undefined, tendered: b.tendered, cashShiftId: shiftId });
+      if (paid.replayed) return { cur, paid };
+      const entry = { id: paid.paymentId, amount, method, note: note || undefined, ref: reference || undefined, by: req.user.name || undefined, at: Date.now() };
+      await client.query('UPDATE quote_requests SET payments = $2::jsonb, updated_at = now() WHERE quote_id = $1',
+        [cur.quote_id, JSON.stringify((Array.isArray(cur.payments) ? cur.payments : []).concat([entry]))]);
+      return { cur, paid };
+    });
+    const parent = out.paid.parent, q = out.cur;
+    res.json({ ok: true, replayed: !!out.paid.replayed, paymentId: out.paid.paymentId, paidAmount: parent.paid, balance: parent.balance, paymentState: parent.state,
+      change: out.paid.change == null ? null : out.paid.change });
+    if (out.paid.replayed) return;
+    const body = `Payment of ${peso(amount)} received for ${q.quote_no} (${method}). ` + (parent.balance > 0 ? `Balance: ${peso(parent.balance)}.` : 'Fully paid. Thank you!');
+    Promise.resolve(pingUser(q.customer_id, { category: 'payment', title: 'Payment received', body, link: 'Shop_Customer.html', entityType: 'quote', entityId: q.quote_no }, 'customer')).catch(() => {});
+    Promise.resolve(pingFinance({ category: 'payment', title: 'Counter payment recorded on a quote', body: `${q.quote_no} — ${peso(amount)} (${method}) taken by ${req.user.name || 'the cashier'}. ` + (parent.balance > 0 ? `Balance ${peso(parent.balance)}.` : 'Fully paid.'),
+      link: 'Finance_Inventory.html#quotes', entityType: 'quote', entityId: q.quote_no, dedupeKey: 'qpos_pay:' + out.paid.paymentId })).catch(() => {});
+    (async () => {
+      if (!q.customer_id) return;
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      await send(u && u.email, `Payment received for ${q.quote_no}`, [`Hi ${q.contact_name},`, body, ...signoff()], 'quote-payment');
+    })().catch((e) => console.error('[mail] quote payment failed:', e.message));
+  }));
+
+  // "Check online payment": ask Xendit now instead of waiting for the callback (cashier at the counter, Finance on the quote)
+  for (const [base, role] of [['/api/pos', 'cashier'], ['/api/finance', 'finance']]) {
+    app.post(base + '/quotes/:no/check-payment', auth(role), wrap(async (req, res) => {
+      const q = await quoteByNo(req.params.no);
+      if (!q) throw bad('id', 'Quote request not found');
+      const r = await settleOnlineInvoice(q);
+      const c = await quoteByNo(req.params.no);
+      res.json({ ok: true, online: q.pay_method === 'Xendit', state: r.state, paidAmount: +c.paid_amount, balance: Math.max(0, round2(+c.quoted_amount - (+c.paid_amount || 0))) });
+    }));
+  }
+
+  /* ---------- Payment reminders (automatic, and by hand from Finance) ---------- */
+  const pingCashiers = (n) => (nc() ? nc().notifyRole('cashier', n) : null);
+  const readyAtOf = (q) => { const e = (Array.isArray(q.progress) ? q.progress : []).filter((x) => x && x.s === 'ready').pop(); return e && e.at ? +e.at : (q.updated_at ? new Date(q.updated_at).getTime() : null); };
+  function reminderText(q, a) {
+    const owe = peso(a.owed), where = q.fulfillment === 'Delivery' ? 'on delivery' : 'at pickup';
+    if (a.kind === 'online') return { title: `Please pay for ${q.quote_no}`, severity: 'warn', body: `${owe} is due so we can start on your order. Open Request a Quote and tap Pay now (GCash, Maya, card or bank).` };
+    if (a.kind === 'pickup') return { title: `Your order ${q.quote_no} is waiting`, severity: 'warn', body: `${q.quote_no} is ${q.fulfillment === 'Delivery' ? 'ready for delivery' : 'ready for pickup'}. ${owe} is still to be paid ${where}.` };
+    if (a.kind === 'collect') return { title: `Collect ${owe} on ${q.quote_no}`, severity: a.n ? 'warn' : 'info',
+      body: `${q.contact_name} (${q.phone}): ${q.quote_no} is ${q.fulfillment === 'Delivery' ? 'out for delivery' : 'ready for pickup'} and ${owe} is still unpaid. Collect it ${where}, then record it in Quote Desk > Collect payment.` };
+    if (a.kind === 'online_stale') return { title: `${q.quote_no} accepted but unpaid`, severity: 'warn', body: `${q.contact_name} accepted ${q.quote_no} more than 3 days ago and has not paid ${owe} online. Remind them or close the quote.` };
+    return { title: `${q.quote_no} ready but unpaid`, severity: 'error', body: `${q.quote_no} has been ready for over 7 days with ${owe} still unpaid. Ask the cashier to collect it, or decide what happens to the order.` };
+  }
+  /* sends one reminder; `bucket` makes the key unique per send for manual reminders. Returns 1 when it went out, 0 when the same one was already sent. */
+  async function sendPaymentReminder(q, a, bucket) {
+    const t = reminderText(q, a), key = a.key + ':' + q.quote_no + (bucket ? ':' + bucket : '');
+    const base = { category: 'payment', severity: t.severity, title: t.title, body: t.body, entityType: 'quote', entityId: q.quote_no, dedupeKey: key };
+    if (a.to === 'finance') return (await pingFinance(Object.assign(base, { link: 'Finance_Inventory.html#quotes' }))) ? 1 : 0;
+    if (a.to === 'cashier') return (await pingCashiers(Object.assign(base, { link: 'POS_Cashier.html#quotes' }))) ? 1 : 0;
+    if (!q.customer_id) return 0;
+    const added = await pingUser(q.customer_id, Object.assign(base, { link: 'Shop_Customer.html' }), 'customer');
+    if (!added) return 0;
+    (async () => {
+      const u = (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0];
+      let link = '';
+      if (a.kind === 'online') { try { link = (await quoteCheckoutUrl(q)) || ''; } catch (_) { /* the in-app message still tells them to open the quote */ } }
+      await send((u && u.email) || q.contact_email, t.title, [`Hi ${q.contact_name},`, t.body, ...(link ? [`Pay online here: ${link}`] : []), 'If you already paid, please ignore this message.', ...signoff()], 'quote-pay-reminder');
+    })().catch((e) => console.error('[mail] quote payment reminder failed:', e.message));
+    return 1;
+  }
+  async function remindQuotePayments() {
+    const { rows } = await pool.query(`
+      SELECT q.*, (q.customer_id IS NOT NULL) AS has_account FROM quote_requests q
+       WHERE q.status IN ('accepted', 'ready') AND q.quoted_amount IS NOT NULL AND q.quoted_amount - COALESCE(q.paid_amount, 0) > 0.004
+       ORDER BY q.quote_id LIMIT 300`);
+    const now = Date.now(), out = { checked: rows.length, sent: 0 };
+    for (const q of rows) {
+      const plan = paymentReminderPlan({ status: q.status, pay_method: q.pay_method, quoted_amount: q.quoted_amount, paid_amount: q.paid_amount,
+        accepted_at: q.responded_at ? new Date(q.responded_at).getTime() : null, ready_at: q.status === 'ready' ? readyAtOf(q) : null, has_account: q.has_account }, now);
+      for (const a of plan) { try { out.sent += await sendPaymentReminder(q, a); } catch (e) { console.warn('[auto] payment reminder for ' + q.quote_no + ' failed:', e.message); } }
+    }
+    if (out.sent) console.log(`[auto] sent ${out.sent} quote payment reminder(s)`);
+    return out;
+  }
+  (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-payment-reminders', run: remindQuotePayments });
+
+  // Finance: nudge the customer, or the cashier who collects, about money still owed on an accepted quote (at most once every 6 hours each)
+  app.post('/api/finance/quotes/:no/remind', auth('finance'), wrap(async (req, res) => {
+    const to = str((req.body || {}).to);
+    if (!['customer', 'cashier'].includes(to)) throw bad('to', 'Choose who to remind: the customer or the cashier');
+    const q = await quoteByNo(req.params.no);
+    if (!q) throw bad('id', 'Quote request not found');
+    const owed = round2(+q.quoted_amount - (+q.paid_amount || 0));
+    if (!accepting(q) || !(owed > 0.004)) throw bad('payment', 'Nothing is waiting to be paid on this quote');
+    if (to === 'customer' && !q.customer_id) throw bad('to', `This is a walk-in quote with no online account. Call the customer on ${q.phone || 'the number on the quote'}`);
+    const kind = to === 'customer' ? (q.status === 'ready' ? 'pickup' : 'online') : 'collect';
+    if (to === 'cashier' && q.status !== 'ready') throw bad('to', 'The cashier collects once the order is ready. Until then the customer is the one to remind');
+    if (to === 'customer' && kind === 'online' && q.pay_method !== 'Xendit') throw bad('to', 'This customer pays at ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '. Nothing is due yet');
+    const bucket = 'm' + Math.floor(Date.now() / (6 * HOUR));
+    const sent = await sendPaymentReminder(q, { to, kind, n: 0, key: 'qpay_manual:' + to, owed }, bucket);
+    if (sent) await audit(pool, req.user, 'Record edited', `Quote ${q.quote_no}: payment reminder sent to the ${to} (${peso(owed)} owed)`);
+    res.json({ ok: true, sent: !!sent, message: sent ? `Reminder sent to the ${to}.` : `The ${to} was already reminded in the last 6 hours.` });
+  }));
+  app.locals.quotePayments = { checkoutUrl: quoteCheckoutUrl, owedOn };
+
   /* =====================================================
      4. Reviews
   ===================================================== */
@@ -1537,3 +1719,4 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   app.locals.shopExtras = { decorate, checkMinimums, effectiveMin, MIN_ORDER_FLOOR, MIN_ORDER_CAP };
 };
+module.exports.pure = { paymentReminderPlan };

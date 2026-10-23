@@ -1,5 +1,6 @@
 /* sales-hub.js — Finance > Sales: ONE scrollable page, with a sticky chip bar (same look and behaviour as Reports).
-     Overview · Online Orders · POS Sales & Shifts · Quote Approvals · Customer Profiles · Policies & Rates
+     Overview · Quote Approvals · Online Orders · POS Sales & Shifts · Customer Profiles · Policies & Rates
+   (the section order on the page matches the chip order: the scroll-spy walks the chips top to bottom)
    Every section is always on the page. The bar only (1) scrolls to a section when a chip is clicked,
    (2) highlights the section you are reading as you scroll, and (3) names that section on the right.
    navigateToPage('orders') / ('quotes') / ... (script.js) call window.TripleESalesHub.show(id) so old links still land
@@ -10,9 +11,9 @@
 
   var STATUS = {
     'sales-overview': 'Realtime activity',
+    'quotes': 'Price review',
     'orders': 'Order queue',
     'sales': 'In-store ledger',
-    'quotes': 'Price review',
     'customers': 'Directory',
     'payment-terms': 'Automated engine'
   };
@@ -86,7 +87,9 @@
       }).observe(page, { attributes: true, attributeFilter: ['class'] });
     }
 
-    window.TripleESalesHub = { show: go, current: function () { return current; } };
+    // the pending-approvals bar (sales-admin.js) shows / hides inside the sticky bar: re-measure so sections never hide behind it
+    window.TripleESalesHub = { show: go, current: function () { return current; }, measure: function () { measure(); onScroll(); } };
+    if ('ResizeObserver' in window) new ResizeObserver(function () { measure(); }).observe(bar);
     syncHost(); measure(); spy();
     setTimeout(measure, 600);   // after fonts / the first data load
   }
