@@ -998,9 +998,20 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
          LEFT JOIN users d ON d.user_id = q.terms_decided_by
          LEFT JOIN orders conv ON conv.order_id = q.converted_order_id
         ORDER BY (q.status = 'pending_approval') DESC, (q.status IN ('new','accepted','preparing','ready')) DESC, q.created_at DESC LIMIT 300`);
+    // recurring customers: for each price waiting for Finance, what this customer was last quoted for the same product (last-quote.js)
+    let lastOf = () => null;
+    if (rows.some((q) => q.status === 'pending_approval' && q.product_sku)) {
+      try {
+        const h = await pool.query(`SELECT quote_id, quote_no, customer_id, phone, product_sku, quantity, quoted_amount, suggested_cost, status, created_at
+            FROM quote_requests WHERE product_sku IS NOT NULL AND quoted_amount IS NOT NULL AND status NOT IN ('new','awaiting_details','pending_approval')
+            ORDER BY created_at DESC LIMIT 3000`);
+        lastOf = (q) => require('./last-quote').lastQuoteFor(q, h.rows);
+      } catch (err) { console.warn('[quotes] last-quote history skipped:', err.message); }   // the list must never fail because of a hint
+    }
     // convertedOrder tells the Sales report that this quotation's money belongs to an order it already lists (§10)
     res.json(rows.map((q) => ({ ...quoteJson(q), customer: q.contact_name, phone: q.phone, email: q.customer_email,
-      handledBy: q.handled_by_name || undefined, convertedOrder: q.converted_order_no || undefined })));
+      handledBy: q.handled_by_name || undefined, convertedOrder: q.converted_order_no || undefined,
+      lastQuote: (q.status === 'pending_approval' && lastOf(q)) || undefined })));
   }));
 
   // Finance: send the quote (amount is required), close a request, or reopen it

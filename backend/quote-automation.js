@@ -41,6 +41,10 @@ const peso = (n) => '₱' + Number(n || 0).toLocaleString('en-PH', { minimumFrac
 const amt = (n, unit) => (+Number(n).toFixed(4)).toLocaleString('en-PH', { maximumFractionDigits: 4 }) + ' ' + unit;
 const MATERIAL_DEPTS = ['Raw Materials', 'Finishing Supplies'];
 const SYSTEM = { id: null, name: 'System (automatic)', roleLabel: 'System' };
+/* Reasons that can never be approved in a batch: selling below cost, with no cost, or without the stock each need a person to look at that one quote.
+   (The Finance screen hides the "Approve all" button for these too; keep shop-extras-admin.js NO_BULK in step.) */
+const NO_BULK = ['below_cost', 'not_costed', 'stock_short'];
+const bulkBlocked = (key) => String(key || '').split('+').filter((r) => NO_BULK.includes(r));
 
 /* ---------------- pure: price a list of recipe lines (unit-tested in test/quote-automation.test.js) ----------------
    rows: { sku, name, department, unit (stock unit), unit_cost, is_archived, on_hand, qty_per_unit, req_unit, why, estimate }
@@ -508,6 +512,8 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
     const b = req.body || {}, key = str(b.reasonKey), nos = Array.isArray(b.quotes) ? [...new Set(b.quotes.map((x) => str(x)).filter(Boolean))] : [];
     if (!key) throw bad('reasonKey', 'Choose which reason you are approving');
     if (!nos.length || nos.length > 50) throw bad('quotes', 'Pick 1 to 50 quotes');
+    const blocked = bulkBlocked(key);
+    if (blocked.length) throw bad('reasonKey', 'Cannot be approved in bulk (' + blocked.map((r) => RULE_LABEL[r] || r).join(', ') + '): open each quote and decide on it');
     const flow = app.locals.quoteFlow; if (!flow) throw bad('quotes', 'Approvals are not available right now');
     const done = [], skipped = [];
     for (const no of nos) {
@@ -620,4 +626,4 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
   app.locals.quoteAutomation = api;
   return api;
 };
-module.exports.pure = { priceLines, routeQuote, RULE_LABEL };
+module.exports.pure = { priceLines, routeQuote, RULE_LABEL, NO_BULK, bulkBlocked };

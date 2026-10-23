@@ -216,6 +216,7 @@
           R('Fulfilment', (q.fulfillment || '') + (q.area ? ' \u00B7 ' + q.area : '')), R('Lead time', q.proposedLeadTime || q.leadTime),
           R('Recipe cost', cost != null ? peso(cost) : ''), R('System price', q.suggestedAmount != null ? peso(q.suggestedAmount) : ''),
           R(price ? 'Cashier\u2019s price' : 'Quoted price', peso(amt)), R('Margin', margin != null ? margin.toFixed(1) + '%' : ''),
+          R('Last quoted', q.lastQuote ? peso(q.lastQuote.amount) + ' (' + q.lastQuote.id + ')' + (q.lastQuote.sameQuantity ? ' \u00B7 same quantity' : '') + (q.lastQuote.costDriftPct != null ? ' \u00B7 cost ' + (q.lastQuote.costDriftPct > 0 ? '+' : '') + q.lastQuote.costDriftPct + '%' : '') : ''),
           R('Payment terms', termText(t)), R('Proposed by', q.proposedBy), R('Why it came to Finance', q.approvalReason)].filter(Boolean) });
     });
     sales.filter((s) => s.source === 'Shop' && s.cancelRequest).forEach((s) => out.push({ key: 'cancel:' + s.ref, kind: 'cancel', id: s.ref, ref: s.ref, cls: 'cancel', tag: 'Order cancellation',
@@ -257,7 +258,8 @@
   let dx = null;   // { key, step: 'detail' | 'confirm', act, price, note }
   const findItem = (key) => decisionItems().find((i) => i.key === key);
   function openDecision(key) {
-    dx = { key, step: 'detail', pct: 0, opts: null }; openRef = 'dx:' + key; paintDecision(); ensureOverlay().classList.add('open');
+    const dq = quotesData.find((x) => 'quote:' + x.id === key), draft = dq && dq.status === 'pending_approval' && window.QuoteGuide && window.QuoteGuide.returnNote ? window.QuoteGuide.returnNote(dq) : '';
+    dx = { key, step: 'detail', pct: 0, opts: null, note: draft, draft }; openRef = 'dx:' + key; paintDecision(); ensureOverlay().classList.add('open');
     const it = findItem(key); if (!it || !it.price) return;
     const done = (o) => { if (dx && dx.key === key) { dx.opts = o; if (dx.step === 'detail') paintDecision(); } };
     api('/finance/quotes/' + encodeURIComponent(it.id) + '/discount-options').then(done).catch((e) => done({ steps: [], why: e.message }));
@@ -284,13 +286,13 @@
       h = head + '<div class="sa-banner ' + (act.danger ? 'bad' : 'warn') + '"><strong>Are you sure you want to ' + esc(act.label.toLowerCase()) + '?</strong><br>' + esc(act.fx) + '</div><dl class="sa-info">' +
         infoRow('Request', it.ref + ' \u00B7 ' + it.tag) + infoRow('Customer / cashier', it.party) +
         (it.price && act.a === 'approve' ? infoRow('Final price', peso(finalPrice(it, dx.pct)) + (dx.pct ? ' (was ' + peso(it.amount) + ', ' + dx.pct + '% discount)' : '')) : infoRow('Amount', peso(it.amount))) +
-        infoRow('Payment terms', it.terms) + infoRow('Your note', dx.note) + '</dl>' + err +
+        infoRow('Payment terms', it.terms) + infoRow('Your note', act.a === 'return' ? dx.note : '') + '</dl>' + err +
         '<div class="sa-actions"><button type="button" class="btn-primary btn-sm' + (act.danger ? ' btn-danger-action' : '') + '" data-dx="yes">Yes, ' + esc(act.label.toLowerCase()) + '</button>' +
         '<button type="button" class="btn-secondary btn-sm" data-dx="back">Go back</button></div>';
     } else {
       h = head + '<dl class="sa-info">' + it.rows.map((r) => infoRow(r[0], r[1])).join('') + '</dl>' +
         (it.price ? discountBox(it) : '') +
-        (it.note ? '<label class="sa-dx-field">Note to the cashier (needed to send back)<textarea id="dxNote" rows="2" maxlength="500">' + esc(dx.note || '') + '</textarea></label>' : '') + err +
+        (it.note ? '<label class="sa-dx-field">Note to the cashier (needed to send back' + (dx.draft ? '; drafted from the rules this price failed, edit it if needed' : '') + ')<textarea id="dxNote" rows="2" maxlength="500">' + esc(dx.note || '') + '</textarea></label>' : '') + err +
         '<div class="sa-actions">' + (it.kind === 'quote' ? '<button type="button" class="btn-secondary btn-sm" data-sa-go="quotes">Open in Quote Requests</button>' : '') + it.acts.map((a, i) => '<button type="button" class="' + (a.ghost ? 'btn-secondary' : 'btn-primary' + (a.danger ? ' btn-danger-action' : '')) + ' btn-sm" data-dx="pick" data-i="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>';
     }
     $('saModalBody').innerHTML = h;

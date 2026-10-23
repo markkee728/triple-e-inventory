@@ -49,5 +49,33 @@
     g.tone = g.score >= 100 ? 'urgent' : g.score >= 60 ? 'soon' : 'ok';
     return g;
   }
-  window.QuoteGuide = { next };
+  /* returnNote(q): a ready-to-edit note for "Send back to cashier", built from the rules the price failed (q.approvalCheck).
+     Returns '' when the quote has no recorded rule, so the note box stays empty and Finance writes it. Max 500 characters (the server limit). */
+  function returnNote(q) {
+    const ck = (q && q.approvalCheck) || {}, n = ck.numbers || {}, rules = Array.isArray(ck.rules) ? ck.rules : [];
+    const cash = n.cashierTotal != null ? n.cashierTotal : q && q.proposedAmount, parts = [];
+    const up = (v) => Math.ceil(v * 100 - 1e-9) / 100, dn = (v) => Math.floor(v * 100 + 1e-9) / 100;
+    rules.forEach((r) => {
+      if (r === 'below_cost' && n.costTotal != null) parts.push('The price of ' + peso(cash) + ' is below our cost of ' + peso(n.costTotal) + '. Please raise it to at least ' + peso(n.costTotal) + '.');
+      else if (r === 'below_margin' && n.marginPct != null && n.minMarginPct != null) {
+        const need = n.costTotal != null && n.minMarginPct < 100 ? up(n.costTotal / (1 - n.minMarginPct / 100)) : null;
+        parts.push('The margin is ' + n.marginPct + '% but the minimum is ' + n.minMarginPct + '%.' + (need ? ' Please price at ' + peso(need) + ' or more, or reduce the scope.' : ' Please raise the price or reduce the scope.'));
+      } else if (r === 'outside_band' && n.systemTotal != null && n.bandPct != null) {
+        const lo = dn(n.systemTotal * (1 - n.bandPct / 100)), hi = up(n.systemTotal * (1 + n.bandPct / 100));
+        parts.push('The price is ' + Math.abs(n.deviationPct) + '% ' + (n.deviationPct < 0 ? 'below' : 'above') + ' the system price of ' + peso(n.systemTotal) + '. Please keep it between ' + peso(lo) + ' and ' + peso(hi) + '.');
+      } else if (r === 'stock_short' && (n.shortfalls || []).length) {
+        parts.push('Not enough stock: ' + n.shortfalls.map((s) => s.name + ' short by ' + (+Number(s.short).toFixed(4)) + ' ' + s.unit).join('; ') + '. Please confirm the restock or reduce the quantity.');
+      } else if (r === 'not_costed') parts.push('The system cannot cost this request yet. Please complete the request details or recipe so it can be priced.');
+      else if (r === 'over_limit' && n.limit > 0) parts.push('The total of ' + peso(cash) + ' is over the cashier limit of ' + peso(n.limit) + '. Please reduce the scope or split the order.');
+      else if (r === 'partial_terms') parts.push('Partial-payment terms need Finance approval. Please offer full payment terms, or tell the customer it needs approval first.');
+      else if (r === 'checks_unavailable') parts.push('The automatic checks were unavailable. Please check the price against the system price and resubmit.');
+    });
+    if (!parts.length) return '';
+    const tail = ' Then resubmit.';
+    let text = parts.join(' ');
+    if (text.length + tail.length <= 500) text += tail;
+    while (text.length > 500 && parts.length > 1) { parts.pop(); text = parts.join(' '); }
+    return text.length > 500 ? text.slice(0, 497) + '...' : text;
+  }
+  window.QuoteGuide = { next, returnNote };
 })();

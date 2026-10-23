@@ -55,10 +55,34 @@
       '.sx-approve-grid{display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:10px;margin-bottom:10px}.sx-approve-grid div{padding:9px 11px;border:1px solid var(--border);border-radius:8px;background:var(--panel)}' +
       '.sx-approve-grid span,.sx-approve p span{display:block;font-size:11.5px;color:var(--text-faint);margin-bottom:3px}.sx-approve-grid strong{font-size:16px}.sx-approve-grid small{display:block;font-size:12px;color:var(--text-dim);margin-top:2px}' +
       '.sx-approve p{margin:6px 0 0;font-size:14px;overflow-wrap:anywhere}@media(max-width:560px){.sx-approve-grid{grid-template-columns:1fr}}' +
+      '.sx-approve p span.faint{display:inline;font-size:12.5px;margin:0}.sx-lastq-row .btn-sm{margin-top:6px;white-space:normal;text-align:left}.sx-lastq{color:var(--text-dim)}' +
       '.sx-text{max-width:340px;overflow-wrap:anywhere;white-space:pre-line}' +
       '.sx-why{max-width:300px;font-size:13px;overflow-wrap:anywhere}.sx-num{white-space:nowrap;font-variant-numeric:tabular-nums}.sx-num small,.sx-why small{display:block;color:var(--text-faint);font-size:12px}' +
       '.sx-bad{color:var(--red)}.sx-okc{color:var(--green)}.sx-batch{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}.sx-batch:empty{display:none}' +
+      '.sx-viewbar{display:inline-flex;margin:0 0 10px;border:1px solid var(--border);border-radius:8px;overflow:hidden}.sx-viewbar button{padding:6px 14px;border:0;background:var(--panel);color:var(--text-dim);font:inherit;font-size:13px;cursor:pointer}.sx-viewbar button+button{border-left:1px solid var(--border)}.sx-viewbar button.on{background:var(--blue-bright);color:#fff}' +
+      '.sx-board{display:grid;grid-template-columns:repeat(4,minmax(240px,1fr));gap:12px;overflow-x:auto;padding-bottom:6px}.sx-board[hidden]{display:none}.sx-col{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--panel) 60%,transparent)}' +
+      '.sx-col header{display:flex;justify-content:space-between;gap:8px;align-items:baseline;font-size:13px}.sx-col header span{font-size:12px;color:var(--text-dim);font-variant-numeric:tabular-nums}.sx-col-empty{padding:14px 6px;text-align:center;font-size:13px;color:var(--text-faint)}' +
+      '.sx-card{display:flex;flex-direction:column;gap:3px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;background:var(--panel);cursor:pointer;min-width:0}.sx-card:hover{border-color:var(--blue-bright)}.sx-card:focus-visible{outline:2px solid var(--blue-bright);outline-offset:2px}.sx-card.late{border-left:3px solid var(--red)}' +
+      '.sx-card-top{display:flex;justify-content:space-between;gap:8px;font-size:13px}.sx-card-top span{font-variant-numeric:tabular-nums}.sx-card-who{font-size:14px;overflow-wrap:anywhere}.sx-card-what{font-size:12.5px;overflow-wrap:anywhere}' +
+      '.sx-card-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}.sx-card-tags span{padding:1px 8px;border-radius:99px;font-size:11.5px;border:1px solid var(--border);color:var(--text-dim)}.sx-card-tags .soon{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 55%,var(--border))}.sx-card-tags .bad{color:var(--red);border-color:color-mix(in srgb,var(--red) 55%,var(--border))}.sx-card-tags .ok{color:var(--green)}' +
+      '.sx-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 10px}.sx-kpi{display:flex;flex-direction:column;gap:2px;text-align:left;padding:11px 14px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--text);font:inherit;cursor:pointer}' +
+      '.sx-kpi span{font-size:12px;color:var(--text-faint)}.sx-kpi strong{font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}.sx-kpi small{font-size:12px;color:var(--text-dim)}.sx-kpi:hover{border-color:var(--blue-bright)}.sx-kpi:focus-visible{outline:2px solid var(--blue-bright);outline-offset:2px}' +
+      '.sx-kpi.soon strong{color:var(--amber)}.sx-kpi.urgent{border-color:color-mix(in srgb,var(--red) 55%,var(--border))}.sx-kpi.urgent strong{color:var(--red)}.sx-kpi.on{border-color:var(--blue-bright);box-shadow:0 0 0 1px var(--blue-bright) inset}@media(max-width:760px){.sx-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}' +
+      '.sx-age{display:inline-block;margin-top:4px;padding:1px 8px;border-radius:99px;font-size:11.5px;border:1px solid var(--border);color:var(--text-dim);white-space:nowrap}.sx-age.soon{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 55%,var(--border))}.sx-age.urgent{color:var(--red);border-color:color-mix(in srgb,var(--red) 55%,var(--border));font-weight:600}' +
+      '.sx-approve-head .sx-age{margin:0}.sx-dg-late{font-style:normal;font-size:11.5px;color:var(--red);font-weight:600}tr.sx-latepick td:first-child{box-shadow:inset 3px 0 0 var(--red)}' +
+      '.sx-bgroup{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;width:100%;margin:0 0 8px;padding:12px 14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--amber) 55%,var(--border));background:color-mix(in srgb,var(--amber) 8%,transparent)}.sx-bgroup.blocked{border-color:color-mix(in srgb,var(--red) 45%,var(--border));background:color-mix(in srgb,var(--red) 6%,transparent)}' +
+      '.sx-bg-txt{display:flex;flex-direction:column;gap:2px;min-width:0}.sx-bg-txt span{font-size:12.5px;color:var(--text-dim)}.sx-bg-act{display:flex;gap:8px;flex-wrap:wrap}.sx-batch:has(.sx-bgroup){display:block}' +
       '.sx-chip{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border:1px solid var(--border);border-radius:99px;font-size:12.5px;background:var(--panel)}' +
+      '.sx-digest{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}.sx-digest:empty{display:none}' +
+      '.sx-dg{display:inline-flex;gap:7px;align-items:center;padding:6px 12px;border:1px solid var(--border);border-radius:99px;font:inherit;font-size:13px;background:var(--panel);color:var(--text);cursor:pointer;transition:background .15s,border-color .15s}' +
+      '.sx-dg b{font-variant-numeric:tabular-nums;font-size:14px}.sx-dg:hover{border-color:var(--blue-bright)}.sx-dg:focus-visible{outline:2px solid var(--blue-bright);outline-offset:2px}' +
+      '.sx-dg.urgent{border-color:color-mix(in srgb,var(--red) 55%,var(--border))}.sx-dg.urgent b{color:var(--red)}.sx-dg.soon b{color:var(--amber)}' +
+      '.sx-dg.on{background:color-mix(in srgb,var(--blue-bright) 14%,var(--panel));border-color:var(--blue-bright);font-weight:600}' +
+      '.sx-depprompt{position:fixed;right:18px;bottom:18px;z-index:1050;display:flex;gap:14px;align-items:center;max-width:min(440px,calc(100vw - 36px));padding:12px 14px;background:var(--panel);border:1px solid var(--blue-bright);border-radius:12px;box-shadow:0 8px 28px rgba(0,0,0,.28)}.sx-depprompt b{display:block;font-size:14px}.sx-depprompt span{display:block;font-size:12.5px;color:var(--text-dim);margin-top:2px}.sx-dp-act{display:flex;gap:6px;flex:none}' +
+      '.sx-depnote{margin:2px 0 8px;font-size:13px;color:var(--text-dim)}.sx-depnote b{color:var(--text)}' +
+      '.sx-ready{margin:8px 0}.sx-ready:empty{display:none}.sx-rd{font-size:13px;font-weight:600;margin:0 0 4px}.sx-rd.ok{color:var(--green)}.sx-rd.warn{color:var(--amber)}.sx-rd-line{font-size:13px;margin:4px 0;overflow-wrap:anywhere}.sx-rd-line .btn-sm{margin-left:6px}.sx-ready .faint{font-size:12.5px;margin-top:4px}' +
+      '.sx-exp{margin-top:4px;font-size:12.5px;color:var(--text-dim)}.sx-exp.soon{color:var(--amber);font-weight:600}.sx-exp.urgent{color:var(--red);font-weight:700}' +
+      '.sx-dg-clear{border:0;background:none;color:var(--text-dim);font:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer;padding:4px}.sx-dg-clear:focus-visible{outline:2px solid var(--blue-bright);outline-offset:2px}.sx-dg-ok{font-size:13px;color:var(--green)}' +
       '.sx-log{white-space:normal}.sx-log li{margin:0 0 6px;font-size:13px}.sx-log li small{display:block;color:var(--text-faint)}.sx-rules .sx-two{gap:0 14px}.sx-assume{color:var(--amber);font-size:13px}' +
       '.sx-warnbox{border-color:color-mix(in srgb,var(--amber) 55%,var(--border))}' +
       '.sxr-row{cursor:pointer;transition:background .15s}.sxr-row:hover{background:color-mix(in srgb,var(--text) 5%,transparent)}.sxr-row:focus-visible{outline:2px solid var(--blue-bright);outline-offset:-2px}' +
@@ -80,6 +104,25 @@
     var st = x.status, cls = st === 'quoted' ? (x.expired ? 'out' : 'in') : st === 'new' ? 'low' : (st === 'accepted' || st === 'preparing' || st === 'ready' || st === 'completed') ? 'in' : 'out';
     return '<span class="status-pill ' + cls + '">' + esc(x.expired ? 'Quote expired' : (x.statusLabel || st)) + '</span>';
   };
+  /* ---- how long a sent price stays valid: "expires in 3 days", red from tomorrow on, amber inside Finance's reminder window ---- */
+  var remindH = 24, escalateH = 48;                                        // "Remind you when a price waits longer than" / "Escalate after" (hours) from the approval rules
+  var expiryWarn = 2, rulesLoaded = false;                                 // expiryWarn = "Remind before a quote expires" (days) from the approval rules
+  var todayMnl = function () { return new Date().toLocaleDateString('en-CA', { timeZone: TZ }); };
+  var daysLeft = function (x) { return x.status === 'quoted' && x.validUntil ? Math.round((Date.parse(x.validUntil) - Date.parse(todayMnl())) / 864e5) : null; };
+  /* how long a cashier price has waited for Finance, against the reminder and escalation hours the server uses (quote-automation.js approvalReminders) */
+  var ageInfo = function (x) {
+    if (x.status !== 'pending_approval' || !x.proposedAt) return null;
+    var h = Math.max(0, Math.floor((Date.now() - x.proposedAt) / 36e5)), late = h >= escalateH, due = h >= remindH;
+    var span = h >= 48 ? Math.floor(h / 24) + ' days' : h < 1 ? 'under 1 h' : h + ' h';
+    return { hrs: h, text: 'waiting ' + span + (late ? ' \u00B7 overdue' : ''), tone: late ? 'urgent' : due ? 'soon' : '', late: late, due: due };
+  };
+  var ageHtml = function (x) { var a = ageInfo(x); return a ? '<span class="sx-age ' + a.tone + '" title="' + esc('Reminder after ' + remindH + ' h, escalated after ' + escalateH + ' h. It is never approved automatically.') + '">' + esc(a.text) + '</span>' : ''; };
+  var expiryInfo = function (x) {
+    var n = daysLeft(x); if (n == null) return null;
+    if (x.expired || n < 0) { var ago = Math.max(1, -n); return { text: 'expired ' + (n < 0 ? ago + ' day' + (ago === 1 ? '' : 's') + ' ago' : 'today'), tone: 'urgent', n: n }; }
+    return { text: n === 0 ? 'expires today' : n === 1 ? 'expires tomorrow' : 'expires in ' + n + ' days', tone: n <= 1 ? 'urgent' : n <= expiryWarn ? 'soon' : '', n: n };
+  };
+  var expiryHtml = function (x) { var e = expiryInfo(x); return e ? '<div class="sx-exp ' + e.tone + '" title="Price valid until ' + esc(day(x.validUntil)) + '">' + esc(e.text) + '</div>' : ''; };
   var months = function (m) { return m + (m === 1 ? ' month' : ' months'); };
   var ini = function (n) { return String(n || '?').trim().split(/\s+/).slice(0, 2).map(function (w) { return w.charAt(0).toUpperCase(); }).join('') || '?'; };
   var rPill = function (st) { return '<span class="status-pill ' + (st === 'hidden' ? 'out' : 'in') + '">' + (st === 'hidden' ? 'Hidden' : 'Visible') + '</span>'; };
@@ -93,8 +136,12 @@
       '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn-secondary btn-sm" id="sxqRules" type="button">Approval rules</button><button class="btn-secondary btn-sm" id="sxqRefresh" type="button">Refresh</button></div></div>' +
       '<div class="panel"><div class="panel-head"><div><div class="panel-title">Requests</div><div class="panel-sub" id="sxqSub">Loading\u2026</div></div>' +
       '<div class="inv-filters"><select id="sxqFilter" class="inv-select" aria-label="Show"><option value="approval">Cashier prices to approve</option><option value="open">Needs my action</option><option value="quoted">Waiting for the customer</option><option value="completed">Completed</option><option value="declined">Declined</option><option value="closed">Closed</option><option value="all">All requests</option></select></div></div>' +
+      '<div class="sx-kpis" id="sxqKpis" role="group" aria-label="Queue sizes: tap a tile to filter the list"></div>' +
+      '<div class="sx-digest" id="sxqDigest" role="group" aria-label="Quote pipeline: tap a step to filter the list"></div>' +
+      '<div class="sx-viewbar" id="sxqView" role="group" aria-label="Show the requests as"><button type="button" data-view="table">Table</button><button type="button" data-view="board">Board</button></div>' +
       '<div class="sx-batch" id="sxqBatch"></div>' +
-      '<div class="table-wrapper"><table><thead id="sxqHead"></thead><tbody id="sxqBody"></tbody></table></div></div>' +
+      '<div class="sx-board" id="sxqBoard" hidden></div>' +
+      '<div class="table-wrapper" id="sxqTableWrap"><table><thead id="sxqHead"></thead><tbody id="sxqBody"></tbody></table></div></div>' +
       '<div class="panel" style="margin-top:16px"><div class="panel-head"><div><div class="panel-title">Purchase Suggestions &amp; Restock Orders</div><div class="panel-sub" id="sxpSub">Materials and products needing purchase due to low stock or accepted customer quotes.</div></div>' +
       '<div class="inv-filters"><select id="sxpFilter" class="inv-select" aria-label="Filter suggestions"><option value="open">Needs ordering (Open)</option><option value="ordered">Waiting for delivery (Ordered)</option><option value="received">Delivered (Received)</option><option value="all">All items</option></select></div></div>' +
       '<div class="table-wrapper"><table><thead><tr><th>Item</th><th>Source</th><th>Order Qty</th><th>On Hand</th><th>Est. Cost</th><th>Supplier &amp; Lead Time</th><th>Timing / Delivery</th><th>Actions</th></tr></thead><tbody id="sxpBody"></tbody></table></div></div>';
@@ -112,7 +159,10 @@
       $('sxqRefresh').addEventListener('click', loadQuotes);
       document.addEventListener('finance-quotes-changed', loadQuotes);
       $('sxqRules').addEventListener('click', openRules);
-      $('sxqBatch').addEventListener('click', function (e) { var b = e.target.closest('[data-batch]'); if (b) batchApprove(b.dataset.batch); });
+      $('sxqBatch').addEventListener('click', function (e) {
+        var b = e.target.closest('[data-batch]'); if (b) { batchApprove(b.dataset.batch); return; }
+        var fo = e.target.closest('[data-bfocus]'); if (fo) { batchFocus = batchFocus === fo.dataset.bfocus ? null : fo.dataset.bfocus; renderQuotes(); }
+      });
       $('sxqBody').addEventListener('change', function () { paintBatch(); });
       if ($('sxpFilter')) $('sxpFilter').addEventListener('change', loadSuggestions);
       $('sxpBody').addEventListener('click', function (e) {
@@ -126,12 +176,17 @@
         var b = e.target.closest('[data-sxp]');
         if (b) markSuggestion(Number(b.dataset.sxp), b.dataset.st);
       });
-      $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
+      $('sxqFilter').addEventListener('change', function () { pickedFilter = true; digestKey = null; setView('table'); });
+      $('sxqView').addEventListener('click', function (e) { var b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+      $('sxqBoard').addEventListener('click', function (e) { var c = e.target.closest('[data-qcard]'); if (c) openCard(c); });
+      $('sxqBoard').addEventListener('keydown', function (e) { if (e.key !== 'Enter' && e.key !== ' ') return; var c = e.target.closest('[data-qcard]'); if (c) { e.preventDefault(); openCard(c); } });
+      $('sxqDigest').addEventListener('click', function (e) { var b = e.target.closest('[data-dg]'); if (b) pickDigest(b.dataset.dg); });
+      $('sxqKpis').addEventListener('click', function (e) { var b = e.target.closest('[data-kpi]'); if (b) pickDigest(b.dataset.kpi); });
       // the whole row opens the card (like the Sales ledger), not only its button; price approvals use the shared decision dialog
       var openRow = function (id) { var pq = quotes.find(function (q) { return q.id === id; }); if (pq && pq.status === 'pending_approval' && window.SalesDecisions) window.SalesDecisions.open(pq.id); else openQ(id); };
       $('sxqBody').addEventListener('click', function (e) {
         var a = e.target.closest('[data-sxapprove]'); if (a) { quickApprove(a.dataset.sxapprove); return; }
-        var b = e.target.closest('[data-sxq]'); if (b) { openRow(b.dataset.sxq); return; }
+        var b = e.target.closest('[data-sxq]'); if (b) { if (b.dataset.dep) wantDeposit = true; openRow(b.dataset.sxq); return; }
         var tr = e.target.closest('[data-qrow]'); if (tr && !e.target.closest('input, label, a, select')) openRow(tr.dataset.qrow);
       });
       $('sxqBody').addEventListener('keydown', function (e) {
@@ -162,32 +217,199 @@
 
   /* ---------------- quotes ---------------- */
   var IN_FLOW = ['accepted', 'preparing', 'ready'];
-  var needsAction = function (x) { return x.status === 'new' || x.status === 'pending_approval' || IN_FLOW.indexOf(x.status) >= 0; };
+  var needsAction = function (x) { return x.status === 'new' || x.status === 'pending_approval' || IN_FLOW.indexOf(x.status) >= 0 || (x.status === 'quoted' && !!(x.expired || x.costStale)); };
   var approvalCount = function () { return quotes.filter(function (x) { return x.status === 'pending_approval'; }).length; };
   var pickedFilter = false;                                                // the first load opens on the approvals when some are waiting
   var newCount = function () { return quotes.filter(needsAction).length; };
+  /* ---- deposit prompt: when a customer accepts, Finance is told what is due and can record it in one step ---- */
+  var wantDeposit = false, depSeen = null, depPending = [], lastPayMethod = '';
+  var depWord = function (x) { var t = x.terms || {}; return t.key === 'full' || +t.percent >= 100 ? 'payment' : 'deposit'; };
+  var termsLine = function (x) {
+    var t = x.terms || {}; if (t.state !== 'approved') return '';
+    return (depWord(x) === 'payment' ? 'Full payment' : (t.percent != null ? t.percent + '% down payment' : 'Down payment')) + (t.balance > 0 ? ' \u00B7 balance ' + peso(t.balance) + ' later' : '') + (t.condition ? ' \u00B7 ' + t.condition : '');
+  };
+  // after the panel is painted: amount pre-filled from the approved terms, the method the cashier used last, focus on the one thing left to do
+  function prefillPayment(x) {
+    var amt = $('sxPayAmt'), sel = $('sxPayMethod'); if (!amt || !sel) return;
+    var dep = x.dueNow > 0;
+    if (dep && window.MoneyInput) MoneyInput.set(amt, x.dueNow);
+    if (!sel.value && lastPayMethod && Array.prototype.some.call(sel.options, function (o) { return o.value === lastPayMethod; })) sel.value = lastPayMethod;
+    if (wantDeposit && dep) { wantDeposit = false; var go = !sel.value ? sel : $('sxPay'); if (go) go.focus(); }
+  }
+  // quotes that just reached "waiting for deposit" since the last refresh (the first load only records what is already waiting)
+  function watchDeposits() {
+    var due = quotes.filter(function (x) { return stageOf(x) === 'deposit'; }), fresh = [];
+    if (depSeen) due.forEach(function (x) { if (!depSeen[x.id] && !x.payOnline) fresh.push(x); });   // online payers settle through Xendit by themselves
+    depSeen = depSeen || {}; due.forEach(function (x) { depSeen[x.id] = 1; });
+    if (fresh.length) showDepPrompt(fresh);
+  }
+  function showDepPrompt(list) {
+    list.forEach(function (x) { if (depPending.indexOf(x.id) < 0) depPending.push(x.id); });
+    var el = $('sxDepPrompt');
+    if (!el) {
+      el = document.createElement('div'); el.id = 'sxDepPrompt'; el.className = 'sx-depprompt'; el.setAttribute('role', 'status'); document.body.appendChild(el);
+      el.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-dp]'); if (!b) return;
+        var ids = depPending.slice(); depPending = []; el.remove();
+        if (b.dataset.dp === 'x') return;
+        if (typeof window.navigateToPage === 'function') window.navigateToPage('quotes');
+        if (ids.length === 1) { wantDeposit = true; openQ(ids[0]); } else pickDigest('deposit');
+      });
+    }
+    var qs = depPending.map(function (id) { return quotes.find(function (q) { return q.id === id; }); }).filter(function (q) { return q && stageOf(q) === 'deposit'; });
+    if (!qs.length) { depPending = []; el.remove(); return; }
+    var one = qs.length === 1 ? qs[0] : null, sum = qs.reduce(function (a, q) { return a + (+q.dueNow || 0); }, 0);
+    el.innerHTML = '<div><b>' + (one ? esc(one.id) + ' was accepted' : qs.length + ' quotes were accepted') + '</b><span>' +
+      (one ? esc(one.customer || 'Customer') + ' \u00B7 ' + depWord(one) + ' due ' + peso(one.dueNow) : peso(sum) + ' in deposits waiting to be recorded') + '</span></div>' +
+      '<div class="sx-dp-act"><button type="button" class="btn-primary btn-sm" data-dp="go">' + (one ? 'Record ' + depWord(one) : 'Review them') + '</button>' +
+      '<button type="button" class="btn-secondary btn-sm" data-dp="x" aria-label="Dismiss">\u00D7</button></div>';
+  }
+  /* ---- pipeline digest bar: where every live quote sits, one tap to filter the list below ---- */
+  var digestKey = null;                                                    // null = the dropdown decides; otherwise one pipeline step from STAGES
+  var STAGES = [['approve', 'to approve', 'Cashier prices waiting for your approval', 'urgent'],
+    ['terms', 'payment terms to approve', 'Payment terms the cashier proposed', 'urgent'],
+    ['deposit', 'waiting for deposit', 'Accepted, down payment not recorded yet', 'soon'],
+    ['start', 'ready to start', 'Issue the materials or start preparing', 'soon'],
+    ['preparing', 'in preparation', 'Being made or prepared', ''],
+    ['handover', 'ready to hand over', 'Ready or out for delivery: collect any balance, then hand over', 'soon'],
+    ['refresh', 'price to refresh', 'The quote expired or material costs changed', 'soon'],
+    ['expiring', 'expiring soon', 'Sent price that lapses within the reminder window: remind the customer', 'soon']];
+  // one rule, so the chip counts and the filtered list can never disagree
+  function stageOf(x) {
+    var t = x.terms || {};
+    if (x.status === 'pending_approval') return 'approve';
+    if (t.state === 'proposed' && ['new', 'closed', 'declined', 'awaiting_details', 'completed'].indexOf(x.status) < 0 && (x.quotedAmount != null || x.proposedAmount != null)) return 'terms';
+    if (x.status === 'accepted') return x.dueNow > 0 ? 'deposit' : 'start';
+    if (x.status === 'preparing') return 'preparing';
+    if (x.status === 'ready') return 'handover';
+    if (x.status === 'quoted' && (x.expired || x.costStale)) return 'refresh';
+    if (x.status === 'quoted') { var e = expiryInfo(x); if (e && e.n <= expiryWarn) return 'expiring'; }
+    return null;
+  }
+  /* ---- Board view: every quote that is in fulfilment, one column per step. A card opens the same Manage panel as a table row ---- */
+  var viewMode = 'table';
+  try { if (window.localStorage && localStorage.getItem('sxqView') === 'board') viewMode = 'board'; } catch (e) { /* the table stays */ }
+  function setView(v) {
+    viewMode = v === 'board' ? 'board' : 'table';
+    try { if (window.localStorage) localStorage.setItem('sxqView', viewMode); } catch (e) { /* only a convenience */ }
+    renderQuotes();
+  }
+  function openCard(c) { var id = c.dataset.qcard; if (c.dataset.dep) wantDeposit = true; openQ(id); }
+  var stageAt = function (x) {                                           // when the quote reached the step it is in now
+    var e = (x.progress || []).filter(function (p) { return p.status === x.status; }).pop();
+    return (e && e.at) || (x.status === 'accepted' && x.respondedAt) || x.updatedAt || null;
+  };
+  var BOARD_COLS = [['accepted', 'Accepted'], ['preparing', 'Preparing'], ['ready', 'Ready / out for delivery'], ['done', 'Handed over today']];
+  function boardCard(x) {
+    var st = stageOf(x), t = x.terms || {}, at = stageAt(x), d = at ? Math.floor((Date.now() - at) / 864e5) : null, tags = [], left = x.neededBy ? Math.round((Date.parse(x.neededBy) - Date.parse(todayMnl())) / 864e5) : null;
+    if (x.lateForNeededBy && x.status !== 'completed') tags.push(['bad', 'will miss needed-by date']);
+    else if (left != null && left <= 3 && x.status !== 'completed') tags.push(['soon', left <= 0 ? 'needed today' : 'needed in ' + left + ' day' + (left === 1 ? '' : 's')]);
+    if (st === 'terms') tags.push(['soon', 'payment terms to approve']);
+    else if (st === 'deposit') tags.push(['soon', depWord(x) + ' due ' + peso(x.dueNow)]);
+    else if (st === 'start') tags.push(['', x.sku ? 'ready to start' : 'issue materials']);
+    if (x.status === 'ready') tags.push([x.balance > 0 ? 'soon' : 'ok', x.balance > 0 ? 'collect ' + peso(x.balance) : 'fully paid']);
+    else if (x.status === 'preparing' && x.balance > 0 && !(st === 'deposit')) tags.push(['', peso(x.balance) + ' balance']);
+    if (d != null && d >= 1 && x.status !== 'completed') tags.push(['', d + ' day' + (d === 1 ? '' : 's') + ' in this step']);
+    return '<div class="sx-card' + (x.lateForNeededBy && x.status !== 'completed' ? ' late' : '') + '" role="button" tabindex="0" data-qcard="' + esc(x.id) + '"' + (st === 'deposit' && !x.payOnline ? ' data-dep="1"' : '') + ' aria-label="' + esc('Open ' + x.id) + '">' +
+      '<div class="sx-card-top"><b>' + esc(x.id) + '</b><span>' + peso(x.quotedAmount != null ? x.quotedAmount : x.proposedAmount || 0) + '</span></div>' +
+      '<div class="sx-card-who">' + esc(x.customer || 'Customer') + (x.source === 'pos' ? ' <span class="faint">\u00B7 Walk-in</span>' : '') + '</div>' +
+      '<div class="faint sx-card-what">' + esc(x.product || 'Custom item') + ' \u00D7 ' + esc(x.quantity) + '</div>' +
+      (tags.length ? '<div class="sx-card-tags">' + tags.map(function (g) { return '<span class="' + g[0] + '">' + esc(g[1]) + '</span>'; }).join('') + '</div>' : '') + '</div>';
+  }
+  function paintBoard() {
+    var box = $('sxqBoard'); if (!box) return;
+    var today = todayMnl(), cols = {};
+    BOARD_COLS.forEach(function (c) { cols[c[0]] = []; });
+    quotes.forEach(function (x) {
+      if (x.status === 'accepted' || x.status === 'preparing' || x.status === 'ready') cols[x.status].push(x);
+      else if (x.status === 'completed') { var at = stageAt(x); if (at && new Date(at).toLocaleDateString('en-CA', { timeZone: TZ }) === today) cols.done.push(x); }
+    });
+    var QGs = function (x) { return window.QuoteGuide ? window.QuoteGuide.next(x).score : 0; };
+    box.innerHTML = BOARD_COLS.map(function (c) {
+      var list = cols[c[0]].sort(function (a, b) { return (c[0] === 'done' ? 0 : QGs(b) - QGs(a)) || (stageAt(a) || 0) - (stageAt(b) || 0); });   // most urgent first, then longest in the step
+      var total = list.reduce(function (a, x) { return a + (+(x.quotedAmount != null ? x.quotedAmount : x.proposedAmount) || 0); }, 0);
+      return '<section class="sx-col" aria-label="' + esc(c[1]) + '"><header><b>' + esc(c[1]) + '</b><span>' + list.length + (list.length ? ' \u00B7 ' + peso(total) : '') + '</span></header>' +
+        (list.length ? list.map(boardCard).join('') : '<div class="sx-col-empty">Nothing here</div>') + '</section>';
+    }).join('');
+  }
+  function paintView() {
+    var board = viewMode === 'board';
+    Array.prototype.forEach.call($('sxqView').querySelectorAll('[data-view]'), function (b) { var on = (b.dataset.view === 'board') === board; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    $('sxqBoard').hidden = !board; $('sxqTableWrap').hidden = board;
+    if (board) { $('sxqBatch').innerHTML = ''; paintBoard(); }
+    return board;
+  }
+  /* ---- KPI tiles: the size of each queue, one tap to filter. The tiles reuse the pipeline filter (digestKey), so the list, the chips and the tiles always agree ---- */
+  var KPI_KEYS = { fulfil: 1, balance: 1, exp48: 1 };                       // tile filters that are not a single pipeline step; 'approve' is the existing step
+  var inFlowQuote = function (x) { return IN_FLOW.indexOf(x.status) >= 0; };
+  var collectingBalance = function (x) { return inFlowQuote(x) && x.balance > 0 && stageOf(x) !== 'deposit'; };   // money still to collect that is not the down payment being waited for
+  var expiring48 = function (x) { var n = daysLeft(x); return x.status === 'quoted' && !x.expired && n != null && n >= 0 && n <= 2; };
+  // one rule for "does this quote belong to the filter that is on"
+  function inFilter(x, k) {
+    if (k === 'fulfil') return inFlowQuote(x);
+    if (k === 'balance') return collectingBalance(x);
+    if (k === 'exp48') return expiring48(x);
+    return stageOf(x) === k;
+  }
+  function paintKpis(f) {
+    var box = $('sxqKpis'); if (!box) return;
+    var sum = function (list, fn) { return list.reduce(function (a, x) { return a + (fn(x) || 0); }, 0); };
+    var ap = quotes.filter(function (x) { return x.status === 'pending_approval'; }), fl = quotes.filter(inFlowQuote), bal = quotes.filter(collectingBalance), ex = quotes.filter(expiring48);
+    var late = ap.filter(function (x) { return (ageInfo(x) || {}).late; }).length;
+    var tiles = [
+      ['approve', 'Pending approval', ap.length, ap.length ? peso(sum(ap, cashierPrice)) + (late ? ' \u00B7 ' + late + ' overdue' : '') : 'nothing waiting', late ? 'urgent' : ap.length ? 'soon' : ''],
+      ['fulfil', 'In fulfilment', fl.length, fl.length ? fl.filter(function (x) { return x.status === 'accepted'; }).length + ' accepted \u00B7 ' + fl.filter(function (x) { return x.status === 'preparing'; }).length + ' preparing \u00B7 ' + fl.filter(function (x) { return x.status === 'ready'; }).length + ' ready' : 'no jobs running', ''],
+      ['balance', 'Collecting balance', bal.length, bal.length ? peso(sum(bal, function (x) { return x.balance; })) + ' still to collect' : 'nothing to collect', bal.length ? 'soon' : ''],
+      ['exp48', 'Expiring in 48h', ex.length, ex.length ? peso(sum(ex, function (x) { return x.quotedAmount; })) + ' in sent prices' : 'none about to lapse', ex.length ? 'soon' : '']];
+    box.innerHTML = tiles.map(function (t) {
+      var on = digestKey ? digestKey === t[0] : (t[0] === 'approve' && f === 'approval');
+      return '<button type="button" class="sx-kpi ' + t[4] + (on ? ' on' : '') + '" data-kpi="' + t[0] + '" aria-pressed="' + on + '"><span>' + esc(t[1]) + '</span><strong>' + t[2] + '</strong><small>' + esc(t[3]) + '</small></button>';
+    }).join('');
+  }
+  function paintDigest(f) {
+    var box = $('sxqDigest'); if (!box) return;
+    var counts = {}; quotes.forEach(function (x) { var k = stageOf(x); if (k) counts[k] = (counts[k] || 0) + 1; });
+    var shown = STAGES.filter(function (st) { return counts[st[0]] || digestKey === st[0]; });
+    var overdue = quotes.filter(function (x) { return (ageInfo(x) || {}).late; }).length;
+    if (!shown.length) { box.innerHTML = '<span class="sx-dg-ok">Nothing in the pipeline needs you right now.</span>'; return; }
+    box.innerHTML = shown.map(function (st) {
+      var on = digestKey ? digestKey === st[0] : (st[0] === 'approve' && f === 'approval');
+      return '<button type="button" class="sx-dg ' + st[3] + (on ? ' on' : '') + '" data-dg="' + st[0] + '" aria-pressed="' + on + '" title="' + esc(st[2]) + '"><b>' + (counts[st[0]] || 0) + '</b> ' + esc(st[1]) + (st[0] === 'approve' && overdue ? ' <i class="sx-dg-late">' + overdue + ' overdue</i>' : '') + '</button>';
+    }).join('') + (digestKey ? '<button type="button" class="sx-dg-clear" data-dg="clear">Clear filter</button>' : '');
+  }
+  function pickDigest(k) {
+    var sel = $('sxqFilter'); pickedFilter = true; viewMode = 'table';   // tiles and chips filter the table
+    if (k === 'clear' || k === digestKey || (k === 'approve' && !digestKey && sel.value === 'approval')) { digestKey = null; sel.value = 'open'; }   // tapping the active chip lets go of it
+    else if (k === 'approve') { digestKey = null; sel.value = 'approval'; }                                                                   // the approvals table keeps its batch tools
+    else { digestKey = k; sel.value = 'open'; }
+    renderQuotes();
+  }
   // the sidebar badge counts only what Finance alone can do: approve a cashier's price (the cashiers answer new requests)
   function renderQuotes() {
     if (!$('sxqBody')) return;
     var f = $('sxqFilter').value, n = newCount();
-    var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? needsAction(x) : f === 'approval' ? x.status === 'pending_approval' : x.status === f); });
+    var list = quotes.filter(function (x) { return digestKey ? inFilter(x, digestKey) : (f === 'all' || (f === 'open' ? needsAction(x) : f === 'approval' ? x.status === 'pending_approval' : x.status === f)); });
     var QG = function (x) { return window.QuoteGuide ? window.QuoteGuide.next(x) : { score: 0, text: '', tone: 'ok' }; };
-    list.sort(function (a, b) { return QG(b).score - QG(a).score || (b.createdAt || 0) - (a.createdAt || 0); });   // the most urgent work first
+    list.sort(function (a, b) { return QG(b).score - QG(a).score || (a.status === 'quoted' && b.status === 'quoted' && a.validUntil && b.validUntil && a.validUntil !== b.validUntil ? (a.validUntil < b.validUntil ? -1 : 1) : 0) || (a.status === 'pending_approval' && b.status === 'pending_approval' ? (a.proposedAt || a.createdAt || 0) - (b.proposedAt || b.createdAt || 0) : 0) || (b.createdAt || 0) - (a.createdAt || 0); });   // quotes that expire first come first   // the most urgent work first
     var guideHtml = function (x) { var g = QG(x); return g.text ? '<div class="sx-guide ' + g.tone + '">\u2192 ' + esc(g.text) + '</div>' : ''; };
     var ap = approvalCount(), opt = $('sxqFilter').querySelector('option[value="approval"]'); if (opt) opt.textContent = 'Cashier prices to approve (' + ap + ')';
-    $('sxqSub').textContent = quotes.length ? (ap ? ap + ' cashier price' + (ap === 1 ? '' : 's') + ' waiting for your approval \u00B7 ' : '') + (n ? n + ' need your action (prices to approve, new requests to price, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
+    $('sxqSub').textContent = quotes.length ? (ap ? ap + ' cashier price' + (ap === 1 ? '' : 's') + ' waiting for your approval \u00B7 ' : '') + (n ? n + ' need your action (prices to approve, new requests to price, expired quotes to refresh, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
-    var approvals = f === 'approval';
+    var approvals = f === 'approval' && !digestKey;
+    paintKpis(f); paintDigest(f);
+    if (paintView()) { paintBadge(); return; }                           // the board shows every quote in fulfilment, whatever the filters say
     $('sxqHead').innerHTML = approvals
       ? '<tr><th><span class="sr-only">Pick</span></th><th>Ref</th><th>Customer / item</th><th>Why it needs you</th><th>Cashier vs system price</th><th>Cost \u00B7 margin</th><th>Stock</th><th></th></tr>'
       : '<tr><th>Ref</th><th>Customer</th><th>Item</th><th>Quantity</th><th>Needed by</th><th>Received</th><th>Status</th><th></th></tr>';
+    if (batchFocus && !list.some(function (x) { return keyOf(x) === batchFocus; })) batchFocus = null;   // the group was approved or sent back: show everything again
+    if (approvals && batchFocus) list = list.filter(function (x) { return keyOf(x) === batchFocus; });
     if (approvals) { $('sxqBody').innerHTML = list.length ? list.map(approvalRow).join('') : '<tr><td colspan="8" class="sx-empty">No prices are waiting for you. The cashiers\u2019 prices that met every rule went straight to the customers.</td></tr>'; paintBatch(); paintBadge(); return; }
     $('sxqBatch').innerHTML = '';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr class="sx-click" tabindex="0" data-qrow="' + esc(x.id) + '"><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
-        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + guideHtml(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
-        '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'pending_approval' ? 'Review price' : x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
+        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + expiryHtml(x) + guideHtml(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
+        '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '"' + (stageOf(x) === 'deposit' ? ' data-dep="1"' : '') + '>' + (x.status === 'pending_approval' ? 'Review price' : x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? (stageOf(x) === 'deposit' ? 'Record ' + depWord(x) : 'Manage') : (x.status === 'quoted' && (x.expired || x.costStale) ? 'Refresh price' : 'View')) + '</button></td></tr>';
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
   }
@@ -197,13 +419,22 @@
   var keyOf = function (x) { var ck = x.approvalCheck || {}; return (ck.rules || []).slice().sort().join('+') || 'unknown'; };
   var keyLabel = function (k) { return k === 'unknown' ? 'No recorded rule' : k.split('+').map(function (r) { return RULE_LABEL[r] || r; }).join(' + '); };
   var qnum = function (n) { return (+Number(n).toFixed(4)).toLocaleString('en-PH', { maximumFractionDigits: 4 }); };
+  /* recurring customer: what this customer was last quoted for the same product (the server adds x.lastQuote to prices waiting for Finance) */
+  var signed = function (n) { return (n > 0 ? '+' : n < 0 ? '\u2212' : '') + Math.abs(n) + '%'; };
+  var lastQuoteLine = function (lq, withId) {
+    if (!lq) return '';
+    var at = lq.at ? new Date(lq.at).toLocaleDateString('en-PH', { timeZone: TZ, month: 'short', day: 'numeric' }) : '';
+    return 'Last quoted ' + peso(lq.amount) + (at ? ' on ' + at : '') + (withId ? ' (' + lq.id + ')' : '') + ' \u00B7 ' + (lq.sameQuantity ? 'same quantity' : lq.quantity ? lq.quantity : 'other quantity') +
+      (lq.costDriftPct != null ? ' \u00B7 cost ' + (lq.costDriftPct === 0 ? 'unchanged' : 'changed ' + signed(lq.costDriftPct)) : '');
+  };
   function approvalRow(x) {
     var ck = x.approvalCheck || {}, n = ck.numbers || {}, cash = n.cashierTotal != null ? n.cashierTotal : x.proposedAmount;
     var short = (n.shortfalls || []);
-    return '<tr class="sx-click" tabindex="0" data-qrow="' + esc(x.id) + '"><td><input type="checkbox" data-pick="' + esc(x.id) + '" data-key="' + esc(keyOf(x)) + '" aria-label="Pick ' + esc(x.id) + '"></td><td>' + esc(x.id) + '</td>' +
-      '<td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.product || 'Custom item') + ' \u00B7 ' + esc(x.quantity) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div></td>' +
+    return '<tr class="sx-click' + ((ageInfo(x) || {}).late ? ' sx-latepick' : '') + '" tabindex="0" data-qrow="' + esc(x.id) + '"><td><input type="checkbox" data-pick="' + esc(x.id) + '" data-key="' + esc(keyOf(x)) + '" aria-label="Pick ' + esc(x.id) + '"></td><td>' + esc(x.id) + '</td>' +
+      '<td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.product || 'Custom item') + ' \u00B7 ' + esc(x.quantity) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' + ageHtml(x) + '</td>' +
       '<td class="sx-why">' + esc((ck.reasons && ck.reasons.length ? ck.reasons : [x.approvalReason || 'Not given']).join('; ')) + '<small>' + esc(keyLabel(keyOf(x))) + '</small></td>' +
-      '<td class="sx-num">' + peso(cash || 0) + '<small>' + (n.systemTotal != null ? 'system ' + peso(n.systemTotal) + ' (' + (n.deviationPct > 0 ? '+' : '') + n.deviationPct + '%)' : 'no system price') + '</small></td>' +
+      '<td class="sx-num">' + peso(cash || 0) + '<small>' + (n.systemTotal != null ? 'system ' + peso(n.systemTotal) + ' (' + (n.deviationPct > 0 ? '+' : '') + n.deviationPct + '%)' : 'no system price') + '</small>' +
+        (x.lastQuote ? '<small class=\"sx-lastq\" title=\"' + esc(lastQuoteLine(x.lastQuote, true)) + '\">last ' + peso(x.lastQuote.amount) + (x.lastQuote.priceDriftPct != null ? ' (' + signed(x.lastQuote.priceDriftPct) + ' now)' : '') + '</small>' : '') + '</td>' +
       '<td class="sx-num">' + (n.costTotal != null ? peso(n.costTotal) + '<small class="' + (n.marginPct < 0 ? 'sx-bad' : '') + '">margin ' + n.marginPct + '%</small>' : '<span class="sx-bad">not costed</span>') + '</td>' +
       '<td class="sx-why">' + (short.length ? short.map(function (s) { return '<span class="sx-bad">' + esc(s.name) + ' short by ' + qnum(s.short) + ' ' + esc(s.unit) + '</span>'; }).join('<br>') : '<span class="sx-okc">OK</span>') + '</td>' +
       '<td style="white-space:nowrap"><button type="button" class="btn-primary btn-sm" data-sxapprove="' + esc(x.id) + '">Approve</button> <button type="button" class="btn-secondary btn-sm" data-sxq="' + esc(x.id) + '">Review / return</button></td></tr>';
@@ -215,9 +446,32 @@
     var picked = Array.prototype.map.call($('sxqBody').querySelectorAll('[data-pick]:checked'), function (c) { return { id: c.dataset.pick, key: c.dataset.key }; });
     var keys = Object.keys(groups).filter(function (k) { return k !== 'unknown' && groups[k].length > 1; });
     var same = picked.length && picked.every(function (p) { return p.key === picked[0].key; });
-    box.innerHTML = (picked.length ? (same ? '<button type="button" class="btn-primary btn-sm" data-batch="picked">Approve the ' + picked.length + ' picked (' + esc(keyLabel(picked[0].key)) + ')</button>'
-        : '<span class="sx-chip sx-bad">Pick quotes with the same reason to approve them together</span>') : '') +
-      keys.map(function (k) { return '<span class="sx-chip">' + esc(keyLabel(k)) + ' \u00B7 ' + groups[k].length + ' waiting <button type="button" class="btn-secondary btn-sm" data-batch="' + esc(k) + '">Approve all ' + groups[k].length + '</button></span>'; }).join('');
+    keys.sort(function (a, b) { return groups[b].length - groups[a].length; });
+    var banners = keys.map(function (k) {
+      var ms = waiting.filter(function (x) { return keyOf(x) === k; }), s = batchStats(ms), blocked = bulkBlocked(k), focus = batchFocus === k;
+      return '<div class="sx-bgroup' + (blocked.length ? ' blocked' : '') + '"><div class="sx-bg-txt"><b>' + ms.length + ' quotes failed for the same reason: ' + esc(keyLabel(k)) + '</b>' +
+        '<span>' + peso(s.total) + ' in total' + (s.minMargin != null ? ' \u00B7 lowest margin ' + s.minMargin + '%' : '') + (s.oldestHrs >= 1 ? ' \u00B7 oldest waiting ' + (s.oldestHrs >= 48 ? Math.floor(s.oldestHrs / 24) + ' days' : s.oldestHrs + ' h') : '') + '</span>' +
+        (blocked.length ? '<span class="sx-bad">Not approved in bulk (' + esc(blocked.map(function (r) { return RULE_LABEL[r] || r; }).join(', ').toLowerCase()) + '): open each quote and decide.</span>' : '') + '</div>' +
+        '<div class="sx-bg-act"><button type="button" class="btn-secondary btn-sm" data-bfocus="' + esc(k) + '">' + (focus ? 'Show all ' + waiting.length + ' waiting' : 'Review individually') + '</button>' +
+        (blocked.length ? '' : '<button type="button" class="btn-primary btn-sm" data-batch="' + esc(k) + '">Approve all ' + ms.length + '</button>') + '</div></div>';
+    }).join('');
+    box.innerHTML = banners + (picked.length ? (same ? (bulkBlocked(picked[0].key).length ? '<span class="sx-chip sx-bad">Those picked cannot be approved together (' + esc(keyLabel(picked[0].key)) + '): decide on each one</span>'
+        : '<button type="button" class="btn-primary btn-sm" data-batch="picked">Approve the ' + picked.length + ' picked (' + esc(keyLabel(picked[0].key)) + ')</button>')
+        : '<span class="sx-chip sx-bad">Pick quotes with the same reason to approve them together</span>') : '');
+  }
+  /* the same reasons the server refuses in a batch (quote-automation.js NO_BULK) */
+  var NO_BULK = ['below_cost', 'not_costed', 'stock_short'];
+  var bulkBlocked = function (key) { return String(key || '').split('+').filter(function (r) { return NO_BULK.indexOf(r) >= 0; }); };
+  var batchFocus = null;                                                  // a reason key: the approvals table shows only that group (\"Review individually\")
+  var cashierPrice = function (x) { var n = (x.approvalCheck || {}).numbers || {}; return n.cashierTotal != null ? n.cashierTotal : (x.proposedAmount || 0); };
+  function batchStats(list) {
+    var total = 0, min = null, oldest = 0;
+    list.forEach(function (x) {
+      var n = (x.approvalCheck || {}).numbers || {}; total += cashierPrice(x);
+      if (n.marginPct != null && (min == null || n.marginPct < min)) min = n.marginPct;
+      if (x.proposedAt) oldest = Math.max(oldest, Math.floor((Date.now() - x.proposedAt) / 36e5));
+    });
+    return { total: total, minMargin: min, oldestHrs: oldest };
   }
   async function batchApprove(which) {
     var nos, key;
@@ -226,8 +480,13 @@
       nos = p.map(function (c) { return c.dataset.pick; }); key = p.length ? p[0].dataset.key : '';
     } else { key = which; nos = quotes.filter(function (x) { return x.status === 'pending_approval' && keyOf(x) === key; }).map(function (x) { return x.id; }); }
     if (!nos.length) return;
+    if (bulkBlocked(key).length) { toast('Cannot be approved in bulk (' + keyLabel(key) + '): open each quote and decide on it.', true); return; }
+    var chosen = nos.map(function (no) { return quotes.find(function (q) { return q.id === no; }); }).filter(Boolean), st = batchStats(chosen);
+    var rows = chosen.slice(0, 8).map(function (x) { var n = (x.approvalCheck || {}).numbers || {}; return [x.id + ' \u00B7 ' + (x.customer || 'Customer'), peso(cashierPrice(x)) + (n.marginPct != null ? ' \u00B7 ' + n.marginPct + '%' : '')]; });
+    if (chosen.length > 8) rows.push(['+ ' + (chosen.length - 8) + ' more', '']);
+    rows.push(['Total', peso(st.total)]); if (st.minMargin != null) rows.push(['Lowest margin', st.minMargin + '%']);
     var okGo = window.uiConfirm ? await window.uiConfirm({ title: 'Approve ' + nos.length + ' price' + (nos.length === 1 ? '' : 's') + '?', message: 'All of them wait for the same reason: ' + keyLabel(key) + '. Each is logged with your name, and the customers are told.',
-      lines: nos, confirm: 'Approve ' + nos.length }) : true;
+      lines: rows, confirm: 'Approve ' + nos.length }) : true;
     if (!okGo) return;
     try {
       var r = await api('/finance/quotes/approve-batch', { method: 'POST', body: JSON.stringify({ quotes: nos, reasonKey: key }) });
@@ -356,7 +615,9 @@
     if (loadingQ) return; loadingQ = true;
     try {
       if (!qopts) { try { qopts = await api('/finance/quote-options'); } catch (e) { /* the reply form shows a message if this is still missing */ } }
+      if (!rulesLoaded) { rulesLoaded = true; try { var rr = await api('/finance/quote-rules'); if (rr && +rr.expiryReminderDays > 0) expiryWarn = +rr.expiryReminderDays; if (rr && +rr.approvalRemindHours > 0) remindH = +rr.approvalRemindHours; if (rr && +rr.approvalEscalateHours > 0) escalateH = +rr.approvalEscalateHours; } catch (e) { /* the default of 2 days stays */ } }
       var d = await api('/finance/quotes'); quotes = Array.isArray(d) ? d : [];
+      watchDeposits();
       loadSuggestions();
       if (!pickedFilter && $('sxqFilter')) { pickedFilter = true; $('sxqFilter').value = approvalCount() ? 'approval' : 'open'; }
       if (!(openQuote && busy)) renderQuotes();
@@ -393,12 +654,12 @@
     if (['new', 'pending_approval', 'awaiting_details'].indexOf(x.status) < 0) {           // nothing was sent to the customer yet in these
       var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed' + (x.closeReason ? ': ' + x.closeReason : ''), completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
       h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
-        (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (collect the payment, then record it below)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + '\n' : '') +
+        (x.leadTime ? 'Ready in: ' + esc(x.leadTime) + '\n' : '') + (x.payMethod && x.status !== 'quoted' && x.status !== 'declined' ? 'Payment method: ' + esc(x.payMethod) + (x.payOnline ? ' (the customer pays online; it is recorded automatically when paid)' : x.payLater ? ' (collect the payment, then record it below)' : '') + '\n' : '') + (x.validUntil && x.status === 'quoted' ? 'Price valid until: ' + esc(day(x.validUntil)) + (expiryInfo(x) ? ' (' + expiryInfo(x).text + ')' : '') + '\n' : '') +
         (x.handledBy ? 'Handled by ' + esc(x.handledBy) + (x.updatedAt ? ' \u00B7 ' + esc(when(x.updatedAt)) : '') + '\n' : '') + (x.replyNote ? esc(x.replyNote) : '') +
         (x.respondedAt && x.status !== 'quoted' ? '\nAnswered: ' + esc(when(x.respondedAt)) + (x.responseNote ? ' \u2014 ' + esc(x.responseNote) : '') : '') + '</div>';
     }
     var qn = parseFloat(String(x.quantity || '').replace(/,/g, '')) || 0, ap = '';
-    if (x.status === 'pending_approval') ap = '<div class="sx-approve"><div class="sx-approve-head"><b>Cashier price waiting for your approval</b><span>' + esc(x.proposedBy ? 'from ' + x.proposedBy : 'from the counter') + (x.proposedAt ? ' \u00B7 ' + esc(when(x.proposedAt)) : '') + '</span></div>' +
+    if (x.status === 'pending_approval') ap = '<div class="sx-approve"><div class="sx-approve-head"><b>Cashier price waiting for your approval</b><span>' + esc(x.proposedBy ? 'from ' + x.proposedBy : 'from the counter') + (x.proposedAt ? ' \u00B7 ' + esc(when(x.proposedAt)) : '') + '</span>' + ageHtml(x) + '</div>' +
       '<div class="sx-approve-grid"><div><span>Proposed total</span><strong>' + peso(x.proposedAmount || 0) + '</strong>' + (qn ? '<small>' + peso((x.proposedAmount || 0) / qn) + ' each \u00D7 ' + esc(x.quantity) + '</small>' : '') + '</div>' +
       (x.suggestedAmount != null ? '<div><span>System price</span><strong>' + peso(x.suggestedAmount) + '</strong><small>' +
         (x.proposedAmount ? (function (d) { return d === 0 ? 'same as the cashier' : 'cashier is ' + Math.abs(d).toFixed(1) + '% ' + (d < 0 ? 'lower' : 'higher'); })(Math.round(((x.proposedAmount - x.suggestedAmount) / x.suggestedAmount) * 1000) / 10) : '') +
@@ -407,6 +668,9 @@
       (x.costStale ? '<p class="sx-stale" style="color:#b32929"><span>Cost changed</span>' + esc(x.costStale) + '</p>' : '') +
       (function (n) { return n.costTotal != null ? '<p><span>Cost and margin</span>Cost ' + peso(n.costTotal) + ' \u00B7 margin ' + n.marginPct + '% on the cashier price' + (n.minMarginPct ? ' (minimum ' + n.minMarginPct + '%)' : '') + '</p>' : '<p class="sx-bad"><span>Cost</span>Not costed: the system could not work out the cost</p>'; })((x.approvalCheck || {}).numbers || {}) +
       (((x.approvalCheck || {}).numbers || {}).shortfalls || []).map(function (s) { return '<p class="sx-bad"><span>Stock</span>' + esc(s.name) + ' short by ' + qnum(s.short) + ' ' + esc(s.unit) + '</p>'; }).join('') +
+      (x.lastQuote ? '<p class=\"sx-lastq-row\"><span>Repeat customer</span>' + esc(lastQuoteLine(x.lastQuote, true)) + (x.lastQuote.priceDriftPct != null ? '<br>The cashier\u2019s price is ' + (x.lastQuote.priceDriftPct === 0 ? 'the same per unit as' : Math.abs(x.lastQuote.priceDriftPct) + '% ' + (x.lastQuote.priceDriftPct > 0 ? 'above' : 'below')) + ' the last quote.' : '') +
+        (x.lastQuote.times > 1 ? ' <span class=\"faint\">(quoted ' + x.lastQuote.times + ' times before)</span>' : '') +
+        (x.lastQuote.adjustedTotal != null ? '<br><button type=\"button\" class=\"btn-secondary btn-sm\" id=\"sxUseLast\" data-amt=\"' + x.lastQuote.adjustedTotal + '\">Use last price moved by the cost change: ' + peso(x.lastQuote.adjustedTotal) + '</button> <span class=\"faint\">fills the amount below; nothing is sent until you press Send my own price</span>' : '') + '</p>' : '') +
       '<p><span>Why it needs you</span>' + esc(x.approvalReason || 'Not given') + '</p>' +
       '<p class="faint">Approve to send this price to the customer, or send it back to the cashier with a note on what to change. You can also type your own price below.</p></div>';
     if (ap) h = h.replace('<dl class="sx-info">', ap + '<dl class="sx-info">');                       // first thing Finance sees
@@ -424,9 +688,11 @@
     h += '<div class="sx-form">';
     if (inFlow) {
       if (x.balance > 0) {
-        h += '<div class="sx-sub">Record a payment</div><div class="sx-two"><div><label for="sxPayAmt">Amount received (\u20B1)</label><input type="text" data-money class="form-input" id="sxPayAmt" inputmode="decimal" autocomplete="off" placeholder="up to ' + Number(x.balance).toFixed(2) + '"></div>' +
+        var dep = x.dueNow > 0;
+        h += '<div class="sx-sub">' + (dep ? 'Record the ' + depWord(x) + ' \u2014 ' + peso(x.dueNow) + ' due now' : 'Record a payment') + '</div>' +
+          (dep ? '<p class="sx-depnote"><b>' + esc(termsLine(x) || 'Approved payment terms') + '</b>' + (x.payOnline ? '<br>The customer chose to pay online: Xendit records it when it arrives. Record it here only if it came another way.' : '') + '</p>' : '') + '<div class="sx-two"><div><label for="sxPayAmt">Amount received (\u20B1)</label><input type="text" data-money class="form-input" id="sxPayAmt" inputmode="decimal" autocomplete="off" placeholder="up to ' + Number(x.balance).toFixed(2) + '"></div>' +
           '<div><label for="sxPayMethod">Paid by</label><select id="sxPayMethod" class="form-input"><option value="">Choose</option>' + ((qopts && qopts.payMethods) || []).map(function (m) { return '<option' + (x.payMethod === m ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('') + '</select></div></div>' +
-          '<div class="sx-actions" style="margin-top:8px"><button type="button" class="btn-secondary" id="sxPay">Record payment</button></div>';
+          '<div class="sx-actions" style="margin-top:8px"><button type="button" class="' + (dep ? 'btn-primary' : 'btn-secondary') + '" id="sxPay">' + (dep ? 'Record ' + depWord(x) : 'Record payment') + '</button></div>';
       }
       if (x.next) {
         h += '<div class="sx-sub">Next step: ' + esc(x.nextLabel) + '</div>';
@@ -438,7 +704,8 @@
         '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>';
       if (!qopts) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
     }
-    if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? 'needed when you send the price back' : 'optional' + (inFlow ? ', saved with the step or the cancellation' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
+    sxDraft = x.status === 'pending_approval' && window.QuoteGuide && window.QuoteGuide.returnNote ? window.QuoteGuide.returnNote(x) : '';   // pre-filled send-back note
+    if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? (sxDraft ? 'drafted from the rules this price failed: edit it, it is only sent when you press Send back' : 'needed when you send the price back') : 'optional' + (inFlow ? ', saved with the step or the cancellation' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'pending_approval' ? sxDraft : x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
     h += '<div class="sx-err" id="sxErr" role="alert"></div><div class="sx-actions">';
     if (x.status === 'quoted' && !(x.paidAmount > 0)) h += '<button type="button" class="btn-secondary" id="sxRefreshPrice">Refresh price at today\u2019s costs</button>';
     if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve ' + peso(x.proposedAmount || 0) + '</button><button type="button" class="btn-secondary" id="sxReturnPrice">Send back to cashier</button>';
@@ -458,9 +725,11 @@
     h += '</div>';
     h += '<div class="sx-box sx-log" id="sxLog"><b>Decision log</b><span class="faint">Loading\u2026</span></div>';
     $('sxBody').innerHTML = h;
+    prefillPayment(x);
     if ($('sxJob')) loadJob(x);
     loadLog(x);
     if ($('sxRefreshPrice')) $('sxRefreshPrice').addEventListener('click', function () { post(x, '/refresh-price', {}, x.id + ' was refreshed at today\u2019s costs.'); });
+    if ($('sxUseLast')) $('sxUseLast').addEventListener('click', function () { var a = $('sxAmount'); if (!a) return; if (window.MoneyInput) MoneyInput.set(a, +this.dataset.amt); else a.value = this.dataset.amt; a.focus(); });
     if ($('sxApprovePrice')) $('sxApprovePrice').addEventListener('click', function () { post(x, '/approve-price', {}, 'Approved: ' + x.id + ' is sent to the customer at ' + peso(x.proposedAmount || 0) + '.'); });
     if ($('sxReturnPrice')) $('sxReturnPrice').addEventListener('click', function () {
       var note = $('sxNote').value.trim(); $('sxErr').classList.remove('show');
@@ -528,14 +797,51 @@
     };
     box.innerHTML = '<b>Job order' + (d.job ? ' ' + esc(d.job.ref) + ' (draft)' : '') + ': issue the materials for this custom item</b>' +
       '<span class="faint">Each line leaves stock as \u201CUsed in production\u201D when you confirm' + (x.status === 'accepted' ? ', and the quote moves to Preparing' : '') + '. ' + (d.job ? 'The quantities come from the quote\u2019s recipe for the whole order; change them to what this job really uses.' : 'The suggestions come from the quote\u2019s material and finish; enter what this job really uses.') + '</span>' +
+      '<div class="sx-ready" id="sxReady" role="status" aria-live="polite"></div>' +
       '<div id="sxJobLines">' + (d.suggestions.length ? d.suggestions.map(function (sg) { return line(sg.sku, sg.why, sg.quantity); }).join('') : line('')) + '</div>' +
       '<button type="button" class="btn-secondary btn-sm" id="sxJobAdd" style="margin-top:8px">+ Add material</button>' +
       '<label for="sxJobNote" style="display:block;margin:10px 0 4px;font-weight:600;font-size:13px">Note <span class="faint" style="font-weight:400">(optional)</span></label><input id="sxJobNote" class="form-input" maxlength="300" placeholder="e.g. cut from 2 ingots, extra coat on the flange">' +
-      '<div class="sx-err" id="sxJobErr" role="alert"></div><div class="sx-actions"><button type="button" class="btn-primary" id="sxJobGo">Issue materials</button></div>';
+      '<div class="sx-err" id="sxJobErr" role="alert"></div><div class="sx-actions"><button type="button" class="btn-primary" id="sxJobGo">' + (x.status === 'accepted' ? 'Issue materials &amp; start preparing' : 'Issue materials') + '</button></div>';
     var linesBox = $('sxJobLines');
     $('sxJobAdd').addEventListener('click', function () { linesBox.insertAdjacentHTML('beforeend', line('')); });
     linesBox.addEventListener('click', function (e) { var b = e.target.closest('[data-jdel]'); if (b) b.closest('.sx-jobline').remove(); });
     linesBox.addEventListener('change', function (e) { if (e.target.matches('[data-jsku]')) { var o = e.target.selectedOptions[0]; e.target.parentNode.querySelector('.sx-junit').textContent = o ? (o.dataset.unit || '') : ''; } });
+    // live readiness check: what is in stock against what the lines ask for, before anything is pressed (the server still re-checks under lock)
+    var readyBox = $('sxReady');
+    function jobLines() {
+      return Array.prototype.map.call(linesBox.querySelectorAll('.sx-jobline'), function (ln) {
+        var sel = ln.querySelector('[data-jsku]'), q = ln.querySelector('[data-jqty]'), o = sel.selectedOptions[0], v = q.value.replace(/,/g, '').trim();
+        return { ln: ln, sku: sel.value, name: o && sel.value ? o.textContent.split(' (')[0] : '', unit: o && o.dataset.unit || '', onHand: o && sel.value ? Number(o.dataset.onhand) : null,
+          qty: /^\d+(\.\d+)?$/.test(v) && Number(v) > 0 ? Number(v) : null };
+      }).filter(function (l) { return l.sku; });
+    }
+    function paintReady() {
+      var ls = jobLines(); if (!ls.length) { readyBox.innerHTML = ''; return; }
+      var short = [], waiting = 0;
+      ls.forEach(function (l, i) { if (l.qty == null) waiting++; else if (l.qty > l.onHand + 1e-9) short.push({ l: l, i: i, by: Math.round((l.qty - l.onHand) * 100) / 100 }); });
+      var okN = ls.length - short.length - waiting, h = '';
+      if (!short.length && !waiting) h = '<div class="sx-rd ok">\u2705 All ' + ls.length + ' material' + (ls.length === 1 ? ' is' : 's are') + ' in stock</div>';
+      else {
+        if (short.length) h += '<div class="sx-rd warn">\u26A0\uFE0F ' + short.length + ' of ' + ls.length + ' material' + (ls.length === 1 ? '' : 's') + (short.length === 1 ? ' is' : ' are') + ' short' + (okN ? ' \u00B7 ' + okN + ' available' : '') + '</div>' +
+          short.map(function (s) {
+            return '<div class="sx-rd-line">' + esc(s.l.name) + ': ' + qnum(s.l.qty) + ' ' + esc(s.l.unit) + ' needed, ' + qnum(s.l.onHand) + ' in stock \u2014 <b>short by ' + qnum(s.by) + ' ' + esc(s.l.unit) + '</b> ' +
+              (s.l.onHand > 0 ? '<button type="button" class="btn-secondary btn-sm" data-jfit="' + s.i + '">Use what is in stock (' + qnum(s.l.onHand) + ')</button>' : '<span class="faint">none in stock</span>') + '</div>';
+          }).join('') + '<div class="faint">Nothing leaves stock until you confirm. Issue what is available (the note records it), or wait for the restock.</div>';
+        if (waiting) h += '<div class="sx-rd">Enter the quantity on ' + waiting + ' line' + (waiting === 1 ? '' : 's') + ' to finish the check.</div>';
+      }
+      readyBox.innerHTML = h;
+    }
+    readyBox.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-jfit]'); if (!b) return;
+      var l = jobLines()[Number(b.dataset.jfit)]; if (!l) return;
+      var was = l.qty; l.ln.querySelector('[data-jqty]').value = String(l.onHand);
+      var nb = $('sxJobNote'), add = 'Short on ' + l.name + ': issued ' + qnum(l.onHand) + ' ' + l.unit + ' of ' + qnum(was) + ' needed.';
+      if (nb && (nb.value + ' ' + add).trim().length <= 300 && nb.value.indexOf('Short on ' + l.name) < 0) nb.value = (nb.value.trim() ? nb.value.trim() + ' ' : '') + add;
+      paintReady();
+    });
+    linesBox.addEventListener('input', paintReady); linesBox.addEventListener('change', paintReady);
+    $('sxJobAdd').addEventListener('click', paintReady); linesBox.addEventListener('click', function (e) { if (e.target.closest('[data-jdel]')) paintReady(); });
+    paintReady();
     var key = newKey();
     $('sxJobGo').addEventListener('click', async function () {
       var err = $('sxJobErr'); err.classList.remove('show'); var items = [], first = null, seen = {};
@@ -554,7 +860,7 @@
       if (!items.length && !first) { err.textContent = 'Add at least one raw material or finishing supply.'; err.classList.add('show'); return; }
       if (first) { first.focus(); err.textContent = 'Fix the highlighted lines.'; err.classList.add('show'); return; }
       var ok = window.uiConfirm ? await window.uiConfirm({ title: 'Issue these materials for ' + x.id + '?', message: 'They leave stock now as \u201CUsed in production\u201D. This cannot be undone from here.',
-        lines: items.map(function (i) { return i.name + ': ' + i.quantity + ' ' + i.unit; }), confirm: 'Issue materials' }) : true;
+        lines: items.map(function (i) { return [i.name, i.quantity + ' ' + i.unit]; }), confirm: 'Issue materials' }) : true;
       if (!ok) return;
       var btn = $('sxJobGo'); btn.disabled = true;
       try {
@@ -569,9 +875,11 @@
 
   function showErr(msg) { var b = $('sxErr'); if (b) { b.textContent = msg; b.classList.add('show'); } }
 
+  var sxDraft = '';                                                       // the drafted send-back note currently shown (never sent to a customer)
   async function submitQuote(x, status) {
     if (busy) return;
     var note = $('sxNote').value.trim(), amount = $('sxAmount') ? MoneyInput.raw($('sxAmount').value) : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
+    if (note && note === sxDraft) note = '';                              // an untouched cashier-facing draft must never go to the customer as a message
     $('sxErr').classList.remove('show');
     if (note && note.length < 5) { showErr('Write at least 5 characters, or leave the message empty.'); $('sxNote').focus(); return; }
     var closeReason = status === 'closed' && $('sxCloseReason') ? $('sxCloseReason').value : '';
@@ -622,6 +930,7 @@
     var amt = MoneyInput.raw($('sxPayAmt').value), method = $('sxPayMethod').value;
     if (!(Number(amt.replace(/[,\u20B1\s]/g, '')) > 0)) { showErr('Enter the amount received.'); $('sxPayAmt').focus(); return; }
     if (!method) { showErr('Choose how it was paid.'); $('sxPayMethod').focus(); return; }
+    lastPayMethod = method;
     post(x, '/payment', { amount: amt, method: method }, 'Payment recorded for ' + x.id + '.');
   }
 
