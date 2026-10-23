@@ -1913,8 +1913,10 @@ const PD_ICONS = {
 let productDetailSku = null;
 
 function findCatalogProduct(sku) {
-    return productCatalogData.find(p => p.sku === sku) ||
-        archivedProductData.find(p => p.sku === sku) || null;
+    if (!sku) return null;
+    const target = String(sku).trim().toUpperCase();
+    return productCatalogData.find(p => String(p.sku || "").trim().toUpperCase() === target) ||
+        archivedProductData.find(p => String(p.sku || "").trim().toUpperCase() === target) || null;
 }
 
 function ensureProductDetailModal() {
@@ -1970,11 +1972,11 @@ function openProductDetails(sku) {
         <dl class="pd-grid">
             ${row("Category", escapeHTML(p.category || "Uncategorized"))}
             ${row("Department", escapeHTML(p.department || "\u2014"))}
-            ${row("In stock", `${formatNumber(p.available)} ${escapeHTML(p.unit)}`)}
-            ${row("Reorder level", `${formatNumber(p.reorderLevel ?? 0)} ${escapeHTML(p.unit)}${p.reorderAuto ? " (automatic)" : ""}`)}
-            ${row("Standard cost", `₱${p.stdCost.toFixed(2)} /${escapeHTML(p.costUnit || p.unit)}`)}
-            ${row("Selling price", sells ? (p.listPrice > 0 ? `₱${p.listPrice.toFixed(2)}` : "Not set") : "Not sold")}
-            ${row("Margin", sells && p.listPrice > 0 ? `${p.margin.toFixed(1)}%` : "\u2014")}
+            ${row("In stock", `${formatNumber(p.available != null ? p.available : (p.onHand != null ? p.onHand : 0))} ${escapeHTML(p.unit || "")}`)}
+            ${row("Reorder level", `${formatNumber(p.reorderLevel ?? 0)} ${escapeHTML(p.unit || "")}${p.reorderAuto ? " (automatic)" : ""}`)}
+            ${row("Standard cost", `₱${(Number(p.stdCost != null ? p.stdCost : (p.unitCost != null ? p.unitCost : 0))).toFixed(2)} /${escapeHTML(p.costUnit || p.unit || "")}`)}
+            ${row("Selling price", sells ? ((p.listPrice > 0) ? `₱${Number(p.listPrice).toFixed(2)}` : "Not set") : "Not sold")}
+            ${row("Margin", sells && p.listPrice > 0 ? `${Number(p.margin != null ? p.margin : 0).toFixed(1)}%` : "\u2014")}
             ${row("Location", escapeHTML(p.location || "\u2014"))}
             ${p.grade || p.form ? row("Grade / form", escapeHTML([p.grade, p.form].filter(Boolean).join(" · "))) : ""}
             ${row("Source", renderProductSuppliers(p))}
@@ -1987,52 +1989,6 @@ function openProductDetails(sku) {
                 : `<button type="button" class="btn-secondary pd-archive" data-pd="archive">${PD_ICONS.archive} Archive</button>
                    <button type="button" class="btn-primary" data-pd="edit">${PD_ICONS.edit} Edit</button>`}
         </div>`;
-    let statusBtn = document.getElementById("editUserStatusBtn");
-    if (!statusBtn) {
-        statusBtn = document.createElement("button");
-        statusBtn.type = "button";
-        statusBtn.id = "editUserStatusBtn";
-        const footer = overlay.querySelector(".modal-footer");
-        if (footer) footer.insertBefore(statusBtn, footer.firstChild);
-    }
-    if (user.isYou) {
-        statusBtn.style.display = "none";
-    } else {
-        statusBtn.style.display = "";
-        statusBtn.textContent = user.status === "active" ? "Disable account" : "Enable account";
-        statusBtn.className = user.status === "active" ? "btn-danger-sm" : "btn-secondary";
-        statusBtn.onclick = async () => {
-            const next = user.status === "active" ? "disabled" : "active";
-            if (!(await uiConfirm({
-                title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`,
-                message: next === "disabled"
-                    ? (user.roleKey === "finance"
-                        ? "This Finance-Admin is signed out right away and cannot sign in until another Finance-Admin re-enables the account."
-                        : "They are signed out right away and cannot sign in until the account is re-enabled.")
-                    : "They will be able to sign in again.",
-                confirm: next === "disabled" ? "Disable" : "Re-enable",
-                danger: next === "disabled"
-            }))) return;
-
-            try {
-                const res = await fetch("/api/users/" + user.id + "/status", {
-                    method: "PATCH",
-                    credentials: "same-origin",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ status: next })
-                });
-                const data = await res.json().catch(() => ({}));
-                if (!res.ok) throw new Error(data.error || "Request failed");
-                user.status = next;
-                renderAccountsTable();
-                inviteToast(`${user.name} ${next === "disabled" ? "disabled" : "re-enabled"}`);
-                closeEditUserModal();
-            } catch (err) {
-                inviteToast(err.message, true);
-            }
-        };
-    }
-
     overlay.classList.add("open");
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
@@ -5026,6 +4982,52 @@ function openEditUserModal(index) {
         role.value = isCust ? "Customer" : user.roleKey === "cashier" ? "Cashier" : "Finance-Admin Officer";
         role.disabled = !canChange;
         role.title = isCust ? "A customer account stays a customer" : user.isYou ? "Another Finance-Admin has to change your role" : "";
+    }
+
+    let statusBtn = document.getElementById("editUserStatusBtn");
+    if (!statusBtn) {
+        statusBtn = document.createElement("button");
+        statusBtn.type = "button";
+        statusBtn.id = "editUserStatusBtn";
+        const footer = overlay.querySelector(".modal-footer");
+        if (footer) footer.insertBefore(statusBtn, footer.firstChild);
+    }
+    if (user.isYou) {
+        statusBtn.style.display = "none";
+    } else {
+        statusBtn.style.display = "";
+        statusBtn.textContent = user.status === "active" ? "Disable account" : "Enable account";
+        statusBtn.className = user.status === "active" ? "btn-danger-sm" : "btn-secondary";
+        statusBtn.onclick = async () => {
+            const next = user.status === "active" ? "disabled" : "active";
+            if (!(await uiConfirm({
+                title: `${next === "disabled" ? "Disable" : "Re-enable"} ${user.name}?`,
+                message: next === "disabled"
+                    ? (user.roleKey === "finance"
+                        ? "This Finance-Admin is signed out right away and cannot sign in until another Finance-Admin re-enables the account."
+                        : "They are signed out right away and cannot sign in until the account is re-enabled.")
+                    : "They will be able to sign in again.",
+                confirm: next === "disabled" ? "Disable" : "Re-enable",
+                danger: next === "disabled"
+            }))) return;
+
+            try {
+                const res = await fetch("/api/users/" + user.id + "/status", {
+                    method: "PATCH",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ status: next })
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || "Request failed");
+                user.status = next;
+                renderAccountsTable();
+                inviteToast(`${user.name} ${next === "disabled" ? "disabled" : "re-enabled"}`);
+                closeEditUserModal();
+            } catch (err) {
+                inviteToast(err.message, true);
+            }
+        };
     }
 
     overlay.classList.add("open");

@@ -984,18 +984,34 @@ function custErr(id, msg) { const b = $(id + 'Err'); if (b) b.textContent = msg 
 (function () {
   const FA = window.FormAssist; if (!FA) return;
   let seq = 0;
-  $('custPhone').addEventListener('blur', () => setTimeout(async () => {          // after the number is put in its one format
+  async function doPhoneMatch() {
     const phone = $('custPhone').value.replace(/[\s().-]/g, ''), my = ++seq;
     FA.note($('custPhone'), '');
     if (!DLV_PHONE_RE.test(phone)) return;
+    if (fulfil === 'Delivery') custErr('custPhone', '');
     let r; try { r = await api('/api/customers/match?phone=' + encodeURIComponent(phone)); } catch (_) { return; }
     const m = my === seq && r && (r.matches || [])[0]; if (!m) return;
     const typed = $('custName').value.trim();
-    if (!typed) { FA.setValue($('custName'), m.name); FA.note($('custPhone'), 'Known customer: <b>' + esc(m.name) + '</b> \u2014 name filled in.', 'ok'); return; }
+    if (!typed) {
+      FA.setValue($('custName'), m.name);
+      if (fulfil === 'Delivery') custErr('custName', '');
+      FA.note($('custPhone'), 'Known customer: <b>' + esc(m.name) + '</b> \u2014 name filled in automatically.', 'ok');
+      return;
+    }
     if (typed.toLowerCase() === String(m.name).toLowerCase()) return;
     const n = FA.note($('custPhone'), 'This number is saved for <b>' + esc(m.name) + '</b>. <button type="button" class="fa-link">Use that name</button>', 'info');
-    n.querySelector('button').onclick = () => { FA.setValue($('custName'), m.name); FA.note($('custPhone'), ''); };
-  }, 0));
+    n.querySelector('button').onclick = () => { FA.setValue($('custName'), m.name); FA.note($('custPhone'), ''); if (fulfil === 'Delivery') custErr('custName', ''); };
+  }
+  $('custPhone').addEventListener('blur', () => setTimeout(doPhoneMatch, 0));
+  $('custPhone').addEventListener('input', () => {
+    const raw = $('custPhone').value.replace(/[\s().-]/g, '');
+    if (raw.length === 11 && DLV_PHONE_RE.test(raw)) setTimeout(doPhoneMatch, 50);
+    if (fulfil === 'Delivery' && DLV_PHONE_RE.test(raw)) custErr('custPhone', '');
+  });
+  $('custName').addEventListener('input', () => {
+    const val = $('custName').value.trim();
+    if (fulfil === 'Delivery' && val.length >= 2 && DLV_NAME_RE.test(val)) custErr('custName', '');
+  });
 })();
 function setFulfil(f) {
   fulfil = f; document.querySelectorAll('[data-fulfil]').forEach(b => b.classList.toggle('on', b.dataset.fulfil === f));

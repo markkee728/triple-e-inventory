@@ -856,7 +856,12 @@
         : (function (cost) { return 'Automatic: unit cost \u20B1' + cost.toFixed(2) + ' + markup on cost ' + FG_MARKUP + '% = \u20B1' + v.toFixed(2) + ' \u00B7 margin ' + (v > 0 ? (((v - cost) / v) * 100).toFixed(1) : '0.0') + '%. It follows the cost by itself. Tick \u201CSet manually\u201D only for a special price.'; })(v / (1 + FG_MARKUP / 100));
     } else if (hint) {
       const raw = window.MoneyInput ? MoneyInput.raw($('npListPrice').value) : $('npListPrice').value, c = Number(window.MoneyInput ? MoneyInput.raw($('npUnitCost').value) : $('npUnitCost').value), p = Number(raw);
-      hint.textContent = 'Manual price: it no longer follows the unit cost.' + (p > 0 && c > 0 ? ' Margin ' + (((p - c) / p) * 100).toFixed(1) + '%' + (p < c ? ' \u2014 BELOW COST' : '') + '.' : '') + ' Untick to go back to unit cost + markup on cost ' + FG_MARKUP + '%.';
+      const minPrice = c > 0 ? Math.round(c * 1.20 * 100) / 100 : 0;
+      if (p > 0 && c > 0 && p < minPrice) {
+        hint.innerHTML = '<span style="color:var(--red,#e35b5b);font-weight:600">Manual price: ₱' + p.toFixed(2) + ' is below 20% margin. Minimum recommended: ₱' + minPrice.toFixed(2) + ' (markup 20% on cost).</span>';
+      } else {
+        hint.textContent = 'Manual price: it no longer follows the unit cost.' + (p > 0 && c > 0 ? ' Margin ' + (((p - c) / p) * 100).toFixed(1) + '%' + (p < c ? ' \u2014 BELOW COST' : '') + '.' : '') + ' Untick to go back to unit cost + markup on cost ' + FG_MARKUP + '%.';
+      }
     }
   }
 
@@ -1065,6 +1070,12 @@
       const costReason = clean(($('npCostReason') || {}).value);
       if (sellsNow() && costOverridden() && costReason.length < 5) errs.npCostReason = 'Give a reason for overriding the cost (at least 5 characters)';
       const listPrice = sellsNow() && priceManual() ? vNum(errs, 'npListPrice', 'Selling price', { max: 1e7, gt: true }) : sellsNow() ? autoPrice() : 0;
+      if (sellsNow() && priceManual() && listPrice) {
+        const curCost = fgAuto ? (window.TripleEBom ? window.TripleEBom.cost().total : 0) : (unitCost || 0);
+        if (curCost > 0 && listPrice < Math.round(curCost * 1.20 * 100) / 100) {
+          errs.npListPrice = 'Selling price cannot be below 20% margin floor (minimum ₱' + (Math.round(curCost * 1.20 * 100) / 100).toFixed(2) + ')';
+        }
+      }
       if (sellsNow() && !priceManual() && !fgAuto && autoPrice() == null && !errs.npUnitCost) errs.npUnitCost = 'Enter the unit cost: the selling price is worked out from it';
       const reorderManual = $('npReorderManual').checked;
       const reorderLevel = reorderManual ? vNum(errs, 'npReorder', 'Reorder level', { noLeadingZero: true }) : null;
@@ -2197,7 +2208,17 @@
       npUnitCost: numRule('npUnitCost', 'Unit cost', { max: 1e7 }),
       npOnHand: () => $('npOnHand').readOnly ? '' : numRule('npOnHand', 'On hand', { noLeadingZero: true })(),
       npReorder: () => ($('npReorderManual') && $('npReorderManual').checked ? numRule('npReorder', 'Reorder level', { noLeadingZero: true })() : ''),   // automatic = nothing to type
-      npListPrice: () => sellsNow() && priceManual() ? numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })() : '',   // automatic = nothing to type
+      npListPrice: () => {
+        if (!sellsNow() || !priceManual()) return '';
+        const bad = numRule('npListPrice', 'Selling price', { max: 1e7, gt: true })();
+        if (bad) return bad;
+        const c = Number(window.MoneyInput ? MoneyInput.raw($('npUnitCost').value) : $('npUnitCost').value);
+        const p = Number(window.MoneyInput ? MoneyInput.raw($('npListPrice').value) : $('npListPrice').value);
+        if (c > 0 && p < Math.round(c * 1.20 * 100) / 100) {
+          return 'Selling price cannot be below 20% margin floor (minimum ₱' + (Math.round(c * 1.20 * 100) / 100).toFixed(2) + ')';
+        }
+        return '';
+      },
       npLocation: selectRule('npLocation', 'Choose the storage location'),
       npLocationNew: textRule('npLocationNew', 'Storage location', { min: 2, max: 100 }),
       npSupplier: () => (!productModalState() && NEEDS_SUPPLIER.indexOf($('npDept').value) >= 0 && !$('npSupplier').value ? 'Choose the supplier for this material' : ''),

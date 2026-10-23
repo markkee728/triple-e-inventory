@@ -743,15 +743,7 @@ function cashHint() {
 function renderPayPlan() {
   const total = orderTotal(), t = chosenTerm(), box = $('payPlan');
   if (!(total > 0) || view !== 'checkout') { box.hidden = true; $('place').textContent = 'Place order'; return; }
-  const adv = cashAdvance();
-  if (!ONLINE.includes(pay) && adv && adv.amount > 0) {
-    $('place').textContent = 'Pay Down Payment & Confirm (' + peso(adv.amount) + ')';
-  } else if (t) {
-    $('place').textContent = 'Pay Online (' + peso(t.dueNow) + ')';
-  } else {
-    $('place').textContent = 'Pay Online (' + peso(total) + ')';
-  }
-  const online = ONLINE.includes(pay), adv = !online ? cashAdvance() : null, advOn = adv && adv.amount > 0;
+  const online = ONLINE.includes(pay), adv = !online ? cashAdvance() : null, advOn = !!(adv && adv.amount > 0);
   if (adv && adv.kind === 'shipping_fee' && !adv.known) {        // cash on delivery before the address: the fee is not known yet
     box.hidden = false;
     $('ppNowLabel').textContent = 'Pay online now (' + adv.label + ')'; $('ppNow').textContent = adv.deposit ? peso(adv.deposit) + ' + delivery fee' : 'after you choose the address';
@@ -771,7 +763,15 @@ function renderPayPlan() {
     ? (adv.kind === 'shipping_fee' ? 'Your order is confirmed once the ' + adv.label + (adv.deposit ? ' are' : ' is') + ' paid' + (adv.deposit ? '; the down payment is taken off your total' : '') + '. Prepare ' + peso(bal) + ' in cash for the rider.'
       : 'Your order is confirmed once the down payment is paid; it is taken off your total. Pick it up within ' + ((CASH && CASH.copHoldHours) || 48) + ' hours of our "ready for pickup" message and pay ' + peso(bal) + ' in cash, or the order is cancelled and the down payment is not refunded.')
     : 'The ' + peso(bal) + ' balance is ' + ((t && t.balanceCondition) || 'due before your order is released') + '.';
-  $('place').textContent = (online || advOn) && bal > 0 ? 'Place order \u00B7 pay ' + peso(due) + ' now' : 'Place order';
+  if (advOn) {
+    $('place').textContent = 'Pay Down Payment & Confirm (' + peso(adv.amount) + ')';
+  } else if (online && bal > 0) {
+    $('place').textContent = 'Place order \u00B7 pay ' + peso(due) + ' now';
+  } else if (online) {
+    $('place').textContent = 'Pay Online (' + peso(total) + ')';
+  } else {
+    $('place').textContent = 'Place order';
+  }
 }
 /* Delivery line of the order summary: the amount, plus a note saying which rate applies and whether it changed when the address changed. */
 let feeShown = null, feeShownRate = '';      // last fee the customer saw for an address (to tell them when it changes)
