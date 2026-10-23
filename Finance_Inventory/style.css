@@ -264,7 +264,7 @@ nav {
     align-items: center;
     justify-content: space-between;
 
-    padding: 18px 28px;
+    padding: 12px 28px;
 
     border-bottom: 1px solid var(--border);
 
@@ -398,7 +398,7 @@ nav {
 ========================================================= */
 
 .content {
-    padding: 28px;
+    padding: 14px 28px 28px;
 
     overflow-y: auto;
 
@@ -417,9 +417,19 @@ nav {
     display: block;
 }
 
+/* Remove excessive gap between topbar and the first element of any page */
+.page > :first-child {
+    margin-top: 0 !important;
+}
+
 /* =========================================================
    WELCOME
 ========================================================= */
+
+.welcome {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
 
 .welcome h1 {
     font-family: "Oswald", sans-serif;
@@ -430,14 +440,36 @@ nav {
     letter-spacing: 0.3px;
 
     color: var(--text);
+
+    margin: 0;
+    line-height: 1.2;
 }
 
 .welcome p {
-    font-size: 17px;
+    font-size: 16px;
 
     color: var(--text-dim);
 
-    margin-top: 6px;
+    margin-top: 4px;
+}
+
+.catalog-header:first-child {
+    margin-top: 0;
+    margin-bottom: 14px;
+}
+
+.catalog-toolbar:first-child {
+    margin-top: 0;
+    margin-bottom: 16px;
+}
+
+.rep-header {
+    margin-top: 0;
+    margin-bottom: 14px;
+}
+
+.nc-page-tools {
+    margin-top: 0;
 }
 
 /* =========================================================
@@ -451,7 +483,11 @@ nav {
 
     gap: 16px;
 
-    margin: 24px 0;
+    margin: 16px 0 24px;
+}
+
+.stats:first-child {
+    margin-top: 0;
 }
 
 .stat-card {
@@ -2017,7 +2053,7 @@ tbody td.mono {
 
 /* Adds space between the Sales subtitle and the transaction cards */
 #sales .catalog-header {
-    margin-bottom: 32px;
+    margin-bottom: 16px;
 }
 
 /* Sales transaction layout */
@@ -4050,7 +4086,7 @@ body.sidebar-collapsed .sidebar { margin-left: -248px; }
 
 /* ---------- large screens: keep content a readable width ---------- */
 @media (min-width: 1440px) {
-    .content { padding: 32px 40px; }
+    .content { padding: 16px 36px 36px; }
     .content > .page { max-width: 1640px; margin-left: auto; margin-right: auto; }
 }
 @media (min-width: 1920px) {
@@ -4094,8 +4130,8 @@ body.sidebar-collapsed .sidebar { margin-left: -248px; }
     body.nav-open { overflow: hidden; }
     html[data-theme="light"] .sidebar-backdrop { background: rgba(20, 35, 50, 0.45); }
 
-    .topbar { padding: 12px 20px; padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
-    .content { padding: 22px 20px; }
+    .topbar { padding: 10px 20px; padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+    .content { padding: 14px 18px 22px; }
     .stat-card { padding-left: 16px; padding-right: 16px; }
     button, .btn-primary, .btn-secondary, .pill-btn, .view-btn, .period-btn, .seg-btn { min-height: 44px; }
     .product-grid.list-view .product-card { grid-template-columns: 1fr 1fr; }
