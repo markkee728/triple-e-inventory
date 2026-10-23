@@ -105,6 +105,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_amount NUMERIC(14,2)');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_lead_time TEXT');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_valid_days INT');
+      await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS ready_by DATE');          // the date Finance promised in the guided quote form
       // who sent the price to Finance, when, and Finance's note when it sends the price back to the cashier
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_by INT REFERENCES users(user_id)');
       await pool.query('ALTER TABLE quote_requests ADD COLUMN IF NOT EXISTS proposed_at TIMESTAMPTZ');
@@ -327,6 +328,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   const readyBy = (leadTime, startIso) => { const n = leadWorkdaysOf(leadTime); return n && startIso ? addWorkdays(startIso, n) : undefined; };
   const quoteReadyBy = (q) => {
     if (!q || !q.lead_time || ['declined', 'closed', 'new', 'pending_approval', 'awaiting_details'].includes(q.status)) return undefined;
+    if (q.ready_by) return dateStr(q.ready_by);                         // a date was promised in the quote: it does not move when the customer accepts
     const started = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) && q.responded_at;
     return readyBy(q.lead_time, started ? phDay(q.responded_at) : todayPH());
   };
@@ -359,7 +361,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       costStale: q.cost_stale_note || undefined,
       approvalCheck: q.approval_check || undefined, acceptCheck: q.accept_check || undefined, recipeEdited: Array.isArray(q.recipe) || undefined,
       closeReason: q.close_reason ? (CLOSE_REASON_LABEL[q.close_reason] || q.close_reason) : undefined, quotedAmount: total == null ? undefined : total, replyNote: q.reply_note || undefined,
-      leadTime: q.lead_time || undefined, validUntil,
+      leadTime: q.lead_time || undefined, readyBy: dateStr(q.ready_by) || undefined, validUntil,
       estimatedReady: quoteReadyBy(q), readyFromAcceptance: ['accepted', 'preparing', 'ready', 'completed'].includes(q.status) || undefined,
       lateForNeededBy: (() => { const r = quoteReadyBy(q), n = dateStr(q.needed_by); return !!(r && n && r > n) || undefined; })(),
       expired: q.status === 'quoted' && !!validUntil && validUntil < todayPH(),
@@ -909,7 +911,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const u = q.customer_id ? (await pool.query('SELECT email FROM users WHERE user_id = $1', [q.customer_id])).rows[0] : null;
     await send(u && u.email, `Your quote ${q.quote_no} is ready`, [
       `Hi ${q.contact_name},`, intro || 'Here is our quote for your request.', '',
-      `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, `Ready in: ${q.lead_time}${quoteReadyBy(q) ? ' (about ' + needText(quoteReadyBy(q)) + ' if you accept today)' : ''}`, `Price valid until: ${dateStr(q.valid_until)}`,
+      `Item: ${q.product_name || 'See details'} \u00B7 ${q.quantity}`, `Quoted amount: ${peso(q.quoted_amount)}`, q.ready_by ? `Ready by: ${needText(dateStr(q.ready_by))}` : `Ready in: ${q.lead_time}${quoteReadyBy(q) ? ' (about ' + needText(quoteReadyBy(q)) + ' if you accept today)' : ''}`, `Price valid until: ${dateStr(q.valid_until)}`,
       ...termsLines(q),
       ...(q.reply_note ? ['', q.reply_note] : []), '',
       `To go ahead, open Request a Quote in your account and tap Accept${baseUrl() ? ' (' + baseUrl() + '/Shop_Customer.html)' : ''}. Accepting covers these payment terms too. You can also decline it or ask for a new quote there.`, ...signoff()], 'quote-reply');
@@ -1067,18 +1069,24 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     }
     if (note.length > 1500) throw bad('note', 'The note is too long (max 1500 characters)');
     if (note && note.length < 5) throw bad('note', 'Write at least 5 characters, or leave the note empty');
-    let amount = null, leadTime = null, validUntil = null;
+    let amount = null, leadTime = null, validUntil = null, readyBy = null, plan = null;
     if (status === 'quoted') {
       const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, '');
       if (!raw) throw bad('amount', 'Enter the quoted amount');
       amount = Number(raw);
       if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
       amount = Math.round(amount * 100) / 100;
-      leadTime = str(b.leadTime);
-      if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Choose how long it will take to make or prepare');
-      const days = Number(b.validDays);
-      if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Choose how long the price is valid');
-      validUntil = addDays(todayPH(), days);
+      if (b.readyBy || b.validUntil) {                  // the guided form: dates, checked against the system's own guidance (quote-form-guide.js)
+        if (!app.locals.quoteGuide) throw bad('amount', 'The quote guide is not available');
+        plan = await app.locals.quoteGuide.readPlan(pool, req.params.no, { amount, readyBy: str(b.readyBy), validUntil: str(b.validUntil), overrideReason: b.overrideReason });
+        leadTime = plan.leadTime; validUntil = plan.validUntil; readyBy = plan.readyBy;
+      } else {                                          // older screens that still send a wording + number of days
+        leadTime = str(b.leadTime);
+        if (!QUOTE_OPTIONS.leadTimes.includes(leadTime)) throw bad('leadTime', 'Choose how long it will take to make or prepare');
+        const days = Number(b.validDays);
+        if (!QUOTE_OPTIONS.validDays.includes(days)) throw bad('validDays', 'Choose how long the price is valid');
+        validUntil = addDays(todayPH(), days);
+      }
     }
     const q = await tx(async (client) => {
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
@@ -1094,11 +1102,15 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const quoting = status === 'quoted';
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, reply_note = $3, quoted_amount = $4, lead_time = $5, valid_until = $6, handled_by = $7,
+                ready_by = CASE WHEN $2 = 'quoted' THEN $9::date ELSE ready_by END,
                 responded_at = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE responded_at END,
                 response_note = CASE WHEN $2 IN ('quoted','new') THEN NULL ELSE response_note END,
                 close_reason = CASE WHEN $2 = 'closed' THEN $8 ELSE NULL END, updated_at = now() WHERE quote_id = $1 RETURNING *`,
         [cur.quote_id, status, quoting ? (note || null) : (note || cur.reply_note), quoting ? amount : cur.quoted_amount,
-         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id, status === 'closed' ? closeReason : null]);
+         quoting ? leadTime : cur.lead_time, quoting ? validUntil : cur.valid_until, req.user.id, status === 'closed' ? closeReason : null, quoting ? readyBy : null]);
+      if (plan && app.locals.quoteAutomation) await app.locals.quoteAutomation.logDecision(client, { quote: cur, action: 'finance_quoted', user: { id: req.user.id, name: req.user.name, roleLabel: 'Finance' },
+        reason: plan.overrideReason ? 'Changed from the system guidance: ' + plan.overrideReason : 'Followed the system guidance', rules: plan.flags.map((f) => f.code),
+        numbers: { cashierTotal: amount, systemTotal: plan.guide.price.ok ? plan.guide.price.suggested : null, costTotal: plan.guide.price.ok ? plan.guide.price.cost : null, readyBy, validUntil, flags: plan.flags.map((f) => f.text) } });
       await audit(client, req.user, 'Record edited', `Quote request ${cur.quote_no} marked ${status}${quoting ? ' (' + peso(amount) + ')' : ''}` +
         (status === 'closed' ? ` — reason: ${CLOSE_REASONS[closeReason]}${note ? ' (' + note + ')' : ''}` : ''));
       return r.rows[0];
@@ -1157,7 +1169,9 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     await audit(client, user, 'Record edited', `Quote ${cur.quote_no} moved from ${stepLabel(cur.status, cur.fulfillment)} to ${stepLabel(next, cur.fulfillment)}` + (note ? ` (${note})` : ''));
     return r.rows[0];
   }
-  for (const [base, role] of [['/api/finance', 'finance'], ['/api/pos', 'cashier']]) {
+  // Preparing -> Ready -> Picked up / Delivered is the cashier's work (they hold the goods, the job order and the counter payment).
+  // Finance approves, purchases, follows up money and cancels: it does not move the order along.
+  for (const [base, role] of [['/api/pos', 'cashier']]) {
     app.post(base + '/quotes/:no/step', auth(role), wrap(async (req, res) => {
       const b = req.body || {};
       const target = str(b.status), note = str(b.note), receivedBy = str(b.receivedBy);

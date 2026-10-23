@@ -44,6 +44,7 @@
       '.sx-form label{display:block;font-size:13.5px;font-weight:600;color:var(--text-dim);margin:12px 0 6px}.sx-form .form-input{width:100%;box-sizing:border-box}.sx-form textarea{min-height:90px;resize:vertical}' +
       '.sx-err{display:none;margin-top:10px;padding:9px 12px;border-radius:6px;font-size:13.5px;color:var(--red);background:rgba(227,91,91,.1);border:1px solid rgba(227,91,91,.35)}.sx-err.show{display:block}' +
       '.sx-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}' +
+      '.sx-chk{margin:8px 0 0;padding:0;list-style:none;font-size:13px}.sx-chk li{padding:1px 0}.sx-chk .ok:before{content:"\\2713  ";color:var(--green,#12805c)}.sx-chk .warn:before{content:"! ";color:var(--amber);font-weight:700}' +
       '.sx-two{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}.sx-sub{margin:16px 0 4px;font-weight:700;font-size:14px}' +
       '.sx-empty{padding:22px;text-align:center;color:var(--text-faint)}' +
       '.sx-job{white-space:normal}.sx-job>span{display:block;margin:2px 0 8px}.sx-jobtable{width:100%;border-collapse:collapse;font-size:13.5px;margin:6px 0}.sx-jobtable th,.sx-jobtable td{padding:6px 8px;border-bottom:1px solid var(--border);text-align:left}.sx-jobtable .r{text-align:right}' +
@@ -414,7 +415,7 @@
     paintBadge();
   }
   /* ---- the exceptions queue (Task 5): only prices that failed a rule reach Finance; one tap to approve, or a batch with the same reason ---- */
-  var RULE_LABEL = { not_costed: 'Cannot be priced yet', below_cost: 'Below cost', below_margin: 'Below the minimum margin', outside_band: 'Outside the tolerance band',
+  var RULE_LABEL = { not_priced: 'Typed by hand (not priced by the system)', under_band: 'Below the system price band', over_band: 'Above the system price band', faster: 'Faster than the system can support', late: 'After the customer\u2019s needed-by date', not_costed: 'Cannot be priced yet', below_cost: 'Below cost', below_margin: 'Below the minimum margin', outside_band: 'Outside the tolerance band',
     over_limit: 'Over the cashier limit', stock_short: 'Not enough stock', partial_terms: 'Partial-payment terms', checks_unavailable: 'Automatic checks unavailable' };
   var keyOf = function (x) { var ck = x.approvalCheck || {}; return (ck.rules || []).slice().sort().join('+') || 'unknown'; };
   var keyLabel = function (k) { return k === 'unknown' ? 'No recorded rule' : k.split('+').map(function (r) { return RULE_LABEL[r] || r; }).join(' + '); };
@@ -651,6 +652,7 @@
       info('Quantity', x.quantity) + info('Needed by', x.neededBy ? day(x.neededBy) : (x.neededMonths ? 'within ' + months(x.neededMonths) : '')) + info('Receive by', x.fulfillment ? x.fulfillment + (x.area ? ' \u00B7 ' + x.area : '') : '') + info('Received', when(x.createdAt)) + '</dl>' +
       '<div class="sx-box"><b>Sizes and details</b>' + esc(x.details) + '</div>';
     var inFlow = IN_FLOW.indexOf(x.status) >= 0;
+    var guided = !inFlow && x.status !== 'completed' && x.status !== 'declined';   // the system fills in the price and dates; Finance confirms or explains
     if (['new', 'pending_approval', 'awaiting_details'].indexOf(x.status) < 0) {           // nothing was sent to the customer yet in these
       var title = { quoted: x.expired ? 'Quote sent (expired)' : 'Quote sent', declined: 'Customer declined this quote', closed: 'Closed' + (x.closeReason ? ': ' + x.closeReason : ''), completed: (x.statusLabel || 'Completed') }[x.status] || 'Customer accepted this quote';
       h += '<div class="sx-box"><b>' + esc(title) + (x.quotedAmount != null ? ' \u2014 ' + peso(x.quotedAmount) : '') + '</b>' +
@@ -702,22 +704,21 @@
           (ready ? '<button type="button" class="btn-secondary" id="sxRemindCash">Remind cashier to collect</button>' : '') + '</div>' +
           (x.source === 'pos' ? '<p class="faint" style="margin:6px 0 0">Walk-in quote: there is no online account, so the cashier is the one who calls the customer.</p>' : '');
       }
-      if (x.next) {
-        h += '<div class="sx-sub">Next step: ' + esc(x.nextLabel) + '</div>';
-        if (x.next === 'completed') h += '<label for="sxRecv">' + (x.fulfillment === 'Delivery' ? 'Received by' : 'Picked up by') + ' <span class="faint" style="font-weight:400">(name of the person, required)</span></label><input type="text" class="form-input" id="sxRecv" maxlength="80" autocomplete="off">' + (x.balance > 0 ? '<div class="faint" style="margin-top:6px;font-size:13px">The balance of ' + peso(x.balance) + ' must be paid first.</div>' : '');
-      }
+      if (x.next) h += '<p class="faint" style="margin:12px 0 0">Next step: <b>' + esc(x.nextLabel) + '</b>. The cashier does this' + (x.next === 'completed' ? ' once the balance is paid' : '') + '; you are told when it happens.</p>';
     } else if (x.status !== 'completed') {
       h += '<label for="sxAmount">Total quoted amount (\u20B1) <span class="faint" style="font-weight:400">(required to send a quote)</span></label><input type="text" data-money class="form-input" id="sxAmount" inputmode="decimal" autocomplete="off" placeholder="e.g. 164000.00" value="' + (x.quotedAmount != null ? MoneyInput.fmt(x.quotedAmount) : '') + '">' +
-        '<div class="sx-two"><div><label for="sxLead">Ready in</label><select id="sxLead" class="form-input"><option value="">Choose</option>' + (o.leadTimes || []).map(function (t) { return '<option value="' + esc(t) + '"' + (x.leadTime === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></div>' +
-        '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>';
-      if (!qopts) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
+        (!guided ? '<div class="sx-two"><div><label for="sxLead">Ready in</label><select id="sxLead" class="form-input"><option value="">Choose</option>' + (o.leadTimes || []).map(function (t) { return '<option value="' + esc(t) + '"' + (x.leadTime === t ? ' selected' : '') + '>' + esc(t) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label for="sxDays">Price valid for</label><select id="sxDays" class="form-input">' + (o.validDays || [7]).map(function (d) { return '<option value="' + d + '"' + (d === 7 ? ' selected' : '') + '>' + d + ' days</option>'; }).join('') + '</select></div></div>' : '<div class="faint" id="sxAmtHint" style="margin-top:4px;font-size:13px">Working out the system price\u2026</div>' +
+        '<div class="sx-two"><div><label for="sxReady">Ready by</label><input type="date" class="form-input" id="sxReady"><div class="faint" id="sxReadyHint" style="margin-top:4px;font-size:13px"></div></div>' +
+        '<div><label for="sxValid">Price valid until</label><input type="date" class="form-input" id="sxValid"><div class="faint" id="sxValidHint" style="margin-top:4px;font-size:13px"></div></div></div>' +
+        '<ul class="sx-chk" id="sxChecks"></ul><div class="sx-box sx-warnbox" id="sxNeed" hidden style="margin-top:12px"></div>');
+      if (!qopts && !guided) h += '<div class="sx-err show">Could not load the lead-time choices. Press Refresh and open this request again.</div>';
     }
     sxDraft = x.status === 'pending_approval' && window.QuoteGuide && window.QuoteGuide.returnNote ? window.QuoteGuide.returnNote(x) : '';   // pre-filled send-back note
-    if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? (sxDraft ? 'drafted from the rules this price failed: edit it, it is only sent when you press Send back' : 'needed when you send the price back') : 'optional' + (inFlow ? ', saved with the step or the cancellation' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Cutting done, waiting for powder coating.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'pending_approval' ? sxDraft : x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
+    if (x.status !== 'completed') h += '<label for="sxNote">' + (x.status === 'pending_approval' ? 'Note to the cashier, or message to the customer' : inFlow ? 'Note' : 'Message to the customer') + ' <span class="faint" style="font-weight:400">(' + (x.status === 'pending_approval' ? (sxDraft ? 'drafted from the rules this price failed: edit it, it is only sent when you press Send back' : 'needed when you send the price back') : 'optional' + (inFlow ? ', used if you cancel this quote' : '')) + ')</span></label><textarea id="sxNote" class="form-input" maxlength="1500" placeholder="' + (inFlow ? 'e.g. Why this quote is being cancelled.' : 'e.g. Price is per full quantity. Delivery fee is extra.') + '">' + esc(x.status === 'pending_approval' ? sxDraft : x.status === 'new' || inFlow ? '' : (x.replyNote || '')) + '</textarea>';
     h += '<div class="sx-err" id="sxErr" role="alert"></div><div class="sx-actions">';
     if (x.status === 'quoted' && !(x.paidAmount > 0)) h += '<button type="button" class="btn-secondary" id="sxRefreshPrice">Refresh price at today\u2019s costs</button>';
     if (x.status === 'pending_approval') h += '<button type="button" class="btn-primary" id="sxApprovePrice">Approve ' + peso(x.proposedAmount || 0) + '</button><button type="button" class="btn-secondary" id="sxReturnPrice">Send back to cashier</button>';
-    if (inFlow && x.next) h += '<button type="button" class="btn-primary" id="sxStep">' + esc(x.nextLabel === 'Preparing' ? 'Start preparing' : x.next === 'completed' ? 'Mark ' + String(x.nextLabel).toLowerCase() : 'Mark ' + String(x.nextLabel).toLowerCase()) + '</button>';
     if (!inFlow && x.status !== 'completed') h += '<button type="button" class="' + (x.status === 'pending_approval' ? 'btn-secondary' : 'btn-primary') + '" id="sxSend">' + (x.status === 'pending_approval' ? 'Send my own price instead' : x.status === 'new' ? 'Send quote' : 'Send updated quote') + '</button>';
     if (x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxCloseReq">' + (x.status === 'closed' ? 'Keep closed' : inFlow ? 'Cancel this quote' : 'Close request') + '</button>';
     if (x.status !== 'new' && !inFlow && x.status !== 'completed') h += '<button type="button" class="btn-secondary" id="sxReopen">Reopen</button>';
@@ -731,9 +732,11 @@
         '<div class="sx-actions"><button type="button" class="btn-danger" id="sxCloseGo">' + (inFlow ? 'Cancel quote' : 'Close request') + '</button><button type="button" class="btn-secondary" id="sxCloseBack">Back</button></div></div>';
     }
     h += '</div>';
+    if (guided) h += '<div class="sx-box" id="sxWhy"><b>Why the system suggests this</b><span class="faint">Loading\u2026</span></div>';
     h += '<div class="sx-box sx-log" id="sxLog"><b>Decision log</b><span class="faint">Loading\u2026</span></div>';
     $('sxBody').innerHTML = h;
     prefillPayment(x);
+    if ($('sxReady')) loadGuide(x);
     if ($('sxJob')) loadJob(x);
     loadLog(x);
     if ($('sxRefreshPrice')) $('sxRefreshPrice').addEventListener('click', function () { post(x, '/refresh-price', {}, x.id + ' was refreshed at today\u2019s costs.'); });
@@ -745,7 +748,6 @@
       post(x, '/return-price', { note: note }, x.id + ' was sent back to the cashier.');
     });
     if ($('sxSend')) $('sxSend').addEventListener('click', function () { submitQuote(x, 'quoted'); });
-    if ($('sxStep')) $('sxStep').addEventListener('click', function () { submitStep(x); });
     if ($('sxCheckPay')) $('sxCheckPay').addEventListener('click', function () { checkOnline(x); });
     if ($('sxRemindCust')) $('sxRemindCust').addEventListener('click', function () { remind(x, 'customer'); });
     if ($('sxRemindCash')) $('sxRemindCash').addEventListener('click', function () { remind(x, 'cashier'); });
@@ -756,6 +758,57 @@
     if ($('sxCloseBack')) $('sxCloseBack').addEventListener('click', function () { $('sxCloseBox').hidden = true; $('sxCloseReq').closest('.sx-actions').style.display = ''; });
     if ($('sxCloseGo')) $('sxCloseGo').addEventListener('click', function () { submitQuote(x, 'closed'); });
     if ($('sxReopen')) $('sxReopen').addEventListener('click', function () { submitQuote(x, 'new'); });
+  }
+  /* ---------------- guided quote form ----------------
+     The server works out the price, the ready date and the valid-until date (quote-guide.js). Finance confirms them, or changes
+     something and says why; the reason is saved in the decision log. */
+  var guideKept = null;
+  async function loadGuide(x) {
+    var g;
+    try { g = await api('/finance/quotes/' + encodeURIComponent(x.id) + '/guide'); }
+    catch (e) { if ($('sxAmtHint')) { $('sxAmtHint').textContent = 'Could not load the guidance: ' + e.message; $('sxAmtHint').className = 'sx-err show'; } return; }
+    if (!$('sxReady') || openQuote !== x.id) return;
+    var k = guideKept && guideKept.id === x.id ? guideKept : null; guideKept = null;
+    var P = g.price, amt = $('sxAmount'), note = $('sxNote');
+    var setAmt = function (v) { if (window.MoneyInput) MoneyInput.set(amt, v); else amt.value = v; };
+    if (k) { if (k.amount) setAmt(Number(String(k.amount).replace(/[,\u20B1\s]/g, ''))); } else if (P.ok) setAmt(P.suggested);
+    var rd = $('sxReady'), vd = $('sxValid');
+    rd.min = g.ready.min; rd.max = g.ready.max; rd.value = k && k.ready ? k.ready : g.ready.date;
+    vd.min = g.valid.min; vd.max = g.valid.max; vd.value = k && k.valid ? k.valid : g.valid.date;
+    $('sxReadyHint').textContent = g.ready.neededBy ? 'Customer needs it by ' + day(g.ready.neededBy) : 'The customer gave no needed-by date';
+    $('sxValidHint').textContent = 'Up to ' + day(g.valid.max);
+    $('sxAmtHint').className = 'faint';
+    $('sxAmtHint').innerHTML = P.ok ? 'System price. From ' + peso(P.lowest) + ' to ' + peso(P.highest) + ' goes out without a reason. <button type="button" class="btn-secondary btn-sm" id="sxUseSys">Use the system price</button>'
+      : 'The system could not price this yet. Type the price and say why.';
+    $('sxChecks').innerHTML = g.checks.map(function (c) { return '<li class="' + (c.level === 'ok' ? 'ok' : 'warn') + '">' + esc(c.text) + '</li>'; }).join('');
+    if ($('sxWhy')) $('sxWhy').innerHTML = '<b>Why the system suggests this</b>' + g.why.map(function (w) { return esc(w.title) + ': ' + esc(w.text); }).join('\n');
+    var msgFor = function () { return g.messageTemplate.replace('{READY}', day(rd.value || g.ready.date)).replace('{VALID}', day(vd.value || g.valid.date)); };
+    var auto = '';
+    if (note && !note.value && x.status !== 'pending_approval') { auto = msgFor(); note.value = auto; }   // written for Finance; editing it stops the system changing it
+    var shown = '';
+    function flags() {
+      var f = [], a = Number(String(MoneyInput.raw(amt.value)).replace(/[,\u20B1\s]/g, '')), r = rd.value;
+      if (P.ok && a > 0) {
+        if (a < P.cost - 0.004) f.push(peso(a) + ' is below the cost of ' + peso(P.cost));
+        else if (a < P.floor - 0.004) f.push(peso(a) + ' is below the minimum-margin price of ' + peso(P.floor));
+        else if (a < P.lowest - 0.004 || a > P.highest + 0.004) f.push(peso(a) + ' is outside ' + peso(P.lowest) + ' to ' + peso(P.highest));
+      } else if (!P.ok) f.push('The price is typed by hand');
+      if (r && r < g.ready.date) f.push('The ready date is earlier than the system can support (' + day(g.ready.date) + ')');
+      if (r && g.ready.neededBy && r > g.ready.neededBy) f.push('The ready date is after the customer\u2019s needed-by date');
+      return f;
+    }
+    function refresh() {
+      var f = flags(), key = f.join('|'), box = $('sxNeed');
+      if (key !== shown) {
+        var had = $('sxReason') ? $('sxReason').value : (k && k.reason) || ''; shown = key;
+        box.hidden = !f.length;
+        box.innerHTML = f.length ? '<b>Please explain the change</b>' + f.map(function (t) { return '\u2022 ' + esc(t); }).join('\n') + '<textarea id="sxReason" class="form-input" maxlength="500" rows="2" style="margin-top:8px" placeholder="Why? This is saved in the decision log.">' + esc(had) + '</textarea>' : '';
+      }
+      if (auto && note.value === auto) { auto = msgFor(); note.value = auto; }
+    }
+    [amt, rd, vd].forEach(function (el) { el.addEventListener('input', refresh); el.addEventListener('change', refresh); });
+    if ($('sxUseSys')) $('sxUseSys').addEventListener('click', function () { setAmt(P.suggested); refresh(); });
+    refresh();
   }
   var logSeq = 0;
   async function loadLog(x) {
@@ -888,7 +941,8 @@
   var sxDraft = '';                                                       // the drafted send-back note currently shown (never sent to a customer)
   async function submitQuote(x, status) {
     if (busy) return;
-    var note = $('sxNote').value.trim(), amount = $('sxAmount') ? MoneyInput.raw($('sxAmount').value) : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '';
+    var note = $('sxNote').value.trim(), amount = $('sxAmount') ? MoneyInput.raw($('sxAmount').value) : '', lead = $('sxLead') ? $('sxLead').value : '', days = $('sxDays') ? $('sxDays').value : '',
+      ready = $('sxReady') ? $('sxReady').value : '', valid = $('sxValid') ? $('sxValid').value : '', reason = $('sxReason') ? $('sxReason').value.trim() : '';
     if (note && note === sxDraft) note = '';                              // an untouched cashier-facing draft must never go to the customer as a message
     $('sxErr').classList.remove('show');
     if (note && note.length < 5) { showErr('Write at least 5 characters, or leave the message empty.'); $('sxNote').focus(); return; }
@@ -902,17 +956,22 @@
       if (!amount) { showErr('Enter the quoted amount.'); $('sxAmount').focus(); return; }
       var n = Number(amount.replace(/[,\u20B1\s]/g, ''));
       if (!(n > 0)) { showErr('Enter a valid amount greater than 0.'); $('sxAmount').focus(); return; }
-      if (!lead) { showErr('Choose how long it will take to make or prepare.'); $('sxLead').focus(); return; }
+      if ($('sxReady')) {
+        if (!ready) { showErr('Pick the date it will be ready.'); $('sxReady').focus(); return; }
+        if (!valid) { showErr('Pick the date the price stays valid until.'); $('sxValid').focus(); return; }
+        if ($('sxReason') && reason.length < 10) { showErr('Please explain the change (at least 10 characters) in the box under the price and dates.'); $('sxReason').focus(); return; }
+      } else if (!lead) { showErr('Choose how long it will take to make or prepare.'); $('sxLead').focus(); return; }
     }
     busy = true; overlay.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
     try {
       var body = { status: status, note: note, closeReason: closeReason || undefined };
-      if (status === 'quoted') { body.amount = amount; body.leadTime = lead; body.validDays = Number(days); }
+      if (status === 'quoted') { body.amount = amount; if ($('sxReady')) { body.readyBy = ready; body.validUntil = valid; if (reason) body.overrideReason = reason; } else { body.leadTime = lead; body.validDays = Number(days); } }
       await api('/finance/quotes/' + encodeURIComponent(x.id), { method: 'POST', body: JSON.stringify(body) });
       toast(status === 'quoted' ? 'Quote sent for ' + x.id + '.' : status === 'closed' ? x.id + ' closed.' : x.id + ' reopened.');
       busy = false; closeModal(); await loadQuotes();
     } catch (e) {
       busy = false; if (e.message === 'Not signed in') return;
+      guideKept = $('sxReady') ? { id: x.id, amount: amount, ready: ready, valid: valid, reason: reason } : null;   // keep what was typed through the repaint
       await loadQuotes(); if (openQuote) { paintQuote(); $('sxNote').value = note; if (status === 'closed' && $('sxCloseBox')) { $('sxCloseBox').hidden = false; $('sxCloseReason').value = closeReason; if ($('sxCloseReq')) $('sxCloseReq').closest('.sx-actions').style.display = 'none'; } if ($('sxAmount')) $('sxAmount').value = amount; if ($('sxLead')) $('sxLead').value = lead; showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
     } finally { busy = false; }
   }
@@ -942,13 +1001,6 @@
       busy = false; if (e.message === 'Not signed in') return;
       await loadQuotes(); if (openQuote) { paintQuote(); showErr((e.fields && Object.values(e.fields)[0]) || e.message); }
     } finally { busy = false; }
-  }
-  function submitStep(x) {
-    $('sxErr').classList.remove('show');
-    var note = $('sxNote') ? $('sxNote').value.trim() : '', recv = $('sxRecv') ? $('sxRecv').value.trim() : '';
-    if (note.length > 200) { showErr('Keep the note under 200 characters for a step.'); return; }
-    if (x.next === 'completed' && recv.length < 2) { showErr('Enter the name of the person who ' + (x.fulfillment === 'Delivery' ? 'received' : 'picked up') + ' the order.'); $('sxRecv').focus(); return; }
-    post(x, '/step', { status: x.next, note: note, receivedBy: recv || undefined }, x.id + ': ' + x.nextLabel + '.');
   }
   function submitPayment(x) {
     $('sxErr').classList.remove('show');

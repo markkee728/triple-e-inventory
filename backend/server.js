@@ -1646,6 +1646,8 @@ app.locals.pricing = require('./pricing')({ app, pool, auth, wrap, tx, audit, Va
 app.locals.recipeCosting = require('./recipe-costing')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
 // custom quotes: quick recipe, priced with the recipe formula; quote approval routing, decision log, reminders (quote-automation.js)
 require('./quote-automation')({ app, pool, auth, wrap, tx, audit, ValidationError, str });
+// guided quote form: suggested price / ready date / valid-until date, with the reasons (quote-form-guide.js)
+require('./quote-form-guide')({ app, pool, auth, wrap, ValidationError, str });
 require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 
 /* ---------- automation: follow-ups that run by themselves ----------
