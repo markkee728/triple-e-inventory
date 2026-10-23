@@ -37,10 +37,22 @@
     setTimeout(() => el.remove(), 4500);
   }
 
-  async function performDecision(kind, id, ref, action, restock) {
+  async function performDecision(kind, id, ref, action, restock, extra) {
     if (kind === 'quote') {
-      await post('/finance/quotes/' + encodeURIComponent(id) + '/terms', { action: action === 'approve' ? 'approve' : 'refuse' });
-      toast(action === 'approve' ? 'Quotation ' + id + ' payment terms approved.' : 'Quotation ' + id + ' terms refused.');
+      const q = quotesData.find((x) => x.id === id) || {}, t = q.terms || {}, ex = extra || {}, base = '/finance/quotes/' + encodeURIComponent(id);
+      const termsBody = (act) => ({ action: act, termKey: t.key, percent: t.percent });
+      if (action === 'return') { await post(base + '/return-price', { note: ex.note }); toast('Quotation ' + id + ' sent back to the cashier.'); }
+      else if (q.status === 'pending_approval') {
+        const amt = quoteAmount(q);
+        if (ex.price && Math.abs(ex.price - amt) > 0.004) {      // Finance gives a discount: set the new price, then sign the terms that waited with it
+          await post(base, { status: 'quoted', amount: ex.price, leadTime: q.proposedLeadTime || q.leadTime, validDays: q.proposedValidDays || 7, note: ex.note && ex.note.length >= 5 ? ex.note : 'Price adjusted by Finance' });
+          if (t.state === 'proposed' && t.key && t.key !== 'full') await post(base + '/terms', termsBody('approve'));
+          toast('Quotation ' + id + ' approved at ' + peso(ex.price) + '.');
+        } else { await post(base + '/approve-price'); toast('Quotation ' + id + ' price approved.'); }
+      } else {
+        await post(base + '/terms', termsBody(action === 'approve' ? 'approve' : 'refuse'));
+        toast(action === 'approve' ? 'Quotation ' + id + ' payment terms approved.' : 'Quotation ' + id + ' terms refused.');
+      }
     } else if (kind === 'cancel') {
       await post('/orders/' + encodeURIComponent(id) + '/cancel-decision', { approve: action === 'approve' });
       toast(action === 'approve' ? 'Order ' + id + ' cancellation approved. Stock restored.' : 'Order ' + id + ' cancellation rejected.');
@@ -68,8 +80,8 @@
     if (!root || built) return;
     built = true;
     root.innerHTML =
-      '<div class="sa-kpis" id="saKpis"></div>' +
       '<div id="saApprovalsRoot"></div>' +
+      '<div class="sa-kpis" id="saKpis"></div>' +
       '<div style="margin:16px 0 12px"><div style="font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--text-faint);margin-bottom:6px">Ledger Channel View</div><div class="sa-source-tabs" role="tablist" aria-label="Transaction channel"><button type="button" class="sa-source-tab active" data-source-tab="POS" role="tab" aria-selected="true">In-Store Counter (POS)</button><button type="button" class="sa-source-tab" data-source-tab="Shop" role="tab" aria-selected="false">Online Customer Orders</button></div></div>' +
       '<div class="panel sales-log-panel">' +
         '<div class="panel-head">' +
@@ -112,18 +124,9 @@
     });
     const appRoot = $('saApprovalsRoot');
     if (appRoot) {
-      appRoot.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-dec-kind]');
-        if (!btn || btn.disabled) return;
-        btn.disabled = true;
-        try {
-          await performDecision(btn.dataset.decKind, btn.dataset.decId, btn.dataset.ref || btn.dataset.decId, btn.dataset.action, btn.dataset.restock === 'true');
-          await load(true);
-        } catch (err) {
-          toast(err.message || 'Decision failed', 'error');
-          btn.disabled = false;
-        }
-      });
+      const open = (e) => { const c = e.target.closest('[data-dx-open]'); if (c) { e.preventDefault(); openDecision(c.dataset.dxOpen); } };
+      appRoot.addEventListener('click', open);
+      appRoot.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') open(e); });
     }
     root.querySelectorAll('[data-source-tab]').forEach((tab) => tab.addEventListener('click', () => {
       sourceTab = tab.dataset.sourceTab; shown = 100;
@@ -172,7 +175,7 @@
     const todays = sales.filter((s) => dayKey(s.createdAt) === today && realized(s));
     const pending = sales.filter((s) => s.status === 'Pending Confirmation').length;
     const prog = sales.filter(inProgress).length;
-    const pendingQuotes = quotesData.filter((q) => q.terms && q.terms.state === 'proposed').length;
+    const pendingQuotes = quotesData.filter(needsFinance).length;
     const dec = sales.filter(hasRequest).length + pendingQuotes;
     const card = (key, label, value, sub, cls) =>
       '<button type="button" class="sa-kpi ' + (cls || '') + (quick === key ? ' on' : '') + '" data-quick="' + key + '">' +
@@ -185,143 +188,130 @@
     updateBadge();
   }
 
+  /* ---------- Finance decisions: one list, one review dialog, one "are you sure" step ---------- */
+  // The price is already there (recipe price confirmed by the cashier), so Finance only reviews it, and can give a discount.
+  const quoteAmount = (q) => (q.quotedAmount != null ? q.quotedAmount : q.proposedAmount != null ? q.proposedAmount : null);
+  const needsFinance = (q) => quoteAmount(q) > 0 && (q.status === 'pending_approval' ||
+    (q.terms && q.terms.state === 'proposed' && !['new', 'closed', 'declined', 'awaiting_details'].includes(q.status)));
+  const termText = (t) => (!t || !t.key ? '' : (t.key === 'full' || +t.percent >= 100) ? 'Full Payment' :
+    (t.percent || '') + '% now' + (t.amount != null ? ' (' + peso(t.amount) + ')' : '') + (t.balance ? ', balance ' + peso(t.balance) : '') + (t.condition ? ' \u00B7 ' + t.condition : ''));
+  const R = (l, v) => (v == null || v === '' ? null : [l, String(v)]);
+  const itemsText = (s) => s.items.map((i) => i.qty + ' ' + i.unit + ' ' + i.name).join(', ');
+
+  function decisionItems() {
+    const out = [];
+    quotesData.filter(needsFinance).forEach((q) => {
+      const t = q.terms || {}, amt = quoteAmount(q), price = q.status === 'pending_approval';
+      const cost = q.suggestedCost, margin = cost != null && amt ? (amt - cost) / amt * 100 : null;
+      const approve = price
+        ? { a: 'approve', label: 'Approve price' + (t.state === 'proposed' && t.key !== 'full' ? ' & terms' : ''), fx: 'The customer is told the price is ready.' }
+        : { a: 'approve', label: 'Approve terms', fx: 'The customer is told the payment terms are approved.' };
+      const back = price
+        ? { a: 'return', label: 'Send back to cashier', ghost: true, fx: 'The cashier gets your note and must price it again.' }
+        : { a: 'refuse', label: 'Refuse terms', ghost: true, fx: 'The customer will pay in full (100%) instead.' };
+      out.push({ key: 'quote:' + q.id, kind: 'quote', id: q.id, ref: q.id, cls: 'quote', tag: price ? 'Price approval' : 'Payment terms',
+        party: q.customer || q.company || 'Customer', amount: amt, price, cost, note: price,
+        line: (q.product || 'Custom item') + (q.quantity ? ' \u00D7 ' + q.quantity : ''),
+        reason: q.approvalReason || (t.state === 'proposed' ? 'Cashier proposed ' + termText(t) : ''),
+        terms: t.state === 'proposed' || price ? termText(t) : '', acts: [approve, back],
+        rows: [R('Customer', (q.customer || '') + (q.company ? ' \u00B7 ' + q.company : '')), R('Phone', q.phone), R('Item', q.product || 'Custom item'),
+          R('Details', q.details && String(q.details).slice(0, 200)), R('Quantity', q.quantity), R('Needed by', q.neededBy),
+          R('Fulfilment', (q.fulfillment || '') + (q.area ? ' \u00B7 ' + q.area : '')), R('Lead time', q.proposedLeadTime || q.leadTime),
+          R('Recipe cost', cost != null ? peso(cost) : ''), R('System price', q.suggestedAmount != null ? peso(q.suggestedAmount) : ''),
+          R(price ? 'Cashier\u2019s price' : 'Quoted price', peso(amt)), R('Margin', margin != null ? margin.toFixed(1) + '%' : ''),
+          R('Payment terms', termText(t)), R('Proposed by', q.proposedBy), R('Why it came to Finance', q.approvalReason)].filter(Boolean) });
+    });
+    sales.filter((s) => s.source === 'Shop' && s.cancelRequest).forEach((s) => out.push({ key: 'cancel:' + s.ref, kind: 'cancel', id: s.ref, ref: s.ref, cls: 'cancel', tag: 'Order cancellation',
+      party: s.customer, amount: s.total, line: itemsText(s), reason: s.cancelRequest.reason || 'Customer asked to cancel',
+      rows: [R('Customer', s.customer), R('Phone', s.phone), R('Order total', peso(s.total)), R('Items', itemsText(s)), R('Status', s.status), R('Customer\u2019s reason', s.cancelRequest.reason)].filter(Boolean),
+      acts: [{ a: 'approve', label: 'Approve cancellation', danger: true, fx: 'The order is cancelled and its stock is restored.' }, { a: 'reject', label: 'Reject request', ghost: true, fx: 'The order continues as normal.' }] }));
+    sales.filter((s) => s.source === 'POS' && s.voidRequest).forEach((s) => out.push({ key: 'void:' + s.voidRequest.id, kind: 'void', id: s.voidRequest.id, ref: s.ref, cls: 'void', tag: 'POS void',
+      party: s.cashier || 'Cashier', amount: s.total, line: itemsText(s), reason: s.voidRequest.reason || 'Void requested',
+      rows: [R('Cashier', s.cashier), R('Invoice total', peso(s.total)), R('Items', itemsText(s)), R('Payment', s.method), R('Cashier\u2019s reason', s.voidRequest.reason)].filter(Boolean),
+      acts: [{ a: 'approve', label: 'Approve void', danger: true, fx: 'The sale is voided and its stock is returned.' }, { a: 'reject', label: 'Reject request', ghost: true, fx: 'The sale stays valid.' }] }));
+    sales.filter((s) => s.source === 'POS' && s.returnRequest).forEach((s) => { const r = s.returnRequest; out.push({ key: 'return:' + r.id, kind: 'return', id: r.id, ref: r.returnNo || s.ref, cls: 'return', tag: 'POS return',
+      party: s.cashier || 'Cashier', amount: r.amount || 0, line: 'Invoice ' + s.ref, reason: r.reason || 'Return requested',
+      rows: [R('Invoice', s.ref), R('Cashier', s.cashier), R('Refund amount', peso(r.amount || 0)), R('Payment', s.method), R('Reason', r.reason)].filter(Boolean),
+      acts: [{ a: 'approve', label: 'Approve & restock', restock: true, fx: 'Refund approved and the items go back into stock.' },
+        { a: 'approve', label: 'Approve (damaged)', restock: false, ghost: true, fx: 'Refund approved; the items are NOT put back in stock.' },
+        { a: 'reject', label: 'Reject', ghost: true, fx: 'No refund is made.' }] }); });
+    return out;
+  }
+
   function renderApprovals() {
     const root = $('saApprovalsRoot');
     if (!root) return;
-    const pendingQuotes = quotesData.filter((q) => q.terms && q.terms.state === 'proposed');
-    const pendingCancels = sales.filter((s) => s.source === 'Shop' && s.cancelRequest);
-    const pendingVoids = sales.filter((s) => s.source === 'POS' && s.voidRequest);
-    const pendingReturns = sales.filter((s) => s.source === 'POS' && s.returnRequest);
-    const total = pendingQuotes.length + pendingCancels.length + pendingVoids.length + pendingReturns.length;
-
-    if (!total) {
-      root.innerHTML =
-        '<div class="sa-decisions-panel empty">' +
-          '<div class="sa-decisions-head">' +
-            '<div class="sa-decisions-title-group">' +
-              '<span class="sa-decisions-icon ok">' +
-                '<svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>' +
-              '</span>' +
-              '<div>' +
-                '<div class="sa-decisions-title">Pending Approvals &amp; Decisions</div>' +
-                '<div class="sa-decisions-sub">All clear &mdash; No quotation terms, cancellation requests, POS voids or product returns require decision.</div>' +
-              '</div>' +
-            '</div>' +
-            '<span class="sa-decisions-status-badge ok">0 Pending</span>' +
-          '</div>' +
-        '</div>';
+    const items = decisionItems();
+    if (!items.length) {
+      root.innerHTML = '<div class="sa-decisions-panel empty"><div class="sa-decisions-head"><div class="sa-decisions-title-group"><span class="sa-decisions-icon ok"><svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></span>' +
+        '<div><div class="sa-decisions-title">Pending Approvals &amp; Decisions</div><div class="sa-decisions-sub">All clear &mdash; nothing needs your decision.</div></div></div><span class="sa-decisions-status-badge ok">0 Pending</span></div></div>';
       return;
     }
+    root.innerHTML = '<div class="sa-decisions-panel active"><div class="sa-decisions-head"><div class="sa-decisions-title-group"><span class="sa-decisions-icon warn"><svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg></span>' +
+      '<div><div class="sa-decisions-title">Pending Approvals &amp; Decisions</div><div class="sa-decisions-sub">Click a request to see the details and decide.</div></div></div>' +
+      '<span class="sa-decisions-status-badge warn">' + items.length + ' Awaiting Action</span></div><div class="sa-decisions-grid">' +
+      items.map((it) => '<div class="sa-decision-card sa-dx-card" role="button" tabindex="0" data-dx-open="' + esc(it.key) + '">' +
+        '<div class="sa-dec-card-head"><span class="sa-dec-type-tag ' + it.cls + '">' + esc(it.tag) + '</span><span class="sa-dec-ref">' + esc(it.ref) + '</span></div>' +
+        '<div class="sa-dec-body"><div><strong class="sa-dec-party">' + esc(it.party) + '</strong> &middot; <span class="sa-dec-amount">' + peso(it.amount) + '</span></div>' +
+        '<div class="sa-dx-line">' + esc(it.line) + '</div>' + (it.reason ? '<div class="sa-dec-reason">' + esc(it.reason) + '</div>' : '') + '</div>' +
+        '<span class="sa-dx-go">Review &amp; decide &rarr;</span></div>').join('') + '</div></div>';
+  }
 
-    let cardsHtml = '';
-
-    pendingQuotes.forEach((q) => {
-      const t = q.terms || {};
-      cardsHtml +=
-        '<div class="sa-decision-card">' +
-          '<div class="sa-dec-card-head">' +
-            '<span class="sa-dec-type-tag quote">Quotation Terms</span>' +
-            '<span class="sa-dec-ref">' + esc(q.quoteNo) + '</span>' +
-          '</div>' +
-          '<div class="sa-dec-body">' +
-            '<div>Customer: <strong class="sa-dec-party">' + esc(q.customerName || 'Registered customer') + '</strong></div>' +
-            '<div>Quoted Total: <strong class="sa-dec-amount">' + peso(q.totalAmount || q.total) + '</strong></div>' +
-            '<div class="sa-dec-reason">' +
-              '<strong>Cashier Proposed:</strong> ' + esc(t.label || t.key || 'Custom Terms') +
-              (t.depositPercent ? ' &middot; Deposit ' + t.depositPercent + '% (' + peso((q.totalAmount || q.total || 0) * (t.depositPercent / 100)) + ')' : '') +
-              (t.balanceDays ? ' &middot; Balance due in ' + t.balanceDays + ' days' : '') +
-            '</div>' +
-          '</div>' +
-          '<div class="sa-dec-actions">' +
-            '<button type="button" class="btn-primary btn-sm" data-dec-kind="quote" data-dec-id="' + esc(q.quoteNo) + '" data-action="approve">Approve Terms</button>' +
-            '<button type="button" class="btn-secondary btn-sm" data-dec-kind="quote" data-dec-id="' + esc(q.quoteNo) + '" data-action="refuse">Refuse</button>' +
-          '</div>' +
-        '</div>';
+  let dx = null;   // { key, step: 'detail' | 'confirm', act, price, note }
+  const findItem = (key) => decisionItems().find((i) => i.key === key);
+  function openDecision(key) { dx = { key, step: 'detail' }; openRef = 'dx:' + key; paintDecision(); ensureOverlay().classList.add('open'); }
+  const dxErr = (m) => { const b = $('dxErr'); if (b) { b.textContent = m; b.hidden = false; } };
+  function discText(it, p) {
+    if (!(p > 0) || p >= it.amount) return p > it.amount ? 'Higher than the cashier\u2019s price.' : '';
+    let t = 'Discount ' + peso(it.amount - p) + ' (' + ((it.amount - p) / it.amount * 100).toFixed(1) + '%)';
+    if (it.cost != null) t += ' \u00B7 new margin ' + ((p - it.cost) / p * 100).toFixed(1) + '%' + (p < it.cost ? ' \u2014 BELOW COST' : '');
+    return t;
+  }
+  function paintDecision() {
+    const it = dx && findItem(dx.key);
+    ensureOverlay();
+    if (!it) { toast('That request was already handled.'); closeModal(); return; }
+    const head = '<div class="sa-head"><h2 id="saTitle">' + esc(it.ref) + '</h2><span class="sa-dec-type-tag ' + it.cls + '">' + esc(it.tag) + '</span></div>';
+    const err = '<div class="sa-banner bad" id="dxErr" hidden></div>';
+    let h;
+    if (dx.step === 'confirm') {
+      const act = it.acts[dx.act], p = dx.price, changed = it.price && p && Math.abs(p - it.amount) > 0.004;
+      h = head + '<div class="sa-banner ' + (act.danger ? 'bad' : 'warn') + '"><strong>Are you sure you want to ' + esc(act.label.toLowerCase()) + '?</strong><br>' + esc(act.fx) + '</div><dl class="sa-info">' +
+        infoRow('Request', it.ref + ' \u00B7 ' + it.tag) + infoRow('Customer / cashier', it.party) +
+        (it.price && act.a === 'approve' ? infoRow('Final price', peso(p) + (changed ? ' (was ' + peso(it.amount) + ' \u2014 ' + discText(it, p) + ')' : '')) : infoRow('Amount', peso(it.amount))) +
+        infoRow('Payment terms', it.terms) + infoRow('Your note', dx.note) + '</dl>' + err +
+        '<div class="sa-actions"><button type="button" class="btn-primary btn-sm' + (act.danger ? ' btn-danger-action' : '') + '" data-dx="yes">Yes, ' + esc(act.label.toLowerCase()) + '</button>' +
+        '<button type="button" class="btn-secondary btn-sm" data-dx="back">Go back</button></div>';
+    } else {
+      const p = dx.price != null ? dx.price : it.amount;
+      h = head + '<dl class="sa-info">' + it.rows.map((r) => infoRow(r[0], r[1])).join('') + '</dl>' +
+        (it.price ? '<label class="sa-dx-field">Final price \u2014 lower it to give a discount<input type="number" id="dxPrice" min="0.01" step="0.01" value="' + p + '"></label><div class="sa-dx-disc" id="dxDisc">' + esc(discText(it, p)) + '</div>' : '') +
+        (it.note ? '<label class="sa-dx-field">Note to the cashier (needed to send back)<textarea id="dxNote" rows="2" maxlength="500">' + esc(dx.note || '') + '</textarea></label>' : '') + err +
+        '<div class="sa-actions">' + it.acts.map((a, i) => '<button type="button" class="' + (a.ghost ? 'btn-secondary' : 'btn-primary' + (a.danger ? ' btn-danger-action' : '')) + ' btn-sm" data-dx="pick" data-i="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>';
+    }
+    $('saModalBody').innerHTML = h;
+  }
+  function wireDx(ov) {
+    ov.addEventListener('input', (e) => { if (e.target.id !== 'dxPrice' || !dx) return; const it = findItem(dx.key); if (it) $('dxDisc').textContent = discText(it, Number(e.target.value)); });
+    ov.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-dx]'); if (!btn || btn.disabled || !dx) return;
+      const it = findItem(dx.key); if (!it) { closeModal(); return; }
+      if (btn.dataset.dx === 'back') { dx.step = 'detail'; paintDecision(); return; }
+      if (btn.dataset.dx === 'pick') {
+        if (it.price) { const p = Number($('dxPrice').value); if (!(p > 0)) return dxErr('Enter a valid price.'); dx.price = Math.round(p * 100) / 100; }
+        dx.note = $('dxNote') ? $('dxNote').value.trim() : '';
+        const act = it.acts[+btn.dataset.i];
+        if (act.a === 'return' && dx.note.length < 10) return dxErr('Tell the cashier what to change (at least 10 characters).');
+        dx.act = +btn.dataset.i; dx.step = 'confirm'; paintDecision(); return;
+      }
+      if (btn.dataset.dx === 'yes') {
+        const act = it.acts[dx.act]; btn.disabled = true; busy = true;
+        try {
+          await performDecision(it.kind, it.id, it.ref, act.a, !!act.restock, { price: dx.price, note: dx.note });
+          busy = false; closeModal(); await load(true);
+        } catch (err) { busy = false; btn.disabled = false; dxErr(err.message || 'Decision failed'); }
+      }
     });
-
-    pendingCancels.forEach((s) => {
-      const cr = s.cancelRequest || {};
-      cardsHtml +=
-        '<div class="sa-decision-card">' +
-          '<div class="sa-dec-card-head">' +
-            '<span class="sa-dec-type-tag cancel">Order Cancellation</span>' +
-            '<span class="sa-dec-ref">' + esc(s.ref) + '</span>' +
-          '</div>' +
-          '<div class="sa-dec-body">' +
-            '<div>Customer: <strong class="sa-dec-party">' + esc(s.customer) + '</strong>' + (s.phone ? ' &middot; ' + esc(s.phone) : '') + '</div>' +
-            '<div>Order Total: <strong class="sa-dec-amount">' + peso(s.total) + '</strong> (' + s.items.length + ' item' + (s.items.length === 1 ? '' : 's') + ')</div>' +
-            '<div class="sa-dec-reason">' +
-              '<strong>Customer Reason:</strong> ' + esc(cr.reason || 'Customer requested order cancellation') +
-            '</div>' +
-          '</div>' +
-          '<div class="sa-dec-actions">' +
-            '<button type="button" class="btn-primary btn-sm btn-danger-action" data-dec-kind="cancel" data-dec-id="' + esc(s.ref) + '" data-action="approve">Approve Cancellation</button>' +
-            '<button type="button" class="btn-secondary btn-sm" data-dec-kind="cancel" data-dec-id="' + esc(s.ref) + '" data-action="reject">Reject Request</button>' +
-          '</div>' +
-        '</div>';
-    });
-
-    pendingVoids.forEach((s) => {
-      const vr = s.voidRequest || {};
-      cardsHtml +=
-        '<div class="sa-decision-card">' +
-          '<div class="sa-dec-card-head">' +
-            '<span class="sa-dec-type-tag void">POS Void Request</span>' +
-            '<span class="sa-dec-ref">' + esc(s.ref) + '</span>' +
-          '</div>' +
-          '<div class="sa-dec-body">' +
-            '<div>Cashier: <strong class="sa-dec-party">' + esc(s.cashier || 'Store cashier') + '</strong></div>' +
-            '<div>Invoice Total: <strong class="sa-dec-amount">' + peso(s.total) + '</strong> (' + s.items.length + ' item' + (s.items.length === 1 ? '' : 's') + ')</div>' +
-            '<div class="sa-dec-reason">' +
-              '<strong>Cashier Reason:</strong> ' + esc(vr.reason || 'Sale void requested at counter') +
-            '</div>' +
-          '</div>' +
-          '<div class="sa-dec-actions">' +
-            '<button type="button" class="btn-primary btn-sm btn-danger-action" data-dec-kind="void" data-dec-id="' + esc(vr.id) + '" data-ref="' + esc(s.ref) + '" data-action="approve">Approve Void</button>' +
-            '<button type="button" class="btn-secondary btn-sm" data-dec-kind="void" data-dec-id="' + esc(vr.id) + '" data-ref="' + esc(s.ref) + '" data-action="reject">Reject Request</button>' +
-          '</div>' +
-        '</div>';
-    });
-
-    pendingReturns.forEach((s) => {
-      const rr = s.returnRequest || {};
-      cardsHtml +=
-        '<div class="sa-decision-card">' +
-          '<div class="sa-dec-card-head">' +
-            '<span class="sa-dec-type-tag return">POS Return Request</span>' +
-            '<span class="sa-dec-ref">' + esc(rr.returnNo || s.ref) + '</span>' +
-          '</div>' +
-          '<div class="sa-dec-body">' +
-            '<div>Cashier: <strong class="sa-dec-party">' + esc(s.cashier || 'Store cashier') + '</strong> &middot; Invoice ' + esc(s.ref) + '</div>' +
-            '<div>Refund Amount: <strong class="sa-dec-amount">' + peso(rr.amount || 0) + '</strong></div>' +
-            '<div class="sa-dec-reason">' +
-              '<strong>Return Reason:</strong> ' + esc(rr.reason || 'Item return requested') +
-            '</div>' +
-          '</div>' +
-          '<div class="sa-dec-actions">' +
-            '<button type="button" class="btn-primary btn-sm" data-dec-kind="return" data-dec-id="' + esc(rr.id) + '" data-ref="' + esc(s.ref) + '" data-restock="true" data-action="approve">Approve &amp; Restock</button>' +
-            '<button type="button" class="btn-secondary btn-sm" data-dec-kind="return" data-dec-id="' + esc(rr.id) + '" data-ref="' + esc(s.ref) + '" data-restock="false" data-action="approve">Approve (Damaged)</button>' +
-            '<button type="button" class="btn-secondary btn-sm" data-dec-kind="return" data-dec-id="' + esc(rr.id) + '" data-ref="' + esc(s.ref) + '" data-action="reject">Reject</button>' +
-          '</div>' +
-        '</div>';
-    });
-
-    root.innerHTML =
-      '<div class="sa-decisions-panel active">' +
-        '<div class="sa-decisions-head">' +
-          '<div class="sa-decisions-title-group">' +
-            '<span class="sa-decisions-icon warn">' +
-              '<svg viewBox="0 0 24 24" class="ico" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>' +
-            '</span>' +
-            '<div>' +
-              '<div class="sa-decisions-title">Pending Approvals &amp; Decisions</div>' +
-              '<div class="sa-decisions-sub">Finance decisions required. Review and decide directly below.</div>' +
-            '</div>' +
-          '</div>' +
-          '<span class="sa-decisions-status-badge warn">' + total + ' Awaiting Action</span>' +
-        '</div>' +
-        '<div class="sa-decisions-grid">' + cardsHtml + '</div>' +
-      '</div>';
   }
 
   // Count only what Finance must answer. Online Orders: customer cancellation requests. POS Sales & Shifts: void / return requests. Quotes: terms proposed.
@@ -338,7 +328,7 @@
   function updateBadge() {
     const cancelCount = sales.filter((s) => s.source === 'Shop' && s.cancelRequest).length;
     const voidReturnCount = sales.filter((s) => s.source === 'POS' && (s.voidRequest || s.returnRequest)).length;
-    const quoteCount = quotesData.filter((q) => q.terms && q.terms.state === 'proposed').length;
+    const quoteCount = quotesData.filter(needsFinance).length;
     badge('orders', cancelCount, 'cancellation request(s) to answer');
     badge('sales', voidReturnCount, 'void / return request(s) to answer');
     badge('sales-overview', cancelCount + voidReturnCount + quoteCount, 'decision request(s) to answer');
@@ -449,10 +439,11 @@
       if (typeof window.navigateToPage === 'function') window.navigateToPage(go.dataset.saGo);
     });
     $('saClose').addEventListener('click', () => { if (!busy) closeModal(); });
+    wireDx(overlay);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openRef && !busy) closeModal(); });
     return overlay;
   }
-  function closeModal() { openRef = null; pendingErr = null; if (overlay) overlay.classList.remove('open'); render(); }
+  function closeModal() { openRef = null; dx = null; pendingErr = null; if (overlay) overlay.classList.remove('open'); render(); }
   function openModal(ref) { openRef = ref; pendingErr = null; paintModal(); ensureOverlay().classList.add('open'); }
 
   function infoRow(label, value) { return value ? '<div><dt>' + esc(label) + '</dt><dd>' + esc(value) + '</dd></div>' : ''; }

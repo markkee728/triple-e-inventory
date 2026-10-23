@@ -285,3 +285,14 @@ html[data-theme="light"] .sa-dec-reason {
 .btn-danger-action:hover {
     background: #b91c1c !important;
 }
+
+/* Finance decisions: compact clickable cards, review dialog, confirm step */
+.sa-decisions-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 12px; }
+.sa-dx-card { cursor: pointer; gap: 8px; padding: 12px 14px; transition: border-color .15s, transform .15s; }
+.sa-dx-card:hover, .sa-dx-card:focus-visible { border-color: var(--blue-bright, #60a5fa); transform: translateY(-1px); outline: none; }
+.sa-dx-line { font-size: 12.5px; color: var(--text-dim); margin-top: 2px; }
+.sa-dx-go { font-size: 12.5px; font-weight: 600; color: var(--blue-bright, #60a5fa); }
+.sa-dx-field { display: block; margin: 14px 0 4px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
+.sa-dx-field input, .sa-dx-field textarea { display: block; width: 100%; margin-top: 4px; padding: 8px 10px; font: inherit; color: var(--text);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-sizing: border-box; }
+.sa-dx-disc { min-height: 18px; margin-top: 4px; font-size: 12.5px; font-weight: 600; color: #d97706; }
