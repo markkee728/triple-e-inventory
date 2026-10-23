@@ -893,6 +893,8 @@
       h += '<p><b>' + esc(j.job.ref) + '</b> \u00B7 materials issued by ' + esc(j.job.issuedBy) + ' \u00B7 ' + esc(j.job.issuedAt) + (j.job.status === 'finished' ? ' \u00B7 <span class="qd-pill ok">finished ' + esc(j.job.finishedAt || '') + '</span>' : '') + '</p>' +
         kv(j.job.items.map((i) => [i.name, num4(i.quantity) + ' ' + esc(i.unit)]).concat([['Material cost', peso(j.job.materialCost)]]));
       if (j.canFinish) h += '<button type="button" class="btn-primary" data-act="jobfinish">Job finished \u2014 mark ' + (d.fulfillment === 'Delivery' ? 'out for delivery' : 'ready for pickup') + '</button>';
+    } else if (j.paymentBlocked && j.paymentNeeded) {
+      h += '<div class="qd-callout warn"><b>Down payment required before production:</b> Customer has paid ' + peso(j.paymentNeeded.paid) + ' of ' + peso(j.quoted) + '. Under Philippine Contract Law (Civil Code Arts. 1482 & 1582), custom-made orders require an initial down payment (' + peso(j.paymentNeeded.required) + ') before materials can leave stock. Collect at the counter or wait for online payment confirmation.</div>';
     } else if (j.canIssue) {
       h += '<p class="q-hint">' + (j.job ? '<b>' + esc(j.job.ref) + '</b> draft, made when the customer accepted. ' : '') + 'Issuing takes these materials out of stock and moves the quote to Preparing (the customer is told).</p>' +
         (j.suggestions || []).map((s) => { const m = name(s.sku); return '<div class="qd-rline qd-jline"><span>' + esc(m.name) + ' <span class="dim">' + esc(m.onHand != null ? num4(m.onHand) + ' ' + m.unit + ' on hand' : '') + '</span></span>' +

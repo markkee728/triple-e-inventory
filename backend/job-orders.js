@@ -124,6 +124,14 @@ module.exports = function mountJobOrders({ app, pool, auth, wrap, tx, audit, Val
   }
   app.locals.jobOrders = { jobFor, ready, createDraft };
 
+  function requiredDownPayment(q) {
+    if (!q || !isCustom(q)) return 0;
+    const quoted = q.quoted_amount != null ? +q.quoted_amount : 0;
+    if (q.terms_amount != null && +q.terms_amount > 0) return round2(+q.terms_amount);
+    if (quoted >= 10000 || isCustom(q)) return round2(quoted * 0.5);
+    return 0;
+  }
+
   const loadQuote = async (db, no, lock) => (await db.query('SELECT * FROM quote_requests WHERE quote_no = $1' + (lock ? ' FOR UPDATE' : ''), [no])).rows[0];
   for (const [base, role] of [['/api/finance', 'finance'], ['/api/pos', 'cashier']]) {
     app.get(base + '/quotes/:no/job', auth(role), wrap(async (req, res) => {
@@ -134,9 +142,15 @@ module.exports = function mountJobOrders({ app, pool, auth, wrap, tx, audit, Val
       const fromDraft = job && job.status === 'draft' && job.planned.length
         ? job.planned.map((p) => ({ sku: p.sku, quantity: p.quantity, why: 'the quote recipe, for the whole quantity' + (p.short > 0 ? ' — short by ' + fmt(p.short) + ' ' + p.unit : '') }))
         : null;
-      res.json({ custom: isCustom(q), status: q.status, job, canIssue: isCustom(q) && ['accepted', 'preparing'].includes(q.status) && (!job || job.status === 'draft'),
+      const quoted = q.quoted_amount == null ? null : +q.quoted_amount;
+      const paid = +q.paid_amount || 0;
+      const reqDeposit = requiredDownPayment(q);
+      const paymentBlocked = isCustom(q) && reqDeposit > 0 && paid < reqDeposit - 0.004;
+      const canIssue = isCustom(q) && ['accepted', 'preparing'].includes(q.status) && (!job || job.status === 'draft') && !paymentBlocked;
+      res.json({ custom: isCustom(q), status: q.status, job, canIssue, paymentBlocked,
+        paymentNeeded: paymentBlocked ? { required: reqDeposit, paid, balance: Math.max(0, round2((quoted || 0) - paid)) } : null,
         canFinish: isCustom(q) && q.status === 'preparing' && !!job && job.status === 'issued',
-        quoted: q.quoted_amount == null ? null : +q.quoted_amount, suggestions: fromDraft || suggest(q, mats), materials: mats });
+        quoted, suggestions: fromDraft || suggest(q, mats), materials: mats });
     }));
 
     app.post(base + '/quotes/:no/job', auth(role), wrap(async (req, res) => {
@@ -165,6 +179,11 @@ module.exports = function mountJobOrders({ app, pool, auth, wrap, tx, audit, Val
         const prior = await jobFor(client, q.quote_id);
         if (prior && prior.status !== 'draft') return { q, job: prior, duplicate: true };
         if (!['accepted', 'preparing'].includes(q.status)) throw bad('status', 'Materials can only be issued once the customer accepted and before the item is ready');
+        const reqDeposit = requiredDownPayment(q);
+        const paid = +q.paid_amount || 0;
+        if (isCustom(q) && reqDeposit > 0 && paid < reqDeposit - 0.004) {
+          throw bad('payment', 'Under Philippine Contract Law (Civil Code Arts. 1482 & 1582), custom fabrication materials cannot be issued until the initial down payment of ' + peso(reqDeposit) + ' is recorded. Current paid amount is ' + peso(paid) + '.');
+        }
         // issuing the materials IS the start of the work: an accepted quote moves to Preparing here (its payment gate applies)
         let stepped = null;
         if (q.status === 'accepted') {

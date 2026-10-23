@@ -315,11 +315,17 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
       seenAt: ms(q.terms_customer_seen_at) || undefined, total
     };
   }
-  // A partial term only counts once Finance has approved it. Until then everything is Full Payment.
+  // A partial term only counts once Finance has approved it. For custom or high-value orders, Civil Code Arts. 1482 & 1582 require earnest down payment.
   const approvedDueOf = (q) => {
     const t = quoteTerms(q);
-    if (!t || t.state !== 'approved' || t.key === 'full' || t.amount == null) return null;
-    return t;
+    if (t && t.state === 'approved' && t.key !== 'full' && t.amount != null) return t;
+    const custom = isMadeToOrder(q);
+    const total = q.quoted_amount != null ? round2(+q.quoted_amount) : (q.terms_total != null ? round2(+q.terms_total) : null);
+    if ((custom || (total != null && total >= 10000)) && total > 0) {
+      const dep = round2(total * 0.5);
+      return { key: 'down', amount: dep, balance: round2(total - dep), label: 'Down Payment (50%)' };
+    }
+    return null;
   };
 
   /* The parent's own money columns, read straight after the trigger has run. Screens never add the ledger rows up

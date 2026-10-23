@@ -535,7 +535,7 @@
           timingText = '<span style="background:#fef3c7;color:#92400e;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:600">Pending Delivery</span><div class="faint" style="font-size:11px;margin-top:2px">Expected: ' + expDateStr + '</div>';
         }
       } else if (s.status === 'received') {
-        timingText = '<span style="background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:600">✓ Received</span>' + (s.note ? '<div class="faint" style="font-size:11px;margin-top:2px">' + esc(s.note) + '</div>' : '');
+        timingText = '<span style="background:#dcfce7;color:#15803d;padding:2px 7px;border-radius:4px;font-size:11.5px;font-weight:600">Received</span>' + (s.note ? '<div class="faint" style="font-size:11px;margin-top:2px">' + esc(s.note) + '</div>' : '');
       } else {
         timingText = '<span class="faint">' + esc(when(s.createdAt)) + '</span>';
       }
@@ -843,6 +843,16 @@
       return;
     }
     if (!d.canIssue) {
+      if (d.paymentBlocked && d.paymentNeeded) {
+        box.innerHTML = '<b>Job order: materials for this custom item</b>' +
+          '<div class="sx-callout warn" style="background:#fffbeb;border:1px solid #fef08a;border-left:4px solid #d97706;padding:12px 14px;border-radius:6px;margin:10px 0;font-size:13px;line-height:1.5;">' +
+          '<b>Down payment required before production:</b> Customer has paid ' + peso(d.paymentNeeded.paid) + ' of ' + peso(d.quoted) + '. ' +
+          'Under Philippine Contract Law (Civil Code Arts. 1482 & 1582), custom-made orders require an initial down payment (' + peso(d.paymentNeeded.required) + ') before raw materials can leave stock. ' +
+          'Collect at the counter or wait for online payment confirmation before issuing raw materials.' +
+          '</div>' +
+          '<span class="faint">Materials are on hold until initial deposit is recorded.</span>';
+        return;
+      }
       box.innerHTML = '<b>Job order: materials for this custom item</b><span class="faint">' + (x.status === 'accepted'
         ? 'Press \u201CStart preparing\u201D first (the payment terms are checked there). Then issue the raw materials and finishing supplies here: they leave stock, and the quote can be marked ready.'
         : 'No materials were issued for this job.') + '</span>';

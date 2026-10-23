@@ -32,9 +32,11 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
  }
  const hours = () => {
   const c = clock();
+  // Allow opening cash shift anytime during testing/development (enforce strict hours only if ENFORCE_STORE_HOURS is set to true)
+  const canOpen = process.env.ENFORCE_STORE_HOURS === 'true' ? (c.minutes >= OPEN_MIN - EARLY && c.minutes < CLOSE_MIN) : true;
   return { open: label(OPEN_MIN), close: label(CLOSE_MIN), openMinutes: OPEN_MIN, closeMinutes: CLOSE_MIN, earlyMinutes: EARLY, remindMinutes: REMIND,
    firstOpen: label(Math.max(0, OPEN_MIN - EARLY)), nowMinutes: c.minutes, date: c.date, state: c.state,
-   canOpenShift: c.minutes >= OPEN_MIN - EARLY && c.minutes < CLOSE_MIN, minutesToClose: CLOSE_MIN - c.minutes };
+   canOpenShift: canOpen, minutesToClose: CLOSE_MIN - c.minutes };
  };
  app.get('/api/pos/business-hours', auth('cashier', 'finance'), wrap(async (req, res) => res.json(hours())));
 

@@ -21,7 +21,7 @@
  const nowMin = () => HOURS ? HOURS.nowMinutes + Math.floor((Date.now() - hoursAt) / 60000) : null;
  const left = () => HOURS ? HOURS.closeMinutes - nowMin() : null;
  const hm = (m) => { m = Math.max(0, Math.round(m)); return (m >= 60 ? Math.floor(m / 60) + 'h ' : '') + (m % 60) + 'm'; };
- const canOpenNow = () => !HOURS || (nowMin() >= HOURS.openMinutes - HOURS.earlyMinutes && nowMin() < HOURS.closeMinutes);
+ const canOpenNow = () => !HOURS || HOURS.canOpenShift !== false || (nowMin() >= HOURS.openMinutes - HOURS.earlyMinutes && nowMin() < HOURS.closeMinutes);
  async function loadHours() { try { HOURS = await request('/api/pos/business-hours'); hoursAt = Date.now(); } catch (e) { /* keep the last one */ } }
  function hoursLine() {
   if (!HOURS) return '';
