@@ -38,7 +38,7 @@
   
   const state = { preset: '30d', from: '', to: '', grain: '', dept: 'all', type: 'all', group: 'all', search: '', page: 1, data: null, loading: false, error: '', seq: 0, built: false, loadedOnce: false, timer: null };
 
-  const qs = (extra) => 'from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to) + (state.grain ? '&grain=' + state.grain : '') + '&dept=' + encodeURIComponent(state.dept) + '&type=' + state.type + '&group=' + encodeURIComponent(state.group) + '&q=' + encodeURIComponent(state.search) + '&page=' + state.page + '&pageSize=25' + (extra || '');
+  const qs = (extra) => 'from=' + encodeURIComponent(state.from) + '&to=' + encodeURIComponent(state.to) + (state.grain ? '&grain=' + state.grain : '') + '&dept=' + encodeURIComponent(state.dept) + '&type=' + state.type + '&group=' + encodeURIComponent(state.group) + '&q=' + encodeURIComponent(state.search) + '&page=' + state.page + '&pageSize=10' + (extra || '');
   async function getJson(path) {
     const res = await fetch('/api' + path, { credentials: 'same-origin' });
     if (res.status === 401) { window.location.href = 'Login_Inventory.html'; throw new Error('Not signed in'); }

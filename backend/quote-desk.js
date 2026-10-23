@@ -9,7 +9,7 @@
    Mounted in server.js:  require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str, validateShipTo, formatShipTo });
 */
 const PAGE_SIZES = [10, 20, 50, 100];
-const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_PAGE_SIZE = 10;
 const REQUEST_ID_RE = /^[a-zA-Z0-9-]{12,100}$/;
 
 /* The quoted quantity must be in the unit the product is sold in. Without this, "5 kg" on a product sold by pcs would become

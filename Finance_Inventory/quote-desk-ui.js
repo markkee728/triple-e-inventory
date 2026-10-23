@@ -11,7 +11,7 @@
   const SOURCES = [['all', 'Online + walk-in'], ['shop', 'Online only'], ['pos', 'Walk-in only']];
   const CLARIFY = [['dimensions', 'Size / dimensions'], ['thickness', 'Thickness'], ['material', 'Material / grade'], ['finish', 'Surface finish'], ['quantity', 'Quantity / unit'], ['other', 'Other detail']];
 
-  const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 20, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, openTerms: false, view: 'requests' };
+  const S = { rows: [], total: 0, pageCount: 1, page: 1, pageSize: 10, counts: {}, sort: 'created', dir: 'desc', filter: 'open', source: 'all', q: '', busy: false, error: '', detail: null, openPrice: false, openTerms: false, view: 'requests' };
   const desk = (p) => '/api/pos/quote-desk' + p;
   const el = (id) => document.getElementById(id);
   const day = (v) => (!v ? '—' : new Date(v).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }));
@@ -1165,7 +1165,7 @@
     let timer;
     el('qdSearch').addEventListener('input', (e) => { S.q = e.target.value; clearTimeout(timer); S.page = 1; timer = setTimeout(loadDesk, 350); });
     el('qdSource').innerHTML = SOURCES.map(([k, l]) => '<option value="' + k + '">' + l + '</option>').join('');
-    el('qdSize').innerHTML = PAGE_SIZES.map((n) => '<option value="' + n + '"' + (n === 20 ? ' selected' : '') + '>' + n + ' rows</option>').join('');
+    el('qdSize').innerHTML = PAGE_SIZES.map((n) => '<option value="' + n + '"' + (n === 10 ? ' selected' : '') + '>' + n + ' rows</option>').join('');
     el('qdSource').addEventListener('change', (e) => { S.source = e.target.value; S.page = 1; loadDesk(); });
     el('qdSize').addEventListener('change', (e) => { S.pageSize = Number(e.target.value); S.page = 1; loadDesk(); });
     el('qdRefresh').addEventListener('click', loadDesk);
