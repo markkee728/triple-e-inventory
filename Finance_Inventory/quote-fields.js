@@ -48,7 +48,7 @@
     return { days: 2, minDate: minWorkingDaysDate(2) };
   }
   function updateLeadRule(p) {
-    var qEl = $(p + 'Qty'), nEl = $(p + 'Needed'), hEl = $(p + 'NeededHint');
+    var qEl = $(p + 'Qty'), nEl = $(p + 'Needed'), hEl = $(p + 'NeededHint'), qhEl = $(p + 'QtyHint');
     if (!qEl || !nEl) return;
     var q = Number((qEl.value || '').replace(/,/g, '').trim()) || 0;
     var lead = leadForQty(q);
@@ -60,6 +60,20 @@
         hEl.innerHTML = 'Orders over 100 units require at least <b>' + lead.days + ' working days</b> for fabrication &amp; QC. Earliest available date: <b>' + dayText(lead.minDate) + '</b>.';
       } else {
         hEl.textContent = 'Pick a date from ' + dayText(lead.minDate) + ' up to ' + dayText(limits(state[p].options).max) + '.';
+      }
+    }
+    if (qhEl) {
+      var mq = state[p].options.minQty || 20;
+      if (q > 0 && q < mq && !state[p].locked) {
+        qhEl.innerHTML = '<span style="color:#b45309">Minimum order for custom fabrication is ' + mq + ' ' + $(p + 'Unit').value + '.</span>';
+      } else if (q > 500) {
+        qhEl.innerHTML = '<span style="color:#1d4ed8;font-weight:600">Large batch (500+ units) · min. 12 working days fabrication &amp; QC.</span>';
+      } else if (q > 100) {
+        qhEl.innerHTML = '<span style="color:#1d4ed8;font-weight:600">Volume batch (100+ units) · min. 7 working days fabrication &amp; QC.</span>';
+      } else if (q >= mq) {
+        qhEl.textContent = 'Standard order batch · typical lead time 3–5 working days.';
+      } else {
+        qhEl.textContent = '';
       }
     }
     if (nEl.value) check(p, 'neededBy');

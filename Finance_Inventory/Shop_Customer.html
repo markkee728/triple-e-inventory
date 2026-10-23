@@ -161,6 +161,10 @@ a.nav-item{text-decoration:none}
     <section class="page" id="checkout">
       <div class="page-head"><div><h1>Checkout</h1></div><button class="btn-ghost" data-view="cart"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to cart</button></div>
       <div class="flow"><span class="f done"><span class="n"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg></span>Cart</span><span class="bar"></span><span class="f on"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
+      <div class="checkout-guide-banner" id="coGuideBanner" style="background:var(--hover,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:10px;padding:12px 16px;margin:12px 0 16px;font-size:13px;line-height:1.5;color:var(--text,#1e293b)">
+        <div style="font-weight:600;color:var(--blue-bright,#2563eb);margin-bottom:2px">Order Placement Guide</div>
+        <div>Choose <b>Delivery</b> (shipping calculated per region) or <b>Pickup</b> (free counter collection). An online down payment confirms your reservation and allocates inventory immediately.</div>
+      </div>
       <div class="checkout-layout">
         <div class="card" style="padding:20px">
           <div class="sec-title">Fulfilment</div>
@@ -203,6 +207,10 @@ a.nav-item{text-decoration:none}
     <!-- ===== REQUEST A QUOTE ===== -->
     <section class="page" id="quote">
       <div class="page-head"><div><h1>Request a quote</h1><p>Tell us what you need and our team will send you a price. Nothing is reserved and no payment is taken until you accept.</p></div></div>
+      <div class="quote-guide-banner" style="background:var(--hover,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:10px;padding:12px 16px;margin:0 0 16px;font-size:13px;line-height:1.5;color:var(--text,#1e293b)">
+        <div style="font-weight:600;color:var(--blue-bright,#2563eb);margin-bottom:2px">Custom Quotation Assistant</div>
+        <div>Specify part dimensions, material grade, and secondary operations. Batch orders exceeding 100 units calculate minimum production lead time automatically to guarantee on-time delivery.</div>
+      </div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
           <div class="qf-sec first"><span class="qf-num">1</span><span class="qf-txt"><b>What do you need?</b><small>Pick a product from the catalog, or choose “Other” and describe it.</small></span></div>
@@ -1014,6 +1022,92 @@ function printReceipt(id) {
   w.document.close(); setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
 }
 
+function quoteInvoiceHtml(q) {
+  const i = INFO || {};
+  const when = new Date(q.createdAt).toLocaleString('en-PH', { dateStyle: 'medium', timeStyle: 'short' });
+  const contact = [i.address, i.phone, i.email].filter(Boolean).map(esc).join(' · ');
+  const where = q.fulfillment === 'Delivery' ? (q.area || q.address || 'Delivery') : 'Pickup' + (i.address ? ' at ' + i.address : '');
+  const ready = q.estimatedReady ? new Date(q.estimatedReady + 'T00:00:00').toLocaleDateString('en-PH', { dateStyle: 'medium' }) : (q.leadTime || 'Upon confirmation');
+  const valid = q.validUntil ? new Date(q.validUntil + 'T00:00:00').toLocaleDateString('en-PH', { dateStyle: 'medium' }) : 'Valid for 7 days';
+  const sp = q.specs || {};
+  const specsList = [
+    sp.material ? 'Material: ' + esc(sp.material) : '',
+    sp.size ? 'Dimensions: ' + esc(sp.size) : '',
+    sp.thickness ? 'Thickness: ' + esc(sp.thickness) : '',
+    sp.finish ? 'Finish: ' + esc(sp.finish) : '',
+    sp.service ? 'Secondary work: ' + esc(sp.service) : ''
+  ].filter(Boolean).join(' · ');
+  const amount = Number(q.quotedAmount) || 0;
+  const paid = Number(q.paidAmount) || 0;
+  const balance = q.balance != null ? Number(q.balance) : Math.max(0, amount - paid);
+  const termName = q.terms ? (q.terms.label || q.terms.key) : 'Full Payment';
+  const st = q.expired ? 'EXPIRED' : (q.statusLabel || q.status).toUpperCase();
+
+  return `<div class="rcpt">
+    <div class="rcpt-head">
+      <div class="rcpt-brand">Triple E Metal Products</div>
+      ${contact ? `<div class="rcpt-contact">${contact}</div>` : ''}
+      <div class="rcpt-titlerow"><span class="rcpt-title">Quotation Pro-Forma Invoice</span><span class="rcpt-pill">${st}</span></div>
+    </div>
+    <div class="rcpt-meta">
+      <div><small>Quotation no.</small><span class="mono">${esc(q.id)}</span></div>
+      <div><small>Date quoted</small><span>${esc(when)}</span></div>
+      <div><small>Customer</small><span>${esc(q.customer || (window.USER && USER.name) || '')}</span></div>
+      <div><small>Contact</small><span>${esc(q.phone || (window.USER && USER.phone) || '')}</span></div>
+      <div><small>Fulfillment</small><span>${esc(where)}</span></div>
+      <div><small>Estimated ready date</small><span><b>${esc(ready)}</b>${q.neededBy ? ' <span class="dim">(Needed by: ' + esc(qDay(q.neededBy)) + ')</span>' : ''}</span></div>
+      <div><small>Price valid until</small><span>${esc(valid)}</span></div>
+      <div><small>Payment terms</small><span>${esc(termName)}</span></div>
+    </div>
+    <div class="rcpt-items">
+      <table>
+        <thead><tr><th>Item / Specification</th><th class="r">Quantity</th><th class="r">Total</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>
+              <b>${esc(q.product || 'Custom item')}</b>
+              ${specsList ? `<div style="font-size:12px;color:var(--text-dim,#5d6b7a);margin-top:4px">${specsList}</div>` : ''}
+            </td>
+            <td class="r mono">${esc(q.quantity || '1')}</td>
+            <td class="r mono"><b>${peso(amount)}</b></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="rcpt-tot">
+      <div><span>Total quoted price</span><span>${peso(amount)}</span></div>
+      ${paid > 0 ? `<div><span>Amount paid so far</span><span>${peso(paid)}</span></div>` : ''}
+      <div class="grand"><span>${balance <= 0 && paid > 0 ? 'Total settled' : 'Outstanding balance'}</span><span>${peso(balance)}</span></div>
+      ${q.terms && q.terms.condition ? `<div style="font-size:12px;color:var(--text-dim,#5d6b7a);margin-top:4px">Terms: ${esc(q.terms.condition)}</div>` : ''}
+    </div>
+    <div class="rcpt-foot"><b>Official Quotation Pro-Forma Invoice</b>Keep this invoice for your reference. Prices and availability are guaranteed within the validity period.</div>
+  </div>`;
+}
+function openQuoteInvoice(id) {
+  const q = (window.QUOTES || []).find(x => String(x.id) === String(id));
+  if (!q) return toast('Quote not found.', true);
+  $('rcptBody').innerHTML = quoteInvoiceHtml(q);
+  $('rcptPrint').onclick = () => printQuoteInvoice(q.id);
+  $('rcptOrders').textContent = 'Back to Quotes';
+  $('rcptOrders').onclick = () => { closeModal('receiptBg'); show('quotes'); };
+  $('receiptBg').classList.add('show');
+}
+function printQuoteInvoice(id) {
+  const q = (window.QUOTES || []).find(x => String(x.id) === String(id));
+  if (!q) return toast('Quote not found.', true);
+  const w = window.open('', '_blank');
+  if (!w) return toast('Allow pop-ups to print your quotation invoice.', true);
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Quotation Invoice ${esc(q.id)}</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap">
+    <style>body{margin:0;padding:24px 14px;background:#eef1f5}.sheet{max-width:580px;margin:0 auto}
+    .rcpt,.rcpt *{-webkit-print-color-adjust:exact;print-color-adjust:exact}${RCPT_CSS}
+    @page{size:A4;margin:14mm}
+    @media print{html{color-scheme:light}body{background:#fff;padding:0}.rcpt{box-shadow:none!important;border:1px solid #cfd7e0;break-inside:avoid}}</style></head>
+    <body><div class="sheet">${quoteInvoiceHtml(q)}</div></body></html>`);
+  w.document.close();
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
+}
+
 /* ----- orders ----- */
 const FLOW = { Delivery: ['Paid', 'Packed', 'Out for Delivery', 'Delivered'], Pickup: ['Paid', 'Packed', 'Ready for Pickup', 'Picked Up'] };
 const fmtDay = ms => new Date(ms).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1089,7 +1183,7 @@ function renderOrders() {
     ${o.fulfillment === 'Delivery' && o.address ? `<div class="ship-to"><b>Deliver to</b>${o.shipTo ? esc(o.shipTo.recipient) + ' · ' + esc(o.phone) + '<br>' : ''}${esc(o.address)}</div>` : ''}
     ${deliveryBlock(o)}
     ${receivedBlock(o)}
-    ${o.advance && !['Cancelled', 'Returned'].includes(o.status) ? `<div class="dim" style="margin-top:8px">${o.advance.paid ? '✓ ' + peso(o.advance.amount) + ' ' + o.advance.label + ' paid online.' : peso(o.advance.amount) + ' ' + o.advance.label + ' to pay online to confirm this order.'} ${Number(o.outstanding || 0) > 0.005 ? peso(o.advance.paid ? o.outstanding : o.advance.cash) + ' in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.') : ''}</div>` : ''}
+    ${o.advance && !['Cancelled', 'Returned'].includes(o.status) ? `<div class="dim" style="margin-top:8px">${o.advance.paid ? 'Confirmed: ' + peso(o.advance.amount) + ' ' + o.advance.label + ' paid online.' : peso(o.advance.amount) + ' ' + o.advance.label + ' to pay online to confirm this order.'} ${Number(o.outstanding || 0) > 0.005 ? peso(o.advance.paid ? o.outstanding : o.advance.cash) + ' in cash ' + (o.fulfillment === 'Delivery' ? 'to the rider.' : 'at our counter.') : ''}</div>` : ''}
     ${o.forfeited ? `<div class="dim" style="margin-top:8px;color:#b32929">The ${peso(o.forfeited)} ${o.fulfillment === 'Delivery' ? 'delivery fee and down payment' : 'down payment'} ${o.fulfillment === 'Delivery' ? 'were' : 'was'} not refunded because the order was not ${o.fulfillment === 'Delivery' ? 'received' : 'picked up'}.</div>` : ''}
     ${o.advance && !o.advance.paid && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">Pay ${peso(o.dueNow)} ${o.advance.label} online</button>` : ''}
     ${o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005 && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.paidAmount || 0) > 0 ? 'Pay remaining ' + peso(o.outstanding) : Number(o.dueNow) > 0 ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
@@ -1340,9 +1434,47 @@ const qField = f => qErr(f, QCHECK[f]());
    and re-filled after My Profile is edited, so the quote never goes out with an old name or number. */
 function fillQuoteContact() {
   const me = PROFILE || {}, n = $('qName'), p = $('qPhone');
-  const name = String(me.name || [me.firstName, me.middleName, me.lastName].filter(Boolean).join(' ') || USER.name || '').trim();
-  if (name && !n.dataset.touched && n.value !== name) { n.value = name; qField('contactName'); }
-  if (me.phone && !p.dataset.touched && p.value !== me.phone) { p.value = me.phone; qField('phone'); }
+  if (!n || !p) return;
+  const name = String(me.name || [me.firstName, me.middleName, me.lastName].filter(Boolean).join(' ') || (window.USER && USER.name) || '').trim();
+  const phone = String(me.phone || (window.USER && USER.phone) || '').trim();
+  if (name) {
+    n.value = name;
+    n.readOnly = true;
+    n.style.background = '#f8fafc';
+    n.style.color = '#334155';
+    n.style.cursor = 'not-allowed';
+    let lk = $('qNameLocked');
+    if (!lk) {
+      lk = document.createElement('div');
+      lk.id = 'qNameLocked';
+      lk.className = 'q-hint';
+      lk.style.fontSize = '11.5px';
+      lk.style.color = '#475467';
+      lk.style.marginTop = '4px';
+      lk.innerHTML = 'Locked to your profile name. <a href="javascript:void(0)" onclick="if($(\'myProfileBtn\'))$(\'myProfileBtn\').click()" style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
+      n.parentElement.appendChild(lk);
+    }
+    qErr('contactName', '');
+  }
+  if (phone) {
+    p.value = phone;
+    p.readOnly = true;
+    p.style.background = '#f8fafc';
+    p.style.color = '#334155';
+    p.style.cursor = 'not-allowed';
+    let lk = $('qPhoneLocked');
+    if (!lk) {
+      lk = document.createElement('div');
+      lk.id = 'qPhoneLocked';
+      lk.className = 'q-hint';
+      lk.style.fontSize = '11.5px';
+      lk.style.color = '#475467';
+      lk.style.marginTop = '4px';
+      lk.innerHTML = 'Locked to your profile mobile number. <a href="javascript:void(0)" onclick="if($(\'myProfileBtn\'))$(\'myProfileBtn\').click()" style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
+      p.parentElement.appendChild(lk);
+    }
+    qErr('phone', '');
+  }
 }
 // while typing a mobile number: complain at once about what can never become a valid number, and wait with the length until it is complete
 function qPhoneLive() {
@@ -1505,7 +1637,7 @@ async function loadQuotes() {
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
       ${q.status === 'closed' && q.closeReason ? `<div class="refund-why">Closed: ${esc(q.closeReason)}</div>` : ''}
-      ${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
+      ${(q.quotedAmount != null || ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status)) ? `<div style="margin-top:8px"><button type="button" class="btn-secondary btn-sm" data-quote-invoice="${esc(q.id)}">View Quotation Invoice</button></div>` : ''}${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
     : '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>';
 }
 /* the cashier asked for missing details: one REQUIRED box per detail they asked for (same rules as clarifyProblem in shop-extras.js) */
@@ -1695,8 +1827,9 @@ async function tqSubmitQuote() {
 
 /* ----- events ----- */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-term],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-notify],[data-unnotify],[data-quote],[data-review],[data-received]'); if (!el) return; const d = el.dataset;
+  const el = e.target.closest('[data-view],[data-details],[data-add],[data-inc],[data-dec],[data-rm],[data-cat],[data-f],[data-pay],[data-term],[data-cancel],[data-refund],[data-xendit],[data-receipt],[data-quote-invoice],[data-notify],[data-unnotify],[data-quote],[data-review],[data-received]'); if (!el) return; const d = el.dataset;
   if (d.receipt) return openReceipt(d.receipt);
+  if (d.quoteInvoice) return openQuoteInvoice(d.quoteInvoice);
   if (d.notify) return setAlert(d.notify, true);
   if (d.unnotify) return setAlert(d.unnotify, false);
   if (d.quote !== undefined && el.dataset.quote !== '') { closeProductDetails(); return openQuote(d.quote); }

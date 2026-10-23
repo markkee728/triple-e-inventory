@@ -57,9 +57,20 @@ function suggestReady({ today, catalog, quantity, specs, materialWaitDays, neede
   work += GUIDE.bufferWorkdays; parts.push({ label: 'Buffer', days: GUIDE.bufferWorkdays });
   const wait = Math.max(0, Math.ceil(Number(materialWaitDays) || 0));
   const start = addDays(today, wait);
-  const date = addWorkdays(start, work);
-  const out = { date, workdays: work, materialWaitDays: wait, startsOn: start, parts, neededBy: neededBy || null, late: false, lateByDays: 0 };
-  if (neededBy && date > neededBy) { out.late = true; out.lateByDays = Math.round((Date.parse(date) - Date.parse(neededBy)) / 86400000); }
+  const earliestDate = addWorkdays(start, work);
+  let date = earliestDate;
+  let late = false;
+  let lateByDays = 0;
+  if (neededBy) {
+    if (earliestDate <= neededBy) {
+      date = neededBy;
+    } else {
+      late = true;
+      lateByDays = Math.round((Date.parse(earliestDate) - Date.parse(neededBy)) / 86400000);
+      date = earliestDate;
+    }
+  }
+  const out = { date, earliestDate, workdays: work, materialWaitDays: wait, startsOn: start, parts, neededBy: neededBy || null, late, lateByDays };
   return out;
 }
 
@@ -95,7 +106,8 @@ function checkPlan({ today, input, guide }) {
     else if (amount < P.lowest - 0.004) flags.push({ code: 'under_band', text: `${Math.abs(dev)}% below the system price of ${peso(P.suggested)} (allowed without a reason: ${P.tolerancePct}%)` });
     else if (amount > P.highest + 0.004) flags.push({ code: 'over_band', text: `${dev}% above the system price of ${peso(P.suggested)} (allowed without a reason: ${P.tolerancePct}%)` });
   }
-  if (input.readyBy < guide.ready.date) flags.push({ code: 'faster', text: `${nice(input.readyBy)} is earlier than the date the system can support (${nice(guide.ready.date)})` });
+  const minReady = guide.ready.earliestDate || guide.ready.date;
+  if (input.readyBy < minReady) flags.push({ code: 'faster', text: `${nice(input.readyBy)} is earlier than the date the system can support (${nice(minReady)})` });
   if (guide.ready.neededBy && input.readyBy > guide.ready.neededBy) flags.push({ code: 'late', text: `${nice(input.readyBy)} is after the customer's needed-by date (${nice(guide.ready.neededBy)})` });
   const reason = String(input.overrideReason || '').trim();
   const needsReason = flags.length > 0;
@@ -105,9 +117,11 @@ function checkPlan({ today, input, guide }) {
 }
 
 /* ---------------- pure: the customer message and the "why" ---------------- */
-function writeMessage({ quote, readyBy, validUntil }) {
+function writeMessage({ quote, readyBy, validUntil, fmt }) {
+  const nice = fmt || NICE;
   const bits = [`This price is for the full quantity (${quote.quantity}).`];
-  bits.push(quote.fulfillment === 'Delivery' ? `We aim to have it ready by ${nice(readyBy)}, then deliver it. The delivery fee is extra.` : `We aim to have it ready for pickup by ${nice(readyBy)}.`);
+  const targetNote = quote.neededBy && readyBy === quote.neededBy ? ' as requested' : '';
+  bits.push(quote.fulfillment === 'Delivery' ? `We aim to have it ready by ${nice(readyBy)}${targetNote}, then deliver it. The delivery fee is extra.` : `We aim to have it ready for pickup by ${nice(readyBy)}${targetNote}.`);
   bits.push(`The price is valid until ${nice(validUntil)}.`);
   return bits.join(' ');
 }
@@ -120,8 +134,9 @@ function writeWhy({ quote, draft, band, settings, ready, valid }) {
     why.push({ title: 'What you may change', text: `Anything from ${peso(band.lowest)} to ${peso(band.highest)} (within ±${band.tolerancePct}% and not under the ${band.minMarginPct}% minimum margin) goes out without a reason. Outside that, the system asks you to write one.` });
   } else why.push({ title: 'Price', text: 'The system could not price this: ' + (draft && draft.missing && draft.missing.length ? 'the request does not give the ' + draft.missing.join(', ') : ((draft && draft.problems) || []).map((p) => p.message).join(' ') || 'something is missing') + '. Type the price and write why.' });
   const waitTxt = ready.materialWaitDays > 0 ? `Some material is short, so work starts after about ${ready.materialWaitDays} day(s) of waiting for the supplier (${nice(ready.startsOn)}). ` : 'Materials are in stock, so work can start today. ';
-  why.push({ title: 'Ready date', text: waitTxt + 'Then ' + ready.parts.map((p) => `${p.label} ${p.days} working day(s)`).join(', ') + ` = ${ready.workdays} working days, so ${nice(ready.date)}. Weekends are skipped; holidays are not known, so this is an estimate.` });
-  if (ready.neededBy) why.push({ title: 'Customer\'s date', text: ready.late ? `The customer needs it by ${nice(ready.neededBy)}. This is ${ready.lateByDays} day(s) later. You can still send it, but tell them why.` : `The customer needs it by ${nice(ready.neededBy)}. This date meets it.` });
+  const earliestTxt = ready.earliestDate && ready.earliestDate !== ready.date ? ` (earliest possible completion: ${nice(ready.earliestDate)})` : '';
+  why.push({ title: 'Ready date', text: waitTxt + 'Then ' + ready.parts.map((p) => `${p.label} ${p.days} working day(s)`).join(', ') + ` = ${ready.workdays} working days${earliestTxt}, scheduled for promised ready date of ${nice(ready.date)}. Weekends are skipped; holidays are not known, so this is an estimate.` });
+  if (ready.neededBy) why.push({ title: 'Customer\'s date', text: ready.late ? `The customer needs it by ${nice(ready.neededBy)}. This is ${ready.lateByDays} day(s) later. You can still send it, but tell them why.` : `The customer needs it by ${nice(ready.neededBy)}. Scheduled for ready pickup/delivery on their requested date.` });
   why.push({ title: 'Price valid until', text: `${GUIDE.validDays.suggested} days, until ${nice(valid.date)}. Short enough that a material price change does not leave an old price standing; the longest allowed is ${GUIDE.validDays.max} days.` });
   return why;
 }
@@ -162,7 +177,7 @@ module.exports = function mountQuoteGuide({ app, pool, auth, wrap, ValidationErr
     const guide = {
       quote,
       price: band.ok ? { ok: true, suggested: band.suggested, perPiece: draft.pricePerPiece, cost: band.cost, marginPct: draft.marginPct, floor: band.floor, lowest: band.lowest, highest: band.highest, tolerancePct: band.tolerancePct, minMarginPct: band.minMarginPct, basis: draft.catalog ? 'catalog' : 'recipe' } : { ok: false },
-      ready: { date: ready.date, min: addDays(today, 1), max: addDays(today, GUIDE.readyMaxDays), workdays: ready.workdays, materialWaitDays: ready.materialWaitDays, startsOn: ready.startsOn, neededBy, late: ready.late, lateByDays: ready.lateByDays, parts: ready.parts },
+      ready: { date: ready.date, earliestDate: ready.earliestDate, min: addDays(today, 1), max: addDays(today, GUIDE.readyMaxDays), workdays: ready.workdays, materialWaitDays: ready.materialWaitDays, startsOn: ready.startsOn, neededBy, late: ready.late, lateByDays: ready.lateByDays, parts: ready.parts },
       valid: { date: valid.date, min: valid.min, max: valid.max },
       checks
     };

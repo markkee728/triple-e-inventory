@@ -212,6 +212,7 @@
       const total = unit && unit.value && q ? Number(unit.value) * q.qty : (d.proposedAmount != null ? d.proposedAmount : d.amount);
       loadTermOptions(form, total, (d.terms || {}).key);
       if (form && unit && unit.value && q) { const t = form.querySelector('[data-total]'); if (t) t.textContent = peso(total); syncRoute(form, total); }
+      if (form && form.elements.leadTime && form.elements.leadTime.value) updateReady(form);
       loadSystemPrice(d, form);
     }
     if (S.openTerms) loadTermOptions(el('qdTermsForm'), d.amount != null ? d.amount : d.proposedAmount, (d.terms || {}).key);
@@ -317,6 +318,27 @@
     u.value = S.draft && S.draft.ok ? Number(S.draft.pricePerPiece).toFixed(2) : '';
     S.fillingUnit = true; u.dispatchEvent(new Event('input', { bubbles: true })); S.fillingUnit = false;
   }
+  function matchLeadTimeForNeededBy(neededBy) {
+    if (!neededBy) return '';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    if (neededBy < today) return '';
+    let cur = new Date(today + 'T00:00:00Z'), target = new Date(neededBy + 'T00:00:00Z');
+    let workdays = 0;
+    while (cur < target) {
+      cur = new Date(cur.getTime() + 86400000);
+      const w = cur.getUTCDay();
+      if (w !== 0 && w !== 6) workdays++;
+    }
+    const o = window.PQ_OPTIONS || {};
+    const map = o.leadWorkdays || { '1 to 3 working days': 3, '1 week': 5, '2 weeks': 10, '3 weeks': 15, '1 month': 22, '2 months': 44, '3 months': 66, '4 to 6 months': 132 };
+    const entries = Object.entries(map).sort((a, b) => a[1] - b[1]);
+    let best = '';
+    for (const [k, days] of entries) {
+      if (days <= workdays) best = k;
+    }
+    return best || (entries[0] ? entries[0][0] : '');
+  }
+
   function priceFormHtml(d) {
     const can = ['new', 'pending_approval', 'awaiting_details'].includes(d.status);
     if (!can) return d.status === 'awaiting_details' ? '<div class="qd-callout warn">Waiting for the customer to send the missing details. Pricing opens as soon as they reply.</div>' : '';
@@ -326,13 +348,15 @@
     const o = window.PQ_OPTIONS || {}, q = qtyParts(d.quantity) || {};
     const back = d.financeNote && d.status === 'new' ? '<div class="qd-callout warn">Finance sent your price back: <b>' + esc(d.financeNote) + '</b>. Change the price and send it again.</div>' : '';
     const unit = d.proposedAmount != null && q.qty ? (d.proposedAmount / q.qty).toFixed(2) : '';
+    const autoLead = d.leadTime || (d.neededBy ? matchLeadTimeForNeededBy(d.neededBy) : '');
     return back + '<form class="qd-price" id="qdPriceForm" novalidate>' +
       '<div class="qd-sys wide" data-sys><p class="q-hint">Working out the materials and the suggested price\u2026</p></div>' +
       '<label>Unit price (PHP) <span class="dim" data-unit-note>' + (unit ? 'your earlier price' : 'filled in with the suggested price') + '</span><input name="unit" type="number" step="0.01" min="0" placeholder="0.00" value="' + esc(unit) + '"' + (unit ? '' : ' data-auto="1"') + ' required></label>' +
       '<label>Quantity<input value="' + esc(d.quantity || '—') + '" disabled></label>' +
       '<div class="qd-calc"><span>Calculated total for the customer' + (q.qty ? ' <span class="dim">(' + q.qty + ' × unit price)</span>' : '') + '</span><strong data-total>—</strong></div>' +
       '<div class="qd-callout wide" data-route role="status" hidden></div>' +
-      '<label>Estimated availability<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '">' + esc(x) + '</option>').join('') + '</select></label>' +
+      '<label>Estimated availability' + (d.neededBy ? ' <span class="dim">(Customer requested: ' + esc(day(d.neededBy)) + ')</span>' : '') +
+      '<select name="leadTime" required><option value="">Select…</option>' + (o.leadTimes || []).map((x) => '<option value="' + esc(x) + '"' + (x === autoLead ? ' selected' : '') + '>' + esc(x) + '</option>').join('') + '</select></label>' +
       '<div class="qd-calc" data-ready hidden role="status"><span>Estimated ready date <span class="dim">(working days, if accepted today)</span></span><strong data-ready-date>—</strong></div>' +
       '<div class="qd-callout warn wide" data-ready-late hidden>That is later than the date the customer needs it' + (d.neededBy ? ' (' + esc(shortDay(d.neededBy)) + ')' : '') + '. Choose a shorter time, or say in your remarks when you can deliver.</div>' +
       '<label>Quotation validity<select name="validDays" required>' + (o.validDays || []).map((x) => '<option value="' + esc(x) + '"' + (x === 7 ? ' selected' : '') + '>' + esc(x) + ' days</option>').join('') + '</select></label>' +
@@ -460,8 +484,106 @@
     if (d.status === 'quoted' && d.source !== 'pos') b.push('<button type="button" class="btn-secondary" data-act="renew">Ask Finance to re-issue</button>');
     if (d.status === 'accepted') b.push('<button type="button" class="btn-primary" data-act="convert">' + (d.source === 'pos' ? 'Hand over to the counter' : 'Convert into an order') + '</button>');
     if (d.converted) b.push('<span class="qd-callout ok" style="flex:1 1 220px">Already converted to ' + esc(d.orderNo || 'an order') + '.</span>');
+    if (d.amount != null || ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(d.status)) {
+      b.push('<button type="button" class="btn-secondary" data-act="print-invoice">Print quotation invoice</button>');
+    }
     b.push('<button type="button" class="btn-secondary" data-act="close">Close</button>');
     return b.join('');
+  }
+
+  function printQuoteInvoiceCashier(d) {
+    if (!d) return;
+    const w = window.open('', '_blank');
+    if (!w) { toast('Please allow pop-ups to print the quotation invoice.', true); return; }
+    const sp = d.specs || {};
+    const specsHtml = [
+      sp.material ? 'Material: ' + esc(sp.material) : '',
+      sp.size ? 'Dimensions: ' + esc(sp.size) : '',
+      sp.thickness ? 'Thickness: ' + esc(sp.thickness) : '',
+      sp.finish ? 'Finish: ' + esc(sp.finish) : '',
+      sp.service ? 'Secondary work: ' + esc(sp.service) : ''
+    ].filter(Boolean).join(' | ');
+    const when = day(d.requestDate || d.createdAt);
+    const ready = d.estimatedReady ? day(d.estimatedReady) : (d.leadTime || 'Upon confirmation');
+    const valid = d.validUntil ? day(d.validUntil) : '7 days from quote';
+    const amount = Number(d.amount) || Number(d.proposedAmount) || 0;
+    const paid = Number(d.paidAmount) || 0;
+    const balance = d.balance != null ? Number(d.balance) : Math.max(0, amount - paid);
+    const term = d.terms ? (TERM_NAME[d.terms.key] || d.terms.key) : 'Full Payment';
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Quotation Invoice ${esc(d.id)}</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; padding: 30px; margin: 0; background: #fff; }
+        .sheet { max-width: 680px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 28px; }
+        .header { display: flex; justify-content: space-between; border-bottom: 2px solid #0f172a; padding-bottom: 16px; margin-bottom: 20px; }
+        .brand { font-size: 20px; font-weight: 700; color: #0f172a; }
+        .sub { font-size: 12px; color: #64748b; margin-top: 4px; }
+        .title-box { text-align: right; }
+        .inv-title { font-size: 18px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: 0.5px; }
+        .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; background: #e0f2fe; color: #0369a1; margin-top: 4px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 20px; font-size: 13px; }
+        .grid div span { color: #64748b; display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .grid div strong { color: #0f172a; font-size: 13px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 13px; }
+        th { background: #f8fafc; border-bottom: 1px solid #cbd5e1; padding: 10px; text-align: left; font-size: 12px; color: #475467; }
+        td { border-bottom: 1px solid #f1f5f9; padding: 12px 10px; }
+        .r { text-align: right; }
+        .totals { margin-left: auto; width: 280px; font-size: 13px; margin-bottom: 24px; }
+        .totals-row { display: flex; justify-content: space-between; padding: 4px 0; }
+        .totals-row.grand { font-size: 15px; font-weight: 700; border-top: 1px solid #cbd5e1; padding-top: 8px; margin-top: 4px; color: #0f172a; }
+        .footer { font-size: 11px; color: #64748b; border-top: 1px solid #e2e8f0; padding-top: 12px; text-align: center; }
+        @media print { body { padding: 0; } .sheet { border: none; padding: 0; } }
+      </style></head><body>
+      <div class="sheet">
+        <div class="header">
+          <div>
+            <div class="brand">Triple E Metal Products</div>
+            <div class="sub">Official Pro-Forma Quotation Invoice</div>
+          </div>
+          <div class="title-box">
+            <div class="inv-title">Quotation Invoice</div>
+            <div class="badge">${esc(d.statusLabel || d.status)}</div>
+          </div>
+        </div>
+        <div class="grid">
+          <div><span>Quote Reference</span><strong>${esc(d.id)}</strong></div>
+          <div><span>Date Quoted</span><strong>${esc(when)}</strong></div>
+          <div><span>Customer</span><strong>${esc(d.customer || '—')}</strong><br><small>${esc(d.phone || '')}</small></div>
+          <div><span>Fulfillment</span><strong>${esc(d.fulfillment || 'Pickup')}</strong></div>
+          <div><span>Estimated Ready / Availability</span><strong>${esc(ready)}</strong>${d.neededBy ? '<br><small>Customer needed date: ' + esc(day(d.neededBy)) + '</small>' : ''}</div>
+          <div><span>Price Valid Until</span><strong>${esc(valid)}</strong></div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Item / Specification</th>
+              <th class="r">Quantity</th>
+              <th class="r">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                <strong>${esc(d.product || 'Custom Fabricated Item')}</strong>
+                ${specsHtml ? '<div style="font-size:12px;color:#64748b;margin-top:4px;">' + specsHtml + '</div>' : ''}
+              </td>
+              <td class="r">${esc(d.quantity || '1')}</td>
+              <td class="r"><strong>${peso(amount)}</strong></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="totals">
+          <div class="totals-row"><span>Total Quoted Amount</span><strong>${peso(amount)}</strong></div>
+          <div class="totals-row"><span>Payment Term</span><span>${esc(term)}</span></div>
+          ${paid > 0 ? `<div class="totals-row"><span>Amount Paid</span><span>${peso(paid)}</span></div>` : ''}
+          <div class="totals-row grand"><span>Remaining Balance</span><span>${peso(balance)}</span></div>
+        </div>
+        <div class="footer">
+          This is an official Pro-Forma Quotation Invoice issued by Triple E Metal Products. Terms and lead times are subject to formal confirmation upon order acceptance.
+        </div>
+      </div>
+      <script>setTimeout(function(){ window.focus(); window.print(); }, 400);</script>
+      </body></html>`);
+    w.document.close();
   }
 
   /* ================= 4. actions ================= */
@@ -594,7 +716,8 @@
     let x = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }) + 'T00:00:00Z'), left = n;
     while (left > 0) { x = new Date(x.getTime() + 86400000); const w = x.getUTCDay(); if (w !== 0 && w !== 6) left--; }
     const iso = x.toISOString().slice(0, 10);
-    out.textContent = day(iso); box.hidden = false; late.hidden = !(d.neededBy && iso > d.neededBy);
+    out.textContent = day(iso) + (d.neededBy && iso <= d.neededBy ? ' (Target ready: on or before requested date ' + day(d.neededBy) + ')' : '');
+    box.hidden = false; late.hidden = !(d.neededBy && iso > d.neededBy);
   }
 
   /* Where a confirmed price goes is decided by the SERVER (quote-automation.js routeQuote) from Finance's approval rules.
@@ -1088,6 +1211,7 @@
       else if (act === 'convert') doConvert();
       else if (['accept', 'decline', 'renew'].includes(act)) doRespond(act);
       else if (act === 'refresh') doRefresh();
+      else if (act === 'print-invoice') printQuoteInvoiceCashier(S.detail);
     });
     el('qdDrawerBody').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-act]'); if (!b) return;

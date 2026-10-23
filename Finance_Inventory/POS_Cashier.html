@@ -133,6 +133,15 @@
           <div class="panel-head">
             <div><div class="panel-title">Products</div><div class="panel-sub" id="prodSub">Tap a product to add it to the sale</div></div>
           </div>
+          <div class="pos-guide-bar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 12px;background:var(--card,#fff);border:1px solid var(--border,#e2e8f0);border-radius:8px;margin-bottom:10px;font-size:12px;color:var(--text-dim,#64748b)">
+            <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+              <span><kbd style="padding:1px 5px;background:var(--hover,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:4px;font-family:monospace">F2</kbd> or <kbd style="padding:1px 5px;background:var(--hover,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:4px;font-family:monospace">/</kbd> Search</span>
+              <span><kbd style="padding:1px 5px;background:var(--hover,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:4px;font-family:monospace">Enter</kbd> Add item</span>
+              <span><kbd style="padding:1px 5px;background:var(--hover,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:4px;font-family:monospace">F4</kbd> Pay cash</span>
+              <span><kbd style="padding:1px 5px;background:var(--hover,#f1f5f9);border:1px solid var(--border,#cbd5e1);border-radius:4px;font-family:monospace">Esc</kbd> Cancel</span>
+            </span>
+            <span style="font-weight:600;color:var(--blue-bright,#2563eb)">POS Keyboard Assistant</span>
+          </div>
           <div class="toolbar">
             <div class="search-wrap">
               <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
@@ -708,7 +717,7 @@ function renderCart() {
     <button class="icon-btn" data-rm="${esc(l.sku)}" title="Remove" aria-label="Remove ${esc(p.name)}">${TRASH}</button></div>
     <div class="bot"><div class="qty"><button data-dec="${esc(l.sku)}" aria-label="Less">−</button><input data-qty="${esc(l.sku)}" value="${l.qty}" inputmode="${frac ? 'decimal' : 'numeric'}" autocomplete="off" aria-label="Quantity of ${esc(p.name)}"><span class="u">${esc(p.unit)}</span><button data-inc="${esc(l.sku)}" aria-label="More">+</button></div>
     <span class="mono">${peso(lineAmt(l))}</span></div>
-    ${minQty(p) > 1 || p.available ? `<div class="faint" style="font-size:12px;margin-top:4px">Min. ${fmtQty(minQty(p))} · max ${fmtQty(p.available)} ${esc(p.unit)} (in stock)</div>` : ''}</div>`; }).join('')
+    ${minQty(p) > 1 || p.available ? `<div class="faint" style="font-size:12px;margin-top:4px">Min. ${fmtQty(minQty(p))} · max ${fmtQty(p.available)} ${esc(p.unit)} (in stock)${p.available <= (p.reorderLevel || 10) ? '<span style="display:inline-block;padding:1px 6px;border-radius:4px;font-size:11px;font-weight:600;background:#fef3c7;color:#92400e;margin-left:6px">Low stock: ' + fmtQty(p.available) + ' ' + esc(p.unit) + '</span>' : ''}</div>` : ''}</div>`; }).join('')
     : '<div class="empty"><svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg>Add products to start a sale.</div>';
   const t = total(), units = cart.length;
   $('total').textContent = peso(t); $('vat').textContent = peso(t * VAT_RATE / (1 + VAT_RATE));
@@ -1125,8 +1134,11 @@ $('q').onkeydown = e => {                                   // scanner / keyboar
   if (hit && hit.available > 0) { addToCart(hit.sku); $('q').value = ''; renderProducts(); }
   else if (hit) toast(hit.name + ' is out of stock.', true);
 };
-document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
-  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('returnBg'); closeModal('holdBg'); closeModal('heldBg'); closeModal('priceBg'); $('userDropdown').classList.remove('open'); } });
+document.addEventListener('keydown', e => {
+  if ((e.key === '/' || e.key === 'F2') && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); showPage('terminal'); $('q').focus(); }
+  if (e.key === 'F4' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); if (cart.length) { $('tendered').focus(); } }
+  if (e.key === 'Escape') { setNav(false); closeModal('receiptBg'); closeModal('voidBg'); closeModal('returnBg'); closeModal('holdBg'); closeModal('heldBg'); closeModal('priceBg'); $('userDropdown').classList.remove('open'); }
+});
 $('cardOk').onchange = updatePay; $('tendered').oninput = updatePay; $('cardRef').oninput = () => { $('cardRef').value = $('cardRef').value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); updatePay(); };
 $('complete').onclick = completeSale; $('clear').onclick = resetSale;
 $('priceOk').onclick = applyPrice;
