@@ -299,6 +299,37 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   // the form needs today's earliest / latest "needed by" date too (Philippine time), so the options are built per request
   const quoteOptionsNow = () => ({ ...QUOTE_OPTIONS, neededMin: addDays(todayPH(), 1), neededMax: addMonthsISO(todayPH(), QUOTE_OPTIONS.neededMaxMonths) });
+  // The same options, cut down to what the stock records can supply (Products > Raw Materials / Finishing Supplies).
+  // A material with no raw-material item, or a finish whose supply is not in stock records, is not offered, so a quote can never ask for
+  // something we cannot make. Add the item under Products and it appears here by itself. Falls back to the full list if the check fails.
+  function fitOptions(base, inv) {
+    const o = JSON.parse(JSON.stringify(base));
+    const okM = (m) => m === NOT_SURE || m === '' || !!inv.materials[m], okF = (f) => !!inv.finishes[f];
+    o.material = o.material.filter(okM); o.finish = o.finish.filter(okF);
+    o.families.forEach((f) => { f.materials = f.materials.filter(okM); });
+    Object.keys(o.rules).forEach((m) => { if (!okM(m)) delete o.rules[m]; else o.rules[m].finish = o.rules[m].finish.filter(okF); });
+    Object.keys(o.itemRules).forEach((t) => { const r = o.itemRules[t]; r.materials = r.materials.filter(okM); r.finish = r.finish.filter(okF); });
+    Object.keys(o.matrix).forEach((t) => Object.keys(o.matrix[t]).forEach((m) => {
+      if (!okM(m)) { delete o.matrix[t][m]; return; }
+      o.matrix[t][m].finish = o.matrix[t][m].finish.filter(okF);
+    }));
+    o.itemTypes = o.itemTypes.filter((t) => o.itemRules[t].materials.length);               // no stock record for any of its materials: not offered
+    o.inventory = inv;
+    return o;
+  }
+  async function stockFit(db) {
+    const A = app.locals.quoteAutomation; if (!A || !A.inventoryFit) return null;
+    try { await A.ready; return await A.inventoryFit(db || pool, QUOTE_OPTIONS.material.filter((m) => m !== NOT_SURE), QUOTE_OPTIONS.finish); }
+    catch (e) { console.warn('[quote] stock records check failed:', e.message); return null; }
+  }
+  async function quoteOptionsFor(db) { const base = quoteOptionsNow(), inv = await stockFit(db); return inv ? fitOptions(base, inv) : base; }
+  // the server-side twin of the form's filter: a custom item cannot ask for a material / finish that has no stock record
+  async function assertInStockRecords(specs) {
+    const inv = await stockFit(pool); if (!inv) return;
+    const m = specs.material, f = specs.finish;
+    if (m && m !== NOT_SURE && inv.materials[m] === null) throw bad('material', m + ' is not in our stock records right now. Choose another material, or call us so we can source it');
+    if (f && inv.finishes[f] === null) throw bad('finish', f + ' is not available right now (we have no supply for it on record). Choose another finish, or call us');
+  }
   // Walk-in (cashier) quotes are paid when the order is picked up / delivered, so accepting one sets this automatically.
   const payOnLabel = (f) => (f === 'Delivery' ? 'Pay on delivery' : 'Pay on pickup');
   const SPEC_LABEL = { material: 'Material', size: 'Size', thickness: 'Thickness', finish: 'Finish', service: 'Machining / secondary work' };
@@ -353,7 +384,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       neededBy: dateStr(q.needed_by), neededMonths: q.needed_months || undefined,          // new requests have a date (neededBy); neededMonths only exists on requests made while the form asked for months
       flexibleDate: q.flexible_date === true || undefined, contactEmail: q.contact_email || undefined, company: q.company_name || undefined,
       fulfillment: q.fulfillment || undefined, area: q.area || undefined,
-      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined,
+      payMethod: q.pay_method || undefined, payLater: /^Pay on /.test(q.pay_method || '') || undefined, payOnline: q.pay_method === 'Xendit' || undefined, payNow: ['accepted', 'preparing', 'ready'].includes(q.status) && q.quoted_amount != null && owedOn(q) > 0 ? owedOn(q) : undefined,
       proposedAmount: q.proposed_amount == null ? undefined : +q.proposed_amount, approvalReason: q.approval_reason || undefined,
       proposedLeadTime: q.proposed_lead_time || undefined, proposedValidDays: q.proposed_valid_days || undefined,
       proposedBy: q.proposed_by_name || undefined, proposedAt: ms(q.proposed_at) || undefined, financeNote: q.finance_note || undefined,
@@ -394,11 +425,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     'proposedLeadTime', 'proposedValidDays', 'financeNote', 'costStale', 'recipeEdited'];
   const customerJson = (q) => { const j = quoteJson(q); INTERNAL.forEach((k) => { delete j[k]; }); return j; };
 
-  app.get('/api/shop/quote-options', auth('customer'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/shop/quote-options', auth('customer'), wrap(async (req, res) => res.json(await quoteOptionsFor())));
   // the cashier screen also needs Finance's approval rules, so it can say before confirming where a price will go
-  app.get('/api/pos/quote-options', auth('cashier'), wrap(async (req, res) => res.json({ ...quoteOptionsNow(),
+  app.get('/api/pos/quote-options', auth('cashier'), wrap(async (req, res) => res.json({ ...(await quoteOptionsFor()),
     approvalRules: app.locals.quoteAutomation ? await app.locals.quoteAutomation.settings() : null })));
-  app.get('/api/finance/quote-options', auth('finance'), (req, res) => res.json(quoteOptionsNow()));
+  app.get('/api/finance/quote-options', auth('finance'), wrap(async (req, res) => res.json(await quoteOptionsFor())));
 
   // Checks a quote request body (shop customer or POS walk-in) and returns the clean values, or throws a field error.
   // Size and details that the product's own database record already states (Finance fills them in under the product's
@@ -435,24 +466,6 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     if (!cover || (!place.region && !place.province)) return;
     const q = await cover(place);
     if (q && q.available === false) throw bad(field, `Sorry, we do not deliver to ${place.province || place.region} yet. Choose another area, or switch to Pickup`);
-  }
-  // one detail a catalog product's record leaves out: required, and it must fit the product (its list, or a typed size / thickness of the right shape)
-  function catalogSpec(key, v, mat, ctype, productName) {
-    const label = SPEC_LABEL[key].toLowerCase(), rule = ctype && QUOTE_OPTIONS.itemRules[ctype];
-    if (!v || /^not specified$/i.test(v)) throw bad(key, productName + ' has no ' + label + ' on record. Choose the ' + label);
-    if (allowedFor(key, mat, ctype).includes(v)) return v;
-    if (key === 'size' && rule) {
-      const why = v.length < 2 || v.length > 40 || !CUSTOM_RE.test(v) ? 'Type ' + QUOTE_OPTIONS.typedSizes[rule.typed].hint : typedSizeProblem(rule.typed, v);
-      if (why) throw bad(key, why);
-      return v;
-    }
-    if (key === 'thickness' && rule && rule.thickness !== 'none') {
-      const lim = QUOTE_OPTIONS.thicknessLimits[mat] || QUOTE_OPTIONS.thicknessLimits[''], tm = /^(\d+(?:\.\d+)?)\s*mm$/i.exec(v);
-      if (!tm) throw bad(key, 'Type the thickness in mm, e.g. 2.5 mm');
-      if (+tm[1] < lim.min || +tm[1] > lim.max) throw bad(key, 'Type a thickness from ' + lim.min + ' to ' + lim.max + ' mm');
-      return v;
-    }
-    throw bad(key, 'Choose the ' + label + ' from the list');
   }
   async function readQuote(b, { fallbackName, userId }) {
     const contactName = str(b.contactName) || fallbackName;
@@ -519,13 +532,11 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (fromProduct[key]) { specs[key] = fromProduct[key]; continue; }   // the product record decides; whatever the browser sent is ignored
       // A catalog product is a ready-made finished good: nothing is chosen or customised. Anything its record does not state is saved as
       // "Not specified" (the material is read from the product name when it names one), and it is always sold as is. Same rule as the locked form.
-      // A catalog product is a ready-made finished good: what its record states is locked, and it is sold as is. A detail the record
-      // does NOT state is no longer saved as "Not specified": the customer / cashier must choose it, from the choices that fit the product.
       if (sku) {
         if (key === 'service') { specs[key] = 'None (as is)'; continue; }
         const named = key === 'material' && materialFromName(productName);
         if (named) { specs[key] = named; continue; }
-        specs[key] = catalogSpec(key, str(inSpecs[key]), specs.material, itemTypeFromName(productName), productName);
+        specs[key] = 'Not specified';
         continue;
       }
       const v = str(inSpecs[key]);
@@ -556,6 +567,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       }
       specs[key] = v;
     }
+    if (!sku) await assertInStockRecords(specs);                          // the material and finish must exist in the stock records
     // every detail the item type needs to be priced is required here, so the cashier never has to send the request back for it
     if (itemRule && itemRule.thicknessFor2D && !itemRule.sizes.includes(specs.size) && !/^[\u00D8\u00F8\u2300]/.test(specs.size) &&
         sizeNumbersMm(specs.size).length === 2 && !/^\d+(\.\d+)?\s*mm$/i.test(specs.thickness))
@@ -659,6 +671,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       if (cur.status !== 'quoted') throw bad('status', cur.status === 'new' ? 'This request has not been answered yet' : 'This quote was already answered or closed');
       const vu = dateStr(cur.valid_until);
       if (action === 'accept' && vu && vu < todayPH()) throw bad('status', 'This quote has expired. Ask for a new quote instead');
+      if (action === 'accept' && !autoPay && chosen === 'cod' && app.locals.paymentTerms) {
+        const due = app.locals.paymentTerms.approvedDueOf(cur);          // an approved down payment is paid online first; only the balance is paid on delivery / pickup
+        if (due && +due.amount > 0) throw bad('payMethod', 'Your payment terms need ' + peso(due.amount) + ' paid first. Choose Pay online for that amount; the balance of ' + peso(round2(+cur.quoted_amount - +due.amount)) + ' is paid on ' + (cur.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.');
+      }
       const payMethod = action === 'accept' ? (autoPay || chosen === 'cod' ? payOnLabel(cur.fulfillment) : 'Xendit') : null;
       const r = await client.query(
         `UPDATE quote_requests SET status = $2, responded_at = now(), response_note = $3, pay_method = COALESCE($4, pay_method), updated_at = now() WHERE quote_id = $1 RETURNING *`,
@@ -1331,7 +1347,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
     if (!q) throw bad('id', 'Quote request not found');
     if (!accepting(q)) throw bad('status', 'Only an accepted quote can be paid');
-    if (q.pay_method !== 'Xendit') throw bad('payment', 'This quote is set to ' + String(q.pay_method || 'pay later').toLowerCase());
+    // a customer who chose Pay on delivery / pickup can still pay online early (their choice stays as it is); only a quote with no method chosen cannot
+    if (q.pay_method !== 'Xendit' && !/^Pay on /.test(q.pay_method || '')) throw bad('payment', 'Accept the quote and choose how to pay first');
     if (!(owedOn(q) > 0)) throw bad('payment', 'This quote is already fully paid');
     let url; try { url = await quoteCheckoutUrl(q); } catch (e) { console.warn('[xendit] quote checkout failed:', e.message); throw bad('payment', 'Online payment is not available right now. Please try again later or contact us'); }
     res.json({ checkoutUrl: url });
@@ -1340,7 +1357,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   app.post('/api/shop/quotes/:no/verify-payment', auth('customer'), wrap(async (req, res) => {
     const q = (await pool.query('SELECT * FROM quote_requests WHERE quote_no = $1 AND customer_id = $2', [req.params.no, req.user.id])).rows[0];
     if (!q) throw bad('id', 'Quote request not found');
-    if (q.pay_method === 'Xendit' && q.xendit_invoice_id && owedOn(q) > 0) {
+    if (q.xendit_invoice_id && owedOn(q) > 0) {
       try { const inv = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`); await applyQuoteInvoice(q, inv, q.xendit_invoice_id); }
       catch (e) { console.warn('[xendit] quote payment check failed:', e.message); }
     }
@@ -1476,7 +1493,7 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
      customer or the cashier a reminder (below). If the customer chose online payment, the open Xendit link is checked first
      and closed before a counter payment is taken, so the same money can never be paid twice. */
   async function settleOnlineInvoice(q, { close } = {}) {
-    if (!(q.pay_method === 'Xendit' && q.xendit_invoice_id && process.env.XENDIT_SECRET_KEY)) return { state: 'none' };
+    if (!(q.xendit_invoice_id && process.env.XENDIT_SECRET_KEY)) return { state: 'none' };
     let inv; try { inv = await xenditCall(`${xBase}/v2/invoices/${encodeURIComponent(q.xendit_invoice_id)}`); } catch (e) { console.warn('[xendit] quote payment check failed:', e.message); return { state: 'unavailable' }; }
     const st = String(inv.status || '').toUpperCase();
     if (['PAID', 'SETTLED'].includes(st)) { await applyQuoteInvoice(q, inv, q.xendit_invoice_id); return { state: 'paid' }; }

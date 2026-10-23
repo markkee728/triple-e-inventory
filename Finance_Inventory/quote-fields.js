@@ -32,6 +32,38 @@
   var dayText = function (s) { return new Date(s + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); };
 
   // earliest / latest date: the server tells us (Philippine time); this is only the fallback
+  function minWorkingDaysDate(days) {
+    var d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    var added = 0;
+    while (added < days) {
+      d.setDate(d.getDate() + 1);
+      if (d.getDay() !== 0) added++; // Skip Sundays
+    }
+    return ymd(d);
+  }
+  function leadForQty(qty) {
+    var q = Number(String(qty || '').replace(/,/g, '').trim()) || 0;
+    if (q > 500) return { days: 12, minDate: minWorkingDaysDate(12) };
+    if (q > 100) return { days: 7, minDate: minWorkingDaysDate(7) };
+    return { days: 2, minDate: minWorkingDaysDate(2) };
+  }
+  function updateLeadRule(p) {
+    var qEl = $(p + 'Qty'), nEl = $(p + 'Needed'), hEl = $(p + 'NeededHint');
+    if (!qEl || !nEl) return;
+    var q = Number((qEl.value || '').replace(/,/g, '').trim()) || 0;
+    var lead = leadForQty(q);
+    state[p].minLeadDate = lead.minDate;
+    state[p].minLeadDays = lead.days;
+    nEl.min = lead.minDate;
+    if (hEl) {
+      if (q > 100) {
+        hEl.innerHTML = 'Orders over 100 units require at least <b>' + lead.days + ' working days</b> for fabrication &amp; QC. Earliest available date: <b>' + dayText(lead.minDate) + '</b>.';
+      } else {
+        hEl.textContent = 'Pick a date from ' + dayText(lead.minDate) + ' up to ' + dayText(limits(state[p].options).max) + '.';
+      }
+    }
+    if (nEl.value) check(p, 'neededBy');
+  }
   function limits(o) {
     if (o.neededMin && o.neededMax) return { min: o.neededMin, max: o.neededMax };
     var today = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' })), min = new Date(today), max = new Date(today);
@@ -59,7 +91,7 @@
           '<select id="' + p + 'S_' + k + '">' + opts(o[k] || [], 'Choose ' + f[1].toLowerCase()) + (custom ? '<option value="' + OTHER + '">Other (type it)</option>' : '') + '</select>' +
           // the typed value is built from the small boxes below it (length x width x height + unit, a pipe size + unit, a thickness in mm)
           (custom ? '<input id="' + p + 'C_' + k + '" type="hidden" hidden><div class="qx-typed" id="' + p + 'X_' + k + '" hidden></div>' : '') +
-          '<div class="err-text" id="' + p + 'E_' + k + '"></div></div>';
+          '<small class="q-hint qx-stock" id="' + p + 'Stock_' + k + '" hidden></small><div class="err-text" id="' + p + 'E_' + k + '"></div></div>';
       }).join('') + '</div>' +
       '<div class="q-grid">' +
       '<div class="q-field"><label for="' + p + 'Qty">Quantity</label>' +
@@ -90,7 +122,7 @@
       if (box) {
         box.addEventListener('input', function (e) {
           if (e.target.matches('input[data-n]')) { var t = e.target, clean = t.value.replace(t.getAttribute('data-n') === 'pipe' ? /[^\d.\/\- ]/g : /[^\d.]/g, ''); if (clean !== t.value) t.value = clean; }
-          compose(p, k); if (sel.classList.contains('is-bad') || box.querySelector('.is-bad')) check(p, k);
+          compose(p, k); var typed = box.querySelector('input[data-n]'); if (sel.classList.contains('is-bad') || box.querySelector('.is-bad') || (typed && typed.value)) check(p, k);
         });
         box.addEventListener('change', function () { compose(p, k); if (box.querySelector('input[data-n]').value) check(p, k); });
         box.addEventListener('focusout', function (e) { if (!box.contains(e.relatedTarget)) { compose(p, k); check(p, k); } });
@@ -106,13 +138,14 @@
       cascade(p, r ? r.label : '', true); check(p, 'itemType'); describeNote(p);
     });
     $(p + 'Qty').addEventListener('blur', function () { check(p, 'quantity'); });
-    $(p + 'Qty').addEventListener('input', function () { var el = $(p + 'Qty'), d = el.value.replace(wholeUnit(p) ? /[^\d,]/g : /[^\d.,]/g, ''); if (d !== el.value) el.value = d; if (el.classList.contains('is-bad')) check(p, 'quantity'); });
+    $(p + 'Qty').addEventListener('input', function () { var el = $(p + 'Qty'), d = el.value.replace(wholeUnit(p) ? /[^\d,]/g : /[^\d.,]/g, ''); if (d !== el.value) el.value = d; if (el.value || el.classList.contains('is-bad')) check(p, 'quantity'); updateLeadRule(p); });
     $(p + 'Unit').addEventListener('change', function () { state[p].unitTouched = true; var el = $(p + 'Qty'); if (wholeUnit(p)) el.value = el.value.replace(/\..*$/, ''); if (el.value) check(p, 'quantity'); });
     $(p + 'Needed').addEventListener('change', function () { check(p, 'neededBy'); neededNote(p); });
     $(p + 'Notes').addEventListener('input', function () { $(p + 'NotesCount').textContent = $(p + 'Notes').value.length + ' / 1000'; });
     $(p + 'Narrow').addEventListener('click', function (e) { if (e.target.closest('[data-showall]')) { state[p].offKey = state[p].hint && state[p].hint.key; refresh(p); } });
     var item = itemInput(p); if (item) item.addEventListener('input', function () { clearTimeout(state[p].timer); state[p].timer = setTimeout(function () { refresh(p); }, 250); });
     refresh(p); syncUnits(p);
+    updateLeadRule(p);
     // automatic price: every change re-works the estimate (pricing.js on the server does the maths, so every screen agrees)
     if (cfg.estimate) {
       var again = function () { clearTimeout(state[p].estTimer); state[p].estTimer = setTimeout(function () { estimate(p); }, 400); };
@@ -413,7 +446,12 @@
     if (field === 'neededBy') {
       var d = $(p + 'Needed').value, lim = limits(state[p].options), flex = state[p].flexible;
       if (!d) return (flex && flex()) ? '' : 'Choose the date you need it.';
-      if (d < lim.min) return 'Choose a date after today (' + dayText(lim.min) + ' or later).';
+      var q = Number(($(p + 'Qty').value || '').replace(/,/g, '').trim()) || 0;
+      var lead = leadForQty(q);
+      if (d < lead.minDate) {
+        if (q > 100) return 'Orders over 100 units require at least ' + lead.days + ' working days for fabrication & QC. Please choose ' + dayText(lead.minDate) + ' or later.';
+        return 'Choose a date from ' + dayText(lead.minDate) + ' or later.';
+      }
       if (d > lim.max) return 'Choose a date within the next 6 months (up to ' + dayText(lim.max) + ').';
       return '';
     }
@@ -448,7 +486,15 @@
     var v = sel.value === OTHER ? ($(p + 'C_size') ? $(p + 'C_size').value.trim() : '') : sel.value;
     return !!v && (r.sizes || []).indexOf(v) < 0 && !/^[\u00D8\u00F8\u2300]/.test(v) && sizeMm(v).length === 2;
   }
-  function check(p, field) { return setErr(p, field, rule(p, field)); }
+  // what the stock records say about the chosen material / finish (options.inventory comes from the server)
+  function stockNote(p, field) {
+    var el = $(p + 'Stock_' + field), sel = $(p + 'S_' + field), inv = state[p] && state[p].options.inventory; if (!el || !sel) return;
+    var e = inv && inv[field === 'material' ? 'materials' : 'finishes'] ? inv[field === 'material' ? 'materials' : 'finishes'][sel.value] : null;
+    if (!sel.value || !e || e.free || state[p].locked) { el.hidden = true; el.textContent = ''; return; }
+    el.hidden = false; el.setAttribute('data-stock', e.status);
+    el.textContent = e.status === 'out' ? 'Not on the shelf right now. We order it first, so this may take longer.' : 'Available in our stock.';
+  }
+  function check(p, field) { if (field === 'material' || field === 'finish') stockNote(p, field); return setErr(p, field, rule(p, field)); }
   // a typed pipe size that is already in the list ("1 in" -> 1") — pick it from the list instead, so the request is not "custom"
   function PIPE_SIZES_IN(t, o) {
     var m = /^\s*([\d.\/\- ]+?)\s*(in|inch|inches|")\s*$/i.exec(t); if (!m) return '';

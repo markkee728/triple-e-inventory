@@ -76,6 +76,12 @@
       $('qg-send').addEventListener('click', async () => {
         ['amount', 'ready', 'valid', 'top'].forEach((k) => { $('qg-e-' + k).textContent = ''; });
         const btn = $('qg-send'); btn.disabled = true;
+        const amt = Number($('qg-amount').value.replace(/[,₱s]/g, ''));
+        if (P.ok && amt > 0 && amt < P.floor - 0.004) {
+          $('qg-e-amount').textContent = 'Price cannot be lower than the 20% margin floor (' + peso(P.floor) + '). Unit price must maintain at least 20% margin.';
+          btn.disabled = false;
+          return;
+        }
         const reason = $('qg-reason');
         try {
           await opts.send({ status: 'quoted', amount: $('qg-amount').value, readyBy: $('qg-ready').value, validUntil: $('qg-valid').value,

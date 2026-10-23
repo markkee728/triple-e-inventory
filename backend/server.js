@@ -793,8 +793,9 @@ app.post('/api/auth/logout', wrap(async (req, res) => {
   res.clearCookie('session'); res.json({ ok: true });
 }));
 app.get('/api/auth/me', auth(), wrap(async (req, res) => {
-  const { rows } = await pool.query('SELECT email FROM users WHERE user_id = $1', [req.user.id]);
-  res.json({ ...req.user, email: rows[0] ? rows[0].email : null });
+  const { rows } = await pool.query('SELECT full_name, email, phone FROM users WHERE user_id = $1', [req.user.id]);
+  const u = rows[0] || {};
+  res.json({ ...req.user, name: u.full_name || req.user.name, email: u.email || null, phone: u.phone || '' });
 }));
 /* ---------- my profile (any signed-in user edits only their own row) ---------- */
 const PROFILE_SQL = `SELECT u.user_id, u.full_name, u.username, u.email, u.phone, r.label AS role_label, r.role_key,

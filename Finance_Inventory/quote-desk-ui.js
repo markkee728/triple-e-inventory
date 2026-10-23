@@ -642,6 +642,14 @@
     if (!/^\d+(?:\.\d{1,2})?$/.test(unit) || Number(unit) <= 0) { err.textContent = 'Enter the unit price in pesos, up to two decimals.'; return; }
     if (!q) { err.textContent = 'The quoted quantity could not be read. Fix it with Finance before pricing.'; return; }
     const total = Math.round(Number(unit) * q.qty * 100) / 100;
+    const minMargin = (rulesNow() && rulesNow().minMarginPct) || 20;
+    if (S.draft && S.draft.costTotal > 0) {
+      const minFloor = Math.round((S.draft.costTotal / (1 - minMargin / 100)) * 100) / 100;
+      if (total < minFloor - 0.004) {
+        err.textContent = 'Price cannot be below the ' + minMargin + '% margin floor (' + peso(minFloor) + ' total, ' + peso(minFloor / q.qty) + '/pc). Please adjust the unit price.';
+        return;
+      }
+    }
     const leadTime = f.get('leadTime'), validDays = Number(f.get('validDays')), note = String(f.get('note') || '').trim();
     if (!leadTime || !validDays) { err.textContent = 'Choose the preparation time and how long the price is valid.'; return; }
     if (S.recipeMode === 'edited' && validLines().length !== (S.lines || []).length) { err.textContent = 'Finish or remove the incomplete recipe line (material and a quantity above 0).'; return; }

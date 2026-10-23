@@ -163,6 +163,10 @@ async function submitFail() {
 function payButton(o) {
   if (['Cancelled', 'Returned'].includes(o.status) || o.cancelRequested) return '';
   if (o.awaitingPayment || dueOf(o) <= 0 || o.paymentState === 'refunded') return '';
+  // Pickup: only collect payment once the order has been packed and is Ready for Pickup (or already released with terms)
+  if (o.fulfillment === 'Pickup' && ['Pending Confirmation', 'Paid'].includes(o.status)) return '';
+  // Delivery: COD balance is collected upon delivery handover at doorstep, not before packing
+  if (o.fulfillment === 'Delivery' && ['Pending Confirmation', 'Paid'].includes(o.status)) return '';
   return `<button type="button" class="btn-secondary" data-pay="${esc(o.id)}">Collect payment</button>`;
 }
 function render() {

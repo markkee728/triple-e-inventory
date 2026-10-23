@@ -146,7 +146,7 @@
   const typing = document.activeElement && $('csApp') && $('csApp').contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
   if (!typing) render(); else badge();   // do not wipe what the cashier is typing when a sale refreshes the shift
   clearInterval(ticker);
-  ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); const lf = $('csLeft'); if (lf && HOURS) lf.textContent = left() < 0 ? 'past closing' : hm(left()) + ' left'; side(); }, 30000);
+  ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); const lf = $('csLeft'); if (lf && HOURS) lf.textContent = left() < 0 ? 'past closing' : hm(left()) + ' left'; side(); checkClosingPrompt(); }, 30000); checkClosingPrompt();
  }
  async function history() {
   const body = $('shiftHistory'); if (!body) return;
@@ -189,9 +189,20 @@
   catch (e) { fieldErr('csMvAmount', e.fields.amount || ''); fieldErr('csMvReason', e.fields.reason || ''); if (!Object.keys(e.fields).length) say(e.message, true); btn.disabled = false; }
  }
 
- function closeDialog() {
+  function checkClosingPrompt() {
+    if (!current || prompted || gated || document.querySelector('.cs-modal')) return;
+    const phTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    const hr = phTime.getHours(), min = phTime.getMinutes();
+    const isClosingSoon = (hr === 16 && min >= 45) || (hr >= 17) || (HOURS && left() != null && left() <= 15);
+    if (isClosingSoon) {
+      prompted = true;
+      closeDialog(true);
+    }
+  }
+  function closeDialog(isAutoPrompt) {
   const exp = current.expectedCash;
-  const d = dialog(`<h3>Count &amp; close shift #${esc(current.id)}</h3><p class="lead">Count everything in the drawer, including the starting cash. Enter how many of each note and coin you have.</p>
+    const banner = isAutoPrompt ? '<div class="cs-warn" style="margin-bottom:14px"><b>End of Day Shift Close (Before 5:00 PM):</b> Store closes at 5:00 PM. Please count your drawer notes and coins and reconcile your cash shift for today.</div>' : '';
+    const d = dialog(banner + `<h3>Count &amp; close shift
    <div class="cs-tabs"><button type="button" class="on" data-mode="count">Count notes &amp; coins</button><button type="button" data-mode="total">I know the total</button></div>
    <div id="csModeCount" class="cs-count">${DENOMS.map(([k, c]) => `<div class="cs-den"><span class="d">₱${k}</span><input type="number" inputmode="numeric" min="0" step="1" data-den="${k}" placeholder="0" aria-label="How many ₱${k}"><span class="s" data-sub="${k}">₱0.00</span></div>`).join('')}</div>
    <div id="csModeTotal" hidden><div class="cs-field"><label for="csTotal">Total cash counted</label><div class="cs-money"><span>₱</span><input id="csTotal" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csTotalErr"></div></div></div>

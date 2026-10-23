@@ -261,6 +261,24 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
     return out;
   }
 
+  /* What a custom quote can really be made from, read from the stock records (Raw Materials + Finishing Supplies).
+     The quote forms use this so they only offer a material / finish the shop has an item for, and the server repeats the check.
+     A material is offered when an active Raw Material with that grade exists; a finish when it uses no supply (raw, shot blasted)
+     or an active Finishing Supply for it exists. status 'out' = the item exists but none is on hand (we order it first). */
+  async function inventoryFit(db, materialNames, finishNames) {
+    const rows = await materialRows(db), R = pricing() ? await pricing().rules(db) : null;
+    const use = (R && R.rates && R.rates.finishUsePerKg) || {};
+    const stateOf = (p) => (+p.on_hand > 0 ? 'in' : 'out');
+    const materials = {}, finishes = {};
+    (materialNames || []).forEach((m) => { const p = pickMaterial(rows, m); materials[m] = p ? { sku: p.sku, name: p.name, unit: p.unit, onHand: +p.on_hand, status: stateOf(p) } : null; });
+    (finishNames || []).forEach((f) => {
+      if (!(+use[f] > 0)) { finishes[f] = { free: true, status: 'in' }; return; }
+      const p = pickFinish(rows, f);
+      finishes[f] = p ? { sku: p.sku, name: p.name, unit: p.unit, onHand: +p.on_hand, status: stateOf(p) } : null;
+    });
+    return { materials, finishes };
+  }
+
   /* ---------------- the draft ---------------- */
   const ITEM_MATERIALS = { 'Die-cast part': ['Aluminum ADC12', 'Aluminum A380'], 'Forged part': ['Brass C37700', 'Brass C36000'], 'Fitting / valve': ['Brass C37700', 'Brass C36000'] };
   // the first guess: one raw-material line from the weight estimate, one finishing-supply line from the finish
@@ -683,7 +701,7 @@ module.exports = function mountQuoteAutomation({ app, pool, auth, wrap, tx, audi
   (app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'quote-price-watch', run: priceWatch });
 
   const api = { ready, settings, draft, draftForQuote, forCustomer, route: routeQuote, logDecision, saveRecipe, readLines, onAccept, afterAccept,
-    refreshPrice, materialItems, approvalReminders, priceWatch, RULE_LABEL, SYSTEM };
+    refreshPrice, materialItems, inventoryFit, approvalReminders, priceWatch, RULE_LABEL, SYSTEM };
   app.locals.quoteAutomation = api;
   return api;
 };

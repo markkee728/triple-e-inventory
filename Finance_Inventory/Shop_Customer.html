@@ -12,7 +12,7 @@
 <link rel="stylesheet" href="app-ui.css?v=3">
 <link rel="stylesheet" href="store.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
-<link rel="stylesheet" href="quote-fields.css?v=3">
+<link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
 .fulfil-note{margin:10px 0 4px;padding:10px 12px;border-radius:8px;background:var(--inset);border:1px solid var(--border);font-size:13.5px;color:var(--text-dim);line-height:1.55}
@@ -406,7 +406,7 @@ a.nav-item{text-decoration:none}
 <script src="shop-address.js"></script>
 <script src="notification-center.js?v=8"></script>
 <script src="form-assist.js?v=1"></script>
-<script src="quote-fields.js?v=12"></script>
+<script src="quote-fields.js?v=13"></script>
 
 <script>
 /* ===== Role check: customers belong here; staff are sent to their own page ===== */
@@ -474,7 +474,12 @@ let DELIVERY_FEE = 150, FEE_FROM = null;                 // DELIVERY_FEE: fallba
 let shipEta = '', shipFeeNote = '';   // estimated arrival and how the fee was made up (from the server)
 let shipFee = null, shipRate = '', shipBlock = '', shipNoCover = false, feeSeq = 0;   // shipBlock: why delivery to the chosen address is not possible (not covered / could not calculate)            // fee for the chosen delivery address (null until a region is chosen)
 const ONLINE = ['Xendit'];
-const payLabel = (m) => (m === 'Xendit' ? 'Online payment' : m);   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
+const payLabel = (m) => {
+  if (m === 'Xendit') return 'Full Online Payment (GCash / Card)';
+  if (m === 'Cash on Delivery') return 'Cash on Delivery (50% Down Payment online, balance to rider)';
+  if (m === 'Cash on Pickup') return 'Cash on Pickup (50% Down Payment online, balance at counter)';
+  return m;
+};   // Xendit is only the gateway behind it; the stored value stays 'Xendit'
 const $ = id => document.getElementById(id);
 const IC_CHECK = '<svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg>';
 const IC_STAR = '<svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true" style="vertical-align:-.15em"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5-4.8-4.6 6.6-.9z"/></svg>';
@@ -738,6 +743,14 @@ function cashHint() {
 function renderPayPlan() {
   const total = orderTotal(), t = chosenTerm(), box = $('payPlan');
   if (!(total > 0) || view !== 'checkout') { box.hidden = true; $('place').textContent = 'Place order'; return; }
+  const adv = cashAdvance();
+  if (!ONLINE.includes(pay) && adv && adv.amount > 0) {
+    $('place').textContent = 'Pay Down Payment & Confirm (' + peso(adv.amount) + ')';
+  } else if (t) {
+    $('place').textContent = 'Pay Online (' + peso(t.dueNow) + ')';
+  } else {
+    $('place').textContent = 'Pay Online (' + peso(total) + ')';
+  }
   const online = ONLINE.includes(pay), adv = !online ? cashAdvance() : null, advOn = adv && adv.amount > 0;
   if (adv && adv.kind === 'shipping_fee' && !adv.known) {        // cash on delivery before the address: the fee is not known yet
     box.hidden = false;
@@ -1302,7 +1315,7 @@ function termsSummary(q) {
     (t.amount != null ? ': pay ' + peso(t.amount) + ' now' : '') +
     (t.balance != null && Number(t.balance) > 0 ? ', balance ' + peso(t.balance) + (t.condition ? ' — ' + t.condition : '') : '');
 }
-let QOPTS = null, qMounted = false;
+let QOPTS = null, qMounted = false, PROFILE = null;   // PROFILE = /api/auth/profile (the live account, not the name baked into the sign-in token)
 const Q_PHONE_RE = /^(\+63|0)9\d{9}$/, Q_NAME_RE = /^[\p{L}][\p{L}\p{M}\s.,'’-]*$/u;
 const qFulfil = () => (document.querySelector('input[name="qFulfil"]:checked') || {}).value || '';
 const todayISO = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
@@ -1323,6 +1336,26 @@ const QCHECK = {                                    // one rule per field; each 
   street: () => { const v = $('qStreet').value.trim(); return qAddr === 'new' && v && v.length < 5 ? 'Enter the house no. and street, or leave it empty.' : ''; }
 };
 const qField = f => qErr(f, QCHECK[f]());
+/* Name and mobile number come from the signed-in account. They are only filled while the customer has not typed in the box,
+   and re-filled after My Profile is edited, so the quote never goes out with an old name or number. */
+function fillQuoteContact() {
+  const me = PROFILE || {}, n = $('qName'), p = $('qPhone');
+  const name = String(me.name || [me.firstName, me.middleName, me.lastName].filter(Boolean).join(' ') || USER.name || '').trim();
+  if (name && !n.dataset.touched && n.value !== name) { n.value = name; qField('contactName'); }
+  if (me.phone && !p.dataset.touched && p.value !== me.phone) { p.value = me.phone; qField('phone'); }
+}
+// while typing a mobile number: complain at once about what can never become a valid number, and wait with the length until it is complete
+function qPhoneLive() {
+  const v = $('qPhone').value.replace(/[\s().-]/g, ''); if (!v) return '';
+  if (!/^(\+|0)/.test(v)) return 'Start with 09 or +63, e.g. 0917 123 4567.';
+  if (v[0] === '0' && v.length > 1 && v[1] !== '9') return 'A mobile number starts with 09.';
+  if (v[0] === '+' && v.length > 1 && !'+63'.startsWith(v.slice(0, 3)) && !v.startsWith('+63')) return 'Use +63 9XX XXX XXXX or 09XX XXX XXXX.';
+  if (v.startsWith('+63') && v.length > 3 && v[3] !== '9') return 'After +63 a mobile number starts with 9.';
+  const max = v[0] === '+' ? 13 : 11;
+  if (v.length > max) return 'That is too long for a mobile number.';
+  if (v.length === max && !Q_PHONE_RE.test(v)) return 'Enter a valid mobile number, e.g. 0917 123 4567.';
+  return '';
+}
 /* Same delivery coverage as checkout and the POS (Finance > Delivery rates), checked as soon as the area / saved address is chosen,
    so a quote is never requested for a place we do not deliver to. The server repeats the check when the request is sent. */
 let qNoCover = '', qCoverSeq = 0;
@@ -1403,8 +1436,7 @@ function renderQuote() {
   const sel = $('qProduct'), keep = sel.value;
   sel.innerHTML = '<option value="">Other / custom item…</option>' + PRODUCTS.map(p => `<option value="${esc(p.sku)}">${esc(p.name)}${p.spec ? ' — ' + esc(p.spec) : ''} (${esc(p.sku)})</option>`).join('');
   if (keep && prod(keep)) sel.value = keep;
-  if (!$('qName').value) $('qName').value = USER.name || '';
-  if (!$('qPhone').value && $('phone') && $('phone').value) $('qPhone').value = $('phone').value;
+  fillQuoteContact();
   ensureQuoteFields(); quoteProductChanged(); renderQuoteReceive(); loadQuotes(); loadQuoteAddresses(); if (!QG.regions.length) qLoadRegions();
 }
 async function ensureQuoteFields() {            // the dropdown choices come from the server so they always match what it accepts
@@ -1454,11 +1486,12 @@ async function loadQuotes() {
     const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote' + (q.payOnline ? (q.balance > 0 ? '. Please complete your online payment.' : '. Your online payment was received.') : q.payMethod ? ' and will pay ' + q.payMethod.replace(/^Pay /, '') + '.' : '.') + ' Our team will contact you to arrange ' + (pickup ? 'pickup' : 'delivery') + '.', preparing: 'We are preparing your order.' + (q.leadTime ? ' Estimated time: ' + q.leadTime + '.' : ''),
       ready: pickup ? 'Your order is ready. Please pick it up at our shop.' : 'Your order is on its way to you.', completed: pickup ? 'Picked up. Thank you for ordering!' : 'Delivered. Thank you for ordering!', declined: 'You declined this quote.', closed: 'This request is closed.' }[key] || '';
     const flow = ['accepted', 'preparing', 'ready', 'completed'].includes(q.status);
-    const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payOnline && q.balance > 0 && ['accepted', 'preparing', 'ready'].includes(q.status) ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.balance)} now</button></div>` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
+    const pay = flow && q.quotedAmount != null ? `<div class="row"><span>Paid</span><span class="mono">${peso(q.paidAmount || 0)}</span></div>${q.payMethod ? `<div class="row"><span>Payment method</span><span>${q.payOnline ? 'Online (Xendit)' : esc(q.payMethod)}</span></div>` : ''}${q.payNow > 0 ? `<div class="q-actions"><button type="button" class="btn-primary btn-sm" data-qpaynow="${esc(q.id)}">Pay ${peso(q.payNow)} online now${q.payOnline ? '' : ' (optional)'}</button></div>${q.payOnline ? '' : `<div class="dim">You chose to pay ${pickup ? 'on pickup' : 'on delivery'}. You can also pay online now if you prefer.</div>`}` : ''}${q.balance > 0 ? `<div class="row"><span>Balance to pay ${pickup ? 'at pickup' : 'on delivery'}</span><span class="mono">${peso(q.balance)}</span></div>` : ''}` : '';
     const trail = flow && (q.progress || []).length ? `<div class="dim" style="margin-top:6px">${q.progress.map(e => '• ' + esc(e.label) + ' — ' + new Date(e.at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })).join('<br>')}</div>` : '';
     const clarification=q.clarification;
     const clarifyBox=clarification ? `<div class="quote-clarify" style="margin:12px 0;padding:14px;border:1px solid var(--amber,#d9a441);border-radius:10px;background:var(--card,#fff)"><strong>${clarification.status==='answered'?'Your clarification was submitted':'Additional product details needed'}</strong><p>${esc(clarification.message)}</p>${clarification.status==='awaiting_customer'?`${clarifyFormHtml(q.id, clarification.fields || [], q)}`:`<p class="dim">${esc(clarification.response||'Your response is under review.')}</p>`}</div>` : '';
-    const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod">${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}</option></select></div>` : '';
+    const dep = q.terms && q.terms.state === 'approved' && q.terms.key !== 'full' && Number(q.terms.amount) > 0 ? Number(q.terms.amount) : 0;
+    const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod"${dep ? ' disabled' : ''}>${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}${dep ? ' (the ' + peso(dep) + ' down payment must be paid online first)' : ''}</option></select></div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
     return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
@@ -1553,7 +1586,14 @@ $('qRegion').addEventListener('change', qOnRegion); $('qProvince').addEventListe
 $('qCity').addEventListener('change', qOnCity); $('qBrgy').addEventListener('change', qOnBarangay);
 [['qProductName', 'productName'], ['qName', 'contactName'], ['qPhone', 'phone'], ['qCity', 'city'], ['qBrgy', 'barangay'], ['qStreet', 'street']].forEach(([id, f]) => {
   $(id).addEventListener('blur', () => qField(f));
-  $(id).addEventListener('input', () => { if ($(id).classList.contains('is-bad')) qField(f); $('qErr').textContent = ''; });
+  $(id).addEventListener('input', e => {
+    if (e.isTrusted) $(id).dataset.touched = '1';
+    const live = f === 'phone' ? qPhoneLive() : null;
+    if (f === 'phone' && $(id).value.trim()) { if (live) qErr('phone', live); else if ($(id).classList.contains('is-bad') || $(id).value.replace(/[\s().-]/g, '').length >= 11) qField('phone'); }
+    else if (['productName', 'contactName', 'street'].includes(f) && $(id).value.trim()) qField(f);
+    else if ($(id).classList.contains('is-bad')) qField(f);
+    $('qErr').textContent = '';
+  });
 });
 $('qPhone').addEventListener('input', () => { const p = $('qPhone'), d = p.value.replace(/[^\d+\s]/g, ''); if (d !== p.value) p.value = d; });
 
@@ -1574,7 +1614,7 @@ function qMinWarn() {
 function qStartDraft() {
   if (!QFA || qDraft) return;
   qDraft = QFA.draft('shopQuote.' + (USER && USER.id != null ? USER.id : 'preview'), $('quoteForm'),
-    ['qProduct', 'qProductName', 'qS_itemType', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qUnit', 'qNeeded', 'qNotes', 'qStreet', 'qName', 'qPhone'],
+    ['qProduct', 'qProductName', 'qS_itemType', 'qS_material', 'qS_size', 'qS_thickness', 'qS_finish', 'qS_service', 'qQty', 'qUnit', 'qNeeded', 'qNotes', 'qStreet'],
     { ignoreDefault: (id) => ['qName', 'qPhone', 'qUnit'].includes(id),           // filled from the profile / the product: not a draft by themselves
       onDiscard: () => { $('qProduct').value = ''; $('qProductName').value = ''; QuoteFields.reset('q'); quoteProductChanged(); } });
   if (!$('qProduct').value) qDraft.restore().then(qMinWarn);                      // opened from a product page: that product wins over an old draft
@@ -1769,6 +1809,8 @@ $('grid').innerHTML = '<div class="skeleton" style="min-height:230px"></div>'.re
   $('uname').textContent = $('dName').textContent = USER.name; $('avatar').textContent = $('dAvatar').textContent = ini;
   if (window.AccountMenu) AccountMenu.setUser(USER);       // fills the name / email / photo and powers My Profile + Change Password
   const [cfgShop, profile] = await Promise.all([loadConfig(), api('/api/auth/profile').catch(() => ({}))]);
+  PROFILE = profile || {}; fillQuoteContact();
+  window.addEventListener('accountmenu:close', async () => { try { PROFILE = await api('/api/auth/profile'); fillQuoteContact(); } catch (e) {} });
   INFO = cfgShop.info || {}; REFUND_DAYS = cfgShop.refundWindowDays || 7; renderHelpLines();
   if (cfgShop.deliveryFee >= 0) {
     DELIVERY_FEE = cfgShop.deliveryFee; FEE_FROM = cfgShop.deliveryFeeFrom >= 0 ? cfgShop.deliveryFeeFrom : DELIVERY_FEE;

@@ -1339,10 +1339,12 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const pt = app.locals.paymentTerms;
     if (!pt || !target) return { ok: true };
     if (target === 'Paid') return pt.releaseDecision(o, { action: 'confirm', role });
-    if (target === 'Out for Delivery') {
+    if (target === 'Out for Delivery' || target === 'Delivered') {
       const m = pt.orderMoney(o);
-      if (!m.outstanding || isCod(o) || o.credit_exception_by) return { ok: true, money: m };
-      return { ok: false, field: 'payment', money: m, reason: `${peso(m.balance)} is still unpaid on this online-payment order. Collect it first (or ask Finance for a credit exception) before it goes out for delivery` };
+      if (!isCod(o) && m.outstanding && !o.credit_exception_by) {
+        return { ok: false, field: 'payment', money: m, reason: `${peso(m.balance)} is still unpaid on this order. Orders on payment terms or online payments cannot be delivered until fully paid (or approved with a credit exception by Finance).` };
+      }
+      if (target === 'Out for Delivery') return { ok: true, money: m };
     }
     if (FINAL_STATUS.includes(target)) return pt.releaseDecision(o, { action: 'release', role });
     return { ok: true };
@@ -1498,8 +1500,18 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       if (method === cashMethod) {
         const c = await cashCheck(client, req.user.id, fulfillment, round2(subtotal + fee)); if (!c.ok) throw bad('method', c.reason);
         // COD: the delivery fee AND a down payment (taken off what the rider collects) are paid online first
-        if (fulfillment === 'Delivery') { const dep = round2(Math.min(c.rules.codDeposit, subtotal)); if (fee + dep > 0) { advKind = 'shipping_fee'; advance = round2(fee + dep); } }
-        if (fulfillment === 'Pickup' && c.rules.copDeposit > 0) { advKind = 'deposit'; advance = round2(Math.min(c.rules.copDeposit, subtotal)); }
+        if (fulfillment === 'Delivery') {
+          const half = round2(subtotal * 0.5);
+          const minDep = c.rules.codDeposit > 0 ? c.rules.codDeposit : 200;
+          const dep = round2(Math.min(Math.max(half, minDep), subtotal));
+          if (fee + dep > 0) { advKind = 'shipping_fee'; advance = round2(fee + dep); }
+        }
+        if (fulfillment === 'Pickup') {
+          const half = round2(subtotal * 0.5);
+          const minDep = c.rules.copDeposit > 0 ? c.rules.copDeposit : 200;
+          const dep = round2(Math.min(Math.max(half, minDep), subtotal));
+          if (dep > 0) { advKind = 'deposit'; advance = dep; }
+        }
         if (advance > 0 && !process.env.XENDIT_SECRET_KEY)
           throw bad('method', `${cashMethod} needs the ${advKind === 'shipping_fee' ? 'delivery fee and down payment' : 'down payment'} paid online first, and online payment is not available right now. Please try again later`);
       }
