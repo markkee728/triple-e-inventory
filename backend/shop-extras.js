@@ -919,6 +919,54 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
     afterApproved(q);
     res.json({ok:true,quote:quoteJson(q)});
   }));
+  /* Finance discount: a pick from fixed steps (never a typed price), capped by the order quantity AND by the minimum margin.
+     The limit is worked out here, so the screen only shows what the server will accept.
+     DISCOUNT_TIERS / DISCOUNT_STEPS are starting values: change them here to change the policy. */
+  const DISCOUNT_TIERS = [{ min: 500, pct: 10 }, { min: 200, pct: 8 }, { min: 50, pct: 5 }, { min: 1, pct: 3 }];
+  const DISCOUNT_STEPS = [1, 2, 3, 5, 8, 10];
+  const qtyNumber = (t) => { const m = /^\s*([\d,.]+)/.exec(String(t || '')); const n = m ? Number(m[1].replace(/,/g, '')) : NaN; return Number.isFinite(n) && n > 0 ? n : 1; };
+  async function discountOptions(cur) {
+    const base = round2(+cur.proposed_amount), qty = qtyNumber(cur.quantity);
+    const tier = (DISCOUNT_TIERS.find((t) => qty >= t.min) || { pct: 0 }).pct;
+    const S = app.locals.quoteAutomation ? await app.locals.quoteAutomation.settings() : { minMarginPct: 0 };
+    const cost = cur.suggested_cost == null ? null : +cur.suggested_cost;
+    // lowest allowed price = cost plus the minimum margin (so never below cost)
+    const floor = cost == null ? null : round2(cost / (1 - Math.min(+S.minMarginPct || 0, 99) / 100));
+    const floorPct = floor == null ? 0 : Math.max(0, Math.floor((1 - floor / base) * 1000) / 10);
+    const maxPct = Math.min(tier, floorPct);
+    const why = cost == null ? 'This quote has no recorded cost, so a discount cannot be checked.'
+      : maxPct <= 0 ? 'No discount possible: the price is already at the minimum margin (' + (+S.minMarginPct || 0) + '%).'
+      : (floorPct < tier ? 'Limited by the minimum margin' : 'Limit for ' + qty + ' unit' + (qty === 1 ? '' : 's')) + ': up to ' + maxPct + '%.';
+    return { base, qty, tierPct: tier, floorPct, maxPct, steps: DISCOUNT_STEPS.filter((x) => x <= maxPct), why };
+  }
+  const pendingPrice = async (no) => {
+    const cur = (await pool.query('SELECT * FROM quote_requests WHERE quote_no=$1', [no])).rows[0];
+    if (!cur) throw bad('id', 'Quotation not found');
+    if (cur.status !== 'pending_approval' || !cur.proposed_amount) throw bad('status', 'Only a price waiting for approval can be discounted');
+    return cur;
+  };
+  app.get('/api/finance/quotes/:no/discount-options', auth('finance'), wrap(async (req, res) => res.json(await discountOptions(await pendingPrice(req.params.no)))));
+  app.post('/api/finance/quotes/:no/approve-discount', auth('finance'), wrap(async (req, res) => {
+    const pct = Number((req.body || {}).pct);
+    const q = await tx(async (client) => {
+      const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no=$1 FOR UPDATE', [req.params.no])).rows[0];
+      if (!cur) throw bad('id', 'Quotation not found');
+      if (cur.status !== 'pending_approval' || !cur.proposed_amount) throw bad('status', 'No pending price proposal');
+      const o = await discountOptions(cur);
+      if (!o.steps.includes(pct)) throw bad('pct', o.maxPct > 0 ? 'Choose a discount of up to ' + o.maxPct + '% for this quantity' : o.why);
+      const price = round2(o.base * (1 - pct / 100));
+      // the new price and the part-payment amounts that go with it change together, then the normal approval runs in the same transaction
+      const upd = (await client.query(`UPDATE quote_requests SET proposed_amount = $2::numeric,
+          terms_amount  = CASE WHEN terms_key IS NOT NULL AND terms_key <> 'full' AND terms_percent IS NOT NULL THEN round($2::numeric * terms_percent / 100, 2) ELSE terms_amount END,
+          terms_balance = CASE WHEN terms_key IS NOT NULL AND terms_key <> 'full' AND terms_percent IS NOT NULL THEN $2::numeric - round($2::numeric * terms_percent / 100, 2) ELSE terms_balance END,
+          approval_reason = COALESCE(approval_reason || ' ', '') || $3 WHERE quote_id = $1 RETURNING *`,
+        [cur.quote_id, price, `Finance discount ${pct}% for ${o.qty} unit(s): ${peso(o.base)} to ${peso(price)}.`])).rows[0];
+      await audit(client, req.user, 'Record edited', `Quote ${cur.quote_no}: Finance gave a ${pct}% discount (${peso(o.base)} to ${peso(price)}) on ${o.qty} unit(s)`);
+      return approvePrice(client, upd, req.user);
+    });
+    afterApproved(q);
+    res.json({ ok: true, quote: quoteJson(q) });
+  }));
   // Finance does not agree with the cashier's price: it goes back to the cashier with a note (the proposal stays on record)
   app.post('/api/finance/quotes/:no/return-price', auth('finance'), wrap(async (req, res) => {
     const note = str((req.body || {}).note).replace(/\s+/g, ' ');

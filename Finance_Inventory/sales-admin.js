@@ -43,12 +43,8 @@
       const termsBody = (act) => ({ action: act, termKey: t.key, percent: t.percent });
       if (action === 'return') { await post(base + '/return-price', { note: ex.note }); toast('Quotation ' + id + ' sent back to the cashier.'); }
       else if (q.status === 'pending_approval') {
-        const amt = quoteAmount(q);
-        if (ex.price && Math.abs(ex.price - amt) > 0.004) {      // Finance gives a discount: set the new price, then sign the terms that waited with it
-          await post(base, { status: 'quoted', amount: ex.price, leadTime: q.proposedLeadTime || q.leadTime, validDays: q.proposedValidDays || 7, note: ex.note && ex.note.length >= 5 ? ex.note : 'Price adjusted by Finance' });
-          if (t.state === 'proposed' && t.key && t.key !== 'full') await post(base + '/terms', termsBody('approve'));
-          toast('Quotation ' + id + ' approved at ' + peso(ex.price) + '.');
-        } else { await post(base + '/approve-price'); toast('Quotation ' + id + ' price approved.'); }
+        if (ex.pct > 0) { await post(base + '/approve-discount', { pct: ex.pct }); toast('Quotation ' + id + ' approved with a ' + ex.pct + '% discount.'); }
+        else { await post(base + '/approve-price'); toast('Quotation ' + id + ' price approved.'); }
       } else {
         await post(base + '/terms', termsBody(action === 'approve' ? 'approve' : 'refuse'));
         toast(action === 'approve' ? 'Quotation ' + id + ' payment terms approved.' : 'Quotation ' + id + ' terms refused.');
@@ -259,13 +255,21 @@
 
   let dx = null;   // { key, step: 'detail' | 'confirm', act, price, note }
   const findItem = (key) => decisionItems().find((i) => i.key === key);
-  function openDecision(key) { dx = { key, step: 'detail' }; openRef = 'dx:' + key; paintDecision(); ensureOverlay().classList.add('open'); }
+  function openDecision(key) {
+    dx = { key, step: 'detail', pct: 0, opts: null }; openRef = 'dx:' + key; paintDecision(); ensureOverlay().classList.add('open');
+    const it = findItem(key); if (!it || !it.price) return;
+    const done = (o) => { if (dx && dx.key === key) { dx.opts = o; if (dx.step === 'detail') paintDecision(); } };
+    api('/finance/quotes/' + encodeURIComponent(it.id) + '/discount-options').then(done).catch((e) => done({ steps: [], why: e.message }));
+  }
   const dxErr = (m) => { const b = $('dxErr'); if (b) { b.textContent = m; b.hidden = false; } };
-  function discText(it, p) {
-    if (!(p > 0) || p >= it.amount) return p > it.amount ? 'Higher than the cashier\u2019s price.' : '';
-    let t = 'Discount ' + peso(it.amount - p) + ' (' + ((it.amount - p) / it.amount * 100).toFixed(1) + '%)';
-    if (it.cost != null) t += ' \u00B7 new margin ' + ((p - it.cost) / p * 100).toFixed(1) + '%' + (p < it.cost ? ' \u2014 BELOW COST' : '');
-    return t;
+  const finalPrice = (it, pct) => Math.round(it.amount * (1 - (pct || 0) / 100) * 100) / 100;
+  function discountBox(it) {
+    const o = dx.opts;
+    if (!o) return '<div class="sa-dx-field">Checking the discount allowed for this quantity\u2026</div>';
+    const fp = finalPrice(it, dx.pct), chip = (pct) => '<button type="button" class="sa-dx-chip' + ((dx.pct || 0) === pct ? ' on' : '') + '" data-dx="pct" data-pct="' + pct + '">' +
+      (pct ? pct + '% off' : 'No discount') + '<small>' + peso(finalPrice(it, pct)) + '</small></button>';
+    return '<div class="sa-dx-field">Discount \u2014 pick one<div class="sa-dx-chips">' + [0].concat(o.steps).map(chip).join('') + '</div></div>' +
+      '<div class="sa-dx-disc">Final price ' + peso(fp) + (it.cost != null ? ' \u00B7 margin ' + ((fp - it.cost) / fp * 100).toFixed(1) + '%' : '') + '<br><span>' + esc(o.why || '') + '</span></div>';
   }
   function paintDecision() {
     const it = dx && findItem(dx.key);
@@ -275,30 +279,28 @@
     const err = '<div class="sa-banner bad" id="dxErr" hidden></div>';
     let h;
     if (dx.step === 'confirm') {
-      const act = it.acts[dx.act], p = dx.price, changed = it.price && p && Math.abs(p - it.amount) > 0.004;
+      const act = it.acts[dx.act];
       h = head + '<div class="sa-banner ' + (act.danger ? 'bad' : 'warn') + '"><strong>Are you sure you want to ' + esc(act.label.toLowerCase()) + '?</strong><br>' + esc(act.fx) + '</div><dl class="sa-info">' +
         infoRow('Request', it.ref + ' \u00B7 ' + it.tag) + infoRow('Customer / cashier', it.party) +
-        (it.price && act.a === 'approve' ? infoRow('Final price', peso(p) + (changed ? ' (was ' + peso(it.amount) + ' \u2014 ' + discText(it, p) + ')' : '')) : infoRow('Amount', peso(it.amount))) +
+        (it.price && act.a === 'approve' ? infoRow('Final price', peso(finalPrice(it, dx.pct)) + (dx.pct ? ' (was ' + peso(it.amount) + ', ' + dx.pct + '% discount)' : '')) : infoRow('Amount', peso(it.amount))) +
         infoRow('Payment terms', it.terms) + infoRow('Your note', dx.note) + '</dl>' + err +
         '<div class="sa-actions"><button type="button" class="btn-primary btn-sm' + (act.danger ? ' btn-danger-action' : '') + '" data-dx="yes">Yes, ' + esc(act.label.toLowerCase()) + '</button>' +
         '<button type="button" class="btn-secondary btn-sm" data-dx="back">Go back</button></div>';
     } else {
-      const p = dx.price != null ? dx.price : it.amount;
       h = head + '<dl class="sa-info">' + it.rows.map((r) => infoRow(r[0], r[1])).join('') + '</dl>' +
-        (it.price ? '<label class="sa-dx-field">Final price \u2014 lower it to give a discount<input type="number" id="dxPrice" min="0.01" step="0.01" value="' + p + '"></label><div class="sa-dx-disc" id="dxDisc">' + esc(discText(it, p)) + '</div>' : '') +
+        (it.price ? discountBox(it) : '') +
         (it.note ? '<label class="sa-dx-field">Note to the cashier (needed to send back)<textarea id="dxNote" rows="2" maxlength="500">' + esc(dx.note || '') + '</textarea></label>' : '') + err +
         '<div class="sa-actions">' + it.acts.map((a, i) => '<button type="button" class="' + (a.ghost ? 'btn-secondary' : 'btn-primary' + (a.danger ? ' btn-danger-action' : '')) + ' btn-sm" data-dx="pick" data-i="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>';
     }
     $('saModalBody').innerHTML = h;
   }
   function wireDx(ov) {
-    ov.addEventListener('input', (e) => { if (e.target.id !== 'dxPrice' || !dx) return; const it = findItem(dx.key); if (it) $('dxDisc').textContent = discText(it, Number(e.target.value)); });
     ov.addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-dx]'); if (!btn || btn.disabled || !dx) return;
       const it = findItem(dx.key); if (!it) { closeModal(); return; }
       if (btn.dataset.dx === 'back') { dx.step = 'detail'; paintDecision(); return; }
+      if (btn.dataset.dx === 'pct') { dx.pct = +btn.dataset.pct; if ($('dxNote')) dx.note = $('dxNote').value; paintDecision(); return; }
       if (btn.dataset.dx === 'pick') {
-        if (it.price) { const p = Number($('dxPrice').value); if (!(p > 0)) return dxErr('Enter a valid price.'); dx.price = Math.round(p * 100) / 100; }
         dx.note = $('dxNote') ? $('dxNote').value.trim() : '';
         const act = it.acts[+btn.dataset.i];
         if (act.a === 'return' && dx.note.length < 10) return dxErr('Tell the cashier what to change (at least 10 characters).');
@@ -307,7 +309,7 @@
       if (btn.dataset.dx === 'yes') {
         const act = it.acts[dx.act]; btn.disabled = true; busy = true;
         try {
-          await performDecision(it.kind, it.id, it.ref, act.a, !!act.restock, { price: dx.price, note: dx.note });
+          await performDecision(it.kind, it.id, it.ref, act.a, !!act.restock, { pct: act.a === 'approve' ? dx.pct : 0, note: dx.note });
           busy = false; closeModal(); await load(true);
         } catch (err) { busy = false; btn.disabled = false; dxErr(err.message || 'Decision failed'); }
       }
