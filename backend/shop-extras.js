@@ -1041,6 +1041,10 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
       const cur = (await client.query('SELECT * FROM quote_requests WHERE quote_no = $1 FOR UPDATE', [req.params.no])).rows[0];
       if (!cur) throw bad('id', 'Quote request not found');
       if (cur.status === 'completed') throw bad('status', 'This quote is already completed and cannot be changed');
+      if (status === 'quoted' && cur.status === 'pending_approval' && cur.proposed_amount) {   // a typed price may go up, never below what the discount rules allow
+        const o = await discountOptions(cur), lowest = round2(o.base * (1 - o.maxPct / 100));
+        if (amount < lowest) throw bad('amount', o.maxPct > 0 ? `The lowest price allowed here is ${peso(lowest)} (${o.maxPct}% below the cashier price). ${o.why}` : `This price cannot be lowered. ${o.why}`);
+      }
       const started = ['preparing', 'ready'].includes(cur.status) || (cur.status === 'accepted' && +cur.paid_amount > 0);
       if (started && status !== 'closed') throw bad('status', 'Work or payment has already started on this quote. You can only move it forward or close it');
       if (status === 'closed' && +cur.paid_amount > 0 && note.length < 5) throw bad('note', 'Payments were received. Write a note about the refund or how it was settled');

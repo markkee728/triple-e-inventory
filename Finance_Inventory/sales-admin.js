@@ -191,6 +191,7 @@
     (q.terms && q.terms.state === 'proposed' && !['new', 'closed', 'declined', 'awaiting_details'].includes(q.status)));
   const termText = (t) => (!t || !t.key ? '' : (t.key === 'full' || +t.percent >= 100) ? 'Full Payment' :
     (t.percent || '') + '% now' + (t.amount != null ? ' (' + peso(t.amount) + ')' : '') + (t.balance ? ', balance ' + peso(t.balance) : '') + (t.condition ? ' \u00B7 ' + t.condition : ''));
+  const QG = (q) => (window.QuoteGuide ? window.QuoteGuide.next(q) : { score: 0, text: '', tone: 'ok' });
   const R = (l, v) => (v == null || v === '' ? null : [l, String(v)]);
   const itemsText = (s) => s.items.map((i) => i.qty + ' ' + i.unit + ' ' + i.name).join(', ');
 
@@ -206,7 +207,7 @@
         ? { a: 'return', label: 'Send back to cashier', ghost: true, fx: 'The cashier gets your note and must price it again.' }
         : { a: 'refuse', label: 'Refuse terms', ghost: true, fx: 'The customer will pay in full (100%) instead.' };
       out.push({ key: 'quote:' + q.id, kind: 'quote', id: q.id, ref: q.id, cls: 'quote', tag: price ? 'Price approval' : 'Payment terms',
-        party: q.customer || q.company || 'Customer', amount: amt, price, cost, note: price,
+        party: q.customer || q.company || 'Customer', amount: amt, price, cost, note: price, g: QG(q),
         line: (q.product || 'Custom item') + (q.quantity ? ' \u00D7 ' + q.quantity : ''),
         reason: q.approvalReason || (t.state === 'proposed' ? 'Cashier proposed ' + termText(t) : ''),
         terms: t.state === 'proposed' || price ? termText(t) : '', acts: [approve, back],
@@ -231,7 +232,7 @@
       acts: [{ a: 'approve', label: 'Approve & restock', restock: true, fx: 'Refund approved and the items go back into stock.' },
         { a: 'approve', label: 'Approve (damaged)', restock: false, ghost: true, fx: 'Refund approved; the items are NOT put back in stock.' },
         { a: 'reject', label: 'Reject', ghost: true, fx: 'No refund is made.' }] }); });
-    return out;
+    return out.sort((a, b) => (b.g ? b.g.score : 50) - (a.g ? a.g.score : 50));   // quote approvals first, most urgent on top
   }
 
   function renderApprovals() {
@@ -247,9 +248,9 @@
       '<div><div class="sa-decisions-title">Pending Approvals &amp; Decisions</div><div class="sa-decisions-sub">Click a request to see the details and decide.</div></div></div>' +
       '<span class="sa-decisions-status-badge warn">' + items.length + ' Awaiting Action</span></div><div class="sa-decisions-grid">' +
       items.map((it) => '<div class="sa-decision-card sa-dx-card" role="button" tabindex="0" data-dx-open="' + esc(it.key) + '">' +
-        '<div class="sa-dec-card-head"><span class="sa-dec-type-tag ' + it.cls + '">' + esc(it.tag) + '</span><span class="sa-dec-ref">' + esc(it.ref) + '</span></div>' +
+        '<div class="sa-dec-card-head"><span class="sa-dec-type-tag ' + it.cls + '">' + esc(it.tag) + '</span>' + (it.g && it.g.tone !== 'ok' ? '<span class="sa-dx-prio ' + it.g.tone + '">' + (it.g.tone === 'urgent' ? 'Urgent' : 'Soon') + '</span>' : '') + '<span class="sa-dec-ref">' + esc(it.ref) + '</span></div>' +
         '<div class="sa-dec-body"><div><strong class="sa-dec-party">' + esc(it.party) + '</strong> &middot; <span class="sa-dec-amount">' + peso(it.amount) + '</span></div>' +
-        '<div class="sa-dx-line">' + esc(it.line) + '</div>' + (it.reason ? '<div class="sa-dec-reason">' + esc(it.reason) + '</div>' : '') + '</div>' +
+        '<div class="sa-dx-line">' + esc(it.line) + '</div>' + (it.g && it.g.text ? '<div class="sx-guide ' + it.g.tone + '">\u2192 ' + esc(it.g.text) + '</div>' : '') + (it.reason ? '<div class="sa-dec-reason">' + esc(it.reason) + '</div>' : '') + '</div>' +
         '<span class="sa-dx-go">Review &amp; decide &rarr;</span></div>').join('') + '</div></div>';
   }
 
@@ -290,10 +291,12 @@
       h = head + '<dl class="sa-info">' + it.rows.map((r) => infoRow(r[0], r[1])).join('') + '</dl>' +
         (it.price ? discountBox(it) : '') +
         (it.note ? '<label class="sa-dx-field">Note to the cashier (needed to send back)<textarea id="dxNote" rows="2" maxlength="500">' + esc(dx.note || '') + '</textarea></label>' : '') + err +
-        '<div class="sa-actions">' + it.acts.map((a, i) => '<button type="button" class="' + (a.ghost ? 'btn-secondary' : 'btn-primary' + (a.danger ? ' btn-danger-action' : '')) + ' btn-sm" data-dx="pick" data-i="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>';
+        '<div class="sa-actions">' + (it.kind === 'quote' ? '<button type="button" class="btn-secondary btn-sm" data-sa-go="quotes">Open in Quote Requests</button>' : '') + it.acts.map((a, i) => '<button type="button" class="' + (a.ghost ? 'btn-secondary' : 'btn-primary' + (a.danger ? ' btn-danger-action' : '')) + ' btn-sm" data-dx="pick" data-i="' + i + '">' + esc(a.label) + '</button>').join('') + '</div>';
     }
     $('saModalBody').innerHTML = h;
   }
+  // the Quote Requests page opens its price approvals in this same dialog, so there is one place (and one discount rule) for them
+  window.SalesDecisions = { open: async (id) => { if (!findItem('quote:' + id)) await load(true); if (findItem('quote:' + id)) openDecision('quote:' + id); else toast('That price was already handled.'); } };
   function wireDx(ov) {
     ov.addEventListener('click', async (e) => {
       const btn = e.target.closest('[data-dx]'); if (!btn || btn.disabled || !dx) return;
@@ -311,6 +314,7 @@
         try {
           await performDecision(it.kind, it.id, it.ref, act.a, !!act.restock, { pct: act.a === 'approve' ? dx.pct : 0, note: dx.note });
           busy = false; closeModal(); await load(true);
+          if (it.kind === 'quote') document.dispatchEvent(new CustomEvent('finance-quotes-changed'));   // the Quote Requests page reloads too
         } catch (err) { busy = false; btn.disabled = false; dxErr(err.message || 'Decision failed'); }
       }
     });

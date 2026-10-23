@@ -110,6 +110,7 @@
       '<div class="table-wrapper"><table><thead><tr><th>Product</th><th>Rating</th><th>Customer</th><th>Review</th><th>Date</th><th>Status</th><th></th></tr></thead><tbody id="sxrBody"></tbody></table></div></div>';
     if (q) {
       $('sxqRefresh').addEventListener('click', loadQuotes);
+      document.addEventListener('finance-quotes-changed', loadQuotes);
       $('sxqRules').addEventListener('click', openRules);
       $('sxqBatch').addEventListener('click', function (e) { var b = e.target.closest('[data-batch]'); if (b) batchApprove(b.dataset.batch); });
       $('sxqBody').addEventListener('change', function () { paintBatch(); });
@@ -128,7 +129,7 @@
       $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
       $('sxqBody').addEventListener('click', function (e) {
         var a = e.target.closest('[data-sxapprove]'); if (a) { quickApprove(a.dataset.sxapprove); return; }
-        var b = e.target.closest('[data-sxq]'); if (b) openQ(b.dataset.sxq);
+        var b = e.target.closest('[data-sxq]'); if (b) { var pq = quotes.find(function (q) { return q.id === b.dataset.sxq; }); if (pq && pq.status === 'pending_approval' && window.SalesDecisions) window.SalesDecisions.open(pq.id); else openQ(b.dataset.sxq); }
       });
     }
     if (r) {
@@ -163,6 +164,9 @@
     if (!$('sxqBody')) return;
     var f = $('sxqFilter').value, n = newCount();
     var list = quotes.filter(function (x) { return f === 'all' || (f === 'open' ? needsAction(x) : f === 'approval' ? x.status === 'pending_approval' : x.status === f); });
+    var QG = function (x) { return window.QuoteGuide ? window.QuoteGuide.next(x) : { score: 0, text: '', tone: 'ok' }; };
+    list.sort(function (a, b) { return QG(b).score - QG(a).score || (b.createdAt || 0) - (a.createdAt || 0); });   // the most urgent work first
+    var guideHtml = function (x) { var g = QG(x); return g.text ? '<div class="sx-guide ' + g.tone + '">\u2192 ' + esc(g.text) + '</div>' : ''; };
     var ap = approvalCount(), opt = $('sxqFilter').querySelector('option[value="approval"]'); if (opt) opt.textContent = 'Cashier prices to approve (' + ap + ')';
     $('sxqSub').textContent = quotes.length ? (ap ? ap + ' cashier price' + (ap === 1 ? '' : 's') + ' waiting for your approval \u00B7 ' : '') + (n ? n + ' need your action (prices to approve, new requests to price, or accepted quotes to prepare and hand over)' : 'Nothing waiting \u2014 all requests have been answered') + ' \u00B7 ' + quotes.length + ' in total'
       : 'Requests from customers will appear here.';
@@ -175,7 +179,7 @@
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
       return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
-        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
+        '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + guideHtml(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'pending_approval' ? 'Review price' : x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
     }).join('') : '<tr><td colspan="8" class="sx-empty">' + (quotes.length ? 'No requests in this view.' : 'No quote requests yet.') + '</td></tr>';
     paintBadge();
