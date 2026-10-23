@@ -310,3 +310,8 @@ html[data-theme="light"] .sa-dec-reason {
 .sx-guide { margin-top: 5px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); }
 .sx-guide.urgent { color: #dc2626; }
 .sx-guide.soon { color: #d97706; }
+
+/* Quote Requests: the whole row is clickable */
+tr.sx-click { cursor: pointer; }
+tr.sx-click:hover td, tr.sx-click:focus-visible td { background: rgba(74, 144, 217, 0.10); }
+tr.sx-click:focus-visible { outline: 2px solid var(--blue-bright, #60a5fa); outline-offset: -2px; }

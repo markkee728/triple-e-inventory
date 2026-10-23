@@ -127,9 +127,16 @@
         if (b) markSuggestion(Number(b.dataset.sxp), b.dataset.st);
       });
       $('sxqFilter').addEventListener('change', function () { pickedFilter = true; renderQuotes(); });
+      // the whole row opens the card (like the Sales ledger), not only its button; price approvals use the shared decision dialog
+      var openRow = function (id) { var pq = quotes.find(function (q) { return q.id === id; }); if (pq && pq.status === 'pending_approval' && window.SalesDecisions) window.SalesDecisions.open(pq.id); else openQ(id); };
       $('sxqBody').addEventListener('click', function (e) {
         var a = e.target.closest('[data-sxapprove]'); if (a) { quickApprove(a.dataset.sxapprove); return; }
-        var b = e.target.closest('[data-sxq]'); if (b) { var pq = quotes.find(function (q) { return q.id === b.dataset.sxq; }); if (pq && pq.status === 'pending_approval' && window.SalesDecisions) window.SalesDecisions.open(pq.id); else openQ(b.dataset.sxq); }
+        var b = e.target.closest('[data-sxq]'); if (b) { openRow(b.dataset.sxq); return; }
+        var tr = e.target.closest('[data-qrow]'); if (tr && !e.target.closest('input, label, a, select')) openRow(tr.dataset.qrow);
+      });
+      $('sxqBody').addEventListener('keydown', function (e) {
+        if ((e.key !== 'Enter' && e.key !== ' ') || e.target.closest('button, input, a, select')) return;
+        var tr = e.target.closest('[data-qrow]'); if (tr) { e.preventDefault(); openRow(tr.dataset.qrow); }
       });
     }
     if (r) {
@@ -177,7 +184,7 @@
     if (approvals) { $('sxqBody').innerHTML = list.length ? list.map(approvalRow).join('') : '<tr><td colspan="8" class="sx-empty">No prices are waiting for you. The cashiers\u2019 prices that met every rule went straight to the customers.</td></tr>'; paintBatch(); paintBadge(); return; }
     $('sxqBatch').innerHTML = '';
     $('sxqBody').innerHTML = list.length ? list.map(function (x) {
-      return '<tr><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
+      return '<tr class="sx-click" tabindex="0" data-qrow="' + esc(x.id) + '"><td>' + esc(x.id) + '</td><td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.phone) + '</div></td>' +
         '<td>' + esc(x.product || 'Custom item') + (x.sku ? '<div class="faint" style="font-size:12px">' + esc(x.sku) + '</div>' : '') + '</td>' +
         '<td>' + esc(x.quantity) + '</td><td>' + esc(x.neededBy ? day(x.neededBy) : x.neededMonths ? 'within ' + months(x.neededMonths) : '\u2014') + '</td><td>' + esc(when(x.createdAt)) + '</td><td>' + qPill(x) + guideHtml(x) + (x.status === 'pending_approval' ? '<div class="faint" style="font-size:12px;margin-top:4px">' + peso(x.proposedAmount || 0) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div>' : '') + '</td>' +
         '<td style="white-space:nowrap"><button type="button" class="' + (needsAction(x) ? 'btn-primary' : 'btn-secondary') + ' btn-sm" data-sxq="' + esc(x.id) + '">' + (x.status === 'pending_approval' ? 'Review price' : x.status === 'new' ? 'Reply' : IN_FLOW.indexOf(x.status) >= 0 ? 'Manage' : 'View') + '</button></td></tr>';
@@ -193,7 +200,7 @@
   function approvalRow(x) {
     var ck = x.approvalCheck || {}, n = ck.numbers || {}, cash = n.cashierTotal != null ? n.cashierTotal : x.proposedAmount;
     var short = (n.shortfalls || []);
-    return '<tr><td><input type="checkbox" data-pick="' + esc(x.id) + '" data-key="' + esc(keyOf(x)) + '" aria-label="Pick ' + esc(x.id) + '"></td><td>' + esc(x.id) + '</td>' +
+    return '<tr class="sx-click" tabindex="0" data-qrow="' + esc(x.id) + '"><td><input type="checkbox" data-pick="' + esc(x.id) + '" data-key="' + esc(keyOf(x)) + '" aria-label="Pick ' + esc(x.id) + '"></td><td>' + esc(x.id) + '</td>' +
       '<td>' + esc(x.customer) + (x.source === 'pos' ? ' <span class="faint" style="font-size:12px">\u00B7 Walk-in</span>' : '') + '<div class="faint" style="font-size:12px">' + esc(x.product || 'Custom item') + ' \u00B7 ' + esc(x.quantity) + (x.proposedBy ? ' \u00B7 by ' + esc(x.proposedBy) : '') + '</div></td>' +
       '<td class="sx-why">' + esc((ck.reasons && ck.reasons.length ? ck.reasons : [x.approvalReason || 'Not given']).join('; ')) + '<small>' + esc(keyLabel(keyOf(x))) + '</small></td>' +
       '<td class="sx-num">' + peso(cash || 0) + '<small>' + (n.systemTotal != null ? 'system ' + peso(n.systemTotal) + ' (' + (n.deviationPct > 0 ? '+' : '') + n.deviationPct + '%)' : 'no system price') + '</small></td>' +
