@@ -1435,6 +1435,55 @@ reorder.start();   // recalculate automatic reorder levels now and every 6 hours
 productionApi = require('./production')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 app.locals.production = productionApi;
 
+/* ---------- inventory automation: three-department tracking, delivery schedules, periodic production ---------- */
+const inventoryAutomation = require('./inventory-automation')({ pool, tx, audit, ValidationError, str, TZ });
+app.locals.inventoryAutomation = inventoryAutomation;
+
+// Department summary / automated tracking across Raw Materials, Finishing Supplies, Finished Goods
+app.get('/api/inventory/automation/tracking', auth('finance'), wrap(async (req, res) => {
+  res.json(await inventoryAutomation.getDepartmentSummary());
+}));
+
+// Delivery schedules for Raw Materials and Finishing Supplies
+app.get('/api/inventory/automation/delivery-schedules', auth('finance'), wrap(async (req, res) => {
+  res.json(await inventoryAutomation.listDeliverySchedules());
+}));
+
+// Process due delivery schedules to automatically update stock levels for incoming Raw Materials & Finishing Supplies
+app.post('/api/inventory/automation/delivery-schedules/process-due', auth('finance'), wrap(async (req, res) => {
+  const asOf = req.body && req.body.asOfDate;
+  res.json(await inventoryAutomation.processDueDeliveries(asOf, req.user));
+}));
+
+// Periodic production plans for Finished Goods
+app.get('/api/inventory/automation/production-plans', auth('finance'), wrap(async (req, res) => {
+  res.json(await inventoryAutomation.listProductionPlans());
+}));
+
+// Calculate material consumption and sufficiency for a finished good / production plan
+app.post('/api/inventory/automation/production-plans/calculate', auth('finance'), wrap(async (req, res) => {
+  const b = req.body || {};
+  let targetProduct = b.sku || b.productId;
+  if (b.planId) {
+    const pl = await pool.query('SELECT finished_product_id FROM periodic_production_plans WHERE plan_id = $1', [b.planId]);
+    if (pl.rowCount) targetProduct = pl.rows[0].finished_product_id;
+  }
+  if (!targetProduct) return res.status(400).json({ error: 'Must provide planId, sku, or productId' });
+  const vol = Number(b.volume);
+  if (!vol || vol <= 0) return res.status(400).json({ error: 'Volume must be greater than zero' });
+  res.json(await inventoryAutomation.calculatePlanMaterials(targetProduct, vol));
+}));
+
+// Execute periodic production run: simultaneously deducts Raw Materials & Finishing Supplies and adds Finished Goods
+app.post('/api/inventory/automation/production-plans/:id/execute', auth('finance'), wrap(async (req, res) => {
+  const planId = parseInt(req.params.id, 10);
+  res.json(await inventoryAutomation.executeProductionRun(planId, req.body, req.user));
+}));
+
+app.post('/api/inventory/automation/production-run', auth('finance'), wrap(async (req, res) => {
+  res.json(await inventoryAutomation.executeProductionRun(null, req.body, req.user));
+}));
+
 /* Customer directory belongs to the cashier, not Finance. Never expose other staff accounts. */
 app.get('/api/pos/customer-directory', auth('cashier'), wrap(async (req, res) => {
   // the directory also says when they joined and how much they have done in the shop, so the cashier can tell regulars apart
