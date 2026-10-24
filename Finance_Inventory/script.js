@@ -158,7 +158,7 @@ function navigateToPage(pageId) {
     // Sales is ONE page (#sales-hub) that holds six sections, each keeping its old id.
     // Asking for one of those ids (a link, a notification, a dashboard shortcut, a saved #hash)
     // opens the Sales page and scrolls to that section.
-    const SALES_SECTIONS = ['sales-overview', 'orders', 'sales', 'quotes', 'customers', 'payment-terms'];
+    const SALES_SECTIONS = ['sales-overview', 'orders', 'sales', 'quotes', 'payments', 'customers', 'payment-terms'];
     const salesTarget = SALES_SECTIONS.includes(pageId) ? pageId : null;
     if (salesTarget) pageId = 'sales-hub';
     const inSales = pageId === 'sales-hub';

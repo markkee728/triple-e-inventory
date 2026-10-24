@@ -1285,7 +1285,7 @@
 <!-- =================================================
                  SALES: ONE scrollable page.
                  Header bar (chips) jumps to each section and follows your scroll (see sales-hub.js).
-                 The sections keep their old ids (sales-overview, orders, sales, quotes, customers, payment-terms)
+                 The sections keep their old ids (sales-overview, orders, sales, quotes, payments, customers, payment-terms)
                  because the scripts that fill them look them up by id; navigateToPage('orders') etc. still work
                  and simply open this page scrolled to that section.
             ================================================== -->
@@ -1295,7 +1295,7 @@
                     <div>
                         <div class="ui2-eyebrow"><span class="ui2-live"></span> Sales &amp; transactions</div>
                         <h1>Sales</h1>
-                        <p>Quote approvals, online orders, POS sales, cash shifts, customers and policies on one page. Use the tabs to jump between sections.</p>
+                        <p>Quote approvals, online orders, POS sales, cash shifts, payments and balances, customers and policies on one page. Use the tabs to jump between sections.</p>
                     </div>
                     <div class="ui2-chip">
                         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="m19 9-5 5-4-4-3 3"/></svg>
@@ -1309,6 +1309,7 @@
                         <button type="button" class="rep-tab" data-stab="quotes" data-target="quotes">Quote Approvals</button>
                         <button type="button" class="rep-tab" data-stab="orders" data-target="orders">Online Orders</button>
                         <button type="button" class="rep-tab" data-stab="sales" data-target="sales">POS Sales &amp; Shifts</button>
+                        <button type="button" class="rep-tab" data-stab="payments" data-target="payments">Payments &amp; Balances</button>
                         <button type="button" class="rep-tab" data-stab="customers" data-target="customers">Customer Profiles</button>
                         <button type="button" class="rep-tab" data-stab="payment-terms" data-target="payment-terms">Policies &amp; Rates</button>
                     </div>
@@ -1429,6 +1430,8 @@
                 </div>
             </section>
 
+
+<section id="payments" class="page sales-sec"></section>
 
 <section id="customers" class="page sales-sec">
               <div class="catalog-header"><div><div class="catalog-eyebrow">Customer Management</div><h1 class="catalog-title">Customer Profiles</h1></div></div>
@@ -3631,7 +3634,7 @@
     <script src="sales-orders.js?v=15"></script>
     <link rel="stylesheet" href="sales-admin.css?v=10">
     <link rel="stylesheet" href="reports-sales.css?v=13">
-    <link rel="stylesheet" href="sales-hub.css?v=8">
+    <link rel="stylesheet" href="sales-hub.css?v=9">
     <link rel="stylesheet" href="ui2-sales.css?v=1">
     <link rel="stylesheet" href="quick-stock.css?v=2">
     <link rel="stylesheet" href="inventory-priority.css?v=4">
@@ -3662,13 +3665,13 @@
     <script src="quick-stock.js?v=4"></script>
     <script src="finished-goods-shop.js?v=5"></script>
     <script src="shop-extras-admin.js?v=24"></script>
-    <script src="payment-terms-admin.js?v=9"></script>
+    <script src="payment-terms-admin.js?v=10"></script>
     <script src="delivery-rates-admin.js?v=4"></script>
     <script src="customer-profiles-admin.js?v=7"></script>
     <script src="walkin-customers-admin.js?v=1"></script>
     <script src="notification-center.js?v=8"></script>
     <script src="sidebar.js?v=3"></script>
-    <script src="sales-hub.js?v=3"></script>
+    <script src="sales-hub.js?v=4"></script>
     <script src="table-pagination.js"></script>
     <script src="ui2-usermgmt.js?v=1"></script>
     <script src="ui2-auditlog.js?v=1"></script>

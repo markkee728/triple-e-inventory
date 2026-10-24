@@ -1,5 +1,5 @@
 /* sales-hub.js — Finance > Sales: ONE scrollable page, with a sticky chip bar (same look and behaviour as Reports).
-     Overview · Quote Approvals · Online Orders · POS Sales & Shifts · Customer Profiles · Policies & Rates
+     Overview · Quote Approvals · Online Orders · POS Sales & Shifts · Payments & Balances · Customer Profiles · Policies & Rates
    (the section order on the page matches the chip order: the scroll-spy walks the chips top to bottom)
    Every section is always on the page. The bar only (1) scrolls to a section when a chip is clicked,
    (2) highlights the section you are reading as you scroll, and (3) names that section on the right.
@@ -14,6 +14,7 @@
     'quotes': 'Price review',
     'orders': 'Order queue',
     'sales': 'In-store ledger',
+    'payments': 'Money owed & ledger',
     'customers': 'Directory',
     'payment-terms': 'Automated engine'
   };

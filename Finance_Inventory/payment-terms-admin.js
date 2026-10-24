@@ -57,26 +57,65 @@
       + '#payment-terms .faint{color:var(--text-faint);font-size:12.5px;line-height:1.5}#payment-terms select[data-f=balanceCondition]{width:100%}';
     document.head.appendChild(st);
   })();
+  function panelHtml(p) {
+    var isPolicy = p[0] === 'ptrPolicy', clickable = p[0] === 'ptrDebt' || p[0] === 'ptrMoney';
+    return '<div class="panel" id="' + p[0] + 'Box" style="margin-bottom:18px">'
+      + '<div class="panel-head"><div><div class="panel-title">' + (isPolicy ? 'Automated Payment Terms Policy' : p[1]) + '</div>'
+      + '<div class="panel-sub">' + (isPolicy ? 'The policy engine enforces these rules automatically for cashiers and online checkouts. No manual calculation required.' : p[2]) + '</div></div>'
+      + '<div class="inv-filters">'
+      + (isPolicy ? '<button type="button" class="btn-secondary btn-sm" id="ptrTogglePolicyEdit">Configure Parameters</button> ' : '')
+      + '<button type="button" class="btn-secondary btn-sm" data-reload="' + p[0] + '">Reload</button></div></div>'
+      + '<div class="faint" id="' + p[0] + 'Status" data-status="' + p[0] + '" style="padding:8px 16px 0;min-height:18px"></div>'
+      + (isPolicy ? '<div id="ptrPolicyCards" class="policy-cards-grid"></div>' : '')
+      + '<div class="table-wrapper' + (clickable ? ' ptr-clickable' : '') + '" id="' + p[0] + 'TableWrapper"' + (isPolicy ? ' hidden' : '') + '><table><thead><tr>' + p[3] + '</tr></thead>'
+      + '<tbody id="' + p[0] + 'Body"><tr><td class="faint">Loading\u2026</td></tr></tbody></table></div></div>';
+  }
+  (function moreStyles() {
+    var st = document.createElement('style');
+    st.textContent = '#payments td{vertical-align:top;padding-top:14px;padding-bottom:14px}#payments .faint{color:var(--text-faint);font-size:12.5px;line-height:1.5}'
+      + '.ptr-clickable tbody tr.ptr-row{cursor:pointer;transition:background .12s}.ptr-clickable tbody tr.ptr-row:hover,.ptr-clickable tbody tr.ptr-row:focus-visible{background:rgba(74,144,217,.10);outline:none}'
+      + '.ptr-clickable tbody tr.ptr-row:focus-visible{box-shadow:inset 3px 0 0 var(--blue-bright)}'
+      + '.ptr-modal{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center;padding:20px}.ptr-modal[hidden]{display:none}'
+      + '.ptr-modal-bg{position:absolute;inset:0;background:rgba(5,12,20,.62);backdrop-filter:blur(5px)}'
+      + '.ptr-modal-card{position:relative;width:min(640px,100%);max-height:90vh;overflow:auto;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:20px;padding:28px 30px 24px;box-shadow:0 40px 80px -30px rgba(0,0,0,.65)}'
+      + '.ptr-x{position:absolute;top:14px;right:14px;width:36px;height:36px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:22px;line-height:1;cursor:pointer}.ptr-x:hover{border-color:var(--blue-bright)}'
+      + '.ptr-eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--blue-bright);margin-bottom:6px;padding-right:44px}'
+      + '.ptr-modal-card h2{font-family:Oswald,sans-serif;font-weight:600;font-size:30px;line-height:1.2;margin:0 0 4px}'
+      + '.ptr-modal-card h3{font-family:"IBM Plex Mono",monospace;font-size:11.5px;font-weight:500;letter-spacing:1.4px;text-transform:uppercase;color:var(--text-faint);margin:22px 0 10px}'
+      + '.ptr-money{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}'
+      + '.ptr-money>div{padding:12px 14px;border:1px solid var(--border);border-radius:12px;background:var(--inset)}.ptr-money span{display:block;font-size:12px;color:var(--text-faint);margin-bottom:4px}'
+      + '.ptr-money b{font-size:17px}.ptr-money .owe{border-color:rgba(217,164,65,.45)}.ptr-money .owe b{color:var(--amber,#d9a441)}'
+      + '.ptr-bar{height:8px;border-radius:99px;background:var(--border);overflow:hidden;margin-top:12px}.ptr-bar i{display:block;height:100%;background:var(--green,#43c47a);border-radius:99px}'
+      + '.ptr-kvs{display:grid;gap:0;border:1px solid var(--border);border-radius:12px;overflow:hidden}'
+      + '.ptr-kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px}.ptr-kv:last-child{border-bottom:0}'
+      + '.ptr-kv span{color:var(--text-dim)}.ptr-kv b{font-weight:600;overflow-wrap:anywhere}'
+      + '.ptr-hist{border:1px solid var(--border);border-radius:12px;overflow:auto}.ptr-hist table{width:100%;border-collapse:collapse;font-size:13.5px}'
+      + '.ptr-hist th{text-align:left;padding:8px 12px;font-size:11.5px;letter-spacing:1px;text-transform:uppercase;color:var(--text-faint);background:var(--inset)}.ptr-hist td{padding:9px 12px;border-top:1px solid var(--border);vertical-align:top}'
+      + '.ptr-hist tr.here td{background:rgba(74,144,217,.10)}'
+      + '.ptr-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:24px}'
+      + '@media(max-width:560px){.ptr-modal-card{padding:22px 18px 18px;border-radius:18px}.ptr-money{grid-template-columns:1fr}.ptr-kv{grid-template-columns:1fr;gap:2px}}';
+    document.head.appendChild(st);
+  })();
   function build() {
     var host = $('payment-terms');
     if (!host || host.dataset.built === '1') return;
     host.dataset.built = '1';
+    // Balances outstanding and Payments and refunds are money-in-motion, not policy: they live in their own Sales section
+    // (#payments). If an older page has no such section they stay here, so nothing is ever lost.
+    var payHost = $('payments') || host;
+    var policyPanels = PANELS.filter(function (p) { return p[0] === 'ptrPolicy'; }), moneyPanels = PANELS.filter(function (p) { return p[0] !== 'ptrPolicy'; });
     host.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div><h1 class="catalog-title">Payment &amp; Fulfillment Policies</h1>'
       + '<div class="panel-sub">Automated part-payment terms, cash on delivery thresholds, regional delivery rates, and weight surcharges.</div></div>'
       + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
-      + PANELS.map(function (p) {
-        var isPolicy = p[0] === 'ptrPolicy';
-        return '<div class="panel" id="' + p[0] + 'Box" style="margin-bottom:18px">'
-          + '<div class="panel-head"><div><div class="panel-title">' + (isPolicy ? 'Automated Payment Terms Policy' : p[1]) + '</div>'
-          + '<div class="panel-sub">' + (isPolicy ? 'The policy engine enforces these rules automatically for cashiers and online checkouts. No manual calculation required.' : p[2]) + '</div></div>'
-          + '<div class="inv-filters">'
-          + (isPolicy ? '<button type="button" class="btn-secondary btn-sm" id="ptrTogglePolicyEdit">Configure Parameters</button> ' : '')
-          + '<button type="button" class="btn-secondary btn-sm" data-reload="' + p[0] + '">Reload</button></div></div>'
-          + '<div class="faint" id="' + p[0] + 'Status" data-status="' + p[0] + '" style="padding:8px 16px 0;min-height:18px"></div>'
-          + (isPolicy ? '<div id="ptrPolicyCards" class="policy-cards-grid"></div>' : '')
-          + '<div class="table-wrapper" id="' + p[0] + 'TableWrapper"' + (isPolicy ? ' hidden' : '') + '><table><thead><tr>' + p[3] + '</tr></thead>'
-          + '<tbody id="' + p[0] + 'Body"><tr><td class="faint">Loading\u2026</td></tr></tbody></table></div></div>';
-      }).join('');
+      + policyPanels.map(panelHtml).join('')
+      + (payHost === host ? moneyPanels.map(panelHtml).join('') : '');
+    if (payHost !== host) {
+      payHost.innerHTML = '<div class="catalog-header"><div><div class="catalog-eyebrow">Sales &amp; Transactions</div><h1 class="catalog-title">Payments &amp; Balances</h1>'
+        + '<div class="panel-sub">Who still owes money, and every payment and refund on the ledger. Click any row to see its full details.</div></div>'
+        + '<button type="button" class="btn-secondary btn-sm" data-reload="all">Reload</button></div>'
+        + moneyPanels.map(panelHtml).join('');
+      payHost.dataset.built = '1';
+    }
     // cash on delivery / pickup rules sit right under the terms they go with
     var pol = $('ptrPolicyBox'); if (pol) pol.insertAdjacentHTML('afterend', codPanel());
 
@@ -316,7 +355,7 @@
   function debtRow(x) {
     var pill = STATE_PILL[x.paymentState] || ['low', x.paymentState];
     var term = x.termsKey === 'full' ? 'Full payment' : x.termsKey + (x.termsPercent == null ? '' : ' \u00B7 ' + x.termsPercent + '%');
-    return '<tr>'
+    return '<tr class="ptr-row" tabindex="0" role="button" data-debt="' + esc(x.kind + ':' + x.no) + '" title="Click for details">'
       + '<td><b>' + esc(x.no) + '</b><div class="faint">' + (x.kind === 'quote' ? 'Quotation' : 'Order') + ' \u00B7 ' + esc(x.status || '') + '</div></td>'
       + '<td>' + esc(x.customer || '\u2014') + '</td>'
       + '<td>' + esc(term) + '<div class="faint">' + esc(x.termsCondition || '') + '</div></td>'
@@ -340,7 +379,7 @@
 
   /* ---------------- the ledger ---------------- */
   function moneyRow(p) {
-    return '<tr>'
+    return '<tr class="ptr-row" tabindex="0" role="button" data-pay="' + esc(p.id) + '" title="Click for details">'
       + '<td class="faint">' + esc(when(p.at)) + '</td>'
       + '<td><b>' + esc(p.ref || '') + '</b><div class="faint">' + (p.kind === 'quote' ? 'Quotation' : 'Order') + '</div></td>'
       + '<td class="mono"' + (p.direction === 'out' ? ' style="color:var(--red,#c0392b)"' : '') + '>'
@@ -360,6 +399,89 @@
       + ' \u00B7 <b>cash in drawers ' + peso(t.cashInDrawer) + '</b> \u00B7 paid online or otherwise ' + peso(t.onlineAndOther);
     if (!MONEY.payments.length) { body.innerHTML = '<tr><td class="faint" colspan="7">No payment has been recorded on the ledger yet.</td></tr>'; return; }
     body.innerHTML = MONEY.payments.map(moneyRow).join('');
+  }
+
+  /* ---------------- click a row: the full picture ---------------- */
+  var DEBT_ALL = function () { return DEBT ? DEBT.orders.concat(DEBT.quotes) : []; };
+  function kv(label, value) {
+    return value == null || value === '' ? '' : '<div class="ptr-kv"><span>' + esc(label) + '</span><b>' + value + '</b></div>';
+  }
+  function historyTable(ref, kind, exceptId) {
+    var list = ((MONEY && MONEY.payments) || []).filter(function (p) { return p.ref === ref && p.kind === kind; });
+    if (!list.length) return '<div class="faint">No payment on the ledger for this yet.</div>';
+    return '<div class="ptr-hist"><table><thead><tr><th>When</th><th>Amount</th><th>How</th><th>Recorded by</th></tr></thead><tbody>'
+      + list.map(function (p) {
+        return '<tr' + (p.id === exceptId ? ' class="here"' : '') + '><td>' + esc(when(p.at)) + '</td>'
+          + '<td class="mono" ' + (p.direction === 'out' ? 'style="color:var(--red,#c0392b)"' : '') + '>' + (p.direction === 'out' ? '\u2212' : '+') + peso(p.amount) + '</td>'
+          + '<td>' + esc(p.method) + (p.purpose ? '<div class="faint">' + esc(p.purpose) + '</div>' : '') + '</td><td>' + esc(p.actor || 'system') + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+  function standing(x) {
+    var pct = x.total > 0 ? Math.max(0, Math.min(100, x.paidAmount / x.total * 100)) : 0, pill = STATE_PILL[x.paymentState] || ['low', x.paymentState];
+    return '<div class="ptr-money"><div><span>Value</span><b class="mono">' + peso(x.total) + '</b></div><div><span>Collected</span><b class="mono">' + peso(x.paidAmount) + '</b></div>'
+      + '<div class="owe"><span>Still to collect</span><b class="mono">' + peso(x.outstanding) + '</b></div></div>'
+      + '<div class="ptr-bar" aria-label="' + Math.round(pct) + '% collected"><i style="width:' + pct.toFixed(1) + '%"></i></div>'
+      + '<div class="faint" style="margin-top:4px">' + Math.round(pct) + '% collected \u00B7 <span class="status-pill ' + pill[0] + '">' + esc(pill[1]) + '</span></div>';
+  }
+  function goTo(kind) { closeDetail(); if (typeof window.navigateToPage === 'function') window.navigateToPage(kind === 'quote' ? 'quotes' : 'orders'); }
+  function debtDetail(x) {
+    var term = x.termsKey === 'full' ? 'Full payment' : x.termsKey + (x.termsPercent == null ? '' : ' \u00B7 ' + x.termsPercent + '%');
+    return '<div class="ptr-eyebrow">' + (x.kind === 'quote' ? 'Quotation' : 'Order') + (x.status ? ' \u00B7 ' + esc(x.status) : '') + '</div>'
+      + '<h2 id="ptrModalTitle">' + esc(x.no) + '</h2><div class="faint">' + esc(x.customer || 'No customer name') + (x.at ? ' \u00B7 ' + esc(when(x.at)) : '') + '</div>'
+      + standing(x)
+      + '<h3>Payment option</h3><div class="ptr-kvs">' + kv('Terms', esc(term)) + kv('Balance due', esc(x.termsCondition || '')) + kv('Paid by', esc(x.method || ''))
+      + (x.creditException ? kv('Credit exception', '<span class="chip-pill warn">on file</span> ' + esc(x.creditException.note)) : '') + '</div>'
+      + '<h3>Payments on this ' + (x.kind === 'quote' ? 'quotation' : 'order') + '</h3>' + historyTable(x.no, x.kind)
+      + '<div class="ptr-actions"><button type="button" class="btn-primary btn-sm" data-ptr-go="' + esc(x.kind) + '">Open ' + (x.kind === 'quote' ? 'in Quote Approvals' : 'in Online Orders') + '</button>'
+      + '<button type="button" class="btn-secondary btn-sm" data-ptr-close>Close</button></div>';
+  }
+  function payDetail(p) {
+    var out = p.direction === 'out', owing = DEBT_ALL().filter(function (x) { return x.no === p.ref && x.kind === p.kind; })[0];
+    return '<div class="ptr-eyebrow">' + (out ? 'Refund' : 'Payment received') + (p.moved ? ' \u00B7 moved from quotation to order' : '') + '</div>'
+      + '<h2 id="ptrModalTitle" class="mono" ' + (out ? 'style="color:var(--red,#c0392b)"' : '') + '>' + (out ? '\u2212' : '+') + peso(p.amount) + '</h2>'
+      + '<div class="faint">' + esc(when(p.at)) + ' \u00B7 against ' + (p.kind === 'quote' ? 'quotation ' : 'order ') + '<b>' + esc(p.ref) + '</b></div>'
+      + '<h3>Details</h3><div class="ptr-kvs">' + kv('How it was paid', esc(p.method)) + kv('Purpose', esc(p.purpose || ''))
+      + kv('Provider reference', p.providerRef ? '<span class="mono">' + esc(p.providerRef) + '</span>' : '')
+      + kv('Cash drawer', p.cashShiftId != null ? 'Drawer #' + esc(p.cashShiftId) : (p.providerRef ? '' : 'Not through a drawer'))
+      + kv('Cash handed over', p.tendered != null ? '<span class="mono">' + peso(p.tendered) + '</span>' : '') + kv('Change given', p.changeGiven != null ? '<span class="mono">' + peso(p.changeGiven) + '</span>' : '')
+      + kv('Recorded by', esc(p.actor || 'system')) + kv('Reverses payment', p.reversedOf ? '#' + esc(p.reversedOf) : '') + kv('Ledger no.', '#' + esc(p.id)) + kv('Note', esc(p.note || '')) + '</div>'
+      + '<h3>Where ' + esc(p.ref) + ' stands now</h3>'
+      + (owing ? standing(owing) : '<div class="faint">Nothing is owed on this ' + (p.kind === 'quote' ? 'quotation' : 'order') + ' (fully collected, or closed).</div>')
+      + '<h3>All payments on ' + esc(p.ref) + '</h3>' + historyTable(p.ref, p.kind, p.id)
+      + '<div class="ptr-actions"><button type="button" class="btn-primary btn-sm" data-ptr-go="' + esc(p.kind) + '">Open ' + (p.kind === 'quote' ? 'in Quote Approvals' : 'in Online Orders') + '</button>'
+      + '<button type="button" class="btn-secondary btn-sm" data-ptr-close>Close</button></div>';
+  }
+  var lastFocus = null;
+  function ensureModal() {
+    var m = $('ptrModal'); if (m) return m;
+    m = document.createElement('div'); m.id = 'ptrModal'; m.className = 'ptr-modal'; m.hidden = true;
+    m.innerHTML = '<div class="ptr-modal-bg" data-ptr-close></div><div class="ptr-modal-card" role="dialog" aria-modal="true" aria-labelledby="ptrModalTitle">'
+      + '<button type="button" class="ptr-x" data-ptr-close aria-label="Close">\u00D7</button><div id="ptrModalBody"></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', function (e) {
+      var go = e.target.closest('[data-ptr-go]'); if (go) { goTo(go.dataset.ptrGo); return; }
+      if (e.target.closest('[data-ptr-close]')) closeDetail();
+    });
+    return m;
+  }
+  function openDetail(html) {
+    var m = ensureModal(); lastFocus = document.activeElement;
+    $('ptrModalBody').innerHTML = html; m.hidden = false; document.body.style.overflow = 'hidden';
+    var c = m.querySelector('.ptr-x'); if (c) c.focus();
+  }
+  function closeDetail() {
+    var m = $('ptrModal'); if (!m || m.hidden) return;
+    m.hidden = true; document.body.style.overflow = '';
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) { /* ignore */ } }
+  }
+  function rowDetail(tr) {
+    if (tr.dataset.debt) {
+      var key = tr.dataset.debt, x = DEBT_ALL().filter(function (d) { return d.kind + ':' + d.no === key; })[0];
+      if (x) openDetail(debtDetail(x));
+    } else if (tr.dataset.pay) {
+      var p = ((MONEY && MONEY.payments) || []).filter(function (m) { return String(m.id) === tr.dataset.pay; })[0];
+      if (p) openDetail(payDetail(p));
+    }
   }
 
   /* ---------------- loading and saving ---------------- */
@@ -453,15 +575,28 @@
     build();
     var host = $('payment-terms');
     if (!host) return;
+    var hosts = [host]; if ($('payments') && $('payments') !== host) hosts.push($('payments'));
     loadAll();
-    host.addEventListener('click', function (e) {
+    hosts.forEach(function (h) {
+      h.addEventListener('click', function (e) {
+        var row = e.target.closest('tr.ptr-row');
+        if (row && !e.target.closest('a,button,input,select')) rowDetail(row);
+      });
+      h.addEventListener('keydown', function (e) {
+        var row = e.target.closest && e.target.closest('tr.ptr-row');
+        if (row && e.target === row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); rowDetail(row); }
+      });
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeDetail(); });
+    var onClick = function (e) {
       var reload = e.target.closest('[data-reload]');
       if (reload) { e.preventDefault(); loadAll(); return; }
       var cod = e.target.closest('[data-cod-save]');
       if (cod) { e.preventDefault(); saveCod(cod); return; }
       var ap = e.target.closest('[data-approve]'), rf = e.target.closest('[data-refuse]');
       if (ap || rf) { e.preventDefault(); var row = (ap || rf).closest('tr[data-quote]'); if (row) decide(row, ap ? 'approve' : 'refuse'); }
-    });
+    };
+    hosts.forEach(function (h) { h.addEventListener('click', onClick); });
     // the policy rows save themselves (no Save button)
     host.addEventListener('change', function (e) {
       var tr = e.target.closest && e.target.closest('#ptrPolicyBody tr[data-term]'); if (!tr) return;
