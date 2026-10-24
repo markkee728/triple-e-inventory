@@ -376,3 +376,57 @@ html[data-theme="light"] #heldList .line { background: #f6f9fb; }
     #page-quotes .qd-drawer { border-radius: 18px 18px 0 0; }
     #page-quotes .qd-drawer-body { padding: 16px; }
 }
+
+/* =========================================================
+   Round 4: quotation detail as a centred card (not a side drawer) + pop-ups no longer hidden under the header
+========================================================= */
+
+/* A .ui2 page is its own stacking layer, so a fixed pop-up inside it used to sit UNDER the sticky header (and cut the
+   drawer's title off). While any pop-up of the page is open, lift the whole page above the header and sidebar. */
+.page.ui2:has(.qd-drawer.open, .qd-scrim.open, .qd-modal-overlay:not([hidden]), .pq-confirm-overlay:not([hidden]), .co-modal:not([hidden])) { z-index: 9000; }
+
+/* ---------- the quotation drawer becomes a card in the middle of the screen ---------- */
+#page-quotes .qd-scrim { background: rgba(3, 9, 15, .62); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); z-index: 8000; }
+#page-quotes .qd-drawer {
+    top: 50%; left: 50%; right: auto; bottom: auto; width: min(94vw, 880px); max-height: min(90vh, 900px); height: auto;
+    border: 1px solid var(--border); border-radius: 22px; overflow: hidden;
+    transform: translate(-50%, -46%) scale(.97); opacity: 0; pointer-events: none;
+    transition: transform .24s ease, opacity .2s ease;
+    box-shadow: 0 50px 100px -40px rgba(0,0,0,.8);
+}
+#page-quotes .qd-drawer.open { transform: translate(-50%, -50%) scale(1); opacity: 1; pointer-events: auto; }
+#page-quotes .qd-drawer-head { padding: 22px 28px 18px; border-radius: 22px 22px 0 0; }
+#page-quotes .qd-drawer-body { padding: 20px 28px 24px; display: grid; gap: 14px; align-content: start; background: var(--panel); }
+#page-quotes .qd-drawer-foot { padding: 14px 28px; border-radius: 0 0 22px 22px; }
+
+/* sections inside the card: one rounded box per topic */
+#page-quotes .qd-drawer-body .qd-sec {
+    margin: 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: 16px; background: var(--card);
+}
+#page-quotes .qd-drawer-body .qd-sec > h4 {
+    display: flex; align-items: center; gap: 10px; margin: 0 0 10px; font: 500 12px "IBM Plex Mono", monospace;
+    letter-spacing: 1.8px; text-transform: uppercase; color: var(--blue-bright);
+}
+#page-quotes .qd-drawer-body .qd-sec > h4::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+#page-quotes .qd-kv { margin: 0; }
+#page-quotes .qd-kv dt { color: var(--text-dim); }
+#page-quotes .qd-kv dd { color: var(--text); font-weight: 500; }
+#page-quotes .qd-kv dt, #page-quotes .qd-kv dd { padding-top: 7px; padding-bottom: 7px; border-bottom: 1px solid var(--row-line); }
+#page-quotes .qd-kv dt:nth-last-of-type(1), #page-quotes .qd-kv dd:last-of-type { border-bottom: 0; }
+#page-quotes .qd-callout, #page-quotes .qd-note-box { border-radius: 12px; }
+
+/* the clarify / confirm dialogs of this page: same rounded look */
+#page-quotes .qd-modal, #page-quotes .pq-confirm-panel { border-radius: 20px; box-shadow: 0 40px 80px -30px rgba(0,0,0,.7); }
+
+/* ---------- phone: back to a bottom sheet ---------- */
+@media (max-width: 700px) {
+    #page-quotes .qd-drawer {
+        left: 0; right: 0; top: auto; bottom: 0; width: 100%; height: 92vh; max-height: 92vh;
+        border-radius: 20px 20px 0 0; transform: translateY(102%); opacity: 1;
+    }
+    #page-quotes .qd-drawer.open { transform: none; }
+    #page-quotes .qd-drawer-head { padding: 16px 18px; border-radius: 20px 20px 0 0; }
+    #page-quotes .qd-drawer-body { padding: 14px 16px 20px; }
+    #page-quotes .qd-drawer-foot { padding: 12px 16px; border-radius: 0; }
+}
+@media (prefers-reduced-motion: reduce) { #page-quotes .qd-drawer { transition: none; } }
