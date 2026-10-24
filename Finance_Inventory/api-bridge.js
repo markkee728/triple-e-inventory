@@ -784,15 +784,22 @@
   /* ---------- Category dropdown (list comes from the database; last option adds a new one) ---------- */
   // Finished goods are only the two product lines Triple E makes; the other departments keep their own list (and can add one)
   const FG_CATEGORIES = ['Aluminum Die-Cast Products', 'Forged Brass Products'];
+  // Raw materials: Triple E only works in aluminum and brass, so those are the only metal categories (no steel, iron, stainless...)
+  const RM_CATEGORIES = ['Aluminum Alloy', 'Brass / Copper Alloy'];
+  const OTHER_METAL = /steel|stainless|iron|zinc|nickel|bronze|titanium|aluminium|aluminum|brass|copper|metal/i;
   function fillCategories(keep) {
     const sel = $('npCategory');
     if (!sel || sel.tagName !== 'SELECT') return;
     const cur = keep === undefined ? sel.value : keep;
-    const fg = ($('npDept') || {}).value === 'Finished Goods';
+    const dept = ($('npDept') || {}).value, fg = dept === 'Finished Goods', rm = dept === 'Raw Materials';
+    // Finished Goods and Raw Materials have a fixed list; Finishing Supplies keep the database list, minus every metal category
+    const list = fg ? FG_CATEGORIES : rm ? RM_CATEGORIES
+      : CATEGORIES.filter((c) => FG_CATEGORIES.indexOf(c) < 0 && RM_CATEGORIES.indexOf(c) < 0 && !OTHER_METAL.test(c));
     sel.innerHTML = '<option value="">Select a category…</option>' +
-      (fg ? FG_CATEGORIES : CATEGORIES.filter((c) => FG_CATEGORIES.indexOf(c) < 0)).map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') +
-      (fg ? '' : '<option value="' + NEW_CATEGORY + '">+ Add new category…</option>');
-    setCategoryValue(cur);
+      list.map((c) => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join('') +
+      (fg || rm ? '' : '<option value="' + NEW_CATEGORY + '">+ Add new category…</option>');
+    // switching department by hand: a category that belongs to the other department is dropped (an old product being edited keeps its own)
+    setCategoryValue(keep === undefined && cur !== NEW_CATEGORY && list.indexOf(cur) < 0 ? '' : cur);
   }
   function setCategoryValue(name) {
     const sel = $('npCategory');

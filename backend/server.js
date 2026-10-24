@@ -33,6 +33,9 @@ class ValidationError extends Error {
 }
 const DEPARTMENTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
 const FINISHED_GOODS_CATEGORIES = ['Aluminum Die-Cast Products', 'Forged Brass Products'];
+// Triple E only works in aluminum and brass, so the only metal raw materials are these two (no steel, iron, stainless...)
+const RAW_MATERIAL_CATEGORIES = ['Aluminum Alloy', 'Brass / Copper Alloy'];
+const isRawMaterialCategory = (c) => RAW_MATERIAL_CATEGORIES.some((x) => x.toLowerCase() === String(c || '').trim().toLowerCase());
 const FINISHED_GOODS_UNIT = 'pcs';      // every Finished Good is sold by the piece (enforced in validateProduct and in the quote form)
 const NEEDS_SUPPLIER = ['Raw Materials', 'Finishing Supplies'];
 // Units offered in the product form (kg and pcs first, then units used for metals)
@@ -572,6 +575,9 @@ function validateProduct(b, { creating }) {
   // Triple E only sells its two product lines; Raw Materials / Finishing Supplies keep free categories
   if (department === 'Finished Goods' && category && !FINISHED_GOODS_CATEGORIES.some((c) => c.toLowerCase() === category.toLowerCase()))
     e.category = 'Finished goods are ' + FINISHED_GOODS_CATEGORIES.join(' or ');
+  // new raw materials: aluminum or brass only (an edit of an old product is checked in the PUT route, where its saved category is known)
+  if (creating && department === 'Raw Materials' && category && !isRawMaterialCategory(category))
+    e.category = 'Raw materials are ' + RAW_MATERIAL_CATEGORIES.join(' or ') + ' (we only work in aluminum and brass)';
   // a finished good's cost is worked out from its recipe (recipe-costing.js): the form does not have to send it
   const unitCost = number(e, 'unitCost', b.unitCost, 'Unit cost', { max: 1e7, required: department !== 'Finished Goods' });
   // only Finished Goods are sold: they need a selling price; every other department has none (stored as 0)
@@ -1116,7 +1122,10 @@ app.put('/api/products/:sku', auth('finance'), wrap(async (req, res) => {
     await client.query(`SELECT set_config('app.user_id', $1, true)`, [String(req.user.id)]);
     await assertProductNameFree(client, p.name, p.sku);
     const rc = app.locals.recipeCosting && (await app.locals.recipeCosting.ready) ? app.locals.recipeCosting : null;
-    const before = (await client.query('SELECT product_id, unit_cost, department FROM products WHERE sku = $1 AND NOT is_archived FOR UPDATE', [p.sku])).rows[0];
+    const before = (await client.query('SELECT p.product_id, p.unit_cost, p.department, c.name AS category FROM products p LEFT JOIN categories c ON c.category_id = p.category_id WHERE p.sku = $1 AND NOT p.is_archived FOR UPDATE OF p', [p.sku])).rows[0];
+    // an old raw material that already sits in another category may keep it; any change must land on aluminum or brass
+    if (p.department === 'Raw Materials' && !isRawMaterialCategory(p.category) && !(before && before.department === 'Raw Materials' && String(before.category || '').toLowerCase() === p.category.toLowerCase()))
+      throw new ValidationError({ category: 'Raw materials are ' + RAW_MATERIAL_CATEGORIES.join(' or ') + ' (we only work in aluminum and brass)' });
     // a finished good with a recipe does not take a typed cost (it is "auto"); Finance can override it, with a reason that is logged
     let guard = null;
     if (rc && before && p.department === 'Finished Goods' && before.department === 'Finished Goods') {
