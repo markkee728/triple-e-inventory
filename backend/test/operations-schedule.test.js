@@ -14,8 +14,8 @@ test('Operations Schedule - frontend assets exist and are valid', () => {
   assert.ok(jsContent.includes('window.OperationsSchedule'), 'Exports OperationsSchedule on window');
   assert.ok(jsContent.includes('/api/inventory/automation/delivery-schedules'), 'Queries delivery schedules');
   assert.ok(jsContent.includes('/api/inventory/automation/production-plans'), 'Queries production plans');
-  assert.ok(jsContent.includes('data-receive-sched'), 'Provides Receive Stock action');
-  assert.ok(jsContent.includes('data-run-plan'), 'Provides Run Production action');
+  assert.ok(jsContent.includes('/api/inventory/automation/run-due'), 'Stocks in due items automatically');
+  assert.ok(!jsContent.includes('data-receive-sched') && !jsContent.includes('data-run-plan'), 'No manual Receive / Run buttons');
 });
 
 test('Operations Schedule - Finance_Inventory.html loads operations-schedule files without touching sidebar', () => {
@@ -31,5 +31,6 @@ test('Operations Schedule - backend routes for individual schedule receive and p
   const server = fs.readFileSync('backend/server.js', 'utf8');
   assert.ok(server.includes('/api/inventory/automation/delivery-schedules/:id/receive'), 'Receive schedule endpoint mounted');
   assert.ok(server.includes('/api/inventory/automation/production-plans/:id/execute'), 'Execute plan endpoint mounted');
+  assert.ok(server.includes('/api/inventory/automation/run-due'), 'Run-due endpoint mounted');
+  assert.ok(server.includes("name: 'inventory-schedule'"), 'Automation timer stocks in scheduled items');
 });
-

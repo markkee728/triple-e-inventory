@@ -37,3 +37,13 @@ html[data-theme="light"] .ops-mat-chip { background: rgba(15, 40, 60, 0.04); }
 /* Empty state */
 .ops-empty { padding: 28px 14px; text-align: center; color: var(--text-dim); font-size: 13.5px; }
 
+/* automatic stock-in: replaces the old Receive / Run buttons */
+.ops-auto { display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 99px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  color: var(--text-dim); background: rgba(74, 144, 217, 0.10); border: 1px solid rgba(74, 144, 217, 0.28); }
+.ops-auto::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--blue-bright, #4a90d9); }
+.ops-auto.now { color: #43c47a; background: rgba(67, 196, 122, 0.12); border-color: rgba(67, 196, 122, 0.32); }
+.ops-auto.now::before { background: #43c47a; }
+.ops-auto.wait { color: #f0b43c; background: rgba(240, 180, 60, 0.14); border-color: rgba(240, 180, 60, 0.35); }
+.ops-auto.wait::before { background: #f0b43c; }
+html[data-theme="light"] .ops-auto.now { color: #14753f; }
+html[data-theme="light"] .ops-auto.wait { color: #86560a; }

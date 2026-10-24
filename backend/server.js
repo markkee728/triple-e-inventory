@@ -1461,6 +1461,15 @@ app.post('/api/inventory/automation/delivery-schedules/process-due', auth('finan
   res.json(await inventoryAutomation.processDueDeliveries(asOf, req.user));
 }));
 
+// Everything on the schedule stocks in by itself on its date: deliveries first, then production (also run by the automation timer below)
+app.post('/api/inventory/automation/run-due', auth('finance'), wrap(async (req, res) => {
+  res.json(await inventoryAutomation.runDueAutomation());
+}));
+(app.locals.automationJobs = app.locals.automationJobs || []).push({ name: 'inventory-schedule', run: async () => {
+  const r = await inventoryAutomation.runDueAutomation();
+  return { received: r.deliveries.processedCount, produced: r.production.producedCount, waitingForMaterials: r.production.waiting.length };
+} });
+
 // Periodic production plans for Finished Goods
 app.get('/api/inventory/automation/production-plans', auth('finance'), wrap(async (req, res) => {
   res.json(await inventoryAutomation.listProductionPlans());

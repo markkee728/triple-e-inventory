@@ -10,6 +10,9 @@
   const num = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 3 });
   const B = () => window.TripleEBridge;
 
+  const todayLocal = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+  const niceDate = (ymd) => { const d = new Date(ymd + 'T00:00:00'); return isNaN(d) ? ymd : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }); };
+
   let currentTab = 'deliveries';
   let schedules = [];
   let plans = [];
@@ -54,7 +57,7 @@
       <div class="panel-head">
         <div>
           <div class="panel-title">Operations & Delivery Schedule</div>
-          <div class="panel-sub">Automated tracking for incoming supplier deliveries and finished goods production</div>
+          <div class="panel-sub">Everything here stocks in by itself on its scheduled date — nothing to click</div>
         </div>
         <div class="ops-head-actions">
           <div class="ops-tabs" role="tablist">
@@ -93,11 +96,30 @@
       load(true);
     });
 
-    panel.addEventListener('click', handleAction);
+  }
+
+  // stocks in everything that is due today (deliveries first, then production) and tells the user what happened
+  async function runDue() {
+    try {
+      const r = await api('/api/inventory/automation/run-due', { method: 'POST', body: JSON.stringify({}) });
+      const got = (r.deliveries && r.deliveries.processedCount) || 0, made = (r.production && r.production.producedCount) || 0;
+      if (got || made) {
+        const parts = [];
+        if (got) parts.push(got + ' scheduled deliver' + (got === 1 ? 'y' : 'ies') + ' received');
+        if (made) parts.push(made + ' production run' + (made === 1 ? '' : 's') + ' completed');
+        toast('Automatic stock-in: ' + parts.join(', ') + '.');
+        if (B() && typeof B().reload === 'function') await B().reload();
+      }
+      return r;
+    } catch (err) {
+      console.warn('[ops-schedule] automatic stock-in failed:', err.message);
+      return null;
+    }
   }
 
   async function load(showToast) {
     try {
+      await runDue();
       const [sRes, pRes] = await Promise.all([
         api('/api/inventory/automation/delivery-schedules'),
         api('/api/inventory/automation/production-plans')
@@ -136,7 +158,7 @@
       return;
     }
 
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayLocal();
 
     let html = `
       <div class="ops-table-wrap">
@@ -150,7 +172,7 @@
               <th>Quantity</th>
               <th>Supplier</th>
               <th>Frequency</th>
-              <th>Action</th>
+              <th>Stock-in</th>
             </tr>
           </thead>
           <tbody>
@@ -161,6 +183,9 @@
       const badge = isDue
         ? '<span class="ops-badge-due">Due Today</span>'
         : '<span class="ops-badge-sched">Scheduled</span>';
+      const auto = isDue
+        ? '<span class="ops-auto now">Stocking in now…</span>'
+        : '<span class="ops-auto" title="Stock is added automatically on this date">Auto stock-in on ' + esc(niceDate(s.nextDeliveryDate)) + '</span>';
 
       html += `
         <tr>
@@ -171,11 +196,7 @@
           <td><b>${num(s.quantity)} ${esc(s.unit)}</b></td>
           <td>${esc(s.supplierName)}</td>
           <td><span class="dim" style="text-transform:capitalize">${esc(s.frequency)}</span></td>
-          <td>
-            <button type="button" class="btn-primary btn-sm" data-receive-sched="${s.scheduleId}" ${busy ? 'disabled' : ''}>
-              Receive Stock
-            </button>
-          </td>
+          <td>${auto}</td>
         </tr>
       `;
     }
@@ -201,7 +222,7 @@
               <th>Planned Volume</th>
               <th>Materials Needed (BOM)</th>
               <th>Period</th>
-              <th>Action</th>
+              <th>Production</th>
             </tr>
           </thead>
           <tbody>
@@ -244,77 +265,15 @@
           <td><b>${num(p.targetVolume)} ${esc(p.unit)}</b></td>
           <td>${matHtml}</td>
           <td><span class="dim" style="text-transform:capitalize">${esc(p.period)}</span></td>
-          <td>
-            ${isReady
-              ? `<button type="button" class="btn-primary btn-sm" data-run-plan="${p.planId}" ${busy ? 'disabled' : ''}>Run Production</button>`
-              : `<button type="button" class="btn-secondary btn-sm" disabled title="Waiting on material deliveries">Awaiting Stock</button>`
-            }
-          </td>
+          <td>${isReady
+              ? '<span class="ops-auto" title="Materials are deducted and Finished Goods are added automatically on this date">Auto-produces on ' + esc(niceDate(p.nextRunDate)) + '</span>'
+              : '<span class="ops-auto wait" title="Production runs by itself as soon as the missing materials are stocked in">Waiting for materials</span>'}</td>
         </tr>
       `;
     }
 
     html += `</tbody></table></div>`;
     box.innerHTML = html;
-  }
-
-  async function handleAction(e) {
-    const recBtn = e.target.closest('[data-receive-sched]');
-    const runBtn = e.target.closest('[data-run-plan]');
-
-    if (recBtn && !busy) {
-      const id = recBtn.dataset.receiveSched;
-      const s = schedules.find((x) => String(x.scheduleId) === String(id));
-      if (!s) return;
-
-      const ok = confirm(`Confirm receiving delivery of ${num(s.quantity)} ${s.unit} of ${s.productName} from ${s.supplierName}?\n\nThis will record a supplier receipt and increment stock immediately.`);
-      if (!ok) return;
-
-      busy = true;
-      recBtn.disabled = true;
-      recBtn.textContent = 'Receiving...';
-
-      try {
-        const res = await api(`/api/inventory/automation/delivery-schedules/${id}/receive`, { method: 'POST' });
-        toast(`Received ${num(res.quantity)} ${res.unit} of ${res.productName}. New on-hand: ${num(res.newOnHand)} ${res.unit}`);
-        if (B() && typeof B().reload === 'function') await B().reload();
-        await load(false);
-      } catch (err) {
-        toast(err.message, true);
-      } finally {
-        busy = false;
-        render();
-      }
-    }
-
-    if (runBtn && !busy) {
-      const id = runBtn.dataset.runPlan;
-      const p = plans.find((x) => String(x.planId) === String(id));
-      if (!p) return;
-
-      const r = p.readiness || {};
-      const rawCount = (r.rawMaterials || []).length;
-      const finCount = (r.finishingSupplies || []).length;
-
-      const ok = confirm(`Run periodic production for ${num(p.targetVolume)} ${p.unit} of ${p.productName}?\n\nThis will simultaneously:\n• Deduct ${rawCount} Raw Material(s)\n• Deduct ${finCount} Finishing Supply(ies)\n• Add +${num(p.targetVolume)} ${p.unit} to Finished Goods`);
-      if (!ok) return;
-
-      busy = true;
-      runBtn.disabled = true;
-      runBtn.textContent = 'Processing...';
-
-      try {
-        const res = await api(`/api/inventory/automation/production-plans/${id}/execute`, { method: 'POST', body: JSON.stringify({}) });
-        toast(`Production ${res.ref} confirmed: manufactured +${num(res.targetVolume)} ${res.finishedGood.unit} of ${res.finishedGood.name}. Materials deducted.`);
-        if (B() && typeof B().reload === 'function') await B().reload();
-        await load(false);
-      } catch (err) {
-        toast(err.message, true);
-      } finally {
-        busy = false;
-        render();
-      }
-    }
   }
 
   function init() {
@@ -333,6 +292,9 @@
       }).observe(dashPage, { attributes: true, attributeFilter: ['class'] });
     }
 
+    // the server stocks things in on the day; keep an open dashboard in step
+    setInterval(() => { if (!document.hidden) load(false); }, 5 * 60 * 1000);
+
     window.addEventListener('focus', () => {
       const d = $('dashboard');
       if (d && d.classList.contains('active-page')) load(false);
@@ -347,4 +309,3 @@
 
   window.OperationsSchedule = { load, render, mountPanel };
 })();
-

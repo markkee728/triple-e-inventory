@@ -203,7 +203,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
           next_run_date       DATE NOT NULL,
           last_run_at         TIMESTAMPTZ,
           is_active           BOOLEAN NOT NULL DEFAULT TRUE,
-          auto_execute        BOOLEAN NOT NULL DEFAULT FALSE,
+          auto_execute        BOOLEAN NOT NULL DEFAULT TRUE,
           note                TEXT,
           created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -224,6 +224,11 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
           executed_at                TIMESTAMPTZ NOT NULL DEFAULT now()
         );
         CREATE INDEX IF NOT EXISTS idx_prod_logs_time ON periodic_production_logs (executed_at DESC);
+
+        -- everything on the schedule stocks in by itself on its date (no button to click)
+        ALTER TABLE periodic_production_plans ALTER COLUMN auto_execute SET DEFAULT TRUE;
+        UPDATE periodic_production_plans SET auto_execute = TRUE WHERE NOT auto_execute;
+        UPDATE delivery_schedules SET auto_receive = TRUE WHERE NOT auto_receive;
       `);
 
       // Seed initial demo schedules if empty and demo products exist
@@ -239,6 +244,9 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
     }
   }
 
+  const SYSTEM = { id: null, name: 'System (automatic)', roleLabel: 'System' };
+  const todayLocal = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date());   // YYYY-MM-DD in the shop's time zone
+
   const ready = ensure();
   const needReady = async () => {
     if (!(await ready)) throw new Error('Inventory automation tables are not ready');
@@ -246,7 +254,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
 
   async function seedDemoSchedules() {
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayLocal();
       const demoSchedules = [
         {
           sku: 'RM-AL-ADC12',
@@ -314,7 +322,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
         if (fg.rowCount) {
           await pool.query(`
             INSERT INTO periodic_production_plans (name, finished_product_id, period, target_volume, next_run_date, auto_execute)
-            VALUES ($1, $2, $3, $4, $5, FALSE)
+            VALUES ($1, $2, $3, $4, $5, TRUE)
           `, [dp.name, fg.rows[0].product_id, dp.period, dp.volume, today]);
         }
       }
@@ -467,7 +475,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
   // Automatically update stock levels for due delivery schedules
   async function processDueDeliveries(asOfDate, user) {
     await needReady();
-    const targetDate = asOfDate || new Date().toISOString().slice(0, 10);
+    const targetDate = asOfDate || todayLocal();
 
     return await tx(async (client) => {
       const { rows: due } = await client.query(`
@@ -777,7 +785,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
 
       if (planId) {
         const { rows } = await client.query(`
-          SELECT pp.*, p.sku, p.name AS product_name, p.unit, p.department
+          SELECT pp.*, to_char(pp.next_run_date, 'YYYY-MM-DD') AS next_run_str, p.sku, p.name AS product_name, p.unit, p.department
           FROM periodic_production_plans pp
           JOIN products p ON p.product_id = pp.finished_product_id
           WHERE pp.plan_id = $1
@@ -785,6 +793,7 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
         `, [planId]);
         if (!rows.length) throw new Error(`Production plan #${planId} not found`);
         plan = rows[0];
+        if (opts.onlyIfDueBy && plan.next_run_str > opts.onlyIfDueBy) { const e = new Error('Plan is not due yet'); e.code = 'NOT_DUE'; throw e; }   // another sweep already ran it
         finishedProductId = plan.finished_product_id;
         targetVolume = opts.volume != null ? Number(opts.volume) : +plan.target_volume;
         period = plan.period;
@@ -1039,9 +1048,58 @@ module.exports = function createInventoryAutomation({ pool, tx, audit, Validatio
     });
   }
 
+  /* ---------- Automatic stock-in on the scheduled day ----------
+     Deliveries (Raw Materials / Finishing Supplies) are received first, then due production runs use that stock to add
+     Finished Goods. A production run that is short of materials is skipped and retried on the next sweep. */
+  async function processDuePlans(asOfDate, user) {
+    await needReady();
+    const target = asOfDate || todayLocal();
+    const out = { producedCount: 0, runs: [], waiting: [] };
+    for (let pass = 0; pass < 10; pass++) {
+      const { rows } = await pool.query(
+        `SELECT plan_id, name FROM periodic_production_plans
+          WHERE is_active AND auto_execute AND next_run_date <= $1 ORDER BY next_run_date, plan_id`, [target]);
+      let progressed = false;
+      for (const pl of rows) {
+        if (out.waiting.some((w) => w.planId === pl.plan_id)) continue;
+        try {
+          const r = await executeProductionRun(pl.plan_id, { note: `Automatic scheduled production: ${pl.name}`, onlyIfDueBy: target }, user || SYSTEM);
+          out.runs.push({ planId: pl.plan_id, name: pl.name, ref: r.ref, quantity: r.targetVolume, unit: r.finishedGood.unit, product: r.finishedGood.name, nextRunDate: r.nextRunDate });
+          out.producedCount++; progressed = true;
+        } catch (err) {
+          if (err.code === 'NOT_DUE') continue;
+          out.waiting.push({ planId: pl.plan_id, name: pl.name, reason: err.message });
+        }
+      }
+      if (!progressed) break;
+    }
+    return out;
+  }
+
+  let sweeping = null;
+  function runDueAutomation(asOfDate) {
+    if (sweeping) return sweeping;                       // two sweeps at once would only repeat the same work
+    sweeping = (async () => {
+      await needReady();
+      const target = asOfDate || todayLocal();
+      const deliveries = { processedCount: 0, receipts: [] };
+      for (let i = 0; i < 10; i++) {                     // a server that slept for weeks catches up on every missed date
+        const r = await processDueDeliveries(target, SYSTEM);
+        if (!r.processedCount) break;
+        deliveries.processedCount += r.processedCount;
+        deliveries.receipts.push(...r.receipts);
+      }
+      const production = await processDuePlans(target, SYSTEM);
+      return { asOfDate: target, deliveries, production };
+    })().finally(() => { sweeping = null; });
+    return sweeping;
+  }
+
   return {
     pure,
     ready,
+    runDueAutomation,
+    processDuePlans,
     getDepartmentSummary,
     listDeliverySchedules,
     processDueDeliveries,
