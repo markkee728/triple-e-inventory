@@ -131,6 +131,50 @@ module.exports = function makeBalanceReminders({ app, pool, auth, wrap }) {
     res.json(out);
   }));
 
+  /* Counter: what does this customer still owe? Matched by the phone typed on the sale (last 10 digits), against the
+     account phone and the phone saved on each order. Read-only: nothing is posted from here. */
+  app.get('/api/pos/customer-account', auth('cashier'), wrap(async (req, res) => {
+    const key = String(req.query.phone || '').replace(/\D/g, '').slice(-10);
+    if (key.length < 10) return res.json({ found: false, phone: key });
+    const acct = (await pool.query(
+      `SELECT user_id, full_name, email, phone, created_at FROM users
+        WHERE role = 'customer' AND right(regexp_replace(coalesce(phone,''), '\D', '', 'g'), 10) = $1 LIMIT 1`, [key])).rows[0] || null;
+    const ids = acct ? acct.user_id : null;
+    const orders = (await pool.query(
+      `SELECT o.order_no, o.total, o.paid_amount, o.status, o.payment_state, o.terms_key, o.terms_percent, o.terms_condition,
+              o.credit_exception_by, o.created_at,
+              (SELECT MIN(p.created_at) FROM payments p WHERE p.order_id = o.order_id AND p.direction = 'in') AS first_paid
+         FROM orders o
+        WHERE o.status NOT IN ('Cancelled','Returned')
+          AND ($1::int IS NOT NULL AND o.customer_id = $1 OR right(regexp_replace(coalesce(o.phone,''), '\D', '', 'g'), 10) = $2)
+        ORDER BY o.created_at DESC LIMIT 60`, [ids, key])).rows;
+    const quotes = (await pool.query(
+      `SELECT quote_no, quoted_amount, paid_amount, status, terms_key, terms_percent FROM quote_requests
+        WHERE converted_order_id IS NULL AND status IN ('accepted','preparing','ready') AND quoted_amount - paid_amount > 0.005
+          AND ($1::int IS NOT NULL AND customer_id = $1 OR right(regexp_replace(coalesce(phone,''), '\D', '', 'g'), 10) = $2)
+        ORDER BY created_at DESC LIMIT 30`, [ids, key])).rows;
+    const now = Date.now(), r2 = (n) => Math.round(n * 100) / 100;
+    const open = orders.filter((o) => +o.total - +o.paid_amount > 0.004 && +o.paid_amount > 0 && !['Delivered', 'Picked Up'].includes(o.status) || (o.payment_state === 'partially_paid' && +o.total - +o.paid_amount > 0.004))
+      .map((o) => {
+        const due = o.first_paid ? new Date(o.first_paid).getTime() + DUE_DAYS * DAY : null;
+        return { kind: 'order', no: o.order_no, total: +o.total, paid: +o.paid_amount, balance: r2(+o.total - +o.paid_amount), status: o.status,
+          termsKey: o.terms_key || 'full', termsPercent: o.terms_percent == null ? null : +o.terms_percent, condition: o.terms_condition || null,
+          dueAt: due, daysLeft: due ? Math.ceil((due - now) / DAY) : null, overdueDays: due && now >= due ? Math.floor((now - due) / DAY) : 0,
+          creditException: !!o.credit_exception_by };
+      });
+    const q = quotes.map((x) => ({ kind: 'quote', no: x.quote_no, total: +x.quoted_amount, paid: +x.paid_amount, balance: r2(+x.quoted_amount - +x.paid_amount),
+      status: x.status, termsKey: x.terms_key || 'full', termsPercent: x.terms_percent == null ? null : +x.terms_percent }));
+    const items = open.concat(q);
+    const owed = r2(items.reduce((s, i) => s + i.balance, 0));
+    const spent = r2(orders.filter((o) => !['Cancelled', 'Returned'].includes(o.status)).reduce((s, o) => s + (+o.paid_amount || 0), 0));
+    const pt = app.locals.paymentTerms;
+    let terms = [];
+    try { if (pt && pt.optionsFor) terms = (await pt.optionsFor({ madeToOrder: false, total: 1000 })).map((t) => ({ key: t.key, label: t.label, percent: t.percent == null ? null : +t.percent, condition: t.balanceCondition || t.balance_condition || null })); } catch (e) { terms = []; }
+    res.json({ found: !!acct || items.length > 0 || orders.length > 0, phone: key,
+      customer: acct ? { id: acct.user_id, name: acct.full_name, email: acct.email, since: acct.created_at } : null,
+      owed, overdue: items.filter((i) => i.overdueDays > 0).length, items, orders: orders.length, paidToDate: spent, dueDays: DUE_DAYS, terms });
+  }));
+
   // Finance: who owes what, and since when
   app.get('/api/finance/balance-overdue', auth('finance'), wrap(async (req, res) => {
     const { rows } = await pool.query(OPEN_SQL + ' ORDER BY due_at', [DUE_DAYS]);
