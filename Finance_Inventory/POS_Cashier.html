@@ -459,7 +459,7 @@
   <select id="voidReason"><option value="">Choose a reason…</option><option value="wrong_item">Wrong item or quantity rung up</option><option value="wrong_price">Wrong price</option><option value="changed_mind">Customer changed their mind</option><option value="payment_problem">Payment problem</option><option value="duplicate">Duplicate sale</option><option value="other">Other</option></select>
   <label for="voidDetails" id="voidDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="voidDetails" rows="3" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="voidErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" data-close-modal="voidBg">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="voidSend">Send void to Finance</button><button class="btn-secondary" data-close-modal="voidBg">Cancel</button></div></div></div>
 <div class="modal-overlay" id="returnBg"><div class="modal" style="max-width:620px"><h3>Return items</h3><p class="dim" id="returnFor"></p>
   <div class="table-wrapper" style="max-height:260px;overflow:auto"><table style="min-width:0;width:100%"><thead><tr><th>Item</th><th class="r">Bought</th><th class="r">Can return</th><th class="r" style="width:100px">Return qty</th></tr></thead><tbody id="returnRows"></tbody></table></div>
   <div style="display:flex;justify-content:space-between;margin:10px 0;font-weight:600"><span>Refund to customer</span><span class="mono" id="returnTotal">₱0.00</span></div>
@@ -468,7 +468,7 @@
   <select id="returnReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item given</option><option value="not_as_described">Not as described</option><option value="changed_mind">Customer changed their mind</option><option value="other">Other</option></select>
   <label for="returnDetails" id="returnDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="returnDetails" rows="2" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="returnErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation</button><button class="btn-secondary" data-close-modal="returnBg">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="returnSend">Send return to Finance</button><button class="btn-secondary" data-close-modal="returnBg">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
   <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" data-close-modal="holdBg">Cancel</button></div></div></div>
@@ -540,11 +540,12 @@ const $ = id => document.getElementById(id);
 const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const pesoShort = n => '₱' + Number(n).toLocaleString('en-PH', { maximumFractionDigits: 0 });
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
+let salesRequestBusy = false;
 let PRODUCTS = [], cart = [], sales = [], method = 'Cash', voidId = null, cat = '', view = 'grid';
 const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>';
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
-function closeModal(id) { $(id).classList.remove('show'); }
+function closeModal(id, force = false) { if (!force && salesRequestBusy && ['returnBg','voidBg'].includes(id)) return; $(id).classList.remove('show'); }
 /* CSP: no inline onclick attributes — buttons carry data-close-modal and this one listener closes the modal */
 document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-close-modal]'); if (b) closeModal(b.dataset.closeModal); });
 const prod = sku => PRODUCTS.find(p => p.sku === sku) || payments.flatMap(p => p.items || []).filter(i => i.sku === sku).map(i => ({ ...i, name:i.sku, unit:'pcs', available:0 }))[0];
@@ -1115,45 +1116,66 @@ document.addEventListener('click', e => {
   if (d.discard) discardHeld(d.discard);
   if (d.reprint) showReceipt(sales.find(s => s.id === d.reprint), true);
   if (d.return) openReturn(d.return);
-  if (d.void) { voidId = d.void; $('voidFor').textContent = 'Invoice ' + sales.find(s => s.id === voidId).receiptNo; $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show'); }
+  if (d.void) openVoid(d.void);
 });
 /* ----- partial return ----- */
 let returnSale = null;
 function openReturn(id, sale) {
+  if (salesRequestBusy) return;
   returnSale = sale || sales.find(s => s.id === id); if (!returnSale) return;
   $('returnFor').textContent = 'Invoice ' + returnSale.receiptNo + ' · choose what the customer is bringing back';
   $('returnRows').innerHTML = returnSale.items.filter(i => i.itemId).map(i => { const left = leftToReturn(i);
     return `<tr><td>${esc(i.name)}<div class="dim" style="font-size:12px">${esc(i.sku)} · ${peso(i.price)} / ${esc(i.unit)}</div></td><td class="r">${i.qty}</td><td class="r">${left}</td>
     <td class="r"><input type="number" class="ret-qty" data-item="${esc(i.itemId)}" min="0" max="${left}" step="${i.fractional ? '0.01' : '1'}" inputmode="decimal" placeholder="0" ${left > 0 ? '' : 'disabled'} style="width:84px;text-align:right"></td></tr>`; }).join('');
-  $('returnHow').textContent = returnSale.method === 'Cash' ? 'Cash refund: after Finance approves, pay the customer from your drawer. It is taken off your expected cash.' : 'Paid by ' + (returnSale.method === 'Xendit' ? 'online payment' : 'card') + ': Finance refunds the original payment method. No cash leaves your drawer.';
+  $('returnHow').textContent = returnSale.method === 'Cash' ? 'Cash refund: after Finance approves, pay the customer from your drawer. It is taken off your expected cash.' : 'Paid by ' + (returnSale.method === 'Xendit' ? 'online payment' : 'manual card / bank / wallet payment') + ': Finance refunds the original payment method. No cash leaves your drawer.';
   $('returnReason').value = ''; $('returnDetails').value = ''; $('returnDetailsLbl').textContent = 'More details (optional)';
   ['returnReason', 'returnDetails'].forEach(x => $(x).classList.remove('is-bad')); $('returnErr').textContent = '';
   updateReturnTotal(); $('returnBg').classList.add('show');
 }
-const returnLines = () => [...document.querySelectorAll('#returnRows .ret-qty')].map(el => ({ itemId: el.dataset.item, qty: Number(el.value) || 0 })).filter(x => x.qty > 0);
+function readReturnSelection() {
+  const lines = [];
+  for (const input of document.querySelectorAll('#returnRows .ret-qty')) {
+    if (input.disabled) continue;
+    const raw = input.value.trim(), qty = Number(raw), it = returnSale.items.find(i => i.itemId === input.dataset.item);
+    let error = '';
+    if (input.validity.badInput || (raw && (!/^\d+(?:\.\d{1,2})?$/.test(raw) || !Number.isFinite(qty) || qty > 1e6))) error = 'Enter a quantity from 0 to 1,000,000 with at most 2 decimals.';
+    else if (!it) error = 'This item is no longer on the invoice. Reopen the return.';
+    else if (qty > leftToReturn(it) + 1e-9) error = 'Only ' + leftToReturn(it) + ' ' + it.unit + ' of ' + it.name + ' can still be returned.';
+    else if (!it.fractional && !Number.isInteger(qty)) error = it.name + ' is sold in whole ' + it.unit + ' only.';
+    if (error) return { lines: [], input, error };
+    if (qty > 0) lines.push({ itemId: input.dataset.item, qty });
+  }
+  return { lines };
+}
 function updateReturnTotal() {
-  let cents = 0; for (const l of returnLines()) { const it = returnSale.items.find(i => i.itemId === l.itemId); if (it) cents += lineCents(it.price, l.qty); }
+  const selected = readReturnSelection();
+  if (selected.error) { selected.input.classList.add('is-bad'); $('returnTotal').textContent = '—'; $('returnErr').textContent = selected.error; return; }
+  let cents = 0; for (const l of selected.lines) { const it = returnSale.items.find(i => i.itemId === l.itemId); if (it) cents += lineCents(it.price, l.qty); }
   $('returnTotal').textContent = peso(cents / 100);
 }
 $('returnRows').addEventListener('input', e => { if (e.target.classList.contains('ret-qty')) { e.target.classList.remove('is-bad'); $('returnErr').textContent = ''; updateReturnTotal(); } });
 $('returnReason').onchange = () => { $('returnDetailsLbl').textContent = $('returnReason').value === 'other' ? 'Please explain (required)' : 'More details (optional)'; $('returnReason').classList.remove('is-bad'); $('returnErr').textContent = ''; };
 $('returnSend').onclick = async () => {
-  const lines = returnLines(), code = $('returnReason').value, details = $('returnDetails').value.trim(), err = m => $('returnErr').textContent = m;
+  if (salesRequestBusy || !returnSale) return;
+  const selected = readReturnSelection(), lines = selected.lines, sale = returnSale;
+  const code = $('returnReason').value, details = $('returnDetails').value.trim(), err = m => $('returnErr').textContent = m;
+  if (selected.error) { selected.input.classList.add('is-bad'); selected.input.focus(); return err(selected.error); }
   if (!lines.length) return err('Enter how many of at least one item are being returned.');
-  for (const l of lines) { const it = returnSale.items.find(i => i.itemId === l.itemId), left = leftToReturn(it);
-    if (l.qty > left + 1e-9) { document.querySelector(`.ret-qty[data-item="${l.itemId}"]`).classList.add('is-bad'); return err('Only ' + left + ' ' + it.unit + ' of ' + it.name + ' can still be returned.'); }
-    if (!it.fractional && !Number.isInteger(l.qty)) { document.querySelector(`.ret-qty[data-item="${l.itemId}"]`).classList.add('is-bad'); return err(it.name + ' is sold in whole ' + it.unit + ' only.'); } }
   if (!code) { $('returnReason').classList.add('is-bad'); $('returnReason').focus(); return err('Please choose a reason.'); }
   if (code === 'other' && details.length < 5) { $('returnDetails').classList.add('is-bad'); $('returnDetails').focus(); return err('Please explain the reason (at least 5 characters).'); }
-  $('returnSend').disabled = true;
-  try { await requestReturn(returnSale.id, lines, code, details); }
-  catch (e) { $('returnSend').disabled = false; return err(e.message); }
-  $('returnSend').disabled = false; closeModal('returnBg');
-  const fresh = await loadTodaySales(); if (fresh) sales = fresh; renderSales(); if (window.refreshCashShift) window.refreshCashShift();
-  toast('Return sent to Finance.');
+  salesRequestBusy = true; $('returnSend').disabled = true; $('returnSend').textContent = 'Sending…';
+  try {
+    await requestReturn(sale.id, lines, code, details);
+    sale.returnPending = true;
+    const listed = sales.find(s => s.id === sale.id); if (listed) listed.returnPending = true;
+    closeModal('returnBg', true); renderSales(); toast('Return sent to Finance for approval.');
+    const fresh = await loadTodaySales(); if (fresh) sales = fresh; renderSales();
+    if (window.refreshCashShift) window.refreshCashShift();
+  } catch (e) { err(e.message); }
+  finally { salesRequestBusy = false; $('returnSend').disabled = false; $('returnSend').textContent = 'Send return to Finance'; }
 };
 $('rcFind').onsubmit = async (e) => {
-  e.preventDefault(); const no = $('rcFindNo').value.trim();
+  e.preventDefault(); if (salesRequestBusy) return; const no = $('rcFindNo').value.trim();
   if (!no) return toast('Type the invoice number first.', true);
   try {
     const s = await lookupReceipt(no);
@@ -1162,16 +1184,27 @@ $('rcFind').onsubmit = async (e) => {
   } catch (err) { toast(err.message, true); }
 };
 
+function openVoid(id) {
+  if (salesRequestBusy) return;
+  const sale = sales.find(s => s.id === id); if (!sale) return;
+  voidId = id; $('voidFor').textContent = 'Invoice ' + sale.receiptNo;
+  $('voidReason').value = ''; $('voidDetails').value = ''; $('voidDetailsLbl').textContent = 'More details (optional)';
+  $('voidReason').classList.remove('is-bad'); $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; $('voidBg').classList.add('show');
+}
 $('voidReason').onchange = () => { $('voidDetailsLbl').textContent = $('voidReason').value === 'other' ? 'Please explain (required)' : 'More details (optional)'; $('voidReason').classList.remove('is-bad'); $('voidErr').textContent = ''; };
 $('voidDetails').oninput = () => { $('voidDetails').classList.remove('is-bad'); $('voidErr').textContent = ''; };
 $('voidSend').onclick = async () => {
-  const code = $('voidReason').value, details = $('voidDetails').value.trim();
+  if (salesRequestBusy || !voidId) return;
+  const id = voidId, code = $('voidReason').value, details = $('voidDetails').value.trim();
   if (!code) { $('voidReason').classList.add('is-bad'); $('voidReason').focus(); return $('voidErr').textContent = 'Please choose a reason.'; }
   if (code === 'other' && details.length < 5) { $('voidDetails').classList.add('is-bad'); $('voidDetails').focus(); return $('voidErr').textContent = 'Please explain the reason (at least 5 characters).'; }
-  $('voidSend').disabled = true;
-  try { await requestVoid(voidId, code, details); } catch (e) { $('voidSend').disabled = false; return $('voidErr').textContent = e.message; }
-  $('voidSend').disabled = false;
-  sales.find(s => s.id === voidId).status = 'Void Pending'; closeModal('voidBg'); renderSales(); toast('Void request sent to admin.');
+  salesRequestBusy = true; $('voidSend').disabled = true; $('voidSend').textContent = 'Sending…';
+  try {
+    await requestVoid(id, code, details);
+    const sale = sales.find(s => s.id === id); if (sale) sale.status = 'Void Pending';
+    closeModal('voidBg', true); renderSales(); toast('Void request sent to Finance for approval.');
+  } catch (e) { $('voidErr').textContent = e.message; }
+  finally { salesRequestBusy = false; $('voidSend').disabled = false; $('voidSend').textContent = 'Send void to Finance'; }
 };
 
 $('q').oninput = renderProducts;

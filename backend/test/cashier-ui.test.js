@@ -169,3 +169,61 @@ test('cashier page memory restores all sidebar screens and never replaces a newl
   shown.length=0;vm.runInContext(memorySource,context);assert.equal(shown.at(-1),screen,'refresh restores '+screen);
  }
 });
+
+function salesRequestFixture() {
+ const elements=new Map();
+ const $=id=>{
+  if(!elements.has(id)) { const classes=new Set();elements.set(id,{value:'',disabled:false,textContent:'',innerHTML:'',validity:{badInput:false},
+   classList:{add:x=>classes.add(x),remove:x=>classes.delete(x),contains:x=>classes.has(x)},focus:()=>{},addEventListener:()=>{}}); }
+  return elements.get(id);
+ };
+ const input=(id,value)=>Object.assign($('item-'+id),{value,dataset:{item:id}});
+ const rows=[input('11','1'),input('12','0')];
+ const sales=[{id:'1',receiptNo:'INV-A',method:'Cash',status:'Completed',items:[{itemId:'11',name:'Whole item',unit:'pcs',qty:5,price:10,fractional:false},{itemId:'12',name:'Measured item',unit:'kg',qty:5,price:20,fractional:true}]},
+  {id:'2',receiptNo:'INV-B',method:'Card',status:'Completed',items:[]}];
+ const context=vm.createContext({ $,sales,voidId:null,salesRequestBusy:false,document:{querySelectorAll:()=>rows},window:{},
+  esc:String,peso:n=>Number(n).toFixed(2),leftToReturn:i=>i.qty, lineCents:(p,q)=>Math.round(p*100*q),
+  requestReturn:async()=>({}),requestVoid:async()=>({}),loadTodaySales:async()=>null,renderSales:()=>{},toast:()=>{}});
+ vm.runInContext(section('function closeModal(id','/* CSP:'),context);
+ vm.runInContext(section('let returnSale = null;','$(\'q\').oninput'),context);
+ return {$,context,rows,sales,run:code=>vm.runInContext(code,context)};
+}
+test('return selection rejects every invalid typed line before submitting a valid mixed return',async()=>{
+ for(const value of ['-1','1.001','1e2','Infinity','6','1000001']) {
+  const f=salesRequestFixture();f.run("openReturn('1')");f.rows[1].value=value;f.$('returnReason').value='damaged';
+  let calls=0;f.context.requestReturn=async()=>{calls++;};await f.$('returnSend').onclick();
+  assert.equal(calls,0,value);assert.ok(f.$('returnErr').textContent);f.run('updateReturnTotal()');assert.equal(f.$('returnTotal').textContent,'—');
+ }
+ const f=salesRequestFixture();f.run("openReturn('1')");f.rows[0].value='0.5';
+ assert.match(f.run('readReturnSelection().error'),/whole/);
+ f.rows[0].value='1';f.rows[1].value='1.25';f.run('updateReturnTotal()');assert.equal(f.$('returnTotal').textContent,'35.00');
+ f.rows[1].value='';f.rows[1].validity.badInput=true;assert.match(f.run('readReturnSelection().error'),/quantity/);
+});
+test('pending return keeps its invoice, blocks repeat sends and dismissal, and stays pending when the list refresh fails',async()=>{
+ const f=salesRequestFixture();f.run("openReturn('1')");f.$('returnReason').value='damaged';
+ let resolve,calls=0;f.context.requestReturn=async(id,lines)=>{calls++;assert.equal(id,'1');assert.equal(lines[0].qty,1);await new Promise(r=>{resolve=r;});};
+ const pending=f.$('returnSend').onclick();assert.equal(f.$('returnSend').disabled,true);
+ f.run("closeModal('returnBg');openReturn('2');openVoid('2')");await f.$('returnSend').onclick();
+ assert.equal(f.$('returnBg').classList.contains('show'),true);assert.equal(f.run('returnSale.id'),'1');assert.equal(calls,1);
+ resolve();await pending;assert.equal(f.sales[0].returnPending,true);assert.equal(f.sales[1].returnPending,undefined);
+ assert.equal(f.$('returnBg').classList.contains('show'),false);assert.equal(f.run('salesRequestBusy'),false);
+ assert.equal(f.sales[0].status,'Completed','request must not approve, void or refund a sale');
+});
+test('pending void updates its captured invoice even if the sales list is replaced',async()=>{
+ const f=salesRequestFixture();f.run("openVoid('1')");f.$('voidReason').value='duplicate';
+ let resolve,calls=0;f.context.requestVoid=async id=>{calls++;assert.equal(id,'1');await new Promise(r=>{resolve=r;});};
+ const pending=f.$('voidSend').onclick();f.run("closeModal('voidBg');openVoid('2');openReturn('2')");await f.$('voidSend').onclick();
+ assert.equal(calls,1);assert.equal(f.run('voidId'),'1');assert.equal(f.$('voidBg').classList.contains('show'),true);
+ f.run("sales=[{id:'2',status:'Completed'}]");resolve();await pending;
+ assert.equal(f.run('sales[0].status'),'Completed');assert.equal(f.run('salesRequestBusy'),false);assert.equal(f.$('voidBg').classList.contains('show'),false);
+});
+test('failed return and void requests preserve fields and allow correction and dismissal',async()=>{
+ for(const kind of ['return','void']) {
+  const f=salesRequestFixture();f.run(kind==='return'?"openReturn('1')":"openVoid('1')");f.$(kind+'Reason').value='other';f.$(kind+'Details').value='Keep this explanation';
+  f.context[kind==='return'?'requestReturn':'requestVoid']=async()=>{throw new Error('Synthetic save refused');};
+  await f.$(kind+'Send').onclick();assert.match(f.$(kind+'Err').textContent,/save refused/);
+  assert.equal(f.$(kind+'Details').value,'Keep this explanation');assert.equal(f.$(kind+'Send').disabled,false);
+  assert.equal(f.sales[0].status,'Completed');assert.equal(f.sales[0].returnPending,undefined);
+  f.run(`closeModal('${kind}Bg')`);assert.equal(f.$(kind+'Bg').classList.contains('show'),false);
+ }
+});
