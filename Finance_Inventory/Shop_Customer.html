@@ -12,6 +12,8 @@
 <link rel="stylesheet" href="app-ui.css?v=3">
 <link rel="stylesheet" href="store.css?v=3">
 <link rel="stylesheet" href="notifications.css?v=7">
+<link rel="stylesheet" href="ui2-core.css?v=1">
+<link rel="stylesheet" href="ui2-notifications.css?v=1">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -279,22 +281,37 @@ a.nav-item{text-decoration:none}
 <div class="tq-overlay" id="tqOverlay" hidden><div class="tq-dialog" role="dialog" aria-modal="true" aria-labelledby="tqTitle" tabindex="-1"><h2 id="tqTitle">Review quotation request</h2><p id="tqSubtitle">Check your details before submitting.</p><div id="tqDetails"></div><div class="tq-note" id="tqDisclaimer">This is a quotation request, not a reservation, order or payment.</div><div class="tq-error" id="tqError" role="alert"></div><div class="tq-actions"><button type="button" class="btn-secondary" id="tqBack">Edit details</button><button type="button" class="btn-primary" id="tqConfirm">Confirm &amp; Submit</button></div></div></div>
 
     <!-- ===== ORDERS ===== -->
-    <section class="page" id="notifications">
-      <div class="page-head"><div><h1>Notifications</h1></div></div>
-      <div class="nc-page-tools">
-        <div class="nc-chips">
-          <button type="button" class="nc-chip on" data-nc-cat="">All</button>
-          <button type="button" class="nc-chip" data-nc-cat="inventory" data-nc-roles="x">Inventory</button>
-          <button type="button" class="nc-chip" data-nc-cat="production" data-nc-roles="x">Production</button>
-          <button type="button" class="nc-chip" data-nc-cat="orders" data-nc-roles="customer">Orders</button>
-          <button type="button" class="nc-chip" data-nc-cat="payment" data-nc-roles="customer">Payments</button>
-          <button type="button" class="nc-chip" data-nc-cat="delivery" data-nc-roles="customer">Delivery</button>
-          <button type="button" class="nc-chip" data-nc-cat="pos" data-nc-roles="x">POS</button>
+    <section class="page ui2" id="notifications">
+      <div class="ui2-hero">
+        <div>
+          <div class="ui2-eyebrow"><span class="ui2-live"></span> Updates</div>
+          <h1>Notifications</h1>
+          <p>Updates on your orders, payments and deliveries. Click an item to open the page it is about.</p>
         </div>
-        <button type="button" class="nc-chip" id="ncUnreadOnly">All statuses</button>
-        <button type="button" class="btn-secondary" id="ncPageMarkAll">Mark all as read</button>
+        <div class="ui2-actions">
+          <div class="ui2-chip">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+            <span id="ncPageSub">Loading...</span>
+          </div>
+          <button type="button" class="btn-secondary" id="ncPageMarkAll">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>
+            Mark all as read
+          </button>
+        </div>
       </div>
-      <div class="panel">
+      <div class="panel nc-panel">
+        <div class="nc-page-tools">
+          <div class="nc-chips">
+            <button type="button" class="nc-chip on" data-nc-cat="">All</button>
+            <button type="button" class="nc-chip" data-nc-cat="inventory" data-nc-roles="x">Inventory</button>
+            <button type="button" class="nc-chip" data-nc-cat="production" data-nc-roles="x">Production</button>
+            <button type="button" class="nc-chip" data-nc-cat="orders" data-nc-roles="customer">Orders</button>
+            <button type="button" class="nc-chip" data-nc-cat="payment" data-nc-roles="customer">Payments</button>
+            <button type="button" class="nc-chip" data-nc-cat="delivery" data-nc-roles="customer">Delivery</button>
+            <button type="button" class="nc-chip" data-nc-cat="pos" data-nc-roles="x">POS</button>
+          </div>
+          <button type="button" class="nc-chip nc-toggle" id="ncUnreadOnly">All statuses</button>
+        </div>
         <div class="nc-page-list" id="ncPageList"></div>
         <button type="button" class="btn-secondary nc-more" id="ncMore" hidden>Load more</button>
       </div>
