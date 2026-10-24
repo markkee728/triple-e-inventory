@@ -224,6 +224,7 @@ function detailHtml(o) {
     <div class="co-card-head"><div><h2 id="coDetailTitle">${esc(o.id)}</h2><div class="co-sub">${esc(o.customer)} \u00B7 placed ${esc(when(o.createdAt))}</div></div>
       <div class="co-pills"><span class="co-pill ${statusClass(o.status)}">${esc(statusLabel(o))}</span><span class="co-pill">${esc(o.fulfillment)}</span></div></div>
     ${flagsFor(o)}
+    <div class="co-kpis"><div class="co-kpi"><small>Order total</small><b>${peso(o.total)}</b></div><div class="co-kpi ok"><small>Paid so far</small><b>${peso(paidOf(o))}</b></div><div class="co-kpi ${dueOf(o) > 0.004 ? 'due' : 'ok'}"><small>${dueOf(o) > 0.004 ? 'To collect' : 'Balance'}</small><b>${dueOf(o) > 0.004 ? peso(dueOf(o)) : 'Settled'}</b></div><div class="co-kpi"><small>Items</small><b>${(o.items || []).length}</b></div></div>
     <div class="co-grid">
       <div><h3>Customer</h3><p>${esc(o.customer)}<br>${o.customerPhone ? '<a href="tel:' + esc(o.customerPhone) + '">' + esc(o.customerPhone) + '</a><br>' : ''}${esc(o.customerEmail || '')}</p></div>
       <div><h3>${o.fulfillment === 'Delivery' ? 'Deliver to' : 'Pickup'}</h3>${where}</div>
@@ -232,9 +233,9 @@ function detailHtml(o) {
     </div>
     <table class="co-table"><thead><tr><th>Item</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr></thead><tbody>${lines}</tbody>
       <tfoot>${o.deliveryFee ? `<tr><td colspan="3" class="r">Subtotal</td><td class="r">${peso(o.subtotal)}</td></tr><tr><td colspan="3" class="r">Delivery fee</td><td class="r">${peso(o.deliveryFee)}</td></tr>` : ''}<tr><td colspan="3" class="r">Total</td><td class="r">${peso(o.total)}</td></tr></tfoot></table>
-    <h3 class="faint" style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:12px">Payments received</h3>
+    <h3 class="co-sec">Payments received</h3>
     <div id="coLedger" class="co-sub" aria-live="polite">Loading\u2026</div>
-    <h3 class="faint" style="font:500 12px 'IBM Plex Mono',monospace;letter-spacing:1px;text-transform:uppercase;margin-top:12px">History</h3>
+    <h3 class="co-sec">History</h3>
     <ul class="co-line">${hist || '<li>No history yet.</li>'}</ul>
     <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${failButton(o)}${payButton(o)}${actionButton(o)}</div></div>`;
 }
