@@ -88,7 +88,11 @@ module.exports = function ({ app, pool, auth, wrap, tx, audit, ValidationError, 
   const lineQty = (perUnit, qty) => Math.round(scaled(perUnit, 4) * scaled(qty, 2) / 1e4) / 100;   // 2 decimals, like the ledger
 
   function num(e, key, v, label, { max, dp, gt = true } = {}) {
-    if (v === undefined || v === null || String(v).trim() === '') { e[key] = `${label} is required`; return null; }
+    if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) { e[key] = `${label} is required`; return null; }
+    if ((typeof v !== 'number' && typeof v !== 'string') ||
+        (typeof v === 'string' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.trim()))) {
+      e[key] = `${label} must be a number`; return null;
+    }
     const n = Number(v);
     if (!Number.isFinite(n)) { e[key] = `${label} must be a number`; return null; }
     if (gt ? n <= 0 : n < 0) { e[key] = gt ? `${label} must be more than 0` : `${label} cannot be negative`; return null; }

@@ -4,12 +4,22 @@
 #   NEVER point TARGET_URL at the live database: --clean drops objects before restoring them.
 set -euo pipefail
 FILE="${1:?Give the backup file}"; : "${TARGET_URL:?Set TARGET_URL to an empty scratch database}"
-[ -f "$FILE.sha256" ] && ( cd "$(dirname "$FILE")" && sha256sum -c "$(basename "$FILE").sha256" )
+[ -f "$FILE" ] && [ -f "$FILE.sha256" ] || { echo "Backup and checksum are both required" >&2; exit 1; }
+EXPECTED="$(cut -d ' ' -f 1 "$FILE.sha256")"
+ACTUAL="$(sha256sum -- "$FILE")"; ACTUAL="${ACTUAL%% *}"
+[[ "$EXPECTED" =~ ^[a-fA-F0-9]{64}$ ]] && [ "${EXPECTED,,}" = "$ACTUAL" ] || {
+  echo "Backup checksum verification failed" >&2; exit 1;
+}
+[ -z "${DATABASE_URL:-}" ] || [ "$TARGET_URL" != "$DATABASE_URL" ] || {
+  echo "TARGET_URL must refer to a separate scratch database" >&2; exit 1;
+}
 START="$(date +%s)"
-pg_restore --no-owner --clean --if-exists --dbname "$TARGET_URL" "$FILE"
-ELAPSED=$(( $(date +%s) - START ))
-echo "--- restored in ${ELAPSED}s. Row counts:"
+pg_restore --exit-on-error --single-transaction --no-owner --clean --if-exists --dbname "$TARGET_URL" "$FILE"
+echo "Restored. Verifying required tables:"
 for t in users products stock_movements audit_log; do
-  printf '%-18s' "$t"; psql "$TARGET_URL" -Atc "SELECT count(*) FROM $t" || echo "(missing)"
+  COUNT="$(psql -X --dbname "$TARGET_URL" -v ON_ERROR_STOP=1 -Atc "SELECT count(*) FROM $t")"
+  [[ "$COUNT" =~ ^[0-9]+$ ]] || { echo "Invalid row count for $t" >&2; exit 1; }
+  printf '%-18s%s\n' "$t" "$COUNT"
 done
+ELAPSED=$(( $(date +%s) - START ))
 echo "Write down: backup file, date and time, ${ELAPSED}s, who ran it. That record is your evidence for the recovery test (T-15)."

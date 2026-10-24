@@ -88,7 +88,11 @@ function originGuard(extraHosts) {
     if (!from) return next();                        // not a browser (a script, a server callback): the sameSite cookie is not in play
     let host;
     try { host = new URL(from).host.toLowerCase(); } catch (_) { host = null; }
-    const ok = host && (host === firstOf(req.get('host')) || host === firstOf(req.get('x-forwarded-host')) || allowed.has(host));
+    // Apply the same immediate-peer trust check as Express, retaining the port for origin comparison.
+    const trust = req.app.get('trust proxy fn');
+    const trustedPeer = trust && trust(req.socket.remoteAddress, 0);
+    const expected = firstOf(trustedPeer && req.get('x-forwarded-host') || req.get('host'));
+    const ok = host && (host === expected || allowed.has(host));
     if (ok) return next();
     res.status(403).json({ error: 'Request blocked: it did not come from this site' });
   };

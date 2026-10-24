@@ -24,7 +24,7 @@ function ok(label, cond, detail) {
 async function start(p, env) {
   port = p;
   const child = spawn(process.execPath, [path.join(__dirname, 'desk-browser-harness.js'), String(p)],
-    { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, env) });
+    { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, { XENDIT_SECRET_KEY: '' }, env) });
   const err = [];
   child.stderr.on('data', (b) => err.push(String(b)));
   const deadline = Date.now() + 15000;
@@ -125,11 +125,19 @@ async function main() {
 
     /* ---------------- 3. acceptance covers the terms; then the ledger takes the money ---------------- */
     console.log('\n3. the initial payment is recorded once, the balance stays outstanding');
-    const accepted = await call('customer', 'POST', '/api/shop/quotes/' + no + '/respond', { action: 'accept', payMethod: 'cod' });
+    const depositCod = await call('customer', 'POST', '/api/shop/quotes/' + no + '/respond', { action: 'accept', payMethod: 'cod' });
+    ok('a required deposit cannot be deferred to COD', depositCod.status === 400 && depositCod.body.fields.payMethod, depositCod);
+    const accepted = await call('customer', 'POST', '/api/shop/quotes/' + no + '/respond', { action: 'accept', payMethod: 'online' });
     ok('the customer accepted the quote', accepted.status === 200 && accepted.body.status === 'accepted', accepted);
     const afterAccept = await call('cashier', 'GET', '/api/pos/quote-desk/' + no);
     ok('acceptance stamps the terms as reviewed by the customer', afterAccept.body.terms.seenAt > 0, afterAccept.body.terms);
     ok('accepting does not mark anything paid', +afterAccept.body.paidAmount === 0 && afterAccept.body.paymentState === 'unpaid', afterAccept.body);
+
+    for (const amount of [true, [100], {}, '0x10', '1e2']) {
+      const invalid = await call('finance', 'POST', '/api/finance/quotes/' + no + '/payment', { amount, method: 'Cash' });
+      ok('malformed payment amount is refused: ' + JSON.stringify(amount), invalid.status === 400 && invalid.body.fields.amount, invalid);
+    }
+    ok('invalid payment input leaves the ledger empty', (await state()).payments.length === 0);
 
     const initial = await call('finance', 'POST', '/api/finance/quotes/' + no + '/payment',
       { amount: '4500', method: 'Cash', note: 'Down payment at the counter', requestId: 'pay-test-initial-0001' });

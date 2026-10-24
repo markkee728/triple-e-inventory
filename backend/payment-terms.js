@@ -38,6 +38,7 @@
      require('./payment-terms')({ app, pool, auth, wrap, tx, audit, ValidationError, str, TZ });
 */
 
+const decimalNumber = require('./numeric-input');
 const TERMS = ['full', 'half', 'down', 'custom'];
 // Same allowlist the quotation payments already use, plus 'Xendit' (what an online payment is confirmed as) and 'Card'.
 const METHODS = ['Cash', 'Card', 'GCash', 'Maya', 'Bank transfer', 'Credit / debit card', 'Xendit'];
@@ -360,7 +361,7 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const P = PARENTS[kind];
     if (!P) throw bad('kind', 'Unknown payment target');
     if (key == null || key === '') throw bad('id', P.label + ' not found');
-    const amount = round2(Number(spec.amount));
+    const amount = round2(decimalNumber(spec.amount));
     if (!Number.isFinite(amount) || amount <= 0 || amount > MAX_AMOUNT) throw bad('amount', 'Enter a valid amount greater than 0');
     const method = str(spec.method);
     if (!METHODS.includes(method)) throw bad('method', 'Choose how it was paid');
@@ -371,26 +372,33 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     if (requestId && !REQUEST_ID_RE.test(requestId)) throw bad('requestId', 'The payment reference must be 12-100 letters, digits or dashes');
     if (direction === 'out' && !spec.reversedOf) throw bad('reversedOf', 'A refund must point at the payment it reverses');
 
-    // A retry of the same request, or the same provider invoice arriving twice, returns the row that already exists.
-    if (requestId) {
-      const seen = (await client.query(`SELECT * FROM payments WHERE paid_for = $1 AND request_id = $2`, [kind, requestId])).rows[0];
-      if (seen) return await asReplay(client, P, seen);
-    }
-    if (providerRef) {
-      const seen = (await client.query(`SELECT * FROM payments WHERE provider_ref = $1`, [providerRef])).rows[0];
-      if (seen) {
-        // the same provider event arriving twice for the SAME order / quote is a replay; on another one it is a reused reference
-        const mine = seen.paid_for === kind && String(spec.no != null
-          ? (await client.query(`SELECT ${P.noCol} AS no FROM ${P.table} WHERE ${P.idCol} = $1`, [seen[kind === 'order' ? 'order_id' : 'quote_id']])).rows.map((r) => r.no)[0]
-          : seen[kind === 'order' ? 'order_id' : 'quote_id']) === String(key);
-        if (!mine) throw bad('reference', 'That reference number is already recorded on another payment. Check the reference and try again');
-        return await asReplay(client, P, seen);
+    // Check both before and after locking the parent: another transaction may commit while we wait.
+    const replay = async () => {
+      const checkedReplay = async (seen, field) => {
+        if (seen.paid_for !== kind) throw bad(field, 'That reference number is already recorded on another payment. Check the reference and try again');
+        const result = await asReplay(client, P, seen);
+        const parentKey = spec.no != null ? result.parent?.no : seen[P.idCol];
+        if (String(parentKey) !== String(key)) throw bad(field, 'That payment reference belongs to another order or quotation');
+        return result;
+      };
+      if (requestId) {
+        const seen = (await client.query(`SELECT * FROM payments WHERE paid_for = $1 AND request_id = $2`, [kind, requestId])).rows[0];
+        if (seen) return checkedReplay(seen, 'requestId');
       }
-    }
+      if (providerRef) {
+        const seen = (await client.query(`SELECT * FROM payments WHERE provider_ref = $1`, [providerRef])).rows[0];
+        if (seen) return checkedReplay(seen, 'reference');
+      }
+      return null;
+    };
+    const previous = await replay();
+    if (previous) return previous;
 
     const findCol = spec.no != null ? P.noCol : P.idCol;
     const cur = (await client.query(`SELECT * FROM ${P.table} WHERE ${findCol} = $1 FOR UPDATE`, [key])).rows[0];
     if (!cur) throw bad('id', P.label + ' not found');
+    const concurrent = await replay();
+    if (concurrent) return concurrent;
     if (!(await ledgerOwnsTotals(client))) throw bad('ledger', 'The payment ledger is not set up on this database yet. Ask IT to run backend/db/020_payment_terms.sql');
 
     const total = round2(Number(cur[P.totalCol]) || 0), paid = round2(Number(cur.paid_amount) || 0);
@@ -413,8 +421,8 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     }
 
     let tendered = null, change = null;
-    if (method === 'Cash' && spec.tendered != null && String(spec.tendered).trim() !== '') {
-      tendered = round2(Number(spec.tendered));
+    if (method === 'Cash' && spec.tendered != null && !(typeof spec.tendered === 'string' && spec.tendered.trim() === '')) {
+      tendered = round2(decimalNumber(spec.tendered));
       if (!Number.isFinite(tendered) || tendered < amount) throw bad('tendered', `Tendered cash must be at least ${peso(amount)}`);
       change = round2(tendered - amount);
     }
@@ -527,6 +535,10 @@ module.exports = function mountPaymentTerms({ app, pool, auth, wrap, tx, audit, 
     const key = str(req.params.key);
     if (!TERMS.includes(key) || REMOVED_TERMS.includes(key)) throw bad('key', key === 'custom' ? 'Custom partial payment is no longer offered' : 'Unknown payment term');
     const b = req.body || {};
+    for (const field of ['percent', 'fixedAmount', 'autoApproveLimit']) {
+      if (b[field] != null && typeof b[field] !== 'string' && typeof b[field] !== 'number')
+        throw bad(field, 'Enter a number');
+    }
     const current = (await termRows()).find((t) => t.term_key === key);
     if (!current) throw bad('key', 'Payment term not found');
 

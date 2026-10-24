@@ -18,7 +18,7 @@ QUICK START (local)
        npm start
   4. Open http://localhost:8080/Login_Inventory.html
 
-NOTE: the sign-in page no longer has the demo OTP screen: after the password is accepted the user goes straight to their page.
+SIGN-IN: after the password is accepted, the user confirms a one-time code by email or text before a session starts. Keep LOGIN_OTP enabled in production.
 
 
 ONLINE SHOP EXTRAS (quotes, minimum order, back-in-stock, reviews)
@@ -91,3 +91,10 @@ PAYMENT TERMS AUTOMATION
          order type, the total is within the limit, and the customer owes nothing on another order or quotation (account by customer, walk-in by phone).
          Otherwise it goes to Finance with the reason. The term is attached together with the price, so the customer's "quote ready" message carries it.
   Columns added automatically at start: payment_terms.auto_approve_limit, quote_requests.terms_auto_note.
+
+SECURITY AND DATA PROCESS
+  Read SECURITY.md and DATA_PROCESS.md before release.
+  From backend: npm run test:security; npm run test:data-integrity; npm run check:production.
+  test:data-integrity needs PostgreSQL tools (pg_config, initdb, pg_ctl, pg_dump, pg_restore, psql), run as a non-root user.
+  It creates and removes its own local cluster; it never uses DATABASE_URL.
+  The production check reads backend/.env without printing values; run it with the deployment configuration.
