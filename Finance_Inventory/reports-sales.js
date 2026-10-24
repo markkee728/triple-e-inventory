@@ -160,7 +160,7 @@
       const tip = esc(x.label) + '|POS ' + peso(x.pos) + '|Online ' + peso(x.online) + '|Net ' + peso(x.net) + '|' + int(x.count) + ' transaction' + (x.count === 1 ? '' : 's');
       g += '<g class="rs-bar" data-tip="' + tip + '"><rect class="rs-hit" x="' + (cx - step / 2) + '" y="' + T + '" width="' + step + '" height="' + ih + '"/>' +
         (p ? '<rect class="rs-pos" x="' + (cx - bw / 2) + '" y="' + y(p) + '" width="' + bw + '" height="' + (y(0) - y(p)) + '" rx="2"/>' : '') +
-        (o ? '<rect class="rs-online" x="' + (cx - bw / 2) + '" y="' + y(p + o) + '" width="' + bw + '" height="' + (y(0) - y(p + o)) + '" rx="2"/>' : '') + '</g>';
+        (o ? '<rect class="rs-online" x="' + (cx - bw / 2) + '" y="' + y(p + o) + '" width="' + bw + '" height="' + (y(p) - y(p + o)) + '" rx="2"/>' : '') + '</g>';
       if (i % every === 0) g += '<text class="rs-ax" x="' + cx + '" y="' + (H - 10) + '" text-anchor="middle">' + esc(x.label) + '</text>';
     });
     const grainName = { day: 'daily', week: 'weekly', month: 'monthly', year: 'yearly' }[d.range.grain] || '';
