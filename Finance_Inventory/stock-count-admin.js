@@ -40,6 +40,16 @@
       'Spillage / damaged packaging in store'
     ]
   };
+  var MANUAL_REASONS = [
+    'Discrepancy spot check',
+    'Suspected theft / unexplained loss',
+    'Large delivery received (verify quantities)',
+    'Damaged or expired stock check',
+    'Stock transferred or relocated',
+    'Customer or supplier dispute',
+    'Audit or management request',
+    'Other (specify)'
+  ];
   var ACTIVE = ['open', 'recount', 'submitted'];
   var isActive = function (st) { return ACTIVE.indexOf(st) >= 0; };
   var DEPTS = ['Raw Materials', 'Finished Goods', 'Finishing Supplies'];
@@ -89,6 +99,10 @@
       '.sc-set label{display:block;font-size:13px;font-weight:600;color:var(--text-dim);margin-bottom:6px}' +
       '.sc-explain{display:grid;gap:8px;margin:12px 0 0}.sc-explain label{font-size:13px;color:var(--text-dim)}.sc-explain input{width:100%;box-sizing:border-box}';
     var st = document.createElement('style'); st.textContent = css; document.head.appendChild(st);
+    // make sure the Stock Count look is loaded even if the <link> was not added to the HTML
+    if (!document.querySelector('link[href*="ui2-stockcount.css"]')) {
+      var lk = document.createElement('link'); lk.rel = 'stylesheet'; lk.href = 'ui2-stockcount.css?v=1'; document.head.appendChild(lk);
+    }
   }
 
   function build() {
@@ -96,9 +110,11 @@
     var after = $('stockflow');
     if (!after) return false;
     var sec = document.createElement('section');
-    sec.id = 'stockcount'; sec.className = 'page';
+    sec.id = 'stockcount'; sec.className = 'page ui2';
     sec.innerHTML =
-      '<div class="welcome"><h1>Stock Count</h1></div>' +
+      '<div class="ui2-hero"><div><div class="ui2-eyebrow"><span class="ui2-live"></span> Physical inventory</div><h1>Stock Count</h1>' +
+      '<p>Count what is really on the shelf, recount anything above the variance limit, then review and post the corrections.</p></div>' +
+      '<div class="ui2-chip"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg><span>Staff count blind on their POS</span></div></div>' +
       '<div id="scBody"></div>';
     after.parentNode.insertBefore(sec, after.nextSibling);
 
@@ -144,7 +160,7 @@
   function renderList() {
     cur = null;
     var open = list.filter(function (c) { return isActive(c.status); })[0];
-    var html = scheduleHtml() + '<div class="panel" style="margin-bottom:18px"><div class="panel-head"><div><div class="panel-title">' + (open ? 'Count in progress' : 'Start a new count') + '</div>' +
+    var html = scheduleHtml() + '<div class="panel sc-start"><div class="panel-head"><div><div class="panel-title">' + (open ? 'Count in progress' : 'Start a new count') + '</div>' +
       '<div class="panel-sub">' + (open ? 'Only one count can be in progress at a time.' : 'The system quantities are saved when you start. Staff count on their POS screen without seeing them; you review and post.') + '</div></div></div>';
     if (open) {
       var todo = open.status === 'recount' ? open.needRecount + ' item(s) being recounted' : open.status === 'submitted' ? 'submitted ' + (open.submittedAt ? when(open.submittedAt) : '') + (open.submittedBy ? ' by ' + open.submittedBy : '') : open.counted + ' of ' + open.lines + ' counted';
@@ -153,34 +169,39 @@
     } else {
       var cadOn = !sched || sched.cadenceOn !== false;
       var nextDateStr = sched && sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Oct 26';
-      html += '<div class="sc-lock-card" style="padding:16px 20px;background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:10px">' +
-        '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
-          '<div style="display:flex;align-items:center;gap:10px">' +
-            '<span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:999px;font-size:11.5px;font-weight:700;letter-spacing:.3px">WEEKLY AUDIT CADENCE LOCKED</span>' +
-            '<span style="font-size:13px;color:var(--text-dim);font-weight:500">Next automated cycle opens <b>' + esc(nextDateStr) + ' at 8:00 AM</b></span>' +
+      html += '<div class="sc-lock">' +
+        '<div class="sc-lock-row">' +
+          '<div class="sc-lock-main"><span class="sc-lock-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>' +
+            '<span class="sc-badge bad">Weekly audit cadence locked</span>' +
+            '<span class="sc-lock-text">Next automated cycle opens <b>' + esc(nextDateStr) + ' at 8:00 AM</b></span>' +
           '</div>' +
-          '<button type="button" class="btn-secondary btn-sm" id="scToggleManualBtn">Unlock manual count</button>' +
+          '<button type="button" class="btn-secondary btn-sm" id="scToggleManualBtn" aria-expanded="false">Unlock manual count</button>' +
         '</div>' +
-        '<div id="scManualStartForm" hidden style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">' +
-          '<div class="sc-top">' +
-            '<div class="grow"><label for="scDept">Department</label><select id="scDept" class="form-select"><option value="">All departments</option>' +
-            DEPTS.map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
-            '<div class="grow"><label for="scMode">Which items?</label><select id="scMode" class="form-select"><option value="due"' + (cadOn ? ' selected' : '') + '>Items due now (weekly + slow ones)</option><option value="all"' + (cadOn ? '' : ' selected') + '>All products</option></select></div>' +
-            '<div class="grow"><label for="scNote">Supervisor reason (required for ad-hoc count)</label><input id="scNote" class="form-input" maxlength="300" placeholder="e.g. Discrepancy spot check" autocomplete="off"></div>' +
-            '<button class="btn-primary" id="scStart">Start count</button>' +
+        '<div id="scManualStartForm" class="sc-manual" hidden>' +
+          '<div class="sc-reason-card">' +
+            '<div class="sc-reason-head"><span class="sc-reason-ico"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg></span>' +
+              '<div><div class="sc-reason-title">Manual count request</div><div class="sc-reason-sub">A reason is required. It is saved with the count and logged in the audit trail.</div></div></div>' +
+            '<div class="sc-top">' +
+              '<div class="grow"><label for="scReason">Reason for manual count <span class="sc-req">Required</span></label><select id="scReason" class="form-select" required><option value="">Select a reason…</option>' +
+              MANUAL_REASONS.map(function (r) { return '<option>' + esc(r) + '</option>'; }).join('') + '</select></div>' +
+              '<div class="grow"><label for="scDept">Department</label><select id="scDept" class="form-select"><option value="">All departments</option>' +
+              DEPTS.map(function (d) { return '<option>' + esc(d) + '</option>'; }).join('') + '</select></div>' +
+              '<div class="grow"><label for="scMode">Which items?</label><select id="scMode" class="form-select"><option value="due"' + (cadOn ? ' selected' : '') + '>Items due now (weekly + slow ones)</option><option value="all"' + (cadOn ? '' : ' selected') + '>All products</option></select></div>' +
+            '</div>' +
+            '<div class="sc-top sc-other" id="scOtherWrap" hidden><div class="grow"><label for="scNote">Specify the reason <span class="sc-req">Required</span></label><input id="scNote" class="form-input" maxlength="250" placeholder="Describe why this count is needed" autocomplete="off"></div></div>' +
+            '<div class="sc-err" id="scErr"></div>' +
+            '<div class="sc-reason-foot"><p class="sc-hint">Stop sales and stock movements for the area while counting.</p><button class="btn-primary" id="scStart">Start count</button></div>' +
           '</div>' +
-          '<div class="sc-err" id="scErr"></div>' +
-          '<p class="sc-hint" style="margin-top:8px">Unscheduled manual counts are logged in the audit trail. Stop sales and stock movements for the area while counting.</p>' +
         '</div>' +
       '</div>';
     }
     html += '</div><div class="panel"><div class="panel-head"><div><div class="panel-title">Count history</div><div class="panel-sub">Posted counts have already corrected the stock</div></div></div>' +
-      '<div class="table-wrapper"><table><thead><tr><th>Count</th><th>Scope</th><th>Status</th><th class="r">Counted</th><th class="r">Differences</th><th class="r">Net value</th><th>Date</th><th></th></tr></thead><tbody>' +
+      '<div class="table-wrapper"><table class="sc-hist"><thead><tr><th>Count</th><th>Scope</th><th>Status</th><th class="r">Counted</th><th class="r">Differences</th><th class="r">Net value</th><th>Date</th><th></th></tr></thead><tbody>' +
       (list.length ? list.map(function (c) {
         return '<tr><td class="mono">' + esc(c.no) + (c.scheduled ? ' <span class="sc-auto" title="Started by the weekly schedule">Weekly</span>' : '') + '</td><td>' + esc(c.scope) + '</td><td>' + statusPill(c.status) + '</td><td class="r">' + c.counted + ' / ' + c.lines + '</td>' +
           '<td class="r">' + (c.status === 'cancelled' ? '—' : c.differences) + '</td><td class="r ' + (c.netValue < 0 ? 'sc-down' : c.netValue > 0 ? 'sc-up' : '') + '">' + (c.status === 'posted' ? peso(c.netValue) : '—') + '</td>' +
           '<td class="dim">' + esc(when(c.closedAt || c.createdAt)) + '</td><td class="r"><button class="btn-secondary btn-sm" data-sc="open" data-id="' + esc(c.id) + '">' + (c.status === 'open' ? 'Continue' : 'View') + '</button></td></tr>';
-      }).join('') : '<tr><td colspan="8" class="dim" style="text-align:center;padding:22px">No stock counts yet.</td></tr>') +
+      }).join('') : '<tr><td colspan="8" class="sc-empty">No stock counts yet.</td></tr>') +
       '</tbody></table></div></div>';
     $('scBody').innerHTML = html;
   }
@@ -194,7 +215,7 @@
     var over = items.filter(overOf);
     var html = '<div class="sc-bar"><button class="btn-secondary btn-sm" data-sc="back">&larr; All counts</button><b class="mono">' + esc(cur.no) + '</b> ' + statusPill(st) +
       '<span class="dim">' + esc(cur.scope) + ' · started ' + esc(when(cur.createdAt)) + ' by ' + esc(cur.createdBy) + (cur.note ? ' · ' + esc(cur.note) : '') + '</span></div>' + banner() +
-      '<div class="panel"><div class="sc-sum" id="scSum"></div>' +
+      '<div class="panel sc-sheet-panel"><div class="sc-sum" id="scSum"></div>' +
       '<div class="sc-bar"><input id="scSearch" class="inv-search" placeholder="Search product or SKU…" value="' + esc(term) + '" autocomplete="off">' +
       '<select id="scFilter" class="inv-select"><option value="all">All products</option><option value="todo">Not counted yet</option><option value="diff">Differences only</option><option value="over">Above variance limit</option></select>' +
       (st === 'open' || st === 'recount' ? '<label class="sc-chk"><input type="checkbox" id="scBlind"' + (blind ? ' checked' : '') + '> Hide system quantity (blind count)</label>' : '') +
@@ -258,15 +279,15 @@
       var d = diffOf(it), v = d === null ? null : d * it.unitCost, o = overOf(it);
       var cad = it.cadence ? '<span class="sc-tag ' + (it.cadence === 'weekly' ? 'wk' : '') + '" title="' + esc(it.why) + '">' + (it.cadence === 'weekly' ? 'Weekly' : 'Monthly') + '</span>' : '';
       var flags = (it.needsRecount ? '<span class="sc-tag bad">Recount</span>' : '') + (o && !hideSys ? '<span class="sc-tag bad">Above limit</span>' : '');
-      var first = it.firstQty !== null && !hideSys ? '<div class="dim" style="font-size:12px">1st count: ' + num(it.firstQty) + '</div>' : '';
-      return '<tr data-sku="' + esc(it.sku) + '" class="' + (d ? 'sc-row-diff ' : '') + (o && !hideSys ? 'sc-row-over' : '') + '"><td class="mono">' + esc(it.sku) + '</td><td>' + esc(it.name) + cad + flags + '<div class="dim" style="font-size:12.5px">' + esc(it.department) + (it.why ? ' · ' + esc(it.why) : '') + (it.countedBy ? ' · counted by ' + esc(it.countedBy) : '') + '</div></td>' +
+      var first = it.firstQty !== null && !hideSys ? '<div class="dim sc-subline">1st count: ' + num(it.firstQty) + '</div>' : '';
+      return '<tr data-sku="' + esc(it.sku) + '" class="' + (d ? 'sc-row-diff ' : '') + (o && !hideSys ? 'sc-row-over' : '') + '"><td class="mono">' + esc(it.sku) + '</td><td>' + esc(it.name) + cad + flags + '<div class="dim sc-subline">' + esc(it.department) + (it.why ? ' · ' + esc(it.why) : '') + (it.countedBy ? ' · counted by ' + esc(it.countedBy) : '') + '</div></td>' +
         '<td class="dim">' + esc(it.location || '—') + '</td>' +
         (hideSys ? '' : '<td class="r">' + num(it.systemQty) + ' ' + esc(it.unit) + '</td>') +
         '<td class="r">' + (editable ? '<input class="form-input sc-in" type="number" inputmode="decimal" min="0" step="any" data-in="' + esc(it.sku) + '" value="' + (it.countedQty === null ? '' : it.countedQty) + '" aria-label="Counted quantity for ' + esc(it.name) + '"' + (it.needsRecount ? ' placeholder="recount"' : '') + '> ' + esc(it.unit) + first : (it.countedQty === null ? '—' : num(it.countedQty) + ' ' + esc(it.unit)) + first) + '</td>' +
         '<td class="r" data-d="' + esc(it.sku) + '">' + (hideSys ? '<span class="sc-same">hidden</span>' : diffCell(it)) + '</td>' +
         '<td class="r" data-v="' + esc(it.sku) + '">' + (hideSys || v === null || v === 0 ? '—' : '<span class="' + (v > 0 ? 'sc-up' : 'sc-down') + '">' + peso(v) + '</span>') + '</td>' +
         '<td>' + (editable ? '<input class="form-input sc-note" maxlength="200" data-note="' + esc(it.sku) + '" value="' + esc(it.note) + '" placeholder="' + (o && it.recounts > 0 ? 'Why is it still off? (required)' : 'Why? (optional)') + '" autocomplete="off">' : esc(it.note)) + '</td></tr>';
-    }).join('') : '<tr><td colspan="8" class="dim" style="text-align:center;padding:22px">No products match.</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="sc-empty">No products match.</td></tr>';
   }
 
   /* ---------------- actions ---------------- */
@@ -281,35 +302,24 @@
     var next = sched.nextRun ? new Date(sched.nextRun + 'T00:00:00').toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric' }) : 'Mon, Oct 26';
     var lim = (sched.varPct > 0 ? sched.varPct + '%' : '') + (sched.varPct > 0 && sched.varValue > 0 ? ' or ' : '') + (sched.varValue > 0 ? peso(sched.varValue) : '') || '3% or ₱1,000.00';
 
-    return '<div class="panel sc-sched" style="margin-bottom:18px">' +
-      '<div class="panel-head" style="align-items:center;justify-content:space-between">' +
-        '<div>' +
-          '<div style="display:flex;align-items:center;gap:10px">' +
-            '<div class="panel-title" style="margin:0">Automated Count Schedule &amp; Auditing Rules</div>' +
-            '<span style="background:#dcfce7;color:#15803d;padding:2px 8px;border-radius:999px;font-size:11.5px;font-weight:700">Automated</span>' +
-          '</div>' +
-          '<div class="panel-sub" style="margin-top:4px">System-led cycle counts and recount variance auditing. Zero manual scheduling needed.</div>' +
-        '</div>' +
-      '</div>' +
-      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:14px">' +
-        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
-          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Recurring Schedule</div>' +
-          '<div style="font-size:14px;font-weight:700;color:var(--text);margin-top:4px">Every ' + esc(sched.day || 'Monday') + ' at Store Opening</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Scope: ' + esc(sched.scopeLabel || 'All departments') + ' · Due in ' + (sched.dueDays || 2) + ' days</div>' +
-          '<div style="font-size:11.5px;color:#1d4ed8;margin-top:4px;font-weight:600">Next count: ' + esc(next) + '</div>' +
-        '</div>' +
-        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
-          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Cadence Automation</div>' +
-          '<div style="font-size:14px;font-weight:700;color:var(--text);margin-top:4px">Weekly High-Value / 14-day Slow</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Weekly: ' + peso(sched.highValue || 25000) + '+ on-hand or 2+ stock-outs/30d</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Slow items: automatically cycled every ' + (sched.slowDays || 14) + ' days</div>' +
-        '</div>' +
-        '<div style="background:var(--surface-sunken,#f8fafc);border:1px solid var(--border-subtle,#e2e8f0);border-radius:8px;padding:12px 14px">' +
-          '<div style="font-size:11px;font-weight:600;text-transform:uppercase;color:var(--text-faint);letter-spacing:.5px">Automated Recount Trigger</div>' +
-          '<div style="font-size:14px;font-weight:700;color:#b91c1c;margin-top:4px">Variance &gt; ' + esc(lim) + '</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Automatic discrepancy flag requires supervisor recount</div>' +
-          '<div style="font-size:12px;color:var(--text-dim);margin-top:2px">Category variance reasons pre-selected</div>' +
-        '</div>' +
+    var rule = function (tone, ico, label, title, lines, foot) {
+      return '<div class="sc-rule ' + tone + '"><div class="sc-rule-ico">' + ico + '</div><div class="sc-rule-body">' +
+        '<div class="sc-rule-label">' + label + '</div><div class="sc-rule-title">' + title + '</div>' +
+        lines.map(function (l) { return '<div class="sc-rule-line">' + l + '</div>'; }).join('') +
+        (foot ? '<div class="sc-rule-foot">' + foot + '</div>' : '') + '</div></div>';
+    };
+    return '<div class="panel sc-sched">' +
+      '<div class="panel-head"><div>' +
+        '<div class="sc-titlerow"><div class="panel-title">Automated Count Schedule &amp; Auditing Rules</div><span class="sc-badge ok">Automated</span></div>' +
+        '<div class="panel-sub">System-led cycle counts and recount variance auditing. Zero manual scheduling needed.</div>' +
+      '</div></div>' +
+      '<div class="sc-rules">' +
+        rule('blue', '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg>', 'Recurring schedule', 'Every ' + esc(sched.day || 'Monday') + ' at Store Opening',
+          ['Scope: ' + esc(sched.scopeLabel || 'All departments') + ' · Due in ' + (sched.dueDays || 2) + ' days'], 'Next count: ' + esc(next)) +
+        rule('green', '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>', 'Cadence automation', 'Weekly High-Value / 14-day Slow',
+          ['Weekly: ' + peso(sched.highValue || 25000) + '+ on-hand or 2+ stock-outs/30d', 'Slow items: automatically cycled every ' + (sched.slowDays || 14) + ' days'], '') +
+        rule('red', '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>', 'Automated recount trigger', 'Variance &gt; ' + esc(lim),
+          ['Automatic discrepancy flag requires supervisor recount', 'Category variance reasons pre-selected'], '') +
       '</div>' +
     '</div>';
   }
@@ -449,6 +459,9 @@
       var act = b.getAttribute('data-sc');
       try {
         if (act === 'open') await openCount(b.getAttribute('data-id'));
+        else if (b.id === 'scToggleManualBtn') {
+          var mf = $('scManualStartForm'); if (mf) { mf.hidden = !mf.hidden; b.setAttribute('aria-expanded', String(!mf.hidden)); b.textContent = mf.hidden ? 'Unlock manual count' : 'Hide manual count'; }
+        }
         else if (act === 'sched-edit') { var f = $('scSchedForm'); if (f) f.hidden = !f.hidden; }
         else if (act === 'sched-save') {
           var se = $('scSchedErr'); if (se) se.textContent = '';
@@ -461,7 +474,11 @@
         else if (act === 'back') { if (dirty && !(await save(true))) return; await showList(); }
         else if (b.id === 'scStart') {
           showErr('');
-          var r = await api('/stock-counts', { method: 'POST', body: JSON.stringify({ department: $('scDept').value, mode: $('scMode').value, note: $('scNote').value }) });
+          var reason = $('scReason').value, other = ($('scNote').value || '').trim();
+          if (!reason) { $('scReason').classList.add('field-invalid'); $('scReason').focus(); return showErr('Select a reason for the manual count.'); }
+          if (reason.indexOf('Other') === 0 && !other) { $('scNote').classList.add('field-invalid'); $('scNote').focus(); return showErr('Describe the reason for the manual count.'); }
+          var noteText = (reason.indexOf('Other') === 0 ? 'Other: ' + other : reason).slice(0, 300);
+          var r = await api('/stock-counts', { method: 'POST', body: JSON.stringify({ department: $('scDept').value, mode: $('scMode').value, note: noteText }) });
           await openCount(r.id);
         }
         else if (b.id === 'scSave') await save(false);
@@ -487,6 +504,10 @@
     document.addEventListener('change', function (e) {
       if (!e.target.closest || !e.target.closest('#stockcount')) return;
       if (e.target.id === 'scFilter') { filter = e.target.value; renderRows(); }
+      if (e.target.id === 'scReason') {
+        e.target.classList.remove('field-invalid'); showErr('');
+        var ow = $('scOtherWrap'); if (ow) { ow.hidden = e.target.value.indexOf('Other') !== 0; if (!ow.hidden) $('scNote').focus(); }
+      }
       if (e.target.id === 'scBlind') { blind = e.target.checked; renderCount(); }
     });
     window.addEventListener('beforeunload', function (e) { if (dirty) { e.preventDefault(); e.returnValue = ''; } });

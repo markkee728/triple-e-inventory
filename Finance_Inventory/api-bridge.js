@@ -3421,6 +3421,14 @@
       const body = table.tBodies[0];
       if (!body || table.closest('#printReport')) return;
       const wrap = table.closest('.table-wrapper');
+      // this pager owns the table: table-pagination.js must not add a second bar (it skips tables with this mark)
+      table.setAttribute('data-bridge-paged', '1');
+      const dup = wrap.nextElementSibling;
+      if (dup && dup.classList.contains('table-pagination')) {          // one was already added before this ran -> remove it
+        dup.remove();
+        table._pagerEl = null;
+        Array.from(body.rows).forEach((r) => { if (r.style.display === 'none') r.style.display = ''; });
+      }
       const bar = document.createElement('div');
       bar.className = 'pager';
       bar.setAttribute('role', 'navigation');

@@ -9,6 +9,8 @@
   function isEligibleTable(table) {
     if (!table || table.nodeType !== 1) return false;
     if (table.hasAttribute('data-no-paginate')) return false;
+    // api-bridge.js already pages this table with its own .pager bar -> do not add a second one
+    if (table.hasAttribute('data-bridge-paged')) return false;
     if (table.closest('[data-no-paginate="true"]')) return false;
     if (table.closest('.rcpt-items, #receiptBg, #printInvoice, .customer-modal-content, .sg-carry')) return false;
     if (table.classList.contains('qd-table') || table.classList.contains('rs-table')) return false;
@@ -235,4 +237,3 @@
     paginateAll
   };
 })();
-

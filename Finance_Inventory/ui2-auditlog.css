@@ -1,0 +1,207 @@
+/* =========================================================
+   ui2-auditlog.css — Audit Log page only (#auditlog.ui2)
+   Load AFTER ui2-core.css, style.css and ui2-pager.css.
+   Looks only. Every colour is a token, so light and dark both work.
+========================================================= */
+
+html #auditlog { --u-on-accent: #06121f; }
+html[data-theme="light"] #auditlog { --u-on-accent: #ffffff; }
+
+#auditlog > .ui2-hero { margin: 4px 0 22px; align-items: flex-end; }
+
+/* ---------- summary cards ---------- */
+#auditlog .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 16px;
+    margin: 0 0 24px;
+}
+#auditlog .stat-card { min-height: 0; }
+#auditlog .stat-card .ui2-ico { margin-bottom: 14px; }
+#auditlog .stat-value { font-family: "Oswald", sans-serif; font-weight: 600; }
+
+/* ---------- panel ---------- */
+#auditlog .panel { padding: 0; overflow: hidden; margin-top: 0; }
+#auditlog .panel-head {
+    align-items: center; justify-content: space-between;
+    gap: 14px 18px; flex-wrap: wrap;
+    margin: 0; padding: 22px 24px 18px;
+}
+#auditlog #auditCount {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px; letter-spacing: .6px; color: var(--text-dim);
+}
+
+/* ---------- filters ---------- */
+#auditlog .inv-filters { gap: 10px; flex-wrap: wrap; align-items: center; }
+#auditlog .inv-select {
+    min-height: 42px;
+    padding: 8px 14px;
+    border-radius: 99px;
+    border: 1px solid var(--u-line);
+    background-color: var(--u-surface-flat);
+    color: var(--text);
+    font-size: 14px;
+    transition: border-color .15s, box-shadow .15s;
+}
+#auditlog .inv-select:hover { border-color: var(--u-chip-line); }
+#auditlog .inv-select:focus,
+#auditlog .au-search:focus-within {
+    border-color: var(--blue-bright);
+    box-shadow: 0 0 0 3px var(--u-chip-bg);
+    outline: none;
+}
+#auditlog .au-search {
+    display: inline-flex; align-items: center; gap: 9px;
+    min-height: 42px; min-width: 260px;
+    padding: 0 16px;
+    border-radius: 99px;
+    border: 1px solid var(--u-line);
+    background: var(--u-surface-flat);
+    color: var(--text-dim);
+    transition: border-color .15s, box-shadow .15s;
+}
+#auditlog .au-search:hover { border-color: var(--u-chip-line); }
+#auditlog .au-search .ico { width: 16px; height: 16px; flex: none; vertical-align: 0; }
+#auditlog .au-search input {
+    flex: 1; min-width: 0;
+    width: auto; height: auto; min-height: 0;
+    padding: 0; margin: 0;
+    border: 0; background: transparent; box-shadow: none; outline: none;
+    color: var(--text); font-size: 14px;
+}
+#auditlog .au-search input::placeholder { color: var(--text-dim); opacity: .85; }
+#auditlog :focus-visible { outline-offset: 2px; }
+#auditlog .au-search input:focus-visible { outline: none; }
+
+/* ---------- table (flush inside the panel) ---------- */
+#auditlog .table-wrapper {
+    border: 0;
+    border-top: 1px solid var(--u-line-soft);
+    border-radius: 0;
+    background: transparent;
+    overflow-x: auto;
+}
+#auditlog table { width: 100%; min-width: 860px; border-collapse: separate; border-spacing: 0; table-layout: fixed; }
+#auditlog thead th {
+    position: sticky; top: 0; z-index: 1;
+    padding: 14px 20px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px; font-weight: 500; letter-spacing: 1.4px; text-transform: uppercase;
+    text-align: left; white-space: nowrap;
+    color: var(--text-dim);
+    background: var(--u-head-bg);
+    border-bottom: 1px solid var(--u-line-soft);
+}
+#auditlog tbody td {
+    padding: 14px 20px;
+    font-size: 14.5px;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--u-line-soft);
+}
+#auditlog tbody tr:last-child td { border-bottom: 0; }
+#auditlog tbody tr { transition: background .12s ease; }
+#auditlog tbody tr:hover { background: var(--u-hover); }
+#auditlog tbody tr td:first-child { box-shadow: inset 3px 0 0 transparent; transition: box-shadow .15s; }
+#auditlog tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--blue-bright); }
+
+#auditlog .au-table th:nth-child(1) { width: 150px; }
+#auditlog .au-table th:nth-child(2) { width: 270px; }
+#auditlog .au-table th:nth-child(3) { width: 150px; }
+#auditlog .au-table th:nth-child(4) { width: 190px; }
+/* the Detail column takes the rest and wraps long sentences */
+
+/* when */
+#auditlog .au-when { white-space: nowrap; }
+#auditlog .au-date { display: block; font-weight: 600; color: var(--text); font-size: 14px; }
+#auditlog .au-time {
+    display: block; margin-top: 2px;
+    font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .4px; color: var(--text-dim);
+}
+
+/* person */
+#auditlog .au-person { display: flex; align-items: center; gap: 12px; min-width: 0; }
+#auditlog .au-avatar {
+    flex: none;
+    width: 36px; height: 36px; border-radius: 50%;
+    display: grid; place-items: center;
+    font-size: 13px; font-weight: 600; letter-spacing: .4px;
+    color: var(--blue-bright);
+    background: linear-gradient(145deg, color-mix(in srgb, var(--blue-bright) 22%, transparent), color-mix(in srgb, var(--blue-bright) 6%, transparent));
+    border: 1px solid var(--u-chip-line);
+}
+#auditlog .au-name { font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* role chips */
+#auditlog .role-tag {
+    display: inline-flex; align-items: center;
+    padding: 4px 12px; border-radius: 99px;
+    font-size: 11.5px; font-weight: 500; letter-spacing: .8px;
+    color: var(--blue-bright); background: var(--u-chip-bg); border: 1px solid var(--u-chip-line);
+}
+#auditlog .role-tag.cashier  { color: var(--u-cyan);    background: color-mix(in srgb, var(--u-cyan) 12%, transparent); border-color: color-mix(in srgb, var(--u-cyan) 34%, transparent); }
+#auditlog .role-tag.customer { color: var(--u-warn-fg); background: var(--u-warn-bg); border-color: var(--u-warn-line); }
+
+/* action chips: soft pill with a coloured dot, one colour per kind */
+#auditlog .action-tag {
+    --c: var(--text-dim);
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 4px 12px 4px 10px;
+    border-radius: 99px;
+    font-family: "Inter", sans-serif;
+    font-size: 12.5px; font-weight: 500; letter-spacing: .2px;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--c) 34%, transparent);
+}
+#auditlog .action-tag::before {
+    content: ""; width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--c);
+}
+#auditlog .action-tag.login      { --c: var(--blue-bright); }
+#auditlog .action-tag.logout     { --c: var(--text-dim); }
+#auditlog .action-tag.added      { --c: var(--u-ok-fg); }
+#auditlog .action-tag.edited     { --c: var(--u-warn-fg); }
+#auditlog .action-tag.deleted    { --c: var(--u-bad-fg); }
+#auditlog .action-tag.account    { --c: #e35b9e; }
+#auditlog .action-tag.cashshift  { --c: var(--u-cyan); }
+#auditlog .action-tag.return     { --c: #a078e6; }
+#auditlog .action-tag.profile    { --c: var(--u-cyan); }
+#auditlog .action-tag.production { --c: #6c8cff; }
+#auditlog .action-tag.approval   { --c: var(--u-ok-fg); }
+#auditlog .action-tag.cost       { --c: var(--u-warn-fg); }
+html[data-theme="light"] #auditlog .action-tag.account { --c: #b52f78; }
+html[data-theme="light"] #auditlog .action-tag.return { --c: #5b3a9e; }
+html[data-theme="light"] #auditlog .action-tag.production { --c: #3a56c4; }
+
+/* detail */
+#auditlog .audit-detail {
+    min-width: 0;
+    color: var(--text-dim);
+    font-size: 14px; line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+/* empty row */
+#auditlog .no-results-row:hover { background: transparent; }
+#auditlog .no-results-row td {
+    padding: 44px 20px !important;
+    text-align: center; font-size: 14.5px; color: var(--text-dim);
+}
+
+/* ---------- pagination bar ---------- */
+#auditlog .pager {
+    margin: 0;
+    padding: 12px 24px;
+    border-top: 1px solid var(--u-line-soft);
+    background: var(--u-head-bg);
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 760px) {
+    #auditlog .panel-head { padding: 18px 16px 14px; }
+    #auditlog .inv-filters { width: 100%; }
+    #auditlog .au-search { flex: 1 1 100%; min-width: 0; }
+    #auditlog .inv-select { flex: 1 1 0; min-width: 0; }
+    #auditlog thead th, #auditlog tbody td { padding-left: 14px; padding-right: 14px; }
+    #auditlog .pager { padding: 12px 16px; }
+}

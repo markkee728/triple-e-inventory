@@ -1740,6 +1740,14 @@ function renderCategoryPills() {
     });
 }
 
+// Products table: one inline icon per department (no emojis), used in the name cell
+const PRODUCT_DEPT_ICONS = {
+    "Raw Materials": '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2 9 5-9 5-9-5 9-5z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/></svg>',
+    "Finishing Supplies": '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.7s6 6.1 6 10.6a6 6 0 0 1-12 0C6 8.8 12 2.7 12 2.7z"/><path d="M9.5 14a2.6 2.6 0 0 0 2.5 2.4"/></svg>',
+    "Finished Goods": '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>'
+};
+const PRODUCT_DEPT_CLASS = { "Raw Materials": "dept-raw", "Finishing Supplies": "dept-fin", "Finished Goods": "dept-fg" };
+
 function renderProductTable(items) {
     const tableBody = document.getElementById("productTableBody");
     if (!tableBody) return;
@@ -1748,7 +1756,7 @@ function renderProductTable(items) {
     if (!items || items.length === 0) {
         tableBody.innerHTML = `
             <tr class="no-results-row">
-                <td colspan="8">
+                <td colspan="8" class="pr-empty">
                     ${archivedView
                         ? "No archived products. Archive a product from its details and it will be kept here."
                         : "No products match your search or category."}
@@ -1762,16 +1770,21 @@ function renderProductTable(items) {
         const costLabel = "/" + (item.costUnit || item.unit || "kg");
         const metaLine = [item.grade, item.form].filter(Boolean).join(" · ");
         return `
-            <tr class="product-row${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details, BOM, or edit">
+            <tr class="product-row ${PRODUCT_DEPT_CLASS[item.department] || ""}${archivedView ? " is-archived" : ""}" data-sku="${escapeHTML(item.sku)}" tabindex="0" title="Click to view details, BOM, or edit">
                 <td class="pt-name">
-                    <div class="supplier-name">${escapeHTML(item.name)}</div>
-                    <div class="supplier-meta mono">${escapeHTML(item.sku)}${metaLine ? " · " + escapeHTML(metaLine) : ""}</div>
+                    <div class="pr-name">
+                        <span class="pr-ico">${PRODUCT_DEPT_ICONS[item.department] || PRODUCT_DEPT_ICONS["Finished Goods"]}</span>
+                        <span class="pr-name-text">
+                            <span class="supplier-name">${escapeHTML(item.name)}</span>
+                            <span class="supplier-meta mono">${escapeHTML(item.sku)}${metaLine ? " · " + escapeHTML(metaLine) : ""}</span>
+                        </span>
+                    </div>
                 </td>
                 <td>
                     <div>${escapeHTML(item.category)}</div>
-                    <div class="supplier-meta">${escapeHTML(item.department || "\u2014")}</div>
+                    <div class="pr-dept">${escapeHTML(item.department || "\u2014")}</div>
                 </td>
-                <td class="pt-num">${formatNumber(item.available)} ${escapeHTML(item.unit)}</td>
+                <td class="pt-num${!archivedView && item.status === "low" ? " pr-low" : ""}"><b>${formatNumber(item.available)}</b> <span class="pr-unit">${escapeHTML(item.unit)}</span></td>
                 <td class="pt-num dim">₱${item.stdCost.toFixed(2)}<span class="supplier-meta"> ${costLabel}</span></td>
                 <td class="pt-num">
                     ${item.department === "Finished Goods"
@@ -1780,7 +1793,7 @@ function renderProductTable(items) {
                 </td>
                 <td>
                     ${item.department === "Finished Goods" && item.listPrice > 0
-                        ? `<span class="margin-value">${item.margin.toFixed(1)}%</span>`
+                        ? `<span class="margin-value pr-margin${item.margin < 0 ? " neg" : ""}">${item.margin.toFixed(1)}%</span>`
                         : `<span class="dim">&mdash;</span>`}
                 </td>
                 <td class="dim">${renderProductSuppliers(item)}</td>
@@ -2540,91 +2553,52 @@ function renderSupplierLocationSelect() {
 
 function renderSupplierTable(items) {
 
-    const tableBody =
-        document.getElementById(
-            "supplierTableBody"
-        );
-
-    if (!tableBody) {
-        return;
-    }
+    const tableBody = document.getElementById("supplierTableBody");
+    if (!tableBody) return;
 
     if (!items || items.length === 0) {
-
         tableBody.innerHTML = `
-
             <tr class="no-results-row">
-
-                <td colspan="5">
-                    No suppliers match your filters.
-                </td>
-
-            </tr>
-
-        `;
-
+                <td colspan="5">No suppliers match these filters. Clear the search or pick another status.</td>
+            </tr>`;
         return;
-
     }
 
-    tableBody.innerHTML =
-        items.map(supplier => `
+    const PIN = `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>`;
+    const MAX_CHIPS = 2;
 
-            <tr class="supplier-row${supplier.status === "archived" ? " is-archived" : ""}"
-                data-supplier-id="${escapeHTML(supplier.id)}" tabindex="0" title="Click to view details">
+    const contactHTML = raw => {
+        const text = String(raw || "").trim();
+        if (!text) return `<span class="sp-none">No contact</span>`;
+        const parts = text.split("·").map(p => p.trim()).filter(Boolean);
+        if (parts.length < 2) return `<div class="sp-contact"><span>${escapeHTML(parts[0])}</span></div>`;
+        return `<div class="sp-contact"><b>${escapeHTML(parts[0])}</b><span>${escapeHTML(parts.slice(1).join(" · "))}</span></div>`;
+    };
 
-                <td>
+    const suppliesHTML = raw => {
+        const list = String(raw || "").split(",").map(p => p.trim()).filter(Boolean);
+        if (!list.length) return `<span class="sp-none">None linked yet</span>`;
+        const shown = list.slice(0, MAX_CHIPS).map(n => `<span class="sp-chip" title="${escapeHTML(n)}">${escapeHTML(n)}</span>`).join("");
+        const rest = list.slice(MAX_CHIPS);
+        const more = rest.length ? `<span class="sp-chip more" title="${escapeHTML(rest.join(", "))}">+${rest.length}</span>` : "";
+        return `<div class="sp-chips">${shown}${more}</div>`;
+    };
 
-                    <div class="supplier-row-name">
-
-                        <div class="supplier-avatar">
-                            ${escapeHTML(
-                                supplier.initials
-                            )}
-                        </div>
-
-                        ${escapeHTML(
-                            supplier.name
-                        )}
-
-                    </div>
-
-                </td>
-
-                <td class="dim">
-                    ${escapeHTML(
-                        supplier.fullAddress || supplier.location
-                    )}
-                </td>
-
-                <td class="dim">
-                    ${escapeHTML(
-                        supplier.contact
-                    )}
-                </td>
-
-                <td class="dim">
-                    ${escapeHTML(
-                        supplier.supplies
-                    )}
-                </td>
-
-                <td>
-
-                    <span
-                        class="status-pill ${supplier.status}"
-                    >
-                        ${getSupplierStatusLabel(
-                            supplier.status
-                        )}
-                    </span>
-
-                </td>
-
-            </tr>
-
-        `).join("");
-
+    tableBody.innerHTML = items.map(supplier => `
+        <tr class="supplier-row${supplier.status === "archived" ? " is-archived" : ""}"
+            data-supplier-id="${escapeHTML(supplier.id)}" tabindex="0" title="Click to view details">
+            <td>
+                <div class="supplier-row-name">
+                    <div class="supplier-avatar">${escapeHTML(supplier.initials)}</div>
+                    <span class="sp-name">${escapeHTML(supplier.name)}</span>
+                </div>
+            </td>
+            <td><div class="sp-loc">${PIN}<span>${escapeHTML(supplier.fullAddress || supplier.location)}</span></div></td>
+            <td>${contactHTML(supplier.contact)}</td>
+            <td>${suppliesHTML(supplier.supplies)}</td>
+            <td><span class="status-pill ${supplier.status}">${getSupplierStatusLabel(supplier.status)}</span></td>
+        </tr>
+    `).join("");
 }
 
 
@@ -5330,16 +5304,38 @@ const auditLogData = [
 function getAuditActionClass(action) {
 
     switch (action) {
-        case "Login":           return "login";
-        case "Logout":          return "login";
-        case "Record added":    return "added";
-        case "Record edited":   return "edited";
-        case "Account created": return "account";
-        case "Cash shift":      return "cashshift";
-        case "Return":          return "return";
-        default:                return "";
+        case "Login":                 return "login";
+        case "Logout":                return "logout";
+        case "Record added":          return "added";
+        case "Record edited":         return "edited";
+        case "Record deleted":        return "deleted";
+        case "Account created":       return "account";
+        case "Cash shift":            return "cashshift";
+        case "Return":                return "return";
+        case "Profile updated":       return "profile";
+        case "Production recorded":
+        case "Material requirements": return "production";
+        case "Quote decision":
+        case "Price override approved": return "approval";
+        case "Price override refused": return "deleted";
+        default:
+            return /^cost/i.test(String(action)) ? "cost" : "";
     }
 
+}
+
+/* "2026-08-16 07:14 AM" -> { date: "Aug 16, 2026", time: "07:14 AM" } (falls back to the raw text) */
+function splitAuditStamp(stamp) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})\s+(.+)$/.exec(String(stamp || "").trim());
+    if (!m) return { date: String(stamp || ""), time: "" };
+    const mon = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][Number(m[2]) - 1] || m[2];
+    return { date: mon + " " + Number(m[3]) + ", " + m[1], time: m[4] };
+}
+
+function auditInitials(name) {
+    const parts = String(name || "?").replace(/[^A-Za-z\s]/g, " ").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
 
@@ -5387,9 +5383,9 @@ function applyAuditFilters() {
 
             const searchMatch =
                 !term ||
-                entry.user.toLowerCase().includes(term) ||
-                entry.action.toLowerCase().includes(term) ||
-                entry.detail.toLowerCase().includes(term);
+                String(entry.user || "").toLowerCase().includes(term) ||
+                String(entry.action || "").toLowerCase().includes(term) ||
+                String(entry.detail || "").toLowerCase().includes(term);
 
             return roleMatch && actionMatch && searchMatch;
 
@@ -5413,37 +5409,33 @@ function applyAuditFilters() {
     }
 
     tableBody.innerHTML =
-        filtered.map(entry => `
+        filtered.map(entry => {
 
+            const when = splitAuditStamp(entry.timestamp);
+            const roleClass = /cashier/i.test(entry.role) ? "cashier" : /customer/i.test(entry.role) ? "customer" : "";
+
+            return `
             <tr>
-
-                <td class="mono">
-                    ${escapeHTML(entry.timestamp)}
+                <td class="au-when">
+                    <span class="au-date">${escapeHTML(when.date)}</span>
+                    <span class="au-time">${escapeHTML(when.time)}</span>
                 </td>
-
                 <td>
-                    ${escapeHTML(entry.user)}
+                    <div class="au-person">
+                        <span class="au-avatar" aria-hidden="true">${escapeHTML(auditInitials(entry.user))}</span>
+                        <span class="au-name">${escapeHTML(entry.user)}</span>
+                    </div>
                 </td>
-
                 <td>
-                    <span class="role-tag ${/cashier/i.test(entry.role) ? "cashier" : /customer/i.test(entry.role) ? "customer" : ""}">
-                        ${escapeHTML(entry.role)}
-                    </span>
+                    <span class="role-tag ${roleClass}">${escapeHTML(entry.role)}</span>
                 </td>
-
                 <td>
-                    <span class="action-tag ${getAuditActionClass(entry.action)}">
-                        ${escapeHTML(entry.action)}
-                    </span>
+                    <span class="action-tag ${getAuditActionClass(entry.action)}">${escapeHTML(entry.action)}</span>
                 </td>
+                <td class="audit-detail">${escapeHTML(entry.detail)}</td>
+            </tr>`;
 
-                <td class="audit-detail">
-                    ${escapeHTML(entry.detail)}
-                </td>
-
-            </tr>
-
-        `).join("");
+        }).join("");
 
 }
 
