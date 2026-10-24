@@ -168,3 +168,17 @@ test('the public webhook and cron routes compare secrets in constant time', () =
     assert.match(src, /safeEqual\(/, f + ' must use safeEqual for secret comparison');
   }
 });
+
+test('finance changes roles only: the server refuses personal-data edits and the Customers screen offers no edit form', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const patch = server.slice(server.indexOf("app.patch('/api/users/:id', auth('finance')"), server.indexOf("app.delete('/api/users/:id'"));
+  assert.match(patch, /PROFILE_FIELDS\.filter\(\(k\) => b\[k\] !== undefined\)/, 'any personal field in the request is detected');
+  assert.match(patch, /if \(sent\.length\) throw new ValidationError/, '...and refused');
+  for (const f of ['name', 'email', 'phone', 'birthdate', 'gender', 'companyTin']) assert.ok(server.includes("'" + f + "'"), f + ' is on the protected list');
+  assert.match(patch, /You cannot change your own role/); assert.match(patch, /At least one active Finance-Admin must remain/);
+  const ui = path.join(__dirname, '..', '..', 'Finance_Inventory');
+  const js = fs.readFileSync(path.join(ui, 'customer-profiles-admin.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ui, 'Finance_Inventory.html'), 'utf8');
+  assert.ok(!/data-customer-edit|customerEditModal|ProfileEdit/.test(js + html), 'the Customers screen must not show an editable form the server would refuse');
+  assert.match(js, /data-customer-toggle/, 'view + disable/enable still work');
+});

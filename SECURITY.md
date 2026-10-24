@@ -115,6 +115,7 @@ Status: **Met** = implemented and evidenced, **Partial** = implemented with a st
 | V4.1 | Role check does not touch the database before denying | Met | `rbac.test.js` "403 before the database" |
 | V4.2 | IDOR: users reach only their own records | Met (reviewed) | `pos-shop.js`: order checkout/verify/cancel/refund use `WHERE order_no = $1 AND customer_id = $2 [req.user.id]`; addresses use `address_id = $1 AND user_id = $2`; order list uses `customer_id = $1`; profile uses `user_id = req.user.id`. Re-check any new `:id` route |
 | V4.3 | Admin interfaces protected | Met | finance pages gated server-side; routes use `auth('finance')` |
+| V4.1 / V8.3 | Least privilege for administrators over personal data | Met | Finance can change an account's **role only**; name, e-mail, mobile, birth date, gender and company details can be changed only by the account owner in My Profile (a new mobile number is re-verified by text). The server refuses any such field from Finance; a customer cannot become staff or the reverse, nobody changes their own role, and at least one active Finance-Admin must remain. The Customers screen offers only view and disable/enable, never an edit form (`rbac.test.js`) |
 | V5.1 | Input validation server-side | Met | per-field validators in `server.js`/`auth-signup.js`; 100 kb JSON limit; image type + 2 MB limit |
 | V5.3 | Output encoding / injection defense | Met | `esc()`, parameterized SQL, nonce CSP, no inline handlers |
 | V5.3 | SQL injection | Met | parameterized queries; dynamic SQL only with whitelisted identifiers |
@@ -204,7 +205,7 @@ A release is acceptable only when all are true:
 
 | # | Criterion | Measure | How verified |
 |---|---|---|---|
-| A1 | Security test suite passes | 56/56 tests (security 10, rbac 12, alerts 7, sign-in code 13, database 14) | `cd backend && npm run test:security` |
+| A1 | Security test suite passes | 58/58 tests (security 10, rbac 13, alerts 7, sign-in code 13, database 15) | `cd backend && npm run test:security` |
 | A12 | Database hardening applied | Migration `025` run with no error; 0 public tables without Row Level Security; `anon`/`authenticated` cannot read `users`; `security_purge_expired()` runs | Appendix B queries; `db-hardening.test.js` proves the script on a real engine |
 | A11 | No session without the second factor | The login route never sets the session cookie; only `completeLogin` does, after a right one-time code; a used, expired, forged or over-tried code is refused | `login-otp.test.js` (incl. wiring check) |
 | A2 | No weak CSP | `script-src` has a nonce and no `unsafe-inline`; nonce differs per request | CSP test |
