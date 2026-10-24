@@ -15,6 +15,7 @@
 <link rel="stylesheet" href="ui2-core.css?v=1">
 <link rel="stylesheet" href="ui2-notifications.css?v=1">
 <link rel="stylesheet" href="ui2-shop.css?v=5">
+<link rel="stylesheet" href="ui2-shop-polish.css?v=1">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -682,9 +683,17 @@ function stockChip(p) {
 /* ----- unit clarity, minimum order, ratings, stock messages ----- */
 const minQty = p => { if (!p) return 1; const m = Number(p.minOrder) || 1; return p.available > 0 ? Math.min(m, p.available) : m; };   // never more than what is in stock
 const soldPer = p => (minQty(p) > 1 ? 'Min. <b>' + minQty(p) + ' ' + esc(p.unit) + '</b>' : 'Sold per ' + esc(p.unit)) + (p.available > 0 ? ' · <b>' + p.available + '</b> in stock' : '');
+const metaChips = p => {
+  const m = minQty(p), low = p.available > 0 && p.available <= p.low;
+  return '<span class="mchip">' + (m > 1 ? 'Min. <b>' + m + ' ' + esc(p.unit) + '</b>' : 'Sold per <b>' + esc(p.unit) + '</b>') + '</span>'
+    + (p.available > 0 ? '<span class="mchip' + (low ? ' warn' : '') + '"><b>' + p.available + '</b> in stock</span>' : '');
+};
 function starsHtml(avg) { return '<span class="stars" style="--p:' + Math.max(0, Math.min(100, (avg || 0) / 5 * 100)) + '%" aria-hidden="true"></span>'; }
 function ratingLine(avg, n, link) {
-  if (!n) return '';
+  if (!n) {
+    const none = starsHtml(0) + ' <span class="dim">No reviews yet</span>';
+    return '<div class="rating none">' + (link ? '<a href="#" data-pdtab-go="reviews" onclick="return false">' + none + '</a>' : none) + '</div>';
+  }
   const inner = starsHtml(avg) + ' <span class="rate-num">' + Number(avg).toFixed(1) + '</span> <span class="dim">(' + n + ' review' + (n === 1 ? '' : 's') + ')</span>';
   return '<div class="rating" role="img" aria-label="' + Number(avg).toFixed(1) + ' out of 5 stars, ' + n + ' reviews">' + (link ? '<a href="#" data-pdtab-go="reviews" onclick="return false">' + inner + '</a>' : inner) + '</div>';
 }
@@ -710,12 +719,14 @@ function renderCatalog() {
   $('grid').innerHTML = rows.map(p => { const out = p.available <= 0, n = inCart(p.sku); return `<article class="card prod">
     <div class="prod-art" data-details="${esc(p.sku)}" style="cursor:pointer" title="View details">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.hidden=true" />` : catIcon(p.category)}${stockChip(p)}</div>
     <div class="prod-body">
-      <div class="sku">${esc(p.sku)}</div><div class="name"><a href="#" data-details="${esc(p.sku)}" style="color:inherit;text-decoration:none" onclick="return false">${esc(p.name)}</a></div><div class="spec">${esc(p.spec || p.category)}</div>
+      <div class="prod-head"><div class="sku">${esc(p.sku)}</div><div class="name"><a href="#" data-details="${esc(p.sku)}" style="color:inherit;text-decoration:none" onclick="return false">${esc(p.name)}</a></div><div class="spec">${esc(p.spec || p.category)}</div></div>
+      <div class="prod-foot">
       <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
-      <div class="unit-line">${soldPer(p)}</div>
+      <div class="prod-meta">${metaChips(p)}</div>
       ${ratingLine(p.rating, p.reviewCount, false)}
       <div class="buy"><button class="btn-secondary" type="button" data-details="${esc(p.sku)}">View details</button>${out ? (p.notifyMe ? `<button class="btn-secondary" type="button" data-unnotify="${esc(p.sku)}" title="Cancel the back-in-stock email">Alert on <svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg></button>` : `<button class="btn-primary" type="button" data-notify="${esc(p.sku)}">Notify me</button>`) : `<button class="btn-primary" data-add="${esc(p.sku)}">Add to cart${minQty(p) > 1 ? ' · ' + minQty(p) : ''}</button>`}</div>
       <div class="in-cart-note">${n ? n + ' in your cart' : ''}</div>
+      </div>
     </div></article>`; }).join('')
     || '<div class="card empty-card" style="grid-column:1/-1"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>No products match</h3><p>Try a different search or clear the filters.</p></div>';
 }
@@ -1429,13 +1440,11 @@ async function openProductDetails(sku) {
     <div class="pd-info">
       <div class="pd-crumb">${esc(p.category || 'Product')} · ${esc(p.sku)}</div>
       <h2 id="shopDetailsTitle">${esc(d.name || p.name)}</h2>
-      <div>${stockChip(p)}</div>
       ${ratingLine(rv && rv.summary ? rv.summary.average : p.rating, rv && rv.summary ? rv.summary.count : p.reviewCount, true)}
-      <div class="pd-price"><b>${peso(p.price)}</b><span>per ${esc(p.unit)}</span></div>
-      <div class="pd-unit">${soldPer(p)}</div>
+      <div class="pd-pricebox"><div class="pd-price"><b>${peso(p.price)}</b><span>per ${esc(p.unit)}</span></div>${minQty(p) > 1 ? `<span class="pd-min">Min. order <b>${minQty(p)} ${esc(p.unit)}</b></span>` : ''}</div>
       <div id="pdStockMsg">${stockMsg(p)}</div>
-      ${p.spec ? `<div class="spec" style="color:var(--text-dim)">${esc(p.spec)}</div>` : ''}
-      ${desc.length > 140 ? `<div class="pd-short">${esc(desc)}</div>` : ''}
+      ${p.spec ? `<div class="pd-specline">${esc(p.spec)}</div>` : ''}
+      ${desc.length > 140 ? `<div class="pd-short">${esc(desc)}</div><button type="button" class="pd-more" data-pdtab-go="desc">Read full description</button>` : ''}
       <div class="pd-buy">
         <div class="pd-qty"><button type="button" id="pdMinus" aria-label="Decrease quantity">&minus;</button><input id="pdQty" type="number" inputmode="decimal" min="${step}" step="${step}" value="${need()}" aria-label="Quantity ${esc(p.unit)}" ${p.available <= 0 ? 'disabled' : ''}><button type="button" id="pdPlus" aria-label="Increase quantity">+</button></div>
         <button type="button" class="btn-primary" id="pdAdd" ${p.available <= 0 ? 'disabled' : ''}>${p.available <= 0 ? 'Out of stock' : 'Add to cart'}</button>
@@ -1447,7 +1456,7 @@ async function openProductDetails(sku) {
     <div class="pd-tabs">
       <div class="pd-tabbar" role="tablist"><button type="button" class="pd-tab on" role="tab" data-pdtab="desc">Description</button><button type="button" class="pd-tab" role="tab" data-pdtab="specs">Specifications${specs.length ? ' (' + specs.length + ')' : ''}</button><button type="button" class="pd-tab" role="tab" data-pdtab="reviews">Reviews${rv && rv.summary && rv.summary.count ? ' (' + rv.summary.count + ')' : ''}</button></div>
       <div class="pd-panel" id="pdPanelDesc" role="tabpanel">${desc ? `<div class="pd-desc">${esc(desc)}</div>` : '<div class="pd-empty">No description has been added for this product yet.</div>'}</div>
-      <div class="pd-panel" id="pdPanelSpecs" role="tabpanel" hidden>${specs.length ? `<dl class="pd-specs">${specs.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(String(v))}</dd>`).join('')}</dl>` : '<div class="pd-empty">No specifications listed yet.</div>'}</div>
+      <div class="pd-panel" id="pdPanelSpecs" role="tabpanel" hidden>${specs.length ? `<div class="pd-spec-count">${specs.length} specification${specs.length === 1 ? '' : 's'}</div><dl class="pd-specs">${specs.map(([k, v]) => `<div class="pd-spec"><dt>${esc(k)}</dt><dd>${esc(String(v))}</dd></div>`).join('')}</dl>` : '<div class="pd-empty">No specifications listed yet.</div>'}</div>
       <div class="pd-panel" id="pdPanelReviews" role="tabpanel" hidden>${reviewsPanel(p, rv)}</div>
     </div></div>`;
   const show = i => {
@@ -1463,7 +1472,7 @@ async function openProductDetails(sku) {
     $('pdPanelDesc').hidden = name !== 'desc'; $('pdPanelSpecs').hidden = name !== 'specs'; $('pdPanelReviews').hidden = name !== 'reviews';
   };
   area.querySelectorAll('[data-pdtab]').forEach(b => b.onclick = () => openTab(b.dataset.pdtab));
-  area.querySelectorAll('[data-pdtab-go]').forEach(b => b.onclick = () => { openTab(b.dataset.pdtabGo); $('pdPanelReviews').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
+  area.querySelectorAll('[data-pdtab-go]').forEach(b => b.onclick = () => { openTab(b.dataset.pdtabGo); area.querySelector('.pd-tabs').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); });
   const qty = $('pdQty'), clamp = () => { let v = Number(qty.value); if (!Number.isFinite(v) || v < need()) v = need(); const room = p.available - inCart(p.sku); if (room > 0 && v > room) v = room; qty.value = frac ? Math.round(v * 100) / 100 : Math.floor(v); };
   $('pdMinus').onclick = () => { qty.value = Number(qty.value) - step; clamp(); };
   $('pdPlus').onclick = () => { qty.value = Number(qty.value) + step; clamp(); };
