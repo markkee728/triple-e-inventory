@@ -1676,30 +1676,44 @@
                  NOTIFICATIONS
             ================================================== -->
 
-            <section id="notifications" class="page">
+            <section id="notifications" class="page ui2">
 
-                <div class="catalog-header">
-                    <div class="catalog-actions">
-                        <button type="button" class="btn-secondary" id="ncPageMarkAll">Mark all as read</button>
+                <div class="ui2-hero">
+                    <div>
+                        <div class="ui2-eyebrow"><span class="ui2-live"></span> Updates</div>
+                        <h1>Notifications</h1>
+                        <p>Everything that needs your attention: low stock, orders, payments, deliveries and POS activity. Click an item to open the page it is about.</p>
+                    </div>
+                    <div class="ui2-actions">
+                        <div class="ui2-chip">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                            <span id="ncPageSub">Loading...</span>
+                        </div>
+                        <button type="button" class="btn-secondary" id="ncPageMarkAll">
+                            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 7 17l-5-5"/><path d="m22 10-7.5 7.5L13 16"/></svg>
+                            Mark all as read
+                        </button>
                     </div>
                 </div>
 
-                <div class="nc-page-tools">
-                    <div class="nc-chips">
-                        <button type="button" class="nc-chip on" data-nc-cat="">All</button>
-                        <button type="button" class="nc-chip" data-nc-cat="inventory" data-nc-roles="finance">Inventory</button>
-                        <button type="button" class="nc-chip" data-nc-cat="production" data-nc-roles="finance">Production</button>
-                        <button type="button" class="nc-chip" data-nc-cat="orders" data-nc-roles="finance,customer">Orders</button>
-                        <button type="button" class="nc-chip" data-nc-cat="payment" data-nc-roles="finance,cashier,customer">Payments</button>
-                        <button type="button" class="nc-chip" data-nc-cat="delivery" data-nc-roles="finance,customer">Delivery</button>
-                        <button type="button" class="nc-chip" data-nc-cat="pos" data-nc-roles="finance,cashier">POS</button>
-                    </div>
-                    <button type="button" class="nc-chip" id="ncUnreadOnly">All statuses</button>
-                </div>
+                <div class="panel nc-panel">
 
-                <div class="panel">
+                    <div class="nc-page-tools">
+                        <div class="nc-chips">
+                            <button type="button" class="nc-chip on" data-nc-cat="">All</button>
+                            <button type="button" class="nc-chip" data-nc-cat="inventory" data-nc-roles="finance">Inventory</button>
+                            <button type="button" class="nc-chip" data-nc-cat="production" data-nc-roles="finance">Production</button>
+                            <button type="button" class="nc-chip" data-nc-cat="orders" data-nc-roles="finance,customer">Orders</button>
+                            <button type="button" class="nc-chip" data-nc-cat="payment" data-nc-roles="finance,cashier,customer">Payments</button>
+                            <button type="button" class="nc-chip" data-nc-cat="delivery" data-nc-roles="finance,customer">Delivery</button>
+                            <button type="button" class="nc-chip" data-nc-cat="pos" data-nc-roles="finance,cashier">POS</button>
+                        </div>
+                        <button type="button" class="nc-chip nc-toggle" id="ncUnreadOnly">All statuses</button>
+                    </div>
+
                     <div class="nc-page-list" id="ncPageList"></div>
                     <button type="button" class="btn-secondary nc-more" id="ncMore" hidden>Load more</button>
+
                 </div>
 
             </section>
@@ -3628,6 +3642,7 @@
     <link rel="stylesheet" href="ui2-pager.css?v=1">
     <link rel="stylesheet" href="ui2-auditlog.css?v=1">
     <link rel="stylesheet" href="ui2-reports.css?v=1">
+    <link rel="stylesheet" href="ui2-notifications.css?v=1">
     <script src="quote-guide.js?v=2"></script>
     <script src="sales-admin.js?v=16"></script>
     <script src="reports-tabs.js?v=3"></script>
