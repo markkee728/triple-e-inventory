@@ -601,3 +601,35 @@ html body .tq-actions button, html body .modal-actions .btn-primary, html body .
     .pd-dialog .pd-gallery { border-radius: 18px 18px 0 0; min-height: 0; }
     .pd-dialog .pd-stage { flex: none; min-height: 0; aspect-ratio: 4 / 3; }
 }
+
+/* ---------- product details: info side, tabs, reviews (dialog is outside .ui2, base tokens only) ---------- */
+.pd-dialog { border-radius: 22px; box-shadow: 0 50px 100px -40px rgba(0,0,0,.75); }
+.pd-dialog .pd-close { top: 14px; right: 14px; background: color-mix(in srgb, var(--card) 85%, transparent); backdrop-filter: blur(6px); }
+.pd-dialog .pd-info { padding: 32px 30px 26px; gap: 14px; }
+.pd-dialog .pd-crumb { color: var(--blue-bright); letter-spacing: 2px; }
+.pd-dialog .pd-info h2 { font-size: 30px; }
+.pd-dialog .pd-price {
+    padding: 14px 16px; border-radius: 14px; border: 1px solid var(--border); background: var(--inset);
+}
+.pd-dialog .pd-price b { font-size: 34px; }
+.pd-dialog .pd-qty { border-radius: 99px; background: var(--card); }
+.pd-dialog .pd-buy .btn-primary {
+    border-radius: 99px; min-height: 48px; font-family: "IBM Plex Mono", monospace; font-size: 13px; letter-spacing: 1.6px; text-transform: uppercase;
+    box-shadow: 0 14px 26px -16px color-mix(in srgb, var(--blue-bright) 90%, transparent);
+}
+.pd-dialog .pd-perks { border-radius: 14px; }
+.pd-dialog .pd-tabs { padding: 0 30px 30px; background: var(--card); }
+.pd-dialog .pd-tabbar { gap: 6px; border-bottom: 0; padding: 16px 0 4px; }
+.pd-dialog .pd-tab {
+    padding: 0 18px; min-height: 38px; border: 1px solid var(--border); border-radius: 99px; margin: 0; background: var(--inset);
+}
+.pd-dialog .pd-tab.on { color: #fff; border-color: transparent; background: linear-gradient(180deg, var(--blue-bright), var(--blue)); }
+html[data-theme="dark"] .pd-dialog .pd-tab.on { color: #06121f; }
+.pd-dialog .pd-panel { padding-top: 12px; }
+.pd-dialog .pd-specs { border-radius: 14px; }
+.pd-dialog .pd-specs dt { background: var(--inset); }
+@media (max-width: 760px) {
+    .pd-dialog .pd-info { padding: 20px 16px; }
+    .pd-dialog .pd-tabs { padding: 0 16px 22px; }
+    .pd-dialog .pd-info h2 { font-size: 24px; }
+}
