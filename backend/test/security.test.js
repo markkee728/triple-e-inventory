@@ -32,6 +32,16 @@ test('security headers are on every response', async () => {
   server.close();
 });
 
+test('script-src uses a fresh per-request nonce and no unsafe-inline (XSS hardening)', async () => {
+  const { server, base } = await start({ general: 1000, auth: 1000 });
+  const scriptSrc = (r) => r.headers.get('content-security-policy').split(';').map((s) => s.trim()).find((s) => s.startsWith('script-src'));
+  const a = scriptSrc(await fetch(base + '/page')), b = scriptSrc(await fetch(base + '/page'));
+  assert.match(a, /'nonce-[A-Za-z0-9+/=]{20,}'/);
+  assert.ok(!a.includes("'unsafe-inline'"), 'script-src must not allow unsafe-inline');
+  assert.notEqual(a, b, 'the nonce must change on every request');
+  server.close();
+});
+
 test('HSTS is sent in production only', async () => {
   const old = process.env.NODE_ENV;
   process.env.NODE_ENV = 'production';

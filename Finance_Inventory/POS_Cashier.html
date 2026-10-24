@@ -455,13 +455,13 @@
 <button class="cart-fab" id="cartFab" hidden><span id="fabText">View sale</span><span class="mono" id="fabTotal">₱0.00</span></button>
 
 <div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:380px"><div class="paper" id="receipt" style="padding:0;overflow:hidden"><img id="receiptImg" alt="Invoice" style="display:block;width:100%;height:auto"></div>
-  <div class="modal-actions"><button class="btn-primary" id="rcPrint">Print</button><button class="btn-secondary" id="rcSave">Save PNG</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="rcPrint">Print</button><button class="btn-secondary" id="rcSave">Save PNG</button><button class="btn-secondary" data-close-modal="receiptBg">Close</button></div></div></div>
 <div class="modal-overlay" id="voidBg"><div class="modal"><h3>Request void</h3><p class="dim" id="voidFor"></p>
   <label for="voidReason">Reason</label>
   <select id="voidReason"><option value="">Choose a reason…</option><option value="wrong_item">Wrong item or quantity rung up</option><option value="wrong_price">Wrong price</option><option value="changed_mind">Customer changed their mind</option><option value="payment_problem">Payment problem</option><option value="duplicate">Duplicate sale</option><option value="other">Other</option></select>
   <label for="voidDetails" id="voidDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="voidDetails" rows="3" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="voidErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" onclick="closeModal('voidBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="voidSend">Send to admin</button><button class="btn-secondary" data-close-modal="voidBg">Cancel</button></div></div></div>
 <div class="modal-overlay" id="returnBg"><div class="modal" style="max-width:620px"><h3>Return items</h3><p class="dim" id="returnFor"></p>
   <div class="table-wrapper" style="max-height:260px;overflow:auto"><table style="min-width:0;width:100%"><thead><tr><th>Item</th><th class="r">Bought</th><th class="r">Can return</th><th class="r" style="width:100px">Return qty</th></tr></thead><tbody id="returnRows"></tbody></table></div>
   <div style="display:flex;justify-content:space-between;margin:10px 0;font-weight:600"><span>Refund to customer</span><span class="mono" id="returnTotal">₱0.00</span></div>
@@ -470,20 +470,20 @@
   <select id="returnReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item given</option><option value="not_as_described">Not as described</option><option value="changed_mind">Customer changed their mind</option><option value="other">Other</option></select>
   <label for="returnDetails" id="returnDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="returnDetails" rows="2" maxlength="300" placeholder="Anything Finance should know"></textarea>
   <div class="err-text" id="returnErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation</button><button class="btn-secondary" onclick="closeModal('returnBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="returnSend">Save Quotation</button><button class="btn-secondary" data-close-modal="returnBg">Cancel</button></div></div></div>
 <div class="modal-overlay" id="holdBg"><div class="modal"><h3>Hold this sale</h3><p class="dim">Park it so you can serve another customer. You can resume it any time, even after a page refresh.</p>
   <label for="holdLabel">Customer name or note (optional)</label><input id="holdLabel" maxlength="40" autocomplete="off" placeholder="e.g. Mang Ben, blue truck">
-  <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" onclick="closeModal('holdBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="holdOk">Hold sale</button><button class="btn-secondary" data-close-modal="holdBg">Cancel</button></div></div></div>
 <div class="modal-overlay" id="heldBg"><div class="modal" style="max-width:480px"><h3>Held sales</h3><p class="dim">Resuming one while you have items in the cart will hold the current sale automatically.</p>
   <div id="heldList"></div>
-  <div class="modal-actions"><button class="btn-secondary" onclick="closeModal('heldBg')">Close</button></div></div></div>
+  <div class="modal-actions"><button class="btn-secondary" data-close-modal="heldBg">Close</button></div></div></div>
 <div class="modal-overlay" id="priceBg"><div class="modal"><h3 id="priceTitle">Change price</h3><p class="dim" id="priceFor"></p>
   <div id="priceField"><label for="priceNew">Negotiated price per unit (₱)</label><input id="priceNew" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div>
   <div id="priceAuth"><p class="faint" style="font-size:12.5px;margin-top:12px">A supervisor (finance account) must approve price changes. They can sign in right here; the password is not stored.</p>
     <label for="supEmail">Supervisor email</label><input id="supEmail" type="email" autocomplete="off">
     <label for="supPass">Supervisor password</label><input id="supPass" type="password" autocomplete="off"></div>
   <div class="err-text" id="priceErr"></div>
-  <div class="modal-actions"><button class="btn-primary" id="priceOk">Apply</button><button class="btn-secondary" onclick="closeModal('priceBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="priceOk">Apply</button><button class="btn-secondary" data-close-modal="priceBg">Cancel</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <script>window.ACCOUNT_CFG = { roleLabel: 'Cashier', idLabel: 'Employee ID', idPrefix: 'TEM', deptLabel: 'Department' };</script>
@@ -560,6 +560,8 @@ const TRASH = '<svg class="ico" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M6
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
 function closeModal(id) { $(id).classList.remove('show'); }
+/* CSP: no inline onclick attributes — buttons carry data-close-modal and this one listener closes the modal */
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('[data-close-modal]'); if (b) closeModal(b.dataset.closeModal); });
 const prod = sku => PRODUCTS.find(p => p.sku === sku);
 const cents = n => Math.round((Number(n) + Number.EPSILON) * 100);                 // money is compared in whole centavos, never raw floats
 /* quantities: whole numbers for sheets / pcs / boxes, up to 2 decimals for kg / metres etc. */

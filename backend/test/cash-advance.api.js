@@ -12,6 +12,7 @@ const sql = (q) => execSync(`psql -At postgres://triplee:x@localhost:5432/triple
 async function session(email) {
   const r = await fetch(B + '/api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password: 'StrongP@ss1' }) });
   const cookie = (r.headers.get('set-cookie') || '').split(';')[0];
+  if (!cookie) throw new Error('Sign-in answered ' + r.status + '. Start this DEV server with LOGIN_OTP=off: the walk-through cannot type a one-time code.');
   return async (method, path, body, extra) => { const x = await fetch(B + path, { method, headers: Object.assign({ 'Content-Type': 'application/json', cookie }, extra || {}), body: body ? JSON.stringify(body) : undefined }); return { status: x.status, body: await x.json().catch(() => ({})) }; };
 }
 const rid = () => 'test-' + Math.random().toString(36).slice(2, 14) + Date.now();

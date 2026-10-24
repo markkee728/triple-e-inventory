@@ -18,6 +18,9 @@ process.on('uncaughtException', (err) => console.error('[server] uncaught except
 const app = express();
 const security = require('./security');   // OWASP Top 10:2025 — headers, CSRF, rate limits, append-only audit, proxy (security.js)
 security.mount({ app, pool });
+// who/where for the audit log: the client address (real one behind the proxy, see security.js) and browser of the request that caused each entry
+const requestContext = new (require('async_hooks').AsyncLocalStorage)();
+app.use((req, res, next) => requestContext.run({ ip: req.ip, ua: req.get('user-agent') }, next));
 app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 // Low-stock alerts (email + text). Registered this early so it also sees every change made by the routes below.
@@ -705,45 +708,45 @@ const tx = async (fn) => {
 };
 
 /* ---------- auth ---------- */
-// A session is only as good as the account behind it: a disabled account (or one whose role changed) loses access on its
-// next request, not when its 8-hour cookie runs out. The answer is cached for a few seconds so this is one small query per user.
-const accountCheck = new Map();                       // user_id -> { ok, at }
-const ACCOUNT_CHECK_MS = 10000;
-async function accountStillValid(user) {
-  const hit = accountCheck.get(user.id);
-  if (hit && Date.now() - hit.at < ACCOUNT_CHECK_MS) return hit.ok;
-  try {
-    const r = (await pool.query('SELECT u.status, r.role_key FROM users u JOIN roles r USING (role_id) WHERE u.user_id = $1', [user.id])).rows[0];
-    const ok = !!r && r.status === 'active' && r.role_key === user.role;
-    accountCheck.set(user.id, { ok, at: Date.now() });
-    if (accountCheck.size > 5000) accountCheck.clear();
-    return ok;
-  } catch (e) {
-    console.error('[auth] could not check the account, allowing the signed session:', e.message);
-    return true;                                      // a database hiccup must not sign everybody out
-  }
-}
-app.locals.forgetAccountCheck = (id) => accountCheck.delete(Number(id));
-function auth(...allowed) {
-  return (req, res, next) => {
-    try {
-      req.user = jwt.verify(req.cookies.session, process.env.JWT_SECRET);
-    } catch { return res.status(401).json({ error: 'Not signed in' }); }
-    if (allowed.length && !allowed.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
-    accountStillValid(req.user).then((ok) => {
-      if (ok) return next();
-      res.clearCookie('session');
-      res.status(401).json({ code: 'ACCOUNT_DISABLED', error: 'This account is disabled or was changed. Please sign in again.' });
-    }, next);
-  };
-}
-async function audit(client, user, action, detail) {
-  await client.query(
-    `INSERT INTO audit_log (user_id, user_name, role_label, action, detail) VALUES ($1,$2,$3,$4,$5)`,
-    [user.id, user.name, user.roleLabel, action, detail]);
+// Session + role check lives in auth-middleware.js (401 not signed in, 403 wrong role BEFORE any database work, 401 disabled account).
+const { auth, forgetAccountCheck, revocation } = require('./auth-middleware')(pool);
+app.locals.forgetAccountCheck = forgetAccountCheck;
+app.locals.sessionRevocation = revocation;           // password change / reset: sign the person out everywhere else (users.token_version)
+
+/* The ONLY place a session cookie is written. tv = users.token_version the session is issued for (see auth-middleware.js). */
+function startSession(res, user, tv) {
+  res.cookie('session', jwt.sign({ id: user.id, name: user.name, role: user.role, roleLabel: user.roleLabel, tv: Number(tv) || 0 }, process.env.JWT_SECRET, { expiresIn: '8h' }), {
+    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
 }
 
+// Audit entries also record the client address and browser (db/025). The columns are added at start-up too; until that finishes, the old insert is used.
+let auditHasWho = false;
+pool.query('ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS ip_address TEXT')
+  .then(() => pool.query('ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS user_agent TEXT'))
+  .then(() => { auditHasWho = true; })
+  .catch((e) => console.warn('[audit] the audit log will not record IP address / browser (could not add the columns):', e.message));
+async function audit(client, user, action, detail) {
+  if (!auditHasWho) return client.query(
+    `INSERT INTO audit_log (user_id, user_name, role_label, action, detail) VALUES ($1,$2,$3,$4,$5)`,
+    [user.id, user.name, user.roleLabel, action, detail]);
+  const ctx = requestContext.getStore() || {};
+  return client.query(
+    `INSERT INTO audit_log (user_id, user_name, role_label, action, detail, ip_address, user_agent) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+    [user.id, user.name, user.roleLabel, action, detail, ctx.ip ? String(ctx.ip).slice(0, 64) : null, ctx.ua ? String(ctx.ua).slice(0, 300) : null]);
+}
+
+app.locals.alerts = require('./security-alerts')({ mailer: require('./mailer') });   // detective control: alerts on repeated failed sign-ins (OWASP A09)
 require('./login-lockout')({ app, pool, wrap, audit, str, EMAIL_RE });
+/* The ONLY place a sign-in session is started. Called after the password AND the one-time code (login-otp.js) were right,
+   or straight after the password when LOGIN_OTP=off. u needs user_id, full_name, role_key, label. */
+app.locals.completeLogin = async (res, u, how) => {
+  const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
+  await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
+  await audit(pool, user, 'Login', 'Successful login' + (how ? ' (one-time code by ' + how + ')' : ''));
+  startSession(res, user, u.token_version);
+  return user;
+};
+require('./login-otp')({ app, pool, wrap, tx, audit, str });
 app.post('/api/auth/login', wrap(async (req, res) => {
   const email = str(req.body && req.body.email).toLowerCase();
   const password = req.body && req.body.password;
@@ -759,8 +762,10 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     if (st) return res.status(423).json(st);
   }
   if (!u || u.status !== 'active' || !(await bcrypt.compare(password, u.password_hash))) {
+    app.locals.alerts.failedLogin({ ip: req.ip, email }).catch(() => {});
     if (u && u.status === 'active') {
       const f = await lock.fail(u, req);
+      if (f.locked) app.locals.alerts.lockout({ email: u.email, role: u.role_key }).catch(() => {});
       if (f.locked) return res.status(423).json({ code: 'LOCKED', secondsLeft: 0, emailSent: f.emailSent,
         error: 'Too many failed attempts. ' + (f.emailSent ? 'We emailed you an unlock link. Open it to unlock your account.' : 'We could not send the unlock email. Try "Resend unlock link" in a minute.') });
       return res.status(401).json({ error: 'Invalid email or password', attemptsLeft: f.attemptsLeft });
@@ -783,12 +788,13 @@ app.post('/api/auth/login', wrap(async (req, res) => {
     }
   }
   await lock.clear(u.user_id);                       // right password: the failed-attempt count starts again from 0
-  await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
-  const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
-  await audit(pool, user, 'Login', 'Successful login');
-  res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
-    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
-  res.json(user);
+  // Second factor on EVERY sign-in: the password alone never starts a session. The person now chooses to get a one-time code by
+  // email or text message (login-otp.js). LOGIN_OTP=off skips this step (development / test harnesses only).
+  if (app.locals.loginOtp.enabled()) {
+    await audit(pool, { id: u.user_id, name: u.full_name, roleLabel: u.label }, 'Login', 'Password accepted; one-time code required');
+    return res.status(403).json(app.locals.loginOtp.challengeFor(u));
+  }
+  res.json(await app.locals.completeLogin(res, u));
 }));
 app.post('/api/auth/logout', wrap(async (req, res) => {
   // record the log out in the audit log (the cookie is read here because this route is open to expired sessions too)
@@ -919,8 +925,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
   const message = notes.join(' ');
   // the session cookie carries the display name, so refresh it
   const user = { id: req.user.id, name: result.full_name, role: req.user.role, roleLabel: req.user.roleLabel };
-  res.cookie('session', jwt.sign(user, process.env.JWT_SECRET, { expiresIn: '8h' }), {
-    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
+  startSession(res, user, req.user.tv);                 // same session number: a profile edit must not log other devices out
   res.json({ ...profileJson(result), message });
 }));
 // change password: any signed-in user.
@@ -949,11 +954,15 @@ app.put('/api/auth/password', auth(), wrap(async (req, res) => {
   if (needCode && !channels.length) throw new ValidationError({ code: 'No verified email or mobile number is on this account, so a code cannot be sent. Ask the Finance/Admin team for help.' });
   if (needCode && !channels.includes(channel)) throw new ValidationError({ code: 'Choose email or text message, then enter the code sent to it.' });
   const hash = await bcrypt.hash(next, 12);
-  await tx(async (client) => {
+  const newTv = await tx(async (client) => {
     if (needCode) await otp.consume(client, req.user.id, 'change-' + channel, b.code);   // the code is used up only when it is right
     await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, req.user.id]);
+    const tv = await revocation.bump(client, req.user.id);                               // every OTHER device is signed out (OWASP A07 session management)
     await audit(client, req.user, 'Profile updated', needCode ? 'Changed password (confirmed with a one-time code sent to the email or the mobile number)' : 'Changed password');
+    return tv;
   });
+  forgetAccountCheck(req.user.id);
+  startSession(res, req.user, newTv);                    // this device stays signed in with the new session number
   res.json({ ok: true });
 }));
 // profile photo: JPG / PNG up to 2 MB, kept in the users table (avatar BYTEA)
@@ -1746,7 +1755,7 @@ require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str
   }
   const cron = async (req, res) => {
     const key = process.env.AUTOMATION_CRON_KEY || process.env.LOW_STOCK_CRON_KEY;
-    if (!key || req.get('x-cron-key') !== key) return res.status(404).json({ error: 'Not found' });
+    if (!key || !security.safeEqual(req.get('x-cron-key'), key)) return res.status(404).json({ error: 'Not found' });
     res.json(await runAutomation());
   };
   app.get('/api/automation/run', cron);
@@ -1755,6 +1764,16 @@ require('./quote-desk')({ app, pool, auth, wrap, tx, audit, ValidationError, str
   setInterval(runAutomation, every).unref();
   setTimeout(runAutomation, 45000).unref();      // after the schemas are ready
   app.locals.runAutomation = runAutomation;
+}
+
+// Data minimisation (RA 10173): expired one-time codes and tokens are deleted every 6 hours by security_purge_expired() (db/025).
+// Until that migration is applied the function does not exist; that is not an error.
+{
+  const purge = () => pool.query('SELECT security_purge_expired() AS r')
+    .then((x) => { const n = Object.values((x.rows[0] && x.rows[0].r) || {}).reduce((a, b) => a + Number(b || 0), 0); if (n) console.log('[security] purged ' + n + ' expired code/token rows'); })
+    .catch((e) => { if (e.code !== '42883') console.warn('[security] purge failed:', e.message); });
+  setInterval(purge, 6 * 3600 * 1000).unref();
+  setTimeout(purge, 5 * 60 * 1000).unref();
 }
 
 require('./cash-shifts')({ app, pool, auth, wrap, tx, audit, TZ });
@@ -1784,6 +1803,30 @@ app.use((req, res, next) => {
   const roles = PRIVATE_PAGES[name];
   if (roles && !roles.includes(user.role)) return res.redirect(PAGE_HOME[user.role] || '/Login_Inventory.html');
   next();
+});
+
+/* Stamp the per-request CSP nonce (set by security.js) onto every inline <script> tag so the browser will run it
+   under the nonce-based Content-Security-Policy, instead of serving the HTML file as-is via express.static.
+   External <script src="..."> tags are left untouched — the nonce only applies to inline script content. (OWASP
+   A05:2021 — Security Misconfiguration / XSS hardening: removes 'unsafe-inline' from script-src.) */
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+  if (!req.path.toLowerCase().endsWith('.html')) return next();
+  let rel;
+  try { rel = decodeURIComponent(req.path).replace(/^\/+/, ''); } catch (e) { return next(); }
+  const file = path.join(dir, rel);
+  if (file !== dir && !file.startsWith(dir + path.sep)) return next();   // path traversal guard
+  fs.readFile(file, 'utf8', (err, html) => {
+    if (err) return next();                       // let express.static produce the normal 404
+    const nonce = res.locals.cspNonce;
+    const stamped = nonce ? html.replace(/<script(\s[^>]*)?>/gi, (full, attrs) => {
+      attrs = attrs || '';
+      if (/\bsrc\s*=/i.test(attrs)) return full;   // external script: no inline content, no nonce needed
+      return '<script nonce="' + nonce + '"' + attrs + '>';
+    }) : html;
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.send(stamped);
+  });
 });
 app.use(express.static(dir));
 

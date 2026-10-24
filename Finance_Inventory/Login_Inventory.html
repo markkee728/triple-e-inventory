@@ -1067,6 +1067,42 @@
         </div>
       </div>
 
+      <!-- ===== SIGN-IN CODE (second step of every sign-in: email or text message) ===== -->
+      <div class="screen" id="loginOtpScreen">
+        <div class="brand-mark">
+          <div class="mark">3<span class="cursive-e">E</span></div>
+          <span class="eyebrow">Two-Step Sign-In</span>
+        </div>
+        <h1 style="margin-top:10px">Confirm it&rsquo;s you</h1>
+        <p class="sub" id="loSub">Choose where to send your one-time sign-in code.</p>
+        <p class="form-error" id="loMsg" role="status"></p>
+
+        <div id="loChoose">
+          <button type="button" class="submit alt-btn" id="loPickEmail" style="margin-bottom:10px">Email me a code<br><small id="loEmailMask"></small></button>
+          <button type="button" class="submit alt-btn" id="loPickSms">Text me a code<br><small id="loSmsMask"></small></button>
+        </div>
+
+        <div id="loEnter" hidden>
+          <p class="hint">We sent a 6-digit code to <b id="loDest">your device</b>. It is only valid for a few minutes.</p>
+          <div class="otp-row" id="loOtpRow">
+            <input class="otp-digit" inputmode="numeric" autocomplete="one-time-code" maxlength="1" aria-label="Digit 1">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 2">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 3">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 4">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 5">
+            <input class="otp-digit" inputmode="numeric" maxlength="1" aria-label="Digit 6">
+          </div>
+          <p class="otp-error" id="loOtpError" role="alert"></p>
+          <div class="otp-meta">
+            <span>Code expires in <span class="timer" id="loTimer">--:--</span></span>
+            <button type="button" class="link-btn" id="loResend">Resend code</button>
+          </div>
+          <button type="button" class="submit" id="loVerify">Verify and sign in</button>
+          <p class="back-row"><a href="#" class="link" id="loChange">Use a different method</a></p>
+        </div>
+        <p class="back-row"><a href="#" class="link" id="loCancel">Back to sign in</a></p>
+      </div>
+
       <!-- ===== VERIFY RESULT / LINK PROBLEMS ===== -->
       <div class="screen" id="noticeScreen">
         <div class="brand-mark">
@@ -1230,6 +1266,11 @@
         const home = HOME_BY_ROLE[r.data.role];
         if (!home){ showLoginError('Your account has no access set up yet. Please contact the store.'); return; }
         window.location.replace(home);                       // go straight to this role's page
+        return;
+      }
+      if (r.status === 403 && r.data.code === 'OTP_REQUIRED'){          // password was right: now the one-time code (email or text)
+        $('password').value = '';
+        openLoginOtp(r.data);
         return;
       }
       if (r.status === 403 && r.data.code === 'VERIFICATION_REQUIRED'){
@@ -1721,6 +1762,98 @@
     startResendCooldown(60);
   });
   $('ceToLogin').addEventListener('click', () => { clearInterval(pollTimer); $('email').value = pendingEmail; $('password').value = ''; clearLoginState(); showScreen('loginScreen'); });
+
+  /* ---------- sign-in code screen: the second step of EVERY sign-in. The person chooses email or text message. ---------- */
+  let loToken = '', loChannel = '', loCd = null, loExp = null, loOptions = {};
+  const loBoxes = Array.from(document.querySelectorAll('#loOtpRow .otp-digit'));
+  const loValue = () => loBoxes.map(i => i.value).join('');
+  function loError(msg){ const e = $('loOtpError'); e.textContent = msg || ''; e.classList.toggle('show', !!msg); $('loOtpRow').classList.toggle('invalid', !!msg); }
+  function loDigitsClear(){ loBoxes.forEach(i => { i.value = ''; i.classList.remove('filled'); }); }
+  function loMsg(text){ const m = $('loMsg'); m.classList.toggle('show', !!text); m.textContent = text || ''; }
+  function loCooldown(sec){
+    const b = $('loResend'); clearInterval(loCd); b.disabled = true;
+    let left = sec; b.textContent = 'Resend code (' + left + 's)';
+    loCd = setInterval(() => { left--; if (left <= 0){ clearInterval(loCd); b.disabled = false; b.textContent = 'Resend code'; } else b.textContent = 'Resend code (' + left + 's)'; }, 1000);
+  }
+  function loExpiry(sec){
+    const t = $('loTimer'); clearInterval(loExp); t.classList.remove('expired');
+    let left = sec;
+    const draw = () => { t.textContent = String(Math.floor(left / 60)).padStart(2, '0') + ':' + String(left % 60).padStart(2, '0'); };
+    draw();
+    loExp = setInterval(() => { left--; if (left <= 0){ clearInterval(loExp); t.textContent = 'expired'; t.classList.add('expired'); } else draw(); }, 1000);
+  }
+  loBoxes.forEach((box, i) => {
+    box.addEventListener('input', () => {
+      box.value = box.value.replace(/\D/g, '').slice(-1); box.classList.toggle('filled', !!box.value); loError('');
+      if (box.value && i < 5) loBoxes[i + 1].focus();
+      if (loValue().length === 6) $('loVerify').click();
+    });
+    box.addEventListener('keydown', (e) => { if (e.key === 'Backspace' && !box.value && i > 0) loBoxes[i - 1].focus(); });
+    box.addEventListener('paste', (e) => {
+      const d = ((e.clipboardData || window.clipboardData).getData('text') || '').replace(/\D/g, '').slice(0, 6);
+      if (!d) return; e.preventDefault();
+      loBoxes.forEach((b, k) => { b.value = d[k] || ''; b.classList.toggle('filled', !!b.value); });
+      loBoxes[Math.min(d.length, 5)].focus();
+      if (d.length === 6) $('loVerify').click();
+    });
+  });
+  function loBack(message){                                   // back to the password form (session expired, or the person cancelled)
+    clearInterval(loCd); clearInterval(loExp); loToken = ''; loChannel = '';
+    $('password').value = ''; clearLoginState(); showScreen('loginScreen');
+    if (message) showLoginError(message);
+  }
+  function loShowChoice(){
+    clearInterval(loCd); clearInterval(loExp); loChannel = '';
+    $('loChoose').hidden = false; $('loEnter').hidden = true; loDigitsClear(); loError('');
+    $('loSub').textContent = 'Choose where to send your one-time sign-in code.';
+  }
+  function openLoginOtp(d){
+    loToken = d.challengeToken || ''; loOptions = { email: d.email || null, sms: d.sms || null };
+    $('loPickEmail').hidden = !loOptions.email; $('loPickSms').hidden = !loOptions.sms;
+    $('loEmailMask').textContent = loOptions.email ? loOptions.email.masked : '';
+    $('loSmsMask').textContent = loOptions.sms ? loOptions.sms.masked : '';
+    loMsg(''); loShowChoice(); showScreen('loginOtpScreen');
+  }
+  async function loSend(channel){
+    loMsg(''); loError('');
+    const r = await api('POST', '/api/auth/login-otp/send', { token: loToken, channel }).catch(() => null);
+    if (!r){ loMsg('Could not reach the server. Try again.'); return; }
+    if (r.status === 401) return loBack(r.data.error || 'Your sign-in session expired. Please sign in again.');
+    if (r.ok){
+      loChannel = r.data.channel || channel;                       // where the live code really went (differs when a code was sent a moment ago by the other method)
+      $('loChoose').hidden = true; $('loEnter').hidden = false;
+      $('loDest').textContent = (loOptions[loChannel] && loOptions[loChannel].masked) || 'your device';
+      $('loSub').textContent = 'Enter the 6-digit code to finish signing in.';
+      if (!r.data.recent) loDigitsClear();
+      loMsg(r.data.message || '');
+      loCooldown(r.data.waitSeconds || 60); loExpiry(r.data.expiresIn || 300); loBoxes[0].focus();
+      return;
+    }
+    if (r.status === 429 && !$('loEnter').hidden){ loError(r.data.error); loCooldown(Math.min(r.data.waitSeconds || 60, 3600)); return; }
+    loMsg(r.data.error || 'Could not send the code. Try again.');
+  }
+  $('loPickEmail').addEventListener('click', () => loSend('email'));
+  $('loPickSms').addEventListener('click', () => loSend('sms'));
+  $('loResend').addEventListener('click', () => { $('loResend').disabled = true; loSend(loChannel || 'email'); });
+  $('loChange').addEventListener('click', (e) => { e.preventDefault(); loMsg(''); loShowChoice(); });
+  $('loCancel').addEventListener('click', (e) => { e.preventDefault(); loBack(''); });
+  $('loVerify').addEventListener('click', async () => {
+    const code = loValue();
+    if (code.length !== 6){ loError('Enter the 6-digit code.'); return; }
+    const b = $('loVerify'); if (b.disabled) return; b.disabled = true; b.textContent = 'Checking…';
+    const r = await api('POST', '/api/auth/login-otp/verify', { token: loToken, code }).catch(() => null);
+    b.disabled = false; b.textContent = 'Verify and sign in';
+    if (!r){ loError('Could not reach the server. Try again.'); return; }
+    if (r.ok){
+      const home = HOME_BY_ROLE[r.data.role];
+      if (!home){ loError('Your account has no access set up yet. Please contact the store.'); return; }
+      window.location.replace(home);
+      return;
+    }
+    if (r.status === 401) return loBack(r.data.error || 'Your sign-in session expired. Please sign in again.');
+    loError(r.data.error || 'That code did not work.');
+    loDigitsClear(); loBoxes[0].focus();
+  });
 
   /* ---------- generic notice screen ---------- */
   function notice(eyebrow, title, text, buttonText){

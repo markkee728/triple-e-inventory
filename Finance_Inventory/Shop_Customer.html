@@ -370,14 +370,14 @@ a.nav-item{text-decoration:none}
   <select id="cancelReason"><option value="">Choose a reason…</option><option value="changed_mind">Changed my mind</option><option value="ordered_by_mistake">Ordered by mistake</option><option value="wrong_item_or_qty">Wrong item or quantity</option><option value="found_better_price">Found a better price</option><option value="too_slow">Delivery or pickup will take too long</option><option value="wrong_details">Wrong address or contact details</option><option value="payment_problem">Problem with payment</option><option value="other">Other</option></select>
   <label for="cancelDetails" id="cancelDetailsLbl" style="margin-top:12px">More details (optional)</label><textarea id="cancelDetails" rows="3" maxlength="300" placeholder="Anything else you would like us to know"></textarea>
   <div class="err-text" id="cancelErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-danger" id="cancelSend">Cancel order</button><button class="btn-secondary" onclick="closeModal('cancelBg')">Keep order</button></div></div></div>
+  <div class="modal-actions"><button class="btn-danger" id="cancelSend">Cancel order</button><button class="btn-secondary" data-close-modal="cancelBg">Keep order</button></div></div></div>
 <div class="modal-overlay" id="refundBg"><div class="modal"><h3>Request a refund</h3><p class="dim" id="refundFor"></p>
   <label for="refundReason">Reason</label>
   <select id="refundReason"><option value="">Choose a reason…</option><option value="damaged">Damaged or defective</option><option value="wrong_item">Wrong item received</option><option value="not_as_described">Not as described</option><option value="missing_items">Missing items</option><option value="other">Other</option></select>
   <label for="refundDetails" style="margin-top:12px">What went wrong? (required)</label><textarea id="refundDetails" rows="3" maxlength="300" placeholder="Tell us what happened so we can review it quickly"></textarea>
   <div class="err-text" id="refundErr" role="alert"></div>
   <p class="dim" style="font-size:13px;margin-top:8px">Our team reviews every request. You will see the decision on this page.</p>
-  <div class="modal-actions"><button class="btn-primary" id="refundSend">Send request</button><button class="btn-secondary" onclick="closeModal('refundBg')">Close</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="refundSend">Send request</button><button class="btn-secondary" data-close-modal="refundBg">Close</button></div></div></div>
 <div class="modal-overlay" id="payBg"><div class="modal" style="max-width:480px;text-align:center">
   <h3 id="payTitle">Complete your payment</h3><p class="dim" id="payFor"></p>
   <div id="payWait">
@@ -390,7 +390,7 @@ a.nav-item{text-decoration:none}
   <div class="modal-actions" style="justify-content:center"><button class="btn-secondary" id="payClose">Close</button></div></div></div>
 <div class="modal-overlay" id="receiptBg"><div class="modal" style="max-width:560px;max-height:92vh;overflow:auto">
   <div id="rcptBody"></div>
-  <div class="modal-actions" style="justify-content:center;flex-wrap:wrap"><button class="btn-primary" id="rcptPrint">Print / Save as PDF</button><button class="btn-secondary" id="rcptOrders">View my orders</button><button class="btn-secondary" onclick="closeModal('receiptBg')">Close</button></div></div></div>
+  <div class="modal-actions" style="justify-content:center;flex-wrap:wrap"><button class="btn-primary" id="rcptPrint">Print / Save as PDF</button><button class="btn-secondary" id="rcptOrders">View my orders</button><button class="btn-secondary" data-close-modal="receiptBg">Close</button></div></div></div>
 <div id="toast" role="status"></div>
 
 <!-- My Profile / Change Password window — shared with Finance Admin and the Cashier (account-menu.js) -->
@@ -406,7 +406,7 @@ a.nav-item{text-decoration:none}
   <div class="star-pick" id="starPick" role="radiogroup" aria-label="Rating"></div>
   <label for="reviewBody" style="margin-top:12px">Your review <span class="dim">(optional)</span></label><textarea id="reviewBody" rows="4" maxlength="1000" placeholder="How was the quality, size and finish? Did it match the description?"></textarea>
   <div class="err-text" id="reviewErr" role="alert"></div>
-  <div class="modal-actions"><button class="btn-primary" id="reviewSend">Post review</button><button class="btn-secondary" onclick="closeModal('reviewBg')">Cancel</button></div></div></div>
+  <div class="modal-actions"><button class="btn-primary" id="reviewSend">Post review</button><button class="btn-secondary" data-close-modal="reviewBg">Cancel</button></div></div></div>
 <style>
 .pd-dialog{position:relative;width:min(980px,100%);max-height:92vh;overflow:auto;background:var(--card);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overscroll-behavior:contain}
 .pd-close{position:absolute;top:12px;right:12px;z-index:5;width:38px;height:38px;border-radius:50%;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:22px;line-height:1;cursor:pointer}
@@ -597,6 +597,19 @@ const EMPTY_CART_ICO = '<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="
 
 function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = (err ? 'err ' : '') + 'show'; clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 3000); }
 function closeModal(id) { $(id).classList.remove('show'); }
+/* CSP: no inline onclick/onerror attributes — elements carry data-* flags and these delegated listeners act on them */
+document.addEventListener('click', e => {
+  const t = e.target.closest && e.target.closest('[data-close-modal],[data-goto-profile],[data-noop-link]');
+  if (!t) return;
+  if (t.hasAttribute('data-close-modal')) closeModal(t.dataset.closeModal);
+  else if (t.hasAttribute('data-goto-profile')) { e.preventDefault(); const b = $('myProfileBtn'); if (b) b.click(); }
+  else e.preventDefault();
+});
+document.addEventListener('error', e => {
+  const t = e.target;
+  if (!t || !t.matches || !t.matches('img[data-err-hide]')) return;
+  if (t.dataset.errHide === 'visibility') t.style.visibility = 'hidden'; else t.hidden = true;
+}, true);
 
 /* ----- theme (same behaviour + storage key as the inventory app) ----- */
 function applyTheme(t) {
@@ -692,10 +705,10 @@ function starsHtml(avg) { return '<span class="stars" style="--p:' + Math.max(0,
 function ratingLine(avg, n, link) {
   if (!n) {
     const none = starsHtml(0) + ' <span class="dim">No reviews yet</span>';
-    return '<div class="rating none">' + (link ? '<a href="#" data-pdtab-go="reviews" onclick="return false">' + none + '</a>' : none) + '</div>';
+    return '<div class="rating none">' + (link ? '<a href="#" data-pdtab-go="reviews" data-noop-link>' + none + '</a>' : none) + '</div>';
   }
   const inner = starsHtml(avg) + ' <span class="rate-num">' + Number(avg).toFixed(1) + '</span> <span class="dim">(' + n + ' review' + (n === 1 ? '' : 's') + ')</span>';
-  return '<div class="rating" role="img" aria-label="' + Number(avg).toFixed(1) + ' out of 5 stars, ' + n + ' reviews">' + (link ? '<a href="#" data-pdtab-go="reviews" onclick="return false">' + inner + '</a>' : inner) + '</div>';
+  return '<div class="rating" role="img" aria-label="' + Number(avg).toFixed(1) + ' out of 5 stars, ' + n + ' reviews">' + (link ? '<a href="#" data-pdtab-go="reviews" data-noop-link>' + inner + '</a>' : inner) + '</div>';
 }
 function stockMsg(p) {
   if (p.available <= 0) return `<div class="pd-stockmsg bad"><span>Out of stock.${p.notifyMe ? " We'll email you as soon as it is back." : ' Want to know when it is back?'}</span>${p.notifyMe ? `<button type="button" class="btn-secondary btn-sm" data-unnotify="${esc(p.sku)}">Cancel alert</button>` : `<button type="button" class="btn-primary btn-sm" data-notify="${esc(p.sku)}">Notify me</button>`}</div>`;
@@ -717,9 +730,9 @@ function renderCatalog() {
   const rows = filtered();
   $('resultLine').textContent = `${rows.length} of ${PRODUCTS.length} products`;
   $('grid').innerHTML = rows.map(p => { const out = p.available <= 0, n = inCart(p.sku); return `<article class="card prod">
-    <div class="prod-art" data-details="${esc(p.sku)}" style="cursor:pointer" title="View details">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" onerror="this.hidden=true" />` : catIcon(p.category)}${stockChip(p)}</div>
+    <div class="prod-art" data-details="${esc(p.sku)}" style="cursor:pointer" title="View details">${p.image ? `<img class="shop-product-image" src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" data-err-hide="hidden" />` : catIcon(p.category)}${stockChip(p)}</div>
     <div class="prod-body">
-      <div class="prod-head"><div class="sku">${esc(p.sku)}</div><div class="name"><a href="#" data-details="${esc(p.sku)}" style="color:inherit;text-decoration:none" onclick="return false">${esc(p.name)}</a></div><div class="spec">${esc(p.spec || p.category)}</div></div>
+      <div class="prod-head"><div class="sku">${esc(p.sku)}</div><div class="name"><a href="#" data-details="${esc(p.sku)}" style="color:inherit;text-decoration:none" data-noop-link>${esc(p.name)}</a></div><div class="spec">${esc(p.spec || p.category)}</div></div>
       <div class="prod-foot">
       <div class="price-row"><span class="price">${peso(p.price)}</span><span class="per">/ ${esc(p.unit)}</span></div>
       <div class="prod-meta">${metaChips(p)}</div>
@@ -1432,7 +1445,7 @@ async function openProductDetails(sku) {
   let cur = 0;
   area.innerHTML = `<div class="pd-grid">
     <div class="pd-gallery">
-      <div class="pd-stage" id="pdStage">${catIcon(p.category)}${photos.length ? `<img id="pdHero" src="${esc(photos[0].url)}" alt="${esc(photos[0].alt || d.name)}" onerror="this.style.visibility='hidden'">` : ''}
+      <div class="pd-stage" id="pdStage">${catIcon(p.category)}${photos.length ? `<img id="pdHero" src="${esc(photos[0].url)}" alt="${esc(photos[0].alt || d.name)}" data-err-hide="visibility">` : ''}
         ${photos.length > 1 ? `<button type="button" class="pd-nav prev" data-pd="-1" aria-label="Previous photo">&#8249;</button><button type="button" class="pd-nav next" data-pd="1" aria-label="Next photo">&#8250;</button><span class="pd-count" id="pdCount">1 / ${photos.length}</span>` : ''}
       </div>
       ${photos.length > 1 ? `<div class="pd-thumbs">${photos.map((im, i) => `<button type="button" class="pd-thumb ${i ? '' : 'on'}" data-pdthumb="${i}" aria-label="Show photo ${i + 1}"><img src="${esc(im.url)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
@@ -1597,7 +1610,7 @@ function fillQuoteContact() {
       lk.style.fontSize = '11.5px';
       lk.style.color = '#475467';
       lk.style.marginTop = '4px';
-      lk.innerHTML = 'Locked to your profile name. <a href="javascript:void(0)" onclick="if($(\'myProfileBtn\'))$(\'myProfileBtn\').click()" style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
+      lk.innerHTML = 'Locked to your profile name. <a href="#" data-goto-profile style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
       n.parentElement.appendChild(lk);
     }
     qErr('contactName', '');
@@ -1616,7 +1629,7 @@ function fillQuoteContact() {
       lk.style.fontSize = '11.5px';
       lk.style.color = '#475467';
       lk.style.marginTop = '4px';
-      lk.innerHTML = 'Locked to your profile mobile number. <a href="javascript:void(0)" onclick="if($(\'myProfileBtn\'))$(\'myProfileBtn\').click()" style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
+      lk.innerHTML = 'Locked to your profile mobile number. <a href="#" data-goto-profile style="color:#1e5aa8;text-decoration:underline">Edit in My Profile</a>';
       p.parentElement.appendChild(lk);
     }
     qErr('phone', '');

@@ -17,9 +17,18 @@
      AUTH_RATE_LIMIT    sign-in / sign-up / OTP limit per IP per 10 minutes (default 40)
      COOKIE_SECURE      true or false; when not set it is true in production */
 'use strict';
+const crypto = require('crypto');
 
 const isProd = () => process.env.NODE_ENV === 'production';
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
+
+/* ---------- constant-time secret comparison (OWASP A02/A07: no timing side channel on cron keys and webhook tokens) ---------- */
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const ha = crypto.createHash('sha256').update(a).digest();
+  const hb = crypto.createHash('sha256').update(b).digest();
+  return crypto.timingSafeEqual(ha, hb);
+}
 
 /* ---------- cookies ---------- */
 // The session cookie is "Secure" (HTTPS only) in production unless COOKIE_SECURE=false is set on purpose.
@@ -31,25 +40,33 @@ function cookieSecure() {
 }
 
 /* ---------- headers ---------- */
-// 'unsafe-inline' stays for scripts and styles because the pages still contain inline <script> blocks and style attributes.
-// Moving them to files and using nonces is the next hardening step. Everything else is locked down.
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
-  "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
-  "img-src 'self' data: blob: https:",
-  "connect-src 'self'",
-  "frame-src 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'"
-].join('; ');
+// script-src: a fresh per-request nonce replaces 'unsafe-inline' (OWASP A05:2021 — Security Misconfiguration / XSS hardening).
+// The matching nonce is stamped onto every inline <script> tag when an HTML page is served — see the page-render
+// middleware in server.js. Browsers that understand nonce-source ignore 'unsafe-inline' automatically, so any inline
+// script an attacker injects (not carrying the per-request nonce) will not execute.
+// style-src keeps 'unsafe-inline': the pages set style attributes dynamically from JS in many places, inline styles
+// cannot run arbitrary script, and nonce-ing every style attribute would be high-churn for low security benefit.
+function buildCSP(nonce) {
+  return [
+    "default-src 'self'",
+    "script-src 'self' 'nonce-" + nonce + "' https://cdnjs.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
+    "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self'",
+    "frame-src 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; ');
+}
 
 function securityHeaders() {
   return (req, res, next) => {
-    res.setHeader('Content-Security-Policy', CSP);
+    const nonce = crypto.randomBytes(16).toString('base64');
+    res.locals.cspNonce = nonce;
+    res.setHeader('Content-Security-Policy', buildCSP(nonce));
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -128,6 +145,7 @@ function mount({ app, pool, limits } = {}) {
   const secret = String(process.env.JWT_SECRET || '');
   if (isProd() && (secret.length < 32 || /replace-with|changeme|secret$/i.test(secret)))
     console.warn('[security] JWT_SECRET is short or still a placeholder. Use at least 32 random characters in production.');
+  if (isProd() && String(process.env.LOGIN_OTP || '').trim().toLowerCase() === 'off') console.warn('[security] LOGIN_OTP=off in production: sign-in has no second factor. Remove it from .env.');
   if (isProd() && !cookieSecure()) console.warn('[security] COOKIE_SECURE is off in production: the session cookie can travel over plain HTTP.');
 
   const general = rateLimiter({ windowMs: 60000, max: (limits && limits.general) || num(process.env.RATE_LIMIT_PER_MIN, 600) });
@@ -144,4 +162,4 @@ function mount({ app, pool, limits } = {}) {
   if (pool) ensureAuditAppendOnly(pool).catch(() => {});
 }
 
-module.exports = { mount, cookieSecure, securityHeaders, originGuard, rateLimiter, CSP, AUDIT_SQL };
+module.exports = { mount, cookieSecure, securityHeaders, originGuard, rateLimiter, buildCSP, safeEqual, AUDIT_SQL };

@@ -161,7 +161,7 @@ ${link ? `<p style="margin:20px 0 0"><a href="${esc(link)}" style="background:#1
   // for Cloud Scheduler (or any timer): keeps alerts working when the server has been idle
   const cron = async (req, res) => {
     const key = env('LOW_STOCK_CRON_KEY');
-    if (!key || req.get('x-cron-key') !== key) return res.status(404).json({ error: 'Not found' });
+    if (!key || !require('./security').safeEqual(req.get('x-cron-key'), key)) return res.status(404).json({ error: 'Not found' });
     res.json(await check());
   };
   app.get('/api/low-stock/check', cron);

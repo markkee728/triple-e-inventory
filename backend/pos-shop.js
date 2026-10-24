@@ -505,7 +505,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
   app.post('/api/payments/xendit/webhook', wrap(async (req, res) => {
     const expected = process.env.XENDIT_CALLBACK_TOKEN;
     const supplied = req.get('x-callback-token');
-    if (!expected || !supplied || supplied !== expected) return res.status(401).json({ error: 'Invalid callback token' });
+    if (!expected || !supplied || !require('./security').safeEqual(supplied, expected)) return res.status(401).json({ error: 'Invalid callback token' });
     const event = req.body || {};
     const externalId = str(event.external_id);
     const invoiceId = str(event.id);
