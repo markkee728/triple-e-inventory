@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="ui2-core.css?v=1">
 <link rel="stylesheet" href="ui2-notifications.css?v=1">
-<link rel="stylesheet" href="ui2-shop.css?v=2">
+<link rel="stylesheet" href="ui2-shop.css?v=3">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -285,7 +285,14 @@ a.nav-item{text-decoration:none}
               <li><b>We send you a price</b><span>It appears under “My quote requests” when it is ready.</span></li>
               <li><b>Accept or decline</b><span>Accept to go ahead, or ask for a new quote.</span></li>
             </ol></div>
-          <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests</h3><div id="quoteList"><p class="dim">Loading…</p></div></div>
+          <div class="card quote-side" style="margin-bottom:14px"><h3>My quote requests <span class="qs-count" id="quoteCount"></span></h3>
+            <div class="qs-tools" id="quoteTools" hidden>
+              <div class="search-wrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="quoteSearch" placeholder="Search quotes…" autocomplete="off" aria-label="Search quote requests"></div>
+              <div class="ord-chips" id="quoteChips"></div>
+              <div class="result-line" id="quoteResult"></div>
+            </div>
+            <div id="quoteList"><p class="dim">Loading…</p></div>
+            <button type="button" class="btn-secondary btn-sm qs-more" id="quoteMore" hidden>Show 5 more</button></div>
           <div class="help-line" data-help></div>
         </aside>
       </div>
@@ -338,7 +345,16 @@ a.nav-item{text-decoration:none}
       <div class="ui2-hero">
         <div><div class="ui2-eyebrow"><span class="ui2-live"></span> Account</div><h1>My orders</h1><p>Track your orders, payments and deliveries.</p></div>
       </div>
+      <div class="ord-stats" id="orderStats" hidden></div>
+      <div class="ord-tools" id="orderTools" hidden>
+        <div class="search-wrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input id="orderSearch" placeholder="Search order no. or product…" autocomplete="off" aria-label="Search orders"></div>
+        <select id="orderSort" aria-label="Sort orders"><option value="new">Newest first</option><option value="old">Oldest first</option><option value="high">Highest total</option></select>
+        <button type="button" class="btn-secondary btn-sm" id="orderExpand">Expand all</button>
+        <div class="ord-chips" id="orderChips"></div>
+      </div>
+      <div class="result-line" id="orderResult"></div>
       <div id="orderList"></div>
+      <button type="button" class="btn-secondary ord-more" id="orderMore" hidden>Show 10 more</button>
       <div class="help-line" data-help></div>
     </section>
 
@@ -1211,11 +1227,28 @@ function payRowHtml(o) {
   return `<div class="row"><span class="dim">Payment</span><span class="mono">${esc(st)}${bal > 0 ? ' \u00B7 ' + peso(bal) + ' to pay' : ''}</span></div>`
     + (o.paymentState === 'partially_paid' ? balBarHtml(o) : '') + (o.terms && o.terms.key !== 'full' ? `<div class="fee-note">${o.terms.percent}% initial payment agreed${o.terms.condition ? ' \u00B7 balance ' + esc(o.terms.condition) : ''}.</div>` : '');
 }
-function renderOrders() {
-  $('navOrderCount').textContent = orders.length;
-  $('orderList').innerHTML = orders.length ? orders.map(o => { const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
-    return `<div class="card order">
-    <div class="order-head"><span class="id">${o.id}</span><span class="chip-pill ${o.status === 'Cancelled' ? 'bad' : done ? 'ok' : o.status === 'Pending Confirmation' ? 'warn' : ''}">${o.status}</span></div>
+const ORD = { q: '', f: 'all', sort: 'new', shown: 10, open: new Set(), seen: new Set() };
+const ORD_DONE = ['Delivered', 'Picked Up'], ORD_END = ['Cancelled', 'Returned'];
+const ordNeedsPay = o => !ORD_END.includes(o.status) && !ORD_DONE.includes(o.status) && ((o.advance && !o.advance.paid) || (o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005));
+const ordGroup = o => ORD_END.includes(o.status) ? 'cancelled' : ORD_DONE.includes(o.status) ? 'done' : (o.status === 'Pending Confirmation' || ordNeedsPay(o)) ? 'action' : 'progress';
+const ORD_FILTERS = [['all', 'All'], ['action', 'Needs action'], ['progress', 'In progress'], ['done', 'Completed'], ['cancelled', 'Cancelled']];
+const CHEV = '<svg class="ico chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+function orderCardHtml(o, open) {
+  const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
+  const grp = ordGroup(o), first = o.items[0] || { qty: 0, name: '' };
+  const title = o.items.length > 1 ? esc(first.name) + ' <span class="more">+' + (o.items.length - 1) + ' more</span>' : first.qty + ' × ' + esc(first.name);
+  const due = ordNeedsPay(o) ? (Number(o.dueNow) > 0 ? o.dueNow : o.outstanding) : 0;
+  const flag = due > 0 ? 'Pay ' + peso(due) : '';
+  const pct = i >= 0 ? Math.round(((done ? flow.length : i + 1) / flow.length) * 100) : 0;
+  return `<div class="card order ord g-${grp}${open ? ' open' : ''}" data-ord="${esc(o.id)}">
+    <button type="button" class="ord-sum" data-ord-toggle="${esc(o.id)}" aria-expanded="${open ? 'true' : 'false'}">
+      <span class="ord-top"><span class="id">${o.id}</span><span class="chip-pill ${o.status === 'Cancelled' ? 'bad' : done ? 'ok' : o.status === 'Pending Confirmation' ? 'warn' : ''}">${o.status}</span>${flag ? `<span class="ord-flag">${flag}</span>` : ''}</span>
+      <span class="ord-title">${title}</span>
+      <span class="ord-sub">${new Date(o.createdAt).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })} · ${o.fulfillment}</span>
+      <span class="ord-total mono">${peso(o.total)}</span>${CHEV}
+      ${i >= 0 && grp !== 'cancelled' ? `<span class="ord-prog" aria-hidden="true"><i style="width:${pct}%"></i></span>` : ''}
+    </button>
+    <div class="ord-body">
     <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${esc(payLabel(o.method))}</div>
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}${done ? reviewBtn(it) : ''}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
     ${o.deliveryFee ? `<div class="row"><span class="dim">Delivery</span><span class="mono">${peso(o.deliveryFee)}</span></div>` : ''}
@@ -1231,9 +1264,46 @@ function renderOrders() {
     ${o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005 && !['Cancelled', 'Returned', 'Delivered', 'Picked Up'].includes(o.status) ? `<button class="btn-primary btn-sm" style="margin-top:12px" data-xendit="${esc(o.id)}">${Number(o.paidAmount || 0) > 0 ? 'Pay remaining ' + peso(o.outstanding) : Number(o.dueNow) > 0 ? 'Pay ' + peso(o.dueNow) + ' now' : 'Continue Online Payment'}</button>` : ''}
     ${i >= 0 ? `<div class="track">${flow.map((s, k) => `<div class="st ${k < i || done ? 'done' : k === i ? 'now' : ''}"><span class="pt"></span>${s}</div>`).join('')}</div>` : ''}
     ${cancelBlock(o)}
-    ${refundBlock(o)}</div>`; }).join('')
-    : `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><h3>No orders yet</h3><p>Your orders and their delivery progress will show up here.</p><button class="btn-primary" data-view="catalog">Start shopping</button></div>`;
+    ${refundBlock(o)}
+    </div></div>`;
 }
+const ORD_EMPTY = `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg><h3>No orders yet</h3><p>Your orders and their delivery progress will show up here.</p><button class="btn-primary" data-view="catalog">Start shopping</button></div>`;
+function renderOrders() {
+  $('navOrderCount').textContent = orders.length;
+  const host = $('orderList'); if (!host) return;
+  const tools = $('orderTools'), stats = $('orderStats'), more = $('orderMore'), res = $('orderResult');
+  if (!orders.length) { host.innerHTML = ORD_EMPTY; tools.hidden = true; stats.hidden = true; more.hidden = true; res.textContent = ''; return; }
+  tools.hidden = false; stats.hidden = false;
+  const counts = { all: orders.length, action: 0, progress: 0, done: 0, cancelled: 0 };
+  orders.forEach(o => { counts[ordGroup(o)]++; });
+  $('orderChips').innerHTML = ORD_FILTERS.map(([k, l]) => `<button type="button" class="ord-chip${ORD.f === k ? ' on' : ''}" data-ofilter="${k}">${l} <span class="n">${counts[k]}</span></button>`).join('');
+  const spent = orders.filter(o => !ORD_END.includes(o.status)).reduce((t, o) => t + Number(o.total || 0), 0);
+  stats.innerHTML = [['all', 'Total orders', counts.all], ['action', 'Needs action', counts.action], ['progress', 'In progress', counts.progress], ['done', 'Completed', counts.done]]
+    .map(([k, l, n]) => `<button type="button" class="ord-stat${k === 'action' && n ? ' hot' : ''}${ORD.f === k ? ' on' : ''}" data-ofilter="${k}"><span class="v">${n}</span><span class="l">${l}</span></button>`).join('')
+    + `<div class="ord-stat static"><span class="v mono">${peso(spent)}</span><span class="l">Total ordered</span></div>`;
+  const q = ORD.q.trim().toLowerCase();
+  let rows = orders.filter(o => (ORD.f === 'all' || ordGroup(o) === ORD.f) && (!q || (o.id + ' ' + o.status + ' ' + o.fulfillment + ' ' + o.items.map(it => it.name).join(' ')).toLowerCase().includes(q)));
+  rows = rows.slice().sort((x, y) => ORD.sort === 'old' ? new Date(x.createdAt) - new Date(y.createdAt) : ORD.sort === 'high' ? Number(y.total) - Number(x.total) : new Date(y.createdAt) - new Date(x.createdAt));
+  orders.forEach(o => { if (!ORD.seen.has(o.id)) { ORD.seen.add(o.id); if (orders.length <= 3 && ordGroup(o) === 'action') ORD.open.add(o.id); } });
+  const page = rows.slice(0, ORD.shown);
+  host.innerHTML = page.length ? page.map(o => orderCardHtml(o, ORD.open.has(o.id))).join('')
+    : `<div class="card empty-card"><svg class="ico" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><h3>No matching orders</h3><p>Try a different word or filter.</p><button type="button" class="btn-secondary" data-ofilter="all" data-oclear="1">Clear filters</button></div>`;
+  res.textContent = rows.length ? 'Showing ' + page.length + ' of ' + rows.length + ' order' + (rows.length === 1 ? '' : 's') : '';
+  more.hidden = rows.length <= page.length;
+  more.textContent = 'Show ' + Math.min(10, rows.length - page.length) + ' more';
+}
+(function ordWire() {
+  const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+  on('orderSearch', 'input', e => { ORD.q = e.target.value; ORD.shown = 10; renderOrders(); });
+  on('orderSort', 'change', e => { ORD.sort = e.target.value; renderOrders(); });
+  on('orderMore', 'click', () => { ORD.shown += 10; renderOrders(); });
+  on('orderList', 'click', e => {
+    const t = e.target.closest('[data-ord-toggle]'); if (t) { const id = t.dataset.ordToggle; ORD.open.has(id) ? ORD.open.delete(id) : ORD.open.add(id); const c = t.closest('.ord'); c.classList.toggle('open', ORD.open.has(id)); t.setAttribute('aria-expanded', ORD.open.has(id)); return; }
+    const c = e.target.closest('[data-oclear]'); if (c) { ORD.q = ''; ORD.f = 'all'; $('orderSearch').value = ''; renderOrders(); }
+  });
+  ['orderChips', 'orderStats'].forEach(id => on(id, 'click', e => { const b = e.target.closest('[data-ofilter]'); if (!b) return; ORD.f = b.dataset.ofilter; ORD.shown = 10; renderOrders(); }));
+  on('orderExpand', 'click', () => { const ids = [...document.querySelectorAll('#orderList .ord')].map(c => c.dataset.ord); const all = ids.every(id => ORD.open.has(id)); ids.forEach(id => all ? ORD.open.delete(id) : ORD.open.add(id)); renderOrders(); $('orderExpand').textContent = all ? 'Expand all' : 'Collapse all'; });
+})();
 async function placeOrder() {
   const fail = m => { $('coErr').textContent = m; };
   if (!cart.length) return fail('Your cart is empty.');
@@ -1655,7 +1725,12 @@ async function loadQuotes() {
   try { QUOTES = await api('/api/shop/quotes'); } catch (e) { QUOTES = []; }
   if (!Array.isArray(QUOTES)) QUOTES = [];
   const ready = QUOTES.filter(q => q.status === 'quoted' && !q.expired).length; $('navQuoteCount').textContent = ready; $('navQuoteCount').hidden = !ready; $('navQuoteCount').title = ready + ' quote(s) ready for you to accept or decline';
-  $('quoteList').innerHTML = QUOTES.length ? QUOTES.map(q => { const key = q.expired ? 'expired' : q.status, st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
+  renderQuotes();
+}
+const QS = { q: '', f: 'all', shown: 5, open: new Set(), seen: new Set() };
+const qGroup = q => (q.expired || ['declined', 'closed', 'completed'].includes(q.status)) ? 'done' : (q.status === 'quoted' || (q.clarification && q.clarification.status === 'awaiting_customer') || (q.payOnline && q.payNow > 0)) ? 'action' : q.status === 'new' ? 'waiting' : 'progress';
+const QS_FILTERS = [['all', 'All'], ['action', 'Needs you'], ['waiting', 'Waiting'], ['progress', 'In progress'], ['done', 'Done']];
+const quoteRowHtml = (q, open) => { const key = q.expired ? 'expired' : q.status, st = [q.expired ? 'bad' : q.status === 'new' ? 'warn' : ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status) ? 'ok' : '', q.expired ? 'Quote expired' : (q.statusLabel || q.status)];
     const pickup = q.fulfillment !== 'Delivery';
     const next = { new: 'We will reply with a price soon.', accepted: 'You accepted this quote' + (q.payOnline ? (q.balance > 0 ? '. Please complete your online payment.' : '. Your online payment was received.') : q.payMethod ? ' and will pay ' + q.payMethod.replace(/^Pay /, '') + '.' : '.') + ' Our team will contact you to arrange ' + (pickup ? 'pickup' : 'delivery') + '.', preparing: 'We are preparing your order.' + (q.leadTime ? ' Estimated time: ' + q.leadTime + '.' : ''),
       ready: pickup ? 'Your order is ready. Please pick it up at our shop.' : 'Your order is on its way to you.', completed: pickup ? 'Picked up. Thank you for ordering!' : 'Delivered. Thank you for ordering!', declined: 'You declined this quote.', closed: 'This request is closed.' }[key] || '';
@@ -1670,7 +1745,14 @@ async function loadQuotes() {
       : (isCustomOrBig && q.quotedAmount ? Math.round(Number(q.quotedAmount) * 0.5 * 100) / 100 : 0);
     const payPick = q.status === 'quoted' && !q.expired ? `<div style="margin-top:10px"><label class="dim" for="qpay-${esc(q.id)}">How will you pay? (needed to accept)</label><select class="form-input" id="qpay-${esc(q.id)}" data-qpay><option value="">Choose how to pay</option><option value="online">Pay online now (GCash, Maya, card or bank, via Xendit)</option><option value="cod"${dep ? ' disabled' : ''}>${q.fulfillment === 'Delivery' ? 'Cash on delivery' : 'Pay on pickup'}${dep ? ' (the ' + peso(dep) + ' down payment must be paid online first)' : ''}</option></select>${dep ? '<div class="dim" style="font-size:12px;margin-top:4px;color:#b45309">Under Philippine Contract Law (Civil Code Arts. 1482 & 1582), custom and high-value orders require an initial down payment (' + peso(dep) + ') online before production begins. The remaining balance is paid on ' + (q.fulfillment === 'Delivery' ? 'delivery' : 'pickup') + '.</div>' : ''}</div>` : '';
     const actions = q.status === 'quoted' ? `${payPick}<div class="q-actions">${q.expired ? '' : `<button type="button" class="btn-primary btn-sm" data-qresp="accept" data-qid="${esc(q.id)}">Accept quote</button><button type="button" class="btn-secondary btn-sm" data-qresp="decline" data-qid="${esc(q.id)}">Decline</button>`}<button type="button" class="btn-secondary btn-sm" data-qresp="renew" data-qid="${esc(q.id)}">Ask for a new quote</button></div>` : '';
-    return `<div class="quote-row"><div class="order-head"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span></div>
+    const need = q.status === 'quoted' && !q.expired ? 'Quote ready: review it' : (q.clarification && q.clarification.status === 'awaiting_customer') ? 'Details needed' : (q.payOnline && q.payNow > 0) ? 'Payment due' : '';
+    return `<div class="quote-row${open ? ' open' : ''}" data-qrow="${esc(q.id)}">
+      <button type="button" class="qr-sum" data-qr-toggle="${esc(q.id)}" aria-expanded="${open ? 'true' : 'false'}">
+        <span class="qr-top"><span class="id">${esc(q.id)}</span><span class="chip-pill ${st[0]}">${st[1]}</span>${need ? `<span class="ord-flag">${need}</span>` : ''}</span>
+        <span class="qr-title">${esc(q.product || 'Custom item')}</span>
+        <span class="qr-sub">${esc(q.quantity)} · sent ${qAgo(q.createdAt)}${q.quotedAmount != null ? ' · <b class="mono">' + peso(q.quotedAmount) + '</b>' : ''}</span>${CHEV}
+      </button>
+      <div class="qr-body">
       <div class="dim">${esc(q.product || 'Custom item')} · ${esc(q.quantity)}${q.neededBy ? ' · needed by ' + new Date(q.neededBy + 'T00:00:00').toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : q.neededMonths ? ' · within ' + q.neededMonths + (q.neededMonths === 1 ? ' month' : ' months') : ''} · sent ${qAgo(q.createdAt)}</div>
       ${q.fulfillment ? `<div class="dim">${esc(q.fulfillment)}${q.area ? ' · ' + esc(q.area) : ''}</div>` : ''}
       ${q.quotedAmount != null ? `<div class="row"><span>Quoted amount</span><span class="mono">${peso(q.quotedAmount)}</span></div>` : ''}
@@ -1682,9 +1764,30 @@ async function loadQuotes() {
       ${pay}
       ${q.replyNote ? `<div class="refund-why">Our reply: ${esc(q.replyNote)}</div>` : ''}
       ${q.status === 'closed' && q.closeReason ? `<div class="refund-why">Closed: ${esc(q.closeReason)}</div>` : ''}
-      ${(q.quotedAmount != null || ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status)) ? `<div style="margin-top:8px"><button type="button" class="btn-secondary btn-sm" data-quote-invoice="${esc(q.id)}">View Quotation Invoice</button></div>` : ''}${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div>`; }).join('')
-    : '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>';
+      ${(q.quotedAmount != null || ['quoted', 'accepted', 'preparing', 'ready', 'completed'].includes(q.status)) ? `<div style="margin-top:8px"><button type="button" class="btn-secondary btn-sm" data-quote-invoice="${esc(q.id)}">View Quotation Invoice</button></div>` : ''}${next ? `<div class="dim" style="margin-top:6px">${esc(next)}</div>` : ''}${trail}${clarifyBox}${actions}</div></div>`; };
+function renderQuotes() {
+  const host = $('quoteList'); if (!host) return;
+  const tools = $('quoteTools'), more = $('quoteMore'), res = $('quoteResult');
+  if (!QUOTES.length) { host.innerHTML = '<div class="q-empty"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><b>No requests yet</b><span>Your quotes will show up here once you send one.</span></div>'; tools.hidden = true; more.hidden = true; res.textContent = ''; $('quoteCount').textContent = ''; return; }
+  tools.hidden = false; $('quoteCount').textContent = QUOTES.length;
+  const counts = { all: QUOTES.length, action: 0, waiting: 0, progress: 0, done: 0 };
+  QUOTES.forEach(q => { counts[qGroup(q)]++; });
+  $('quoteChips').innerHTML = QS_FILTERS.map(([k, l]) => `<button type="button" class="ord-chip${QS.f === k ? ' on' : ''}" data-qfilter="${k}">${l} <span class="n">${counts[k]}</span></button>`).join('');
+  const s = QS.q.trim().toLowerCase();
+  const rows = QUOTES.filter(q => (QS.f === 'all' || qGroup(q) === QS.f) && (!s || ((q.id || '') + ' ' + (q.product || '') + ' ' + (q.statusLabel || q.status || '') + ' ' + (q.quantity || '')).toLowerCase().includes(s)));
+  QUOTES.forEach(q => { if (!QS.seen.has(q.id)) { QS.seen.add(q.id); if (QUOTES.length <= 3 && qGroup(q) === 'action') QS.open.add(q.id); } });
+  const page = rows.slice(0, QS.shown);
+  host.innerHTML = page.length ? page.map(q => quoteRowHtml(q, QS.open.has(q.id))).join('') : '<div class="q-empty"><b>No matching requests</b><span>Try a different word or filter.</span></div>';
+  res.textContent = rows.length ? 'Showing ' + page.length + ' of ' + rows.length : '';
+  more.hidden = rows.length <= page.length; more.textContent = 'Show ' + Math.min(5, rows.length - page.length) + ' more';
 }
+(function qsWire() {
+  const on = (id, ev, fn) => { const el = $(id); if (el) el.addEventListener(ev, fn); };
+  on('quoteSearch', 'input', e => { QS.q = e.target.value; QS.shown = 5; renderQuotes(); });
+  on('quoteMore', 'click', () => { QS.shown += 5; renderQuotes(); });
+  on('quoteChips', 'click', e => { const b = e.target.closest('[data-qfilter]'); if (!b) return; QS.f = b.dataset.qfilter; QS.shown = 5; renderQuotes(); });
+  on('quoteList', 'click', e => { const t = e.target.closest('[data-qr-toggle]'); if (!t) return; const id = t.dataset.qrToggle; QS.open.has(id) ? QS.open.delete(id) : QS.open.add(id); t.closest('.quote-row').classList.toggle('open', QS.open.has(id)); t.setAttribute('aria-expanded', QS.open.has(id)); });
+})();
 /* the cashier asked for missing details: one REQUIRED box per detail they asked for (same rules as clarifyProblem in shop-extras.js) */
 const CLARIFY = { dimensions: ['Dimensions', 'e.g. 100 x 60 x 40 mm'], thickness: ['Thickness', 'e.g. 2.5 mm'], material: ['Material', 'e.g. Brass C37700'], finish: ['Finish', 'e.g. Polished'], quantity: ['Quantity', 'e.g. 200 pcs'] };
 (function () { const st = document.createElement('style'); st.textContent = '.cl-now{font-size:12px;font-weight:500;color:var(--text-dim,#5d6b7a);text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-more summary{cursor:pointer;font-weight:600;font-size:13.5px;color:var(--blue,#2e6fb5)}.cl-f{display:grid;gap:5px;font-weight:600;font-size:13.5px}.cl-f .form-input{width:100%;box-sizing:border-box;font-weight:400;background:var(--field,#fff);color:var(--text,#1d2733);border:1px solid var(--border,#cbd8e5);border-radius:8px;padding:9px 11px;font-family:Inter,system-ui,sans-serif;text-transform:none;letter-spacing:0}.cl-f .form-input:focus{outline:none;border-color:var(--blue-bright,#2e6fb5)}.cl-err{color:#b32929;font-size:12.5px;font-weight:500;text-transform:none;letter-spacing:0;font-family:Inter,system-ui,sans-serif}.cl-err:empty{display:none}[data-clarify-quote] .is-bad{border-color:#b32929!important;box-shadow:0 0 0 3px rgba(179,41,41,.14)}'; document.head.appendChild(st); })();

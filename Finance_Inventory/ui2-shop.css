@@ -420,3 +420,141 @@ html body .tq-actions button, html body .modal-actions .btn-primary, html body .
     #quoteForm .qf-txt b { font-size: 17px; }
     #checkout .checkout-layout > .card:first-child { padding: 4px 16px 20px !important; }
 }
+
+
+/* =========================================================
+   PART 3 — My orders + My quote requests (built for long lists)
+   search, filters, sorting, collapsible rows, "show more"
+========================================================= */
+
+/* ---------- summary stats ---------- */
+#orders .ord-stats { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+#orders .ord-stat {
+    display: flex; flex-direction: column; gap: 4px; text-align: left; padding: 16px 18px;
+    border-radius: 16px; border: 1px solid var(--u-line); background: var(--u-surface); box-shadow: var(--u-shadow);
+    color: var(--text); cursor: pointer; transition: transform .15s, border-color .15s, box-shadow .15s;
+    font-family: inherit;
+}
+#orders .ord-stat.static { cursor: default; }
+#orders .ord-stat:not(.static):hover { transform: translateY(-2px); border-color: var(--u-chip-line); }
+#orders .ord-stat.on { border-color: var(--blue-bright); box-shadow: 0 0 0 4px var(--u-chip-bg), var(--u-shadow); }
+#orders .ord-stat .v { font-family: "Oswald", sans-serif; font-weight: 600; font-size: 28px; line-height: 1.1; }
+#orders .ord-stat .v.mono { font-size: 21px; padding-top: 5px; }
+#orders .ord-stat .l { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-dim); }
+#orders .ord-stat.hot { border-color: var(--u-warn-line); background: linear-gradient(180deg, var(--u-warn-bg), transparent), var(--u-surface); }
+#orders .ord-stat.hot .v { color: var(--u-warn-fg); }
+
+/* ---------- toolbar: search, sort, filter chips ---------- */
+#orders .ord-tools, #quote .qs-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+#orders .ord-tools {
+    padding: 12px 14px; margin-bottom: 8px; border-radius: var(--u-r);
+    border: 1px solid var(--u-line-soft); background: var(--u-surface-flat);
+}
+#orders .ord-tools .search-wrap, #quote .qs-tools .search-wrap { flex: 1 1 260px; max-width: 420px; }
+#quote .qs-tools .search-wrap { max-width: none; flex-basis: 100%; }
+#orders .ord-tools input, #orders .ord-tools select, #quote .qs-tools input {
+    min-height: 42px; border-radius: 99px; background: var(--card); border: 1px solid var(--u-line);
+}
+#orders .ord-tools select { width: auto; min-width: 150px; }
+#orders .ord-tools .btn-secondary { border-radius: 99px; min-height: 42px; padding: 0 16px; }
+.ord-chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.ord-chip {
+    min-height: 34px; padding: 0 14px; border-radius: 99px; font-size: 13px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--u-line); background: var(--card); color: var(--text-dim);
+    transition: background .15s, color .15s, border-color .15s; font-family: inherit;
+}
+.ord-chip:hover { color: var(--text); background: var(--u-hover); border-color: var(--u-chip-line); }
+.ord-chip .n { margin-left: 5px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; opacity: .75; }
+.ord-chip.on {
+    color: var(--u-on-accent); border-color: transparent;
+    background: linear-gradient(180deg, var(--blue-bright), var(--blue));
+    box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--blue-bright) 90%, transparent);
+}
+#orders .result-line, #quote .qs-tools .result-line { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .4px; margin: 6px 4px 10px; }
+#quote .qs-tools .result-line { flex-basis: 100%; margin: 0 2px 4px; }
+
+/* ---------- order rows (collapsed by default) ---------- */
+#orders .order.ord { padding: 0; margin-bottom: 10px; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+#orders .order.ord:hover { border-color: var(--u-chip-line); }
+#orders .order.ord.open { border-color: var(--blue-bright); box-shadow: 0 0 0 3px var(--u-chip-bg), var(--u-shadow); }
+#orders .order.ord.g-action { border-left: 3px solid var(--amber); }
+#orders .order.ord.g-cancelled { opacity: .85; }
+
+#orders .ord-sum {
+    position: relative; width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto 28px;
+    grid-template-areas: "top total chev" "title total chev" "sub total chev" "prog prog prog";
+    column-gap: 16px; row-gap: 3px; align-items: center; text-align: left;
+    padding: 16px 20px 14px; border: 0; background: transparent; color: var(--text); cursor: pointer; font-family: inherit;
+}
+#orders .ord-sum:hover { background: var(--u-hover); }
+#orders .ord-sum:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
+#orders .ord-top { grid-area: top; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+#orders .ord-top .id { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 14.5px; letter-spacing: .8px; }
+.ord-flag {
+    display: inline-flex; align-items: center; padding: 3px 11px; border-radius: 99px; font-size: 12px; font-weight: 700;
+    color: var(--u-warn-fg); background: var(--u-warn-bg); border: 1px solid var(--u-warn-line);
+}
+#orders .ord-title { grid-area: title; font-size: 15.5px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#orders .ord-title .more { font-weight: 500; color: var(--text-dim); font-size: 13px; }
+#orders .ord-sub { grid-area: sub; font-size: 13px; color: var(--text-dim); }
+#orders .ord-total { grid-area: total; font-family: "Oswald", sans-serif; font-weight: 600; font-size: 21px; text-align: right; white-space: nowrap; }
+#orders .ord-sum .chev, #quote .qr-sum .chev {
+    grid-area: chev; width: 20px; height: 20px; vertical-align: 0; color: var(--text-dim);
+    transition: transform .2s ease;
+}
+#orders .order.ord.open .chev, #quote .quote-row.open .chev { transform: rotate(180deg); color: var(--blue-bright); }
+#orders .ord-prog { grid-area: prog; display: block; height: 4px; margin-top: 10px; border-radius: 99px; background: var(--u-track); overflow: hidden; }
+#orders .ord-prog i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--blue), var(--blue-bright)); }
+#orders .g-done .ord-prog i { background: var(--green); }
+
+#orders .ord-body { display: none; padding: 4px 22px 22px; border-top: 1px solid var(--u-line-soft); background: var(--u-surface-flat); }
+#orders .order.ord.open .ord-body { display: block; animation: ordIn .2s ease; }
+@keyframes ordIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+#orders .ord-body .order-meta { margin-top: 14px; }
+#orders .ord-body .row.total { font-size: 22px; }
+
+#orders .ord-more, #quote .qs-more { display: block; margin: 16px auto 4px; min-height: 42px; padding: 8px 26px; border-radius: 99px; }
+
+/* ---------- quote requests: collapsible rows, scrolling list ---------- */
+#quote .sticky-side { position: static; }
+#quote .quote-side h3 { display: flex; align-items: center; gap: 10px; }
+#quote .qs-count {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 8px;
+    border-radius: 99px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: 0; color: var(--blue-bright);
+    background: var(--u-chip-bg); border: 1px solid var(--u-chip-line);
+}
+#quote .qs-count:empty { display: none; }
+#quote .qs-tools { margin-bottom: 8px; }
+#quote .qs-tools .ord-chip { min-height: 30px; padding: 0 11px; font-size: 12.5px; }
+#quote #quoteList { max-height: 640px; overflow-y: auto; margin: 0 -8px; padding: 2px 8px; scrollbar-width: thin; }
+
+#quote .quote-row { padding: 0; margin-bottom: 8px; overflow: hidden; transition: border-color .15s, box-shadow .15s; }
+#quote .quote-row.open { border-color: var(--blue-bright) !important; box-shadow: 0 0 0 3px var(--u-chip-bg); }
+#quote .qr-sum {
+    width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 24px; grid-template-areas: "top chev" "title chev" "sub chev";
+    row-gap: 3px; column-gap: 10px; align-items: center; text-align: left; padding: 13px 14px;
+    border: 0; background: transparent; color: var(--text); cursor: pointer; font-family: inherit;
+}
+#quote .qr-sum:hover { background: var(--u-hover); }
+#quote .qr-sum:focus-visible { outline: 2px solid var(--blue-bright); outline-offset: -2px; }
+#quote .qr-top { grid-area: top; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#quote .qr-top .id { font-family: "IBM Plex Mono", monospace; font-weight: 600; font-size: 13px; letter-spacing: .6px; }
+#quote .qr-title { grid-area: title; font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#quote .qr-sub { grid-area: sub; font-size: 12.5px; color: var(--text-dim); }
+#quote .qr-body { display: none; padding: 4px 16px 16px; border-top: 1px solid var(--u-line-soft); }
+#quote .quote-row.open .qr-body { display: block; animation: ordIn .2s ease; }
+#quote .qr-body > .dim:first-child { margin-top: 12px; }
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) { #orders .ord-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) {
+    #orders .ord-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    #orders .ord-stat { padding: 12px 14px; }
+    #orders .ord-stat .v { font-size: 24px; }
+    #orders .ord-tools { padding: 10px; }
+    #orders .ord-tools select, #orders .ord-tools .btn-secondary { flex: 1 1 140px; }
+    #orders .ord-sum { grid-template-columns: minmax(0, 1fr) 24px; grid-template-areas: "top chev" "title chev" "sub chev" "total total" "prog prog"; padding: 14px 14px 12px; }
+    #orders .ord-total { text-align: left; font-size: 19px; margin-top: 4px; }
+    #orders .ord-body { padding: 4px 14px 18px; }
+    #quote #quoteList { max-height: 560px; }
+}
