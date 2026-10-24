@@ -1,0 +1,194 @@
+/* =========================================================
+   ui2-shop.css — Shop_Customer.html (catalog, cart, checkout, quote, orders)
+   Load AFTER ui2-core.css, store.css and quote-fields.css.
+   Same look as the admin pages (ui2), tuned for an online shop.
+   Every rule starts with a page id, so nothing else is touched.
+   Colours are tokens, so light and dark both work.
+========================================================= */
+
+html .ui2 { --u-on-accent: #06121f; }
+html[data-theme="light"] .ui2 { --u-on-accent: #ffffff; }
+
+/* ---------- shared: header, back link, cards ---------- */
+#catalog.ui2 > .ui2-hero,
+#cart.ui2 > .ui2-hero,
+#checkout.ui2 > .ui2-hero,
+#quote.ui2 > .ui2-hero,
+#orders.ui2 > .ui2-hero { margin: 4px 0 22px; align-items: flex-end; }
+
+#catalog .ui2-actions, #cart .ui2-actions, #checkout .ui2-actions,
+#quote .ui2-actions, #orders .ui2-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ui2 .ui2-actions .btn-ghost {
+    min-height: 42px; padding: 9px 16px; border-radius: 99px;
+    border: 1px solid var(--u-line); background: var(--u-surface-flat); color: var(--text); font-weight: 600;
+}
+.ui2 .ui2-actions .btn-ghost:hover { background: var(--u-hover); border-color: var(--u-chip-line); }
+
+#cart.ui2 .card, #checkout.ui2 .card, #quote.ui2 .card, #orders.ui2 .card, #catalog.ui2 .card {
+    background: var(--u-surface); border: 1px solid var(--u-line);
+    border-radius: var(--u-r); box-shadow: var(--u-shadow);
+}
+html[data-theme="light"] #cart.ui2 .card, html[data-theme="light"] #checkout.ui2 .card,
+html[data-theme="light"] #quote.ui2 .card, html[data-theme="light"] #orders.ui2 .card,
+html[data-theme="light"] #catalog.ui2 .card { box-shadow: var(--u-shadow); }
+
+/* ---------- catalog: storefront banner ---------- */
+#catalog .shop-banner {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+    padding: 26px 28px; margin: 4px 0 16px; border-radius: 18px;
+    border: 1px solid var(--u-line);
+    background:
+        radial-gradient(ellipse 60% 120% at 0% 0%, var(--u-glow), transparent 70%),
+        linear-gradient(var(--u-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--u-grid) 1px, transparent 1px),
+        var(--u-surface);
+    background-size: auto, 28px 28px, 28px 28px, auto;
+    box-shadow: var(--u-shadow);
+}
+#catalog .shop-banner h1 {
+    font-family: "Oswald", sans-serif; font-weight: 600; font-size: clamp(26px, 3.2vw, 40px); line-height: 1.12;
+    background: linear-gradient(90deg, var(--text) 0%, var(--text) 40%, var(--blue-bright) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+}
+#catalog .shop-banner p { margin-top: 8px; font-size: 15.5px; color: var(--text-dim); max-width: 56ch; }
+#catalog .shop-banner .ui2-chip .ico { color: var(--blue-bright); }
+
+/* quote call-out */
+#catalog .quote-cta {
+    display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap;
+    padding: 14px 18px; margin: 0 0 16px; border-radius: var(--u-r);
+    border: 1px solid var(--u-line); border-left: 3px solid var(--blue-bright);
+    background: var(--u-surface); font-size: 14px; color: var(--text-dim);
+}
+#catalog .quote-cta b { color: var(--text); }
+#catalog .quote-cta .btn-secondary { border-radius: 99px; font-family: "IBM Plex Mono", monospace; letter-spacing: 1px; text-transform: uppercase; font-size: 12px; }
+
+/* toolbar */
+#catalog .shop-tools {
+    gap: 12px; padding: 12px 14px; margin-bottom: 14px; border-radius: var(--u-r);
+    border: 1px solid var(--u-line-soft); background: var(--u-surface-flat);
+}
+#catalog .shop-tools .search-wrap { max-width: 480px; }
+#catalog .shop-tools input, #catalog .shop-tools select { border-radius: 99px; min-height: 42px; background: var(--card); border-color: var(--u-line); }
+
+/* category chips */
+#catalog .chips { gap: 6px; margin-bottom: 10px; }
+#catalog .chips .pill-btn {
+    min-height: 36px; padding: 0 16px; border-radius: 99px;
+    border: 1px solid var(--u-line); background: var(--u-surface-flat); color: var(--text-dim);
+    font-size: 13.5px; font-weight: 600; transition: background .15s, color .15s, border-color .15s;
+}
+#catalog .chips .pill-btn:hover { color: var(--text); background: var(--u-hover); border-color: var(--u-chip-line); }
+#catalog .chips .pill-btn.active {
+    color: var(--u-on-accent); border-color: transparent;
+    background: linear-gradient(180deg, var(--blue-bright), var(--blue));
+    box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--blue-bright) 90%, transparent);
+}
+#catalog .chips .pill-btn.active .faint { color: inherit; opacity: .8; }
+#catalog .result-line { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; letter-spacing: .4px; }
+
+/* product cards */
+#catalog .shop-grid { gap: 18px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+#catalog .prod { border-radius: 16px; transition: transform .18s ease, border-color .18s, box-shadow .18s; }
+#catalog .prod:hover {
+    transform: translateY(-3px); border-color: var(--u-chip-line);
+    box-shadow: 0 26px 44px -26px color-mix(in srgb, var(--blue-bright) 55%, transparent), var(--u-shadow);
+}
+#catalog .prod-art {
+    height: 120px; border-bottom: 1px solid var(--u-line-soft);
+    background:
+        radial-gradient(ellipse 60% 80% at 50% 100%, var(--u-glow), transparent 70%),
+        linear-gradient(var(--u-grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--u-grid) 1px, transparent 1px),
+        var(--u-surface-flat);
+    background-size: auto, 22px 22px, 22px 22px, auto;
+}
+#catalog .prod-art .ico {
+    width: 48px; height: 48px; padding: 12px; box-sizing: content-box; opacity: 1;
+    border-radius: 16px; border: 1px solid var(--u-chip-line); background: var(--u-chip-bg);
+}
+#catalog .prod-art .shop-product-image { width: 100%; height: 100%; object-fit: cover; }
+#catalog .prod-art .chip-pill { top: 12px; left: 12px; border: 1px solid transparent; }
+#catalog .prod-art .chip-pill.ok  { color: var(--u-ok-fg);  background: var(--u-ok-bg);  border-color: var(--u-ok-line); }
+#catalog .prod-art .chip-pill.warn{ color: var(--u-warn-fg);background: var(--u-warn-bg);border-color: var(--u-warn-line); }
+#catalog .prod-art .chip-pill.bad { color: var(--u-bad-fg); background: var(--u-bad-bg); border-color: var(--u-bad-line); }
+#catalog .prod .sku { letter-spacing: 1.2px; }
+#catalog .prod .name { font-size: 17px; }
+#catalog .prod .price { font-size: 26px; }
+#catalog .prod .buy { gap: 8px; }
+#catalog .prod .buy .btn-primary, #catalog .prod .buy .btn-secondary {
+    border-radius: 99px; min-height: 42px; font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px; letter-spacing: 1.4px; text-transform: uppercase;
+}
+#catalog .prod .buy .btn-primary { box-shadow: 0 12px 22px -14px color-mix(in srgb, var(--blue-bright) 90%, transparent); }
+
+/* ---------- cart / checkout: stepper ---------- */
+.ui2 .flow {
+    display: inline-flex; padding: 6px 14px 6px 8px; margin-bottom: 20px; gap: 8px;
+    border-radius: 99px; border: 1px solid var(--u-line-soft); background: var(--u-surface-flat);
+}
+.ui2 .flow .n { border-color: var(--u-line); background: var(--card); }
+.ui2 .flow .f.on .n { background: linear-gradient(180deg, var(--blue-bright), var(--blue)); border-color: transparent; color: var(--u-on-accent); box-shadow: 0 0 0 4px var(--u-chip-bg); }
+.ui2 .flow .bar { background: var(--u-line); }
+
+/* cart lines */
+#cart .cart-line { padding: 16px 20px; border-bottom: 1px solid var(--u-line-soft); }
+#cart .cart-line:hover { background: var(--u-hover); }
+#cart .cart-line .thumb { border-radius: 14px; border: 1px solid var(--u-chip-line); background: var(--u-chip-bg); }
+#cart .cart-line .lt, #cart .cart-line .t { color: var(--text); }
+
+/* summary card */
+#cart .sum-card, #checkout .sum-card { padding: 22px; }
+.ui2 .sum-card h3 {
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px; letter-spacing: 2.2px; color: var(--blue-bright);
+    margin-bottom: 12px;
+}
+.ui2 .sum-card .row.total { border-top: 1px dashed var(--u-line); }
+.ui2 .sum-card .btn-primary, .ui2 .sum-card .btn-lg {
+    border-radius: 99px; min-height: 46px; font-family: "IBM Plex Mono", monospace; letter-spacing: 1.6px; text-transform: uppercase;
+    box-shadow: 0 14px 26px -16px color-mix(in srgb, var(--blue-bright) 90%, transparent);
+}
+.ui2 .perk-list { padding-top: 14px; border-top: 1px solid var(--u-line-soft); }
+.ui2 .perk-list .ico { color: var(--u-ok-fg); }
+
+/* ---------- checkout + quote forms ---------- */
+.ui2 .sec-title { color: var(--blue-bright); letter-spacing: 2px; }
+.ui2 .sec-title::after { background: var(--u-line-soft); }
+.ui2 .opt { border-radius: var(--u-r-sm); border-color: var(--u-line); background: var(--u-surface-flat); }
+.ui2 .opt:hover { border-color: var(--u-chip-line); background: var(--u-hover); }
+.ui2 .opt.on { border-color: var(--blue-bright); background: var(--u-chip-bg); box-shadow: 0 0 0 3px var(--u-chip-bg); }
+.ui2 input:not([type=checkbox]):not([type=radio]), .ui2 select, .ui2 textarea { border-radius: var(--u-r-sm); }
+.ui2 .checkout-legal-notice, .ui2 .checkout-guide-banner, .ui2 .quote-guide-banner {
+    border-radius: var(--u-r) !important; border: 1px solid var(--u-line) !important;
+    border-left: 3px solid var(--blue-bright) !important;
+    background: var(--u-surface) !important; color: var(--text-dim) !important;
+}
+.ui2 .checkout-legal-notice div, .ui2 .checkout-legal-notice b { color: var(--text-dim) !important; }
+.ui2 .checkout-legal-notice div:first-child, .ui2 .checkout-guide-banner div:first-child, .ui2 .quote-guide-banner div:first-child { color: var(--blue-bright) !important; }
+
+/* ---------- orders ---------- */
+#orders .order { padding: 22px 24px; margin-bottom: 16px; }
+#orders .order-head .id { letter-spacing: .8px; }
+#orders .chip-pill { border: 1px solid transparent; padding: 4px 12px; }
+#orders .chip-pill.ok   { color: var(--u-ok-fg);  background: var(--u-ok-bg);  border-color: var(--u-ok-line); }
+#orders .chip-pill.warn { color: var(--u-warn-fg);background: var(--u-warn-bg);border-color: var(--u-warn-line); }
+#orders .chip-pill.bad  { color: var(--u-bad-fg); background: var(--u-bad-bg); border-color: var(--u-bad-line); }
+#orders .track .st.done::before { background: var(--green); }
+#orders .track .st.now .pt { box-shadow: 0 0 0 5px var(--u-chip-bg); }
+#orders .refund-box { border-radius: var(--u-r-sm); background: var(--u-surface-flat); border-color: var(--u-line); }
+#orders .empty-card, #cart .empty-card { padding: 64px 20px; }
+#orders .empty-card .ico, #cart .empty-card .ico {
+    width: 64px; height: 64px; padding: 16px; box-sizing: border-box; border-radius: 20px;
+    border: 1px solid var(--u-chip-line); background: var(--u-chip-bg); color: var(--blue-bright);
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 760px) {
+    #catalog .shop-banner { padding: 18px; }
+    #catalog .shop-grid { gap: 10px; }
+    #catalog .prod-art { height: 84px; }
+    #catalog .prod-art .ico { width: 30px; height: 30px; padding: 8px; }
+    .ui2 .ui2-actions { width: 100%; }
+    #orders .order { padding: 16px; }
+}

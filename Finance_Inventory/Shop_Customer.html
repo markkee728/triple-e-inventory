@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="ui2-core.css?v=1">
 <link rel="stylesheet" href="ui2-notifications.css?v=1">
+<link rel="stylesheet" href="ui2-shop.css?v=1">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -123,12 +124,16 @@ a.nav-item{text-decoration:none}
   <div class="content">
 
     <!-- ===== CATALOG ===== -->
-    <section class="page active-page" id="catalog">
-      <div class="hero">
-        <div><h1>Die-cast aluminum &amp; forged brass.</h1><p>Ready stock at clear prices, or request a quote for a part made to your specifications.</p></div>
-        <div class="hero-perks">
-          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery <span data-fee>₱150</span></span>
-          <span class="perk"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
+    <section class="page active-page ui2" id="catalog">
+      <div class="shop-banner">
+        <div>
+          <div class="ui2-eyebrow"><span class="ui2-live"></span> Online shop</div>
+          <h1>Die-cast aluminum &amp; forged brass.</h1>
+          <p>Ready stock at clear prices, or request a quote for a part made to your specifications.</p>
+        </div>
+        <div class="ui2-actions">
+          <span class="ui2-chip"><svg class="ico" viewBox="0 0 24 24"><path d="M1 3h15v13H1zM16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2"/><circle cx="18.5" cy="18.5" r="2"/></svg>Delivery <span data-fee>₱150</span></span>
+          <span class="ui2-chip"><svg class="ico" viewBox="0 0 24 24"><path d="M20 12v9H4v-9M2 7h20v5H2zM12 22V7"/></svg>Free pickup</span>
         </div>
       </div>
       <div class="quote-cta"><div><b>Bulk order or a custom size?</b> Tell us what you need and our team will send you a price.</div><button type="button" class="btn-secondary btn-sm" data-view="quote">Request a quote</button></div>
@@ -143,8 +148,11 @@ a.nav-item{text-decoration:none}
     </section>
 
     <!-- ===== CART ===== -->
-    <section class="page" id="cart">
-      <div class="page-head"><div><h1>Your cart</h1></div><button class="btn-ghost" data-view="catalog"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Continue shopping</button></div>
+    <section class="page ui2" id="cart">
+      <div class="ui2-hero">
+        <div><div class="ui2-eyebrow"><span class="ui2-live"></span> Step 1 of 3</div><h1>Your cart</h1><p>Review your items before checkout.</p></div>
+        <div class="ui2-actions"><button class="btn-ghost" data-view="catalog"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Continue shopping</button></div>
+      </div>
       <div class="flow"><span class="f on"><span class="n">1</span>Cart</span><span class="bar"></span><span class="f"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
       <div class="cart-layout">
         <div class="card" id="cartCard"><div id="cartRows"></div></div>
@@ -160,8 +168,11 @@ a.nav-item{text-decoration:none}
     </section>
 
     <!-- ===== CHECKOUT ===== -->
-    <section class="page" id="checkout">
-      <div class="page-head"><div><h1>Checkout</h1></div><button class="btn-ghost" data-view="cart"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to cart</button></div>
+    <section class="page ui2" id="checkout">
+      <div class="ui2-hero">
+        <div><div class="ui2-eyebrow"><span class="ui2-live"></span> Step 2 of 3</div><h1>Checkout</h1><p>Tell us where to send your order and how you want to pay.</p></div>
+        <div class="ui2-actions"><button class="btn-ghost" data-view="cart"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M19 12H5M12 19l-7-7 7-7"/></svg> Back to cart</button></div>
+      </div>
       <div class="flow"><span class="f done"><span class="n"><svg class="ic" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-.15em"><path d="M20 6 9 17l-5-5"/></svg></span>Cart</span><span class="bar"></span><span class="f on"><span class="n">2</span>Details</span><span class="bar"></span><span class="f"><span class="n">3</span>Done</span></div>
       <div class="checkout-legal-notice" style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;padding:12px 16px;margin:12px 0 16px;font-size:12.5px;line-height:1.5;color:#334155">
         <div style="font-weight:700;color:#0f172a;margin-bottom:4px">Philippine Contract &amp; Consumer Law Notice (Civil Code Arts. 1482, 1582&ndash;1599)</div>
@@ -213,8 +224,10 @@ a.nav-item{text-decoration:none}
     </section>
 
     <!-- ===== REQUEST A QUOTE ===== -->
-    <section class="page" id="quote">
-      <div class="page-head"><div><h1>Request a quote</h1><p>Tell us what you need and our team will send you a price. Nothing is reserved and no payment is taken until you accept.</p></div></div>
+    <section class="page ui2" id="quote">
+      <div class="ui2-hero">
+        <div><div class="ui2-eyebrow"><span class="ui2-live"></span> Custom orders</div><h1>Request a quote</h1><p>Tell us what you need and our team will send you a price. Nothing is reserved and no payment is taken until you accept.</p></div>
+      </div>
       <div class="quote-guide-banner" style="background:var(--hover,#f1f5f9);border:1px solid var(--border,#e2e8f0);border-radius:10px;padding:12px 16px;margin:0 0 16px;font-size:13px;line-height:1.5;color:var(--text,#1e293b)">
         <div style="font-weight:600;color:var(--blue-bright,#2563eb);margin-bottom:2px">Custom Quotation Assistant</div>
         <div>Specify part dimensions, material grade, and secondary operations. Batch orders exceeding 100 units calculate minimum production lead time automatically to guarantee on-time delivery.</div>
@@ -317,8 +330,10 @@ a.nav-item{text-decoration:none}
       </div>
     </section>
 
-    <section class="page" id="orders">
-      <div class="page-head"><div><h1>My orders</h1></div></div>
+    <section class="page ui2" id="orders">
+      <div class="ui2-hero">
+        <div><div class="ui2-eyebrow"><span class="ui2-live"></span> Account</div><h1>My orders</h1><p>Track your orders, payments and deliveries.</p></div>
+      </div>
       <div id="orderList"></div>
       <div class="help-line" data-help></div>
     </section>
