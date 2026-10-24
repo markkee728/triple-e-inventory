@@ -18,11 +18,17 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
  /* ---------- store hours: 8:00 AM to 5:00 PM (BUSINESS_OPEN / BUSINESS_CLOSE, HH:MM, Philippine time) ----------
     A shift can be opened from SHIFT_EARLY_MINUTES before opening (to count the drawer) until closing time.
     The automation reminds the cashier SHIFT_REMIND_MINUTES before closing, and tells Finance when a shift is still open
-    SHIFT_OVERDUE_MINUTES after closing. Sales are never blocked by the clock: only opening a new shift is. */
+    SHIFT_OVERDUE_MINUTES after closing. Sales are not blocked by the clock itself; what blocks them is an open shift that MUST be closed
+    (end-of-day window, see SHIFT_FORCE_CLOSE_MINUTES below, or left open from an earlier day). */
  const hm = (v, d) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(v || '')); return m && +m[1] < 24 && +m[2] < 60 ? +m[1] * 60 + +m[2] : d; };
  const OPEN_MIN = hm(process.env.BUSINESS_OPEN, 8 * 60), CLOSE_MIN = hm(process.env.BUSINESS_CLOSE, 17 * 60);
  const EARLY = Math.max(0, Number(process.env.SHIFT_EARLY_MINUTES) || 30), REMIND = Math.max(5, Number(process.env.SHIFT_REMIND_MINUTES) || 30);
  const OVERDUE = Math.max(0, Number(process.env.SHIFT_OVERDUE_MINUTES) || 30);
+ /* From SHIFT_FORCE_CLOSE_MINUTES (default 15) before closing, an open shift MUST be counted and closed: the cashier's screen opens the
+    count-and-close window with no way to dismiss it, and the server refuses sales, cash collection and cash movements on that shift until it
+    is closed (so hiding the window in the browser does not help). 0 turns it off. Shifts cannot be opened inside that window when
+    ENFORCE_STORE_HOURS=true. Example: close 5:00 PM, 15 minutes -> forced from 4:45 PM. */
+ const FORCE = process.env.SHIFT_FORCE_CLOSE_MINUTES === undefined || process.env.SHIFT_FORCE_CLOSE_MINUTES === '' ? 15 : Math.min(Math.max(Number(process.env.SHIFT_FORCE_CLOSE_MINUTES) || 0, 0), 180);
  const label = (m) => { const h = Math.floor(m / 60), mi = m % 60; return ((h + 11) % 12 + 1) + ':' + String(mi).padStart(2, '0') + ' ' + (h < 12 ? 'AM' : 'PM'); };
  function clock() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
@@ -30,14 +36,20 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   const minutes = (+parts.hour % 24) * 60 + +parts.minute, date = parts.year + '-' + parts.month + '-' + parts.day;
   return { minutes, date, state: minutes < OPEN_MIN ? 'before' : minutes < CLOSE_MIN ? 'open' : 'after' };
  }
+ const minutesOfDay = (ts) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: TZ, hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(ts)).map((x) => [x.type, x.value])); return (+p.hour % 24) * 60 + +p.minute; };
  const hours = () => {
   const c = clock();
-  // Allow opening cash shift anytime during testing/development (enforce strict hours only if ENFORCE_STORE_HOURS is set to true)
-  const canOpen = process.env.ENFORCE_STORE_HOURS === 'true' ? (c.minutes >= OPEN_MIN - EARLY && c.minutes < CLOSE_MIN) : true;
+  // Allow opening cash shift anytime during testing/development (enforce strict hours only if ENFORCE_STORE_HOURS is set to true).
+  // When enforced, no shift can be opened inside the final FORCE minutes either: it would have to be closed straight away.
+  const lastOpen = FORCE > 0 ? CLOSE_MIN - FORCE : CLOSE_MIN;
+  const canOpen = process.env.ENFORCE_STORE_HOURS === 'true' ? (c.minutes >= OPEN_MIN - EARLY && c.minutes < lastOpen) : true;
   return { open: label(OPEN_MIN), close: label(CLOSE_MIN), openMinutes: OPEN_MIN, closeMinutes: CLOSE_MIN, earlyMinutes: EARLY, remindMinutes: REMIND,
+   forceCloseMinutes: FORCE, forceCloseFrom: label(CLOSE_MIN - FORCE),
    firstOpen: label(Math.max(0, OPEN_MIN - EARLY)), nowMinutes: c.minutes, date: c.date, state: c.state,
    canOpenShift: canOpen, minutesToClose: CLOSE_MIN - c.minutes };
  };
+ // true when this open shift must be counted and closed now (end-of-day window, or left open from an earlier day)
+ const mustClose = (openedAt) => rules.mustCloseShift({ clock: clock(), shift: { openedDay: dayOf(openedAt), openedMinutes: minutesOfDay(openedAt) }, closeMinutes: CLOSE_MIN, forceMinutes: FORCE });
  app.get('/api/pos/business-hours', auth('cashier', 'finance'), wrap(async (req, res) => res.json(hours())));
 
  /* ---------- schema (self-healing: the movements table was never in a migration) ---------- */
@@ -122,13 +134,17 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
  const dayOf = ts => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date(ts));
  // an open shift that began on an earlier (Philippine) day: counted and closed before anything else happens
  app.locals.shiftIsStale = (openedAt) => dayOf(openedAt) < clock().date;
+ // sales, cash collection and cash movements are refused on a shift that must be closed (pos-shop.js and below)
+ app.locals.shiftMustClose = (openedAt) => mustClose(openedAt);
+ const MUST_CLOSE_MSG = 'It is time to close your cash shift. Count the drawer and close it first; no more sales or cash entries can be made on this shift.';
 
  /* ---------- cashier ---------- */
  // One call tells the POS which screen to show after sign-in: open form (pre-filled), store closed, or close yesterday's shift first.
  app.get('/api/pos/cash-shifts/gate',auth('cashier'),wrap(async(req,res)=>{
   const r=await pool.query(`SELECT * FROM (${summarySql}) x WHERE "cashierId"=$1 AND "closedAt" IS NULL LIMIT 1`,[req.user.id]);
   const cur=r.rows[0]||null, h=hours();
-  const state=rules.gateState({clock:{state:h.state,date:h.date},canOpenShift:h.canOpenShift,current:cur&&{id:cur.id,openedDay:dayOf(cur.openedAt)}});
+  const must=!!cur&&mustClose(cur.openedAt);
+  const state=rules.gateState({clock:{state:h.state,date:h.date},canOpenShift:h.canOpenShift,mustClose:must,current:cur&&{id:cur.id,openedDay:dayOf(cur.openedAt)}});
   const out={state,hours:h,reasonThreshold:await getThreshold(),shift:null,suggested:null};
   if(cur){cur.movements=(await movementsFor([cur.id])).get(String(cur.id))||[];cur.hours=h;out.shift=cur;}
   else{
@@ -152,6 +168,8 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   const h=hours();
   if(!h.canOpenShift)return fail(res,409,h.state==='after'
     ?'The store is closed for today (open '+h.open+' to '+h.close+'). Shifts can be opened again tomorrow from '+h.firstOpen+'.'
+    :h.state==='open'
+    ?'It is too close to closing time ('+h.close+') to start a new shift: shifts are closed from '+h.forceCloseFrom+'. You can open your shift again tomorrow from '+h.firstOpen+'.'
     :'Too early: the store opens at '+h.open+'. You can open your shift from '+h.firstOpen+'.');
   const result=await tx(async client=>{
    await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
@@ -208,8 +226,9 @@ module.exports = function mountCashShifts({app,pool,auth,wrap,tx,audit,TZ:tzIn})
   if(typeof reason!=='string'||reason.trim().length<5||reason.trim().length>300)return fail(res,400,'Write a reason (5–300 characters).','reason');
   const result=await tx(async client=>{
     await client.query('SELECT pg_advisory_xact_lock($1,$2)',[73001,req.user.id]);
-    const shift=await client.query('SELECT shift_id FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE',[req.user.id]);
+    const shift=await client.query('SELECT shift_id, opened_at FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE',[req.user.id]);
     if(!shift.rowCount)return {error:'Open a cash shift first.'};
+    if(mustClose(shift.rows[0].opened_at))return {error:MUST_CLOSE_MSG,status:409};
     const id=shift.rows[0].shift_id;
     if(kind==='cash_out'){   // the drawer cannot go below zero
      const cur=(await client.query(`SELECT "expectedCash" FROM (${summarySql}) x WHERE id=$1`,[id])).rows[0];

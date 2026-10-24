@@ -17,7 +17,7 @@
  // the gate: nothing else on the POS works until a shift is open. THRESHOLD = difference above which closing needs a reason (set by Finance).
  let gated = true, THRESHOLD = 20, SUGGEST = null, paintedKey = '', pollN = 0, pendingPage = null;
  // store hours from the server (8:00 AM - 5:00 PM). nowMinutes is moved forward on this screen between refreshes.
- let HOURS = null, hoursAt = 0, prompted = false;
+ let HOURS = null, hoursAt = 0, lastForceAsk = 0;
  const nowMin = () => HOURS ? HOURS.nowMinutes + Math.floor((Date.now() - hoursAt) / 60000) : null;
  const left = () => HOURS ? HOURS.closeMinutes - nowMin() : null;
  const hm = (m) => { m = Math.max(0, Math.round(m)); return (m >= 60 ? Math.floor(m / 60) + 'h ' : '') + (m % 60) + 'm'; };
@@ -47,9 +47,10 @@
  const fieldErr = (id, msg) => { const i = $(id), e = $(id + 'Err'); if (i) i.classList.toggle('is-bad', !!msg); if (e) e.textContent = msg || ''; };
 
  /* ---------- dialog helper ---------- */
- function dialog(html) {
+ function dialog(html, { locked = false } = {}) {          // locked = no Escape, no click-outside, no Cancel: the only way out is finishing it
   const m = document.createElement('div');
   m.className = 'cs-modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+  if (locked) m.dataset.locked = '1';
   m.innerHTML = '<div class="cs-dialog">' + html + '</div>';
   document.body.appendChild(m);
   const close = () => { m.remove(); document.removeEventListener('keydown', onKey); };
@@ -143,10 +144,11 @@
   }
   HOURS = g.hours; hoursAt = Date.now(); THRESHOLD = g.reasonThreshold; SUGGEST = g.suggested; current = g.shift;
   paintGate(g);
+  if (g.state === 'close_now' && current && !document.querySelector('.cs-modal')) closeDialog({ forced: true });   // end of day: the count-and-close window opens by itself
   const typing = document.activeElement && $('csApp') && $('csApp').contains(document.activeElement) && /INPUT|TEXTAREA/.test(document.activeElement.tagName);
   if (!typing) render(); else badge();   // do not wipe what the cashier is typing when a sale refreshes the shift
   clearInterval(ticker);
-  ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); const lf = $('csLeft'); if (lf && HOURS) lf.textContent = left() < 0 ? 'past closing' : hm(left()) + ' left'; side(); checkClosingPrompt(); }, 30000); checkClosingPrompt();
+  ticker = setInterval(() => { const e = $('csElapsed'); if (e && current) e.textContent = dur(current.openedAt); const lf = $('csLeft'); if (lf && HOURS) lf.textContent = left() < 0 ? 'past closing' : hm(left()) + ' left'; side(); checkForceClose(); }, 30000); checkForceClose();
  }
  async function history() {
   const body = $('shiftHistory'); if (!body) return;
@@ -189,19 +191,19 @@
   catch (e) { fieldErr('csMvAmount', e.fields.amount || ''); fieldErr('csMvReason', e.fields.reason || ''); if (!Object.keys(e.fields).length) say(e.message, true); btn.disabled = false; }
  }
 
-  function checkClosingPrompt() {
-    if (!current || prompted || gated || document.querySelector('.cs-modal')) return;
-    const phTime = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-    const hr = phTime.getHours(), min = phTime.getMinutes();
-    const isClosingSoon = (hr === 16 && min >= 45) || (hr >= 17) || (HOURS && left() != null && left() <= 15);
-    if (isClosingSoon) {
-      prompted = true;
-      closeDialog(true);
-    }
+  /* End of day: from HOURS.forceCloseMinutes before closing (e.g. 4:45 PM for a 5:00 PM close) the shift must be closed. While selling, this asks the
+     server once a minute once that window is near; the server knows when the shift was opened and answers 'close_now', which locks the screen
+     and opens the count-and-close window (see refresh()). The server also refuses sales on that shift, so this cannot be bypassed by hiding the window. */
+  function checkForceClose() {
+    if (!current || gated || !HOURS || !(HOURS.forceCloseMinutes > 0)) return;
+    const l = left(); if (l == null || l > HOURS.forceCloseMinutes) return;
+    if (Date.now() - lastForceAsk < 60000) return;
+    lastForceAsk = Date.now(); refresh();
   }
-  function closeDialog(isAutoPrompt) {
+  function closeDialog(opts) {
+  const forced = !!(opts && opts.forced);
   const exp = current.expectedCash;
-    const banner = isAutoPrompt ? '<div class="cs-warn" style="margin-bottom:14px"><b>End of Day Shift Close (Before 5:00 PM):</b> Store closes at 5:00 PM. Please count your drawer notes and coins and reconcile your cash shift for today.</div>' : '';
+    const banner = forced ? '<div class="cs-warn" style="margin-bottom:14px"><b>Time to close your shift.</b> The store closes at ' + esc(HOURS ? HOURS.close : '') + '. Count the notes and coins in your drawer and close this shift now. Selling is paused until it is closed; this window cannot be dismissed.</div>' : '';
     const d = dialog(banner + `<h3>Count &amp; close shift
    <div class="cs-tabs"><button type="button" class="on" data-mode="count">Count notes &amp; coins</button><button type="button" data-mode="total">I know the total</button></div>
    <div id="csModeCount" class="cs-count">${DENOMS.map(([k, c]) => `<div class="cs-den"><span class="d">₱${k}</span><input type="number" inputmode="numeric" min="0" step="1" data-den="${k}" placeholder="0" aria-label="How many ₱${k}"><span class="s" data-sub="${k}">₱0.00</span></div>`).join('')}</div>
@@ -212,7 +214,7 @@
    <div class="cs-field"><label for="csDeposit">Cash you are taking out for the bank or safe (optional)</label><div class="cs-money"><span>₱</span><input id="csDeposit" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csDepositErr"></div><div class="cs-hint" id="csNext"></div></div>
    <label class="cs-check"><input type="checkbox" id="csSure"><span>I counted the cash in my drawer and the amount above is correct.</span></label>
    <div class="cs-err" id="csFormErr" style="margin-bottom:10px"></div>
-   <div class="cs-actions"><button class="btn-secondary" data-cancel>Cancel</button><button class="btn-primary" id="csConfirmClose" disabled>Close shift</button></div>`);
+   <div class="cs-actions">${forced ? '' : '<button class="btn-secondary" data-cancel>Cancel</button>'}<button class="btn-primary" id="csConfirmClose" disabled>Close shift</button></div>`, { locked: forced });
   let mode = 'count';
   const counts = () => { const o = {}; d.el.querySelectorAll('[data-den]').forEach(i => { const n = Math.floor(Number(i.value)); if (n > 0) o[i.dataset.den] = n; }); return o; };
   const counted = () => {
@@ -246,7 +248,7 @@
    mode = b.dataset.mode; d.el.querySelectorAll('.cs-tabs button').forEach(x => x.classList.toggle('on', x === b));
    $('csModeCount').hidden = mode !== 'count'; $('csModeTotal').hidden = mode !== 'total'; update();
   });
-  d.q('[data-cancel]').onclick = d.close;
+  const cancelBtn = d.q('[data-cancel]'); if (cancelBtn) cancelBtn.onclick = d.close;     // a forced (end-of-day) window has no Cancel
   $('csConfirmClose').onclick = async () => {
    const { c, needNote, noteOk, dep } = update();
    if (!c.ok || !dep.ok) return; if (needNote && !noteOk) return fieldErr('csNote', 'Please explain the difference (at least 5 characters).');
@@ -305,8 +307,13 @@
     '<p class="sg-lead">Shift <b>#' + esc(sh.id) + '</b> opened <b>' + esc(when(sh.openedAt)) + '</b> was never closed. Count the drawer and close it before you open a new shift. Selling stays blocked until then.</p>' +
     '<div class="sg-carry"><span>Cash that should be in the drawer</span><b>' + fmt(sh.expectedCash) + '</b><small>' + esc(sh.cashTransactions) + ' cash sale(s) \u00B7 started with ' + fmt(sh.openingCash) + '</small></div>' +
     '<button type="button" class="btn-primary cs-btn" id="sgClosePrev">Count &amp; close shift #' + esc(sh.id) + '</button>');
+  } else if (g.state === 'close_now') {   // end of day: the shift must be counted and closed, no dismiss
+   gateShell('Time to close your shift',
+    '<p class="sg-lead">The store closes at <b>' + esc(h.close) + '</b>. From <b>' + esc(h.forceCloseFrom) + '</b> every open shift must be counted and closed. Selling is paused until shift <b>#' + esc(sh.id) + '</b> is closed.</p>' +
+    '<div class="sg-carry"><span>Cash that should be in the drawer</span><b>' + fmt(sh.expectedCash) + '</b><small>' + esc(sh.cashTransactions) + ' cash sale(s) \u00b7 started with ' + fmt(sh.openingCash) + '</small></div>' +
+    '<button type="button" class="btn-primary cs-btn" id="sgCloseNow">Count &amp; close shift #' + esc(sh.id) + '</button>');
   } else {   // can_open
-   const hint = '<p class="cs-hours">Store hours <b>' + esc(h.open) + ' \u2013 ' + esc(h.close) + '</b>. Close your shift before ' + esc(h.close) + '.</p>';
+   const hint = '<p class="cs-hours">Store hours <b>' + esc(h.open) + ' \u2013 ' + esc(h.close) + '</b>. ' + (h.forceCloseMinutes > 0 ? 'Your shift must be closed from <b>' + esc(h.forceCloseFrom) + '</b>.' : 'Close your shift before ' + esc(h.close) + '.') + '</p>';
    gateShell('Open cash shift',
     '<p class="sg-lead">Count the cash in the drawer and confirm the starting amount. You cannot sell until a shift is open.</p>' +
     (sug ? '<div class="sg-carry"><span>Carried over from shift #' + esc(sug.fromShiftId) + (sug.cashierName ? ' (' + esc(sug.cashierName) + ')' : '') + ', closed ' + esc(when(sug.closedAt)) + '</span><b>' + fmt(sug.amount) + '</b><small>Counted ' + fmt(sug.closingCash) + ' \u2212 deposit ' + fmt(sug.deposit) + '</small></div>'
@@ -348,6 +355,7 @@
   else if (t.id === 'sgLogout') logOut();
   else if (t.id === 'sgRetry') refresh();
   else if (t.id === 'sgClosePrev') { if (current) closeDialog(); else refresh(); }
+  else if (t.id === 'sgCloseNow') { if (current) closeDialog({ forced: true }); else refresh(); }
   else if (t.dataset.sgfill) { const box = $('sgCash'), now = MoneyInput.parse(box.value) || 0; MoneyInput.set(box, t.dataset.sgfill === 'clear' ? '' : ((cents(now) + cents(t.dataset.sgfill)) / 100).toFixed(2)); fieldErr('sgCash', ''); gateUpdate(); box.focus(); }
  });
  document.addEventListener('input', e => { if (e.target.id === 'sgCash') { fieldErr('sgCash', ''); gateUpdate(); } });

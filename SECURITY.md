@@ -126,7 +126,7 @@ Status: **Met** = implemented and evidenced, **Partial** = implemented with a st
 | V8.1 | Sensitive data not cached | Met | `Cache-Control: no-store` on `/api` (tested) |
 | V9.1 | TLS for all traffic | Met in production | HSTS; Secure cookie; DB TLS; requires HTTPS deployment |
 | V10.x | No dangerous code (eval, dynamic functions) | Met | repo search: no `eval(`, `new Function(` |
-| V11.1 | Business-logic limits | Met | stock/payment row locking, centavo arithmetic, double-submit protection on sales |
+| V11.1 | Business-logic limits | Met | stock/payment row locking, centavo arithmetic, double-submit protection on sales; **end-of-day cash control**: from 15 minutes before closing (4:45 PM) the cashier's shift must be counted and closed, the window cannot be dismissed, and the server refuses sales, cash collection and cash movements on that shift until it is closed (`cash-shift-force-close.test.js`) |
 | V12.x | File upload restrictions | Met | avatar: JPEG/PNG only, 2 MB |
 | V13.x | API: auth on every endpoint, content type, no mass assignment | Met | route audit; field-by-field validation |
 | V14.2 | Dependencies free of known vulnerabilities | Met | `npm audit --omit=dev` = 0 |

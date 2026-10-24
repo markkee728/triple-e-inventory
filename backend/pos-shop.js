@@ -943,6 +943,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       const shiftResult = await client.query('SELECT shift_id, opened_at FROM pos_cash_shifts WHERE cashier_id=$1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
       if (!shiftResult.rowCount) throw bad('cashShift', 'Open your Cash Shift before completing a sale.');
       if (app.locals.shiftIsStale && app.locals.shiftIsStale(shiftResult.rows[0].opened_at)) throw bad('cashShift', 'Your cash shift from an earlier day is still open. Count and close it, then open a new shift, before completing a sale.');
+      if (app.locals.shiftMustClose && app.locals.shiftMustClose(shiftResult.rows[0].opened_at)) throw bad('cashShift', 'It is time to close your cash shift. Count the drawer and close it first; no more sales can be made on this shift.');
       const cashShiftId = shiftResult.rows[0].shift_id;
       const items = await loadSellable(client, lines, { lock: true });
       if (app.locals.shopExtras) await app.locals.shopExtras.checkMinimums(client, items);     // minimum order; the maximum is the stock, checked in loadSellable
@@ -1902,6 +1903,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
           const shift = await client.query('SELECT shift_id, opened_at FROM pos_cash_shifts WHERE cashier_id = $1 AND closed_at IS NULL FOR UPDATE', [req.user.id]);
           if (!shift.rowCount) throw bad('cashReceived', 'Open your Cash Shift before collecting payment');
           if (app.locals.shiftIsStale && app.locals.shiftIsStale(shift.rows[0].opened_at)) throw bad('cashReceived', 'Your cash shift from an earlier day is still open. Count and close it, then open a new shift, before collecting payment');
+          if (app.locals.shiftMustClose && app.locals.shiftMustClose(shift.rows[0].opened_at)) throw bad('cashReceived', 'It is time to close your cash shift. Count the drawer and close it first; cash can no longer be collected on this shift');
           shiftId = shift.rows[0].shift_id;
         }
       }

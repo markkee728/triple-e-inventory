@@ -9,10 +9,22 @@ const DEFAULT_REASON_THRESHOLD = 20;   // pesos; Finance changes it on the Cash 
    clock   = { state: 'before' | 'open' | 'after', date: 'YYYY-MM-DD' }  (Philippine time)
    current = the cashier's open shift as { id, openedDay: 'YYYY-MM-DD' }, or null
    Order matters: a shift left open from an earlier day is always handled first, even after closing time. */
-function gateState({ clock, current, canOpenShift }) {
-  if (current) return current.openedDay < clock.date ? 'close_previous' : 'open';
+function gateState({ clock, current, canOpenShift, mustClose }) {
+  if (current) return current.openedDay < clock.date ? 'close_previous' : mustClose ? 'close_now' : 'open';
   if (canOpenShift) return 'can_open';
   return clock.state === 'before' ? 'too_early' : 'store_closed';
+}
+
+/* End-of-day rule: from forceMinutes before closing time, a shift that was already open when that window began MUST be counted and closed.
+   (A shift opened after the window began is not forced: that is only possible when ENFORCE_STORE_HOURS is off, i.e. development.)
+   An open shift from an earlier day always must close. forceMinutes = 0 switches the rule off.
+   clock = { date, minutes } in Philippine time; shift = { openedDay, openedMinutes }. */
+function mustCloseShift({ clock, shift, closeMinutes, forceMinutes }) {
+  if (!shift) return false;
+  if (shift.openedDay < clock.date) return true;
+  if (!(forceMinutes > 0)) return false;
+  const from = closeMinutes - forceMinutes;
+  return shift.openedDay === clock.date && clock.minutes >= from && shift.openedMinutes < from;
 }
 
 /* Opening cash to pre-fill = what the last closed shift counted, minus the deposit taken out of the drawer at that close. */
@@ -35,4 +47,4 @@ function depositProblem(deposit, counted) {
   return null;
 }
 
-module.exports = { DEFAULT_REASON_THRESHOLD, gateState, suggestOpening, reasonRequired, depositProblem, r2 };
+module.exports = { DEFAULT_REASON_THRESHOLD, gateState, mustCloseShift, suggestOpening, reasonRequired, depositProblem, r2 };
