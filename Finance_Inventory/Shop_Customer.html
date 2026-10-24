@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="ui2-core.css?v=1">
 <link rel="stylesheet" href="ui2-notifications.css?v=1">
-<link rel="stylesheet" href="ui2-shop.css?v=1">
+<link rel="stylesheet" href="ui2-shop.css?v=2">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -185,7 +185,7 @@ a.nav-item{text-decoration:none}
         <div>Choose <b>Delivery</b> (shipping calculated per region) or <b>Pickup</b> (free counter collection). An online down payment confirms your reservation and allocates inventory immediately.</div>
       </div>
       <div class="checkout-layout">
-        <div class="card" style="padding:20px">
+        <div class="card checkout-form-card" style="padding:20px">
           <div class="sec-title">Fulfilment</div>
           <div class="opt-grid">
             <label class="opt on" data-f="Delivery"><input type="radio" name="f" checked><span>Delivery<small><span data-fee>₱150</span> fee · depends on your region / province</small></span></label>
@@ -234,12 +234,13 @@ a.nav-item{text-decoration:none}
       </div>
       <div class="cart-layout">
         <form class="card quote-form" id="quoteForm" autocomplete="off" novalidate>
-          <div class="qf-sec first"><span class="qf-num">1</span><span class="qf-txt"><b>What do you need?</b><small>Pick a product from the catalog, or choose “Other” and describe it.</small></span></div>
+          <div class="qf-step"><div class="qf-sec first"><span class="qf-num">1</span><span class="qf-txt"><b>What do you need?</b><small>Pick a product from the catalog, or choose “Other” and describe it.</small></span></div>
           <div class="q-field"><label for="qProduct">Product</label><select id="qProduct"></select></div>
           <div class="q-field" id="qNameWrap" hidden><label for="qProductName">Describe the item</label><input id="qProductName" maxlength="120" placeholder="e.g. Die-cast aluminum housing, ADC12, powder coated"><div class="err-text" id="qE_productName"></div></div>
           <div id="qFields"><p class="dim">Loading the form…</p></div>
 
-          <div class="qf-sec"><span class="qf-num">2</span><span class="qf-txt"><b>How will you receive it?</b><small>Delivery quotes only need the area, not your full address.</small></span></div>
+          </div>
+          <div class="qf-step"><div class="qf-sec"><span class="qf-num">2</span><span class="qf-txt"><b>How will you receive it?</b><small>Delivery quotes only need the area, not your full address.</small></span></div>
           <div id="qDeliveryAnchor" tabindex="-1"></div>
           <div class="q-seg" role="radiogroup" aria-label="Delivery or pickup">
             <label class="q-opt"><input type="radio" name="qFulfil" value="Delivery"><span class="q-opt-body"><svg class="q-opt-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7.5" cy="17.5" r="1.8"/><circle cx="17.5" cy="17.5" r="1.8"/></svg><span class="q-opt-txt"><b>Delivery</b><small>We bring it to your address</small></span></span></label>
@@ -265,14 +266,17 @@ a.nav-item{text-decoration:none}
             <div class="err-text" id="qE_address"></div>
           </div>
 
-          <div class="qf-sec"><span class="qf-num">3</span><span class="qf-txt"><b>Your contact details</b><small>We call or text this number with your price.</small></span></div>
+          </div>
+          <div class="qf-step"><div class="qf-sec"><span class="qf-num">3</span><span class="qf-txt"><b>Your contact details</b><small>We call or text this number with your price.</small></span></div>
           <div class="q-grid">
             <div class="q-field"><label for="qName">Your name</label><input id="qName" maxlength="80" autocomplete="name" placeholder="Full name"><div class="err-text" id="qE_contactName"></div></div>
             <div class="q-field"><label for="qPhone">Mobile number</label><input id="qPhone" type="tel" inputmode="tel" autocomplete="tel" maxlength="16" placeholder="0917 123 4567"><div class="err-text" id="qE_phone"></div></div>
           </div>
-          <div class="err-text q-formerr" id="qErr" role="alert"></div>
+          </div>
+          <div class="qf-submit"><div class="err-text q-formerr" id="qErr" role="alert"></div>
           <button type="submit" class="btn-primary btn-lg" id="qSend">Review Request</button>
           <p class="q-foot-note">You will see a summary to check before anything is sent. This is a request for a price only, not an order.</p>
+                  </div>
         </form>
         <aside class="sticky-side">
           <div class="card quote-how" style="margin-bottom:14px"><h3>How it works</h3>
