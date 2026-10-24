@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="notifications.css?v=7">
 <link rel="stylesheet" href="ui2-core.css?v=1">
 <link rel="stylesheet" href="ui2-notifications.css?v=1">
-<link rel="stylesheet" href="ui2-shop.css?v=3">
+<link rel="stylesheet" href="ui2-shop.css?v=4">
 <link rel="stylesheet" href="quote-fields.css?v=4">
 <style>
 a.nav-item{text-decoration:none}
@@ -1233,6 +1233,30 @@ const ordNeedsPay = o => !ORD_END.includes(o.status) && !ORD_DONE.includes(o.sta
 const ordGroup = o => ORD_END.includes(o.status) ? 'cancelled' : ORD_DONE.includes(o.status) ? 'done' : (o.status === 'Pending Confirmation' || ordNeedsPay(o)) ? 'action' : 'progress';
 const ORD_FILTERS = [['all', 'All'], ['action', 'Needs action'], ['progress', 'In progress'], ['done', 'Completed'], ['cancelled', 'Cancelled']];
 const CHEV = '<svg class="ico chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>';
+const QI = { pay: '<path d="M2 5h20v14H2zM2 10h20"/>', ok: '<path d="m5 12 5 5 9-10"/>', refund: '<path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5"/>' };
+const qIco = k => `<svg class="ico" viewBox="0 0 24 24" aria-hidden="true">${QI[k]}</svg>`;
+// the buttons a customer needs most, shown on the collapsed card so nobody has to open it first (same data-* hooks as the full card)
+function quickActions(o) {
+  const b = [], done = ['Delivered', 'Picked Up'].includes(o.status);
+  if (ordNeedsPay(o)) {
+    const due = Number(o.dueNow) > 0 ? o.dueNow : o.outstanding;
+    if ((o.advance && !o.advance.paid) || (o.method === 'Xendit' && Number(o.outstanding || 0) > 0.005))
+      b.push(`<button type="button" class="btn-primary btn-sm" data-xendit="${esc(o.id)}">${qIco('pay')}Pay ${peso(due)} now</button>`);
+  }
+  if (o.fulfillment === 'Delivery' && o.status === 'Delivered' && !(o.delivery && o.delivery.customerReceivedAt))
+    b.push(`<button type="button" class="btn-primary btn-sm qa-ok" data-received="${esc(o.id)}">${qIco('ok')}I received my order</button>`);
+  if (done && !o.refund && o.refundEligible)
+    b.push(`<button type="button" class="btn-secondary btn-sm" data-refund="${esc(o.id)}">${qIco('refund')}Request refund</button>`);
+  if (done) {
+    const todo = o.items.filter(it => !MY_REVIEWS.has(it.sku));
+    if (todo.length && todo.length <= 2) todo.forEach(it => b.push(`<button type="button" class="btn-secondary btn-sm qa-rate" data-review="${esc(it.sku)}" title="Rate ${esc(it.name)}">${IC_STAR} Rate ${todo.length > 1 ? esc(it.name.length > 22 ? it.name.slice(0, 21) + '…' : it.name) : 'this'}</button>`));
+    else if (todo.length) b.push(`<button type="button" class="btn-secondary btn-sm qa-rate" data-ord-toggle="${esc(o.id)}">${IC_STAR} Rate ${todo.length} items</button>`);
+  }
+  if (!b.length) return '';
+  const hint = o.fulfillment === 'Delivery' && o.status === 'Delivered' && !(o.delivery && o.delivery.customerReceivedAt) ? '<span class="qa-hint">Tap once everything has arrived.</span>'
+    : done && o.refundEligible && !o.refund ? `<span class="qa-hint">Refund possible until ${fmtDay(o.refundDeadline)}.</span>` : '';
+  return `<div class="ord-quick">${b.join('')}${hint}</div>`;
+}
 function orderCardHtml(o, open) {
   const flow = FLOW[o.fulfillment], i = flow.indexOf(o.status), done = ['Delivered', 'Picked Up'].includes(o.status);
   const grp = ordGroup(o), first = o.items[0] || { qty: 0, name: '' };
@@ -1248,6 +1272,7 @@ function orderCardHtml(o, open) {
       <span class="ord-total mono">${peso(o.total)}</span>${CHEV}
       ${i >= 0 && grp !== 'cancelled' ? `<span class="ord-prog" aria-hidden="true"><i style="width:${pct}%"></i></span>` : ''}
     </button>
+    ${quickActions(o)}
     <div class="ord-body">
     <div class="order-meta">${new Date(o.createdAt).toLocaleString('en-PH')} · ${o.fulfillment} · ${esc(payLabel(o.method))}</div>
     ${o.items.map(it => `<div class="row"><span>${it.qty} × ${esc(it.name)}${done ? reviewBtn(it) : ''}</span><span class="mono">${peso(it.qty * it.price)}</span></div>`).join('')}
@@ -1458,7 +1483,7 @@ $('shopDetailsBg').addEventListener('click', e => {if(e.target === $('shopDetail
 let MY_REVIEWS = new Map();           // sku -> { rating, status } for the products this customer already reviewed
 async function loadMyReviews() { try { MY_REVIEWS = new Map((await api('/api/shop/my-reviews')).map(r => [r.sku, r])); } catch (e) { /* keep what we have */ } }
 function reviewBtn(it) {
-  return MY_REVIEWS.has(it.sku) ? ' <span class="rev-done">${IC_STAR} Reviewed</span>' : ` <button type="button" class="link-btn" data-review="${esc(it.sku)}">${IC_STAR} Rate this</button>`;
+  return MY_REVIEWS.has(it.sku) ? ` <span class="rev-done">${IC_STAR} Reviewed</span>` : ` <button type="button" class="link-btn" data-review="${esc(it.sku)}">${IC_STAR} Rate this</button>`;
 }
 function reviewsPanel(p, rv) {
   if (!rv) return '<div class="pd-empty">Reviews could not be loaded right now.</div>';

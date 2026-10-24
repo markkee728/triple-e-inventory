@@ -558,3 +558,46 @@ html body .tq-actions button, html body .modal-actions .btn-primary, html body .
     #orders .ord-body { padding: 4px 14px 18px; }
     #quote #quoteList { max-height: 560px; }
 }
+/* ---------- orders: key buttons on the collapsed card ---------- */
+#orders .ord-quick {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 20px 16px; margin-top: -2px;
+}
+#orders .order.ord.open .ord-quick { display: none; }          /* the open card already shows the same buttons in full */
+#orders .ord-quick .btn-primary, #orders .ord-quick .btn-secondary {
+    border-radius: 99px; min-height: 38px; padding: 0 16px; font-family: "IBM Plex Mono", monospace;
+    font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase;
+}
+#orders .ord-quick .btn-primary { box-shadow: 0 12px 22px -14px color-mix(in srgb, var(--blue-bright) 90%, transparent); }
+#orders .ord-quick .qa-rate { color: var(--u-warn-fg); border-color: var(--u-warn-line); background: var(--u-warn-bg); }
+#orders .ord-quick .qa-rate:hover { border-color: var(--u-warn-fg); }
+#orders .ord-quick .qa-rate .ic { color: inherit; }
+#orders .ord-quick .qa-hint { font-size: 12.5px; color: var(--text-dim); }
+@media (max-width: 760px) {
+    #orders .ord-quick { padding: 0 14px 14px; }
+    #orders .ord-quick .btn-primary, #orders .ord-quick .btn-secondary { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ---------- orders: quick buttons, footer-strip design ---------- */
+#orders .ord-quick { padding: 12px 20px; margin: 0; gap: 10px; border-top: 1px solid var(--u-line-soft); background: var(--u-surface-flat); }
+#orders .ord-quick .btn-primary, #orders .ord-quick .btn-secondary { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 18px; }
+#orders .ord-quick .ico { width: 16px; height: 16px; vertical-align: 0; flex: none; }
+#orders .ord-quick .qa-ok { background: linear-gradient(180deg, var(--green), color-mix(in srgb, var(--green) 70%, #000)); color: #fff; border-color: transparent; box-shadow: 0 12px 22px -14px var(--green); }
+#orders .ord-quick .qa-hint { margin-left: auto; font-size: 12.5px; text-align: right; }
+@media (max-width: 760px) {
+    #orders .ord-quick { padding: 12px 14px; }
+    #orders .ord-quick .qa-hint { margin-left: 0; width: 100%; text-align: left; order: 9; }
+}
+
+/* ---------- product details: photo fills the whole left side, no empty bands ---------- */
+.pd-dialog .pd-grid { align-items: stretch; }
+.pd-dialog .pd-gallery { position: relative; display: flex; flex-direction: column; padding: 0; background: var(--card); overflow: hidden; border-radius: 16px 0 0 16px; min-height: 380px; }
+.pd-dialog .pd-stage { flex: 1 1 auto; aspect-ratio: auto; min-height: 380px; border: 0; border-radius: 0; background: var(--inset); }
+.pd-dialog .pd-stage img { object-fit: cover; background: var(--inset); }
+.pd-dialog .pd-count { top: 12px; left: 12px; right: auto; bottom: auto; }
+.pd-dialog .pd-thumbs { position: absolute; left: 12px; right: 12px; bottom: 12px; margin: 0; padding: 8px; gap: 8px; border-radius: 14px;
+    background: color-mix(in srgb, var(--card) 78%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid var(--border); }
+.pd-dialog .pd-thumb { width: 56px; height: 56px; }
+@media (max-width: 760px) {
+    .pd-dialog .pd-gallery { border-radius: 18px 18px 0 0; min-height: 0; }
+    .pd-dialog .pd-stage { flex: none; min-height: 0; aspect-ratio: 4 / 3; }
+}
