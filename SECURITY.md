@@ -143,7 +143,7 @@ Status: **Met** = implemented and evidenced, **Partial** = implemented with a st
 | API1 Broken object-level authorization | Queries scoped to the signed-in user; role-restricted admin routes |
 | API2 Broken authentication | bcrypt, lockout, rate limits, signed httpOnly cookie, token expiry |
 | API3 Broken object property-level authorization | Explicit field lists on updates; role-specific response shapes |
-| API4 Unrestricted resource consumption | General + strict per-IP rate limits, 100 kb body limit, 2 MB upload limit, pool cap |
+| API4 Unrestricted resource consumption | General per-IP limit; a strict limit for sign-in, sign-up and one-time codes (40 per 10 min); a separate limit for administrator invitations (30 per 10 min) so one cannot starve the other; the read-only verification poll is excluded; 100 kb body limit, 2 MB upload limit, pool cap |
 | API5 Broken function-level authorization | `auth(role)` on every non-public route; route audit test |
 | API6 Unrestricted access to sensitive business flows | Lockout, OTP expiry and cooldowns, double-payment protection |
 | API7 Server-side request forgery | No user-supplied URLs fetched by the server |

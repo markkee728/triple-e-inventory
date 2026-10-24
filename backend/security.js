@@ -15,6 +15,7 @@
      ALLOWED_ORIGINS    extra hosts allowed to send state-changing requests, comma separated (e.g. shop.example.com)
      RATE_LIMIT_PER_MIN general limit per IP for /api (default 600: a shop counter shares one IP)
      AUTH_RATE_LIMIT    sign-in / sign-up / OTP limit per IP per 10 minutes (default 40)
+     INVITE_RATE_LIMIT  invitations an administrator can send per IP per 10 minutes (default 30; its own budget, separate from sign-in)
      COOKIE_SECURE      true or false; when not set it is true in production */
 'use strict';
 const crypto = require('crypto');
@@ -151,13 +152,24 @@ function mount({ app, pool, limits } = {}) {
   const general = rateLimiter({ windowMs: 60000, max: (limits && limits.general) || num(process.env.RATE_LIMIT_PER_MIN, 600) });
   const strict = rateLimiter({ windowMs: 600000, max: (limits && limits.auth) || num(process.env.AUTH_RATE_LIMIT, 40),
     message: 'Too many attempts from this connection. Please wait a few minutes and try again.' });
-  const sensitive = /^\/(auth|signup|invitations)(\/|$)/i;
+  // Invitations (an administrator inviting staff) have their own budget, so signing in or the sign-in screens can never use it up, and the other way round.
+  const invite = rateLimiter({ windowMs: 600000, max: (limits && limits.invite) || num(process.env.INVITE_RATE_LIMIT, 30),
+    message: 'Too many invitations were sent from this connection. Please wait a few minutes and try again.' });
+  const isInvite = /^\/invitations(\/|$)/i;
+  const sensitive = /^\/(auth|signup)(\/|$)/i;
+  // the verify-your-account screen asks "is my email confirmed yet?" every 3 seconds. That call is read-only, needs a signed 30-minute token and has its own
+  // limit (phone-otp.js), so it must not eat the brute-force budget of sign-in and codes.
+  const statusPoll = /^\/auth\/verification-status\/?$/i;
 
   app.use(securityHeaders());
   app.use('/api', (req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
   app.use('/api', originGuard((process.env.ALLOWED_ORIGINS || '').split(',')));
   app.use('/api', general);
-  app.use('/api', (req, res, next) => (req.method === 'POST' && sensitive.test(req.path) ? strict(req, res, next) : next()));
+  app.use('/api', (req, res, next) => {
+    if (req.method !== 'POST') return next();
+    if (isInvite.test(req.path)) return invite(req, res, next);
+    return sensitive.test(req.path) && !statusPoll.test(req.path) ? strict(req, res, next) : next();
+  });
 
   if (pool) ensureAuditAppendOnly(pool).catch(() => {});
 }

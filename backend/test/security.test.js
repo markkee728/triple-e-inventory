@@ -16,6 +16,10 @@ function start(limits, env) {
   app.post('/api/data', (req, res) => res.json({ saved: true }));
   app.post('/api/auth/login', (req, res) => res.json({ ok: true }));
   app.post('/api/auth/forgot/send', (req, res) => res.json({ ok: true }));
+  app.post('/api/auth/verification-status', (req, res) => res.json({ ok: true }));
+  app.post('/api/invitations', (req, res) => res.json({ ok: true }));
+  app.post('/api/invitations/:id/resend', (req, res) => res.json({ ok: true }));
+  app.post('/api/signup/invite/:token', (req, res) => res.json({ ok: true }));
   return new Promise((resolve) => { const server = app.listen(0, () => resolve({ server, base: 'http://127.0.0.1:' + server.address().port })); });
 }
 
@@ -101,6 +105,28 @@ test('sign-in and OTP routes have a stricter limit than the rest of the API', as
   assert.deepEqual([await post('/api/auth/login'), await post('/api/auth/login'), await post('/api/auth/login')], [200, 200, 429]);
   assert.equal(await post('/api/auth/forgot/send'), 429, 'the limit is shared across the sensitive routes');
   assert.equal(await post('/api/data'), 200, 'ordinary routes are not affected');
+  server.close();
+});
+
+test('the verify screen 3-second status poll does not use up the sign-in budget', async () => {
+  const { server, base } = await start({ general: 100000, auth: 3, invite: 100 });
+  const post = (p) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then((r) => r.status);
+  for (let i = 0; i < 60; i++) assert.equal(await post('/api/auth/verification-status'), 200, 'poll ' + i);   // 3 minutes of polling
+  assert.deepEqual([await post('/api/auth/login'), await post('/api/auth/login'), await post('/api/auth/login'), await post('/api/auth/login')], [200, 200, 200, 429], 'sign-in is still limited to its own budget');
+  assert.equal(await post('/api/auth/verification-status'), 200, 'and the poll is not blocked by that limit either');
+  server.close();
+});
+
+test('invitations have their own budget: sign-in traffic cannot block an administrator, and invitation floods are still stopped', async () => {
+  const { server, base } = await start({ general: 100000, auth: 2, invite: 3 });
+  const post = (p) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+  for (let i = 0; i < 3; i++) await post('/api/auth/login');                                   // use up the sign-in budget (2) completely
+  assert.equal((await post('/api/auth/login')).status, 429, 'sign-in is blocked...');
+  assert.equal((await post('/api/invitations')).status, 200, '...but sending an invitation still works');
+  assert.equal((await post('/api/invitations')).status, 200); assert.equal((await post('/api/invitations/5/resend')).status, 200, 'resend shares the invitation budget');
+  const blocked = await post('/api/invitations');
+  assert.equal(blocked.status, 429); assert.match(blocked.body.error, /Too many invitations/);
+  assert.equal((await post('/api/signup/invite/abc')).status, 429, 'accepting an invitation (not logged in) stays under the strict sign-in budget');
   server.close();
 });
 
