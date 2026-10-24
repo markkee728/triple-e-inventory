@@ -3,19 +3,24 @@ TRIPLE-E INVENTORY — project with database backend
 FOLDERS
   Finance_Inventory/   website (HTML/JS/CSS). Already connected: api-bridge.js is added,
                        and the login form now calls the real /api/auth/login.
-  backend/             PostgreSQL schema + Node/Express API (see backend/README.md)
+  backend/             PostgreSQL schema + Node/Express API (see DATA_PROCESS.md)
 
 QUICK START (local)
   1. Install PostgreSQL and Node.js 20+.
   2. Create the DB and load it:
        sudo -u postgres psql -c "CREATE USER triplee_app WITH PASSWORD 'your-password';"
        sudo -u postgres psql -c "CREATE DATABASE triplee OWNER triplee_app;"
-       psql "postgres://triplee_app:your-password@localhost/triplee" -f backend/db/001_schema.sql -f backend/db/002_seed.sql
+       psql -X -v ON_ERROR_STOP=1 "postgres://triplee_app:your-password@localhost/triplee" -f backend/db/initialize.sql
+       This is for an EMPTY database. It creates roles and schema without sample inventory.
+       Existing installations: back up first; apply only backend/db/002_sales_core.sql to add missing sales tables.
+       Never rerun 001_schema.sql or blindly run every SQL file (some legacy scripts delete/reseed data).
   3. cd backend
        cp .env.example .env     (edit DATABASE_URL and set a long random JWT_SECRET)
        npm install
-       npm run create-user -- "Your Name" yourusername you@triplee-metal.com 'YourP@ssw0rd' finance
        npm start
+       After startup, apply backend/db/025_security_hardening.sql as the database owner
+       to cover runtime-created tables (use psql -X -v ON_ERROR_STOP=1). Then in another terminal:
+       npm run create-user -- "Your Name" yourusername you@triplee-metal.com 'YourP@ssw0rd' finance
   4. Open http://localhost:8080/Login_Inventory.html
 
 SIGN-IN: after the password is accepted, the user confirms a one-time code by email or text before a session starts. Keep LOGIN_OTP enabled in production.
@@ -94,7 +99,9 @@ PAYMENT TERMS AUTOMATION
 
 SECURITY AND DATA PROCESS
   Read SECURITY.md and DATA_PROCESS.md before release.
-  From backend: npm run test:security; npm run test:data-integrity; npm run check:production.
+  From backend: npm run test:security; npm run test:data-integrity; npm run test:startup; npm run check:production.
   test:data-integrity needs PostgreSQL tools (pg_config, initdb, pg_ctl, pg_dump, pg_restore, psql), run as a non-root user.
   It creates and removes its own local cluster; it never uses DATABASE_URL.
   The production check reads backend/.env without printing values; run it with the deployment configuration.
+
+  Full fresh-install regression: from backend run `npm run test:startup` (requires the same PostgreSQL tools). It uses a disposable private database and synthetic accounts with OTP enabled.

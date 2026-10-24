@@ -200,6 +200,8 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
       sale_id BIGINT, error_message TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
     await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS customer_name TEXT');
     await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS customer_phone TEXT');
+    await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS request_id TEXT');
+    await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_pos_checkout_request ON pos_xendit_payments(cashier_id, request_id) WHERE request_id IS NOT NULL');
     await pool.query('ALTER TABLE pos_xendit_payments ADD COLUMN IF NOT EXISTS delivery JSONB');      // POS delivery sale: fee + address, kept until the payment is verified
   }
   // Optional walk-in customer details typed by the cashier at checkout (name and/or phone). Blank = anonymous walk-in.
@@ -230,11 +232,27 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     city: d.ship.city, province: d.ship.province, region: d.ship.region, zip: d.ship.zip, full: d.ship.fullAddress } : null;
   const posPaymentsReady = ensurePosPayments().catch(e => { console.error('[db] POS Xendit schema:', e.message); throw e; });
   posPaymentsReady.catch(() => {});          // already logged above; without this a database that is not reachable yet at boot would crash the whole server (unhandled rejection)
+  const posPaymentJson = (p) => ({ paymentId: p.payment_id, requestId: p.request_id,
+    checkoutUrl: p.checkout_url, amount: +p.amount, status: p.status, sale_id: p.sale_id, items: p.items });
+  // Recover only this cashier's unresolved checkouts and explicitly remembered requests.
+  app.get('/api/pos/xendit-payments', auth('cashier'), wrap(async (req, res) => {
+    await posPaymentsReady;
+    const ids = String(req.query.ids || '').split(',').filter(Boolean);
+    const requests = String(req.query.requests || '').split(',').filter(Boolean);
+    if (ids.length > 50 || requests.length > 50 || ids.some(x => !/^\d{1,18}$/.test(x)) || requests.some(x => !/^[a-zA-Z0-9-]{12,100}$/.test(x)))
+      throw bad('payments', 'Invalid payment recovery request');
+    const { rows } = await pool.query(`SELECT * FROM pos_xendit_payments
+      WHERE cashier_id=$1 AND (status IN ('pending','review') OR payment_id=ANY($2::bigint[]) OR request_id=ANY($3::text[]))
+      ORDER BY payment_id DESC`, [req.user.id, ids, requests]);
+    res.json(rows.map(posPaymentJson));
+  }));
   app.post('/api/pos/xendit-checkout', auth('cashier'), wrap(async (req, res) => {
     await posPaymentsReady;
     const b = req.body || {};
     const requestId = typeof b.requestId === 'string' && /^[a-zA-Z0-9-]{12,100}$/.test(b.requestId) ? b.requestId : null;
     if (!requestId) throw bad('requestId', 'Sale request identifier is required. Refresh the POS page.');
+    const previous = await pool.query('SELECT * FROM pos_xendit_payments WHERE cashier_id=$1 AND request_id=$2', [req.user.id, requestId]);
+    if (previous.rowCount) return res.json(posPaymentJson(previous.rows[0]));
     const lines = readLines(b.items);
     const cust = readCustomer(b);
     const dlv = await readPosDelivery(pool, b);
@@ -248,8 +266,13 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
     const crypto = require('crypto');
     const externalId = 'triplee-pos-' + crypto.randomUUID();
     const snapshot = items.map(i => ({ sku: i.sku, qty: i.qty, price: i.price }));
-    const created = await pool.query(`INSERT INTO pos_xendit_payments (cashier_id,cashier_name,external_id,amount,items,customer_name,customer_phone,delivery)
-      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb) RETURNING payment_id`, [req.user.id,req.user.name,externalId,amount,JSON.stringify(snapshot),cust.name,cust.phone,dlv ? JSON.stringify(posDeliveryCols(dlv)) : null]);
+    const created = await pool.query(`INSERT INTO pos_xendit_payments (cashier_id,cashier_name,external_id,amount,items,customer_name,customer_phone,delivery,request_id)
+      VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb,$9)
+      ON CONFLICT (cashier_id,request_id) WHERE request_id IS NOT NULL DO NOTHING RETURNING payment_id`, [req.user.id,req.user.name,externalId,amount,JSON.stringify(snapshot),cust.name,cust.phone,dlv ? JSON.stringify(posDeliveryCols(dlv)) : null,requestId]);
+    if (!created.rowCount) {
+      const replay = await pool.query('SELECT * FROM pos_xendit_payments WHERE cashier_id=$1 AND request_id=$2', [req.user.id,requestId]);
+      return res.json(posPaymentJson(replay.rows[0]));
+    }
     const id = created.rows[0].payment_id;
     try {
       const base = String(process.env.APP_BASE_URL || '').replace(/\/$/, '');
@@ -260,7 +283,7 @@ module.exports = function mount({ app, pool, auth, wrap, tx, audit, ValidationEr
         failure_redirect_url:`${base}/POS_Cashier.html?payment=failed`
       }});
       await pool.query(`UPDATE pos_xendit_payments SET invoice_id=$1,checkout_url=$2 WHERE payment_id=$3`, [invoice.id,invoice.invoice_url,id]);
-      res.status(201).json({ paymentId:id, checkoutUrl:invoice.invoice_url, amount, status:'pending' });
+      res.status(201).json({ paymentId:id, requestId, checkoutUrl:invoice.invoice_url, amount, status:'pending', items:snapshot });
     } catch(e) {
       await pool.query(`UPDATE pos_xendit_payments SET status='error',error_message=$1 WHERE payment_id=$2`, [String(e.message).slice(0,400),id]);
       throw e;

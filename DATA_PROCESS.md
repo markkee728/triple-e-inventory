@@ -62,3 +62,17 @@ Finance/system owner must verify the actual deployment before declaring readines
 - Approved retention periods and verified access/correction/deletion procedures per data class. Financial history and append-only audits require documented retention exceptions. Disabling an account is not an erasure request.
 
 No existing customer records are rewritten by these fixes. Do not assign a readiness score until the required evidence is recorded.
+
+### Fresh installation
+
+Initialize an **empty** database with `psql -X -v ON_ERROR_STOP=1 "$DATABASE_URL" -f backend/db/initialize.sql` from the repository root. This creates the inventory, sales, quotation and production baseline and the three roles; it loads no sample inventory. Start the server to prepare the remaining runtime tables, rerun `backend/db/025_security_hardening.sql` as their owner to cover those tables, then create the administrator with `npm run create-user` from backend. The account script uses the same database/TLS settings as the server.
+
+For existing installations, take a backup and apply `backend/db/002_sales_core.sql` before restarting if sales tables are missing. It creates missing tables and preserves existing tables and records; it does not repair incomplete legacy table definitions. Do not run all numbered SQL files blindly: `007_pos_returns.sql` drops return tables and seed files contain sample records. After startup verify the logs and role workflows before release. Local HTTP startup does not establish production TLS or provider delivery.
+
+Full fresh-install regression: from backend run `npm run test:startup` (requires the same PostgreSQL tools). It uses a disposable private database and synthetic accounts with OTP enabled.
+
+### Cashier checkout recovery
+
+The Cashier page loads authenticated stock only; connection failures keep the browser cart and stop checkout. Unresolved hosted payments are recovered through an account-scoped endpoint and block another collection. Checkout retries reuse the original request ID, protected by a database unique index per cashier. A saved request and its checkout details remain in that cashier's browser storage until a terminal server result is received; only a server-confirmed paid state clears the linked basket. A completed payment for a different basket requires acknowledgement while keeping the current cart.
+
+The stored `Card` method remains compatible with existing invoices/reports; the Cashier UI labels it manual card/bank/wallet payment and requires merchant verification. Cash, manual and online totals are displayed separately. Run `npm run test:cashier-ui` and `npm run test:startup` from backend for the focused UI and real-server recovery checks.
