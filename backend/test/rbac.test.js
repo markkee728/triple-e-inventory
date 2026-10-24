@@ -76,7 +76,8 @@ test('403 is returned BEFORE the database is touched (OWASP A01)', async () => {
 test('session revocation: a session older than users.token_version is refused; current and pre-upgrade sessions work', async () => {
   const revoked = await start({ status: 'active', role_key: 'finance', token_version: 1 });
   const r = await get(revoked.base, '/finance-only', token('finance', null, { tv: 0 }));        // password was changed on another device
-  assert.equal(r.status, 401); assert.equal((await r.json()).code, 'ACCOUNT_DISABLED');
+  assert.equal(r.status, 401); assert.equal((await r.json()).code, 'SESSION_REPLACED');
+  assert.match(r.headers.get('set-cookie') || '', /signedout=replaced/, 'the login page is told why the person was signed out');
   assert.equal((await get(revoked.base, '/finance-only', token('finance'))).status, 401, 'a session with no tv counts as version 0');
   assert.equal((await get(revoked.base, '/finance-only', token('finance', null, { tv: 1 }))).status, 200, 'the session issued after the change works');
   revoked.server.close();
@@ -181,4 +182,41 @@ test('finance changes roles only: the server refuses personal-data edits and the
   const html = fs.readFileSync(path.join(ui, 'Finance_Inventory.html'), 'utf8');
   assert.ok(!/data-customer-edit|customerEditModal|ProfileEdit/.test(js + html), 'the Customers screen must not show an editable form the server would refuse');
   assert.match(js, /data-customer-toggle/, 'view + disable/enable still work');
+});
+
+test('session check: a revoked or unknown device session is refused (SESSION_REPLACED) even when the account and password are fine; sessions without a sid keep working', async () => {
+  const live = new Set(['11111111-1111-4111-8111-111111111111']);
+  const pool = { query: async (sql, p) => {
+    if (/user_sessions s ON s.session_id = \$2::uuid/.test(sql)) return { rows: [{ status: 'active', role_key: 'cashier', token_version: 0, session_ok: live.has(p[1]) }] };
+    return { rows: [{ status: 'active', role_key: 'cashier', token_version: 0 }] };
+  } };
+  const { auth } = require('../auth-middleware')(pool);
+  const app = express(); app.use(cookieParser()); app.get('/pos', auth('cashier'), (req, res) => res.json({ ok: true }));
+  const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const tok = (extra) => token('cashier', null, { id: 321, ...extra });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal((await get(base, '/pos', tok({ sid: '11111111-1111-4111-8111-111111111111' }))).status, 200, 'a live device session works');
+  const gone = await get(base, '/pos', tok({ sid: '22222222-2222-4222-8222-222222222222' }));
+  assert.equal(gone.status, 401); assert.equal((await gone.json()).code, 'SESSION_REPLACED');
+  assert.equal((await get(base, '/pos', tok({ sid: 'not-a-uuid' }))).status, 401, 'a malformed sid is treated as no session, never as a database error');
+  assert.equal((await get(base, '/pos', tok({}))).status, 200, 'a session made before device tracking existed keeps working until it expires');
+  assert.equal((await get(base, '/pos', tok({ sid: '11111111-1111-4111-8111-111111111111' }))).status, 200, 'the live one is still fine after the others were refused (cache is per session)');
+  server.close();
+});
+
+test('wiring: device limits per role (finance 1, cashier 1, customer 3 by default), sign-in ends the oldest, logout and password change free places, and the login page explains it', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /process\.env\.SESSION_LIMITS === undefined \? 'finance=1,cashier=1,customer=3' : process\.env\.SESSION_LIMITS/, 'defaults');
+  const complete = server.slice(server.indexOf('app.locals.completeLogin'), server.indexOf("require('./login-otp')"));
+  const iCreate = complete.indexOf('sessions.create('), iLimit = complete.indexOf('sessions.enforceLimit(u.user_id, limit)'), iStart = complete.indexOf('startSession(res, user, tv, sid)');
+  assert.ok(iCreate > 0 && iLimit > iCreate && iStart > iLimit, 'the device is recorded, the oldest ones over the limit end, then the new cookie is written');
+  assert.match(complete, /forgetAccountCheck\(u\.user_id\)/, 'no grace period for an ended device');
+  assert.match(complete, /older device\(s\) signed out/, 'recorded in the audit log');
+  assert.match(server, /sessions\.revoke\(u\.sid, 'logout'\)/, 'logout frees the place');
+  assert.match(server, /sessions\.revokeOthers\(pool, req\.user\.id, req\.user\.sid, 'password'\)/, 'a password change frees the other places');
+  assert.match(fs.readFileSync(path.join(__dirname, '..', 'password-otp.js'), 'utf8'), /userSessions\.revokeOthers\(client, u\.user_id, null, 'password'\)/, 'so does a reset');
+  const login = fs.readFileSync(path.join(__dirname, '..', '..', 'Finance_Inventory', 'Login_Inventory.html'), 'utf8');
+  assert.match(login, /signedout=\(\[\^;\]\*\)/); assert.match(login, /signed in on another device/);
+  assert.match(fs.readFileSync(path.join(__dirname, '..', '.env.example'), 'utf8'), /SESSION_LIMITS=finance=1,cashier=1,customer=3/);
 });

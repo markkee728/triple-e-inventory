@@ -109,6 +109,7 @@ Status: **Met** = implemented and evidenced, **Partial** = implemented with a st
 | V2.5 | Reset / recovery codes are single use and expire | Met | `password-otp.js`, unlock token stored as SHA-256 hash with expiry |
 | V2.8 | Out-of-band verification | Met | email link + mobile OTP before first sign-in |
 | V3.2 | Session ends and tokens are invalidated | Met | 8 h expiry, logout clears cookie, disabled/changed account rejected next request, **password change/reset revokes every other session** (`users.token_version`, tested on a real PostgreSQL engine) |
+| V3.3 | Concurrent session control | Met | **Device limit per role** (`SESSION_LIMITS`, default administrator 1, cashier 1, customer 3). Every sign-in is recorded in `user_sessions` (device, IP, browser); signing in over the limit ends the **oldest** device, which is refused on its next request with "signed in on another device" (`SESSION_REPLACED`), explained on the login page and recorded in the audit log. Logging out or changing the password frees places. Tested on a real PostgreSQL engine (`db-hardening.test.js`) |
 | V3.4 | Cookie flags | Met | httpOnly, sameSite=lax, Secure in production (tested) |
 | V3.5 | Token validated, no `alg=none` / forged | Met | `rbac.test.js` forged, tampered, expired, alg-none tokens → 401 |
 | V4.1 | Access control enforced server-side, deny by default | Met | `auth-middleware.js`; route audit test fails on any unprotected `/api` route |
@@ -177,6 +178,7 @@ Applied once after a backup, as the same user as `DATABASE_URL`: `cd backend && 
 | 5 | Row Level Security on every table + no access for `anon`/`authenticated` (also for tables created later) | Data read through the Supabase REST API (R12) | III-2, III-3 | test: web roles denied on `users`, `audit_log` and a table created afterwards |
 | 6 | `security_purge_expired()`, run by the server every 6 hours: expired codes/tokens deleted after 7 days; the audit log is never purged | Excess personal data kept (RA 10173, R12) | V-1 | test: removes only old rows, executable only by the owner |
 | 7 | Optional `db/optional/readonly-auditor-role.sql`: a read-only role that reads business data and the audit log but never password hashes, e-mail addresses, tokens or codes | Separation of duties, insider misuse | III-1 | test: reads allowed, secrets and writes denied |
+| 8 | `db/026_user_sessions.sql`: one row per signed-in device; per-role device limits (admin 1, cashier 1, customer 3), logout and password change free places, ended sessions purged after 7 days | Shared/stolen account used on many devices, one drawer used from two devices (R1, R4) | III-1 | tests: 4th customer sign-in ends the oldest, admin/cashier limit 1, expired sessions do not count, RLS on the table |
 
 How to check it was applied (Appendix B): `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity;` returns 0, and `SELECT security_purge_expired();` returns a JSON row count.
 
@@ -205,7 +207,7 @@ A release is acceptable only when all are true:
 
 | # | Criterion | Measure | How verified |
 |---|---|---|---|
-| A1 | Security test suite passes | 58/58 tests (security 10, rbac 13, alerts 7, sign-in code 13, database 15) | `cd backend && npm run test:security` |
+| A1 | Security test suite passes | 63/63 tests (security 10, rbac 15, alerts 7, sign-in code 13, database 18) | `cd backend && npm run test:security` |
 | A12 | Database hardening applied | Migration `025` run with no error; 0 public tables without Row Level Security; `anon`/`authenticated` cannot read `users`; `security_purge_expired()` runs | Appendix B queries; `db-hardening.test.js` proves the script on a real engine |
 | A11 | No session without the second factor | The login route never sets the session cookie; only `completeLogin` does, after a right one-time code; a used, expired, forged or over-tried code is refused | `login-otp.test.js` (incl. wiring check) |
 | A2 | No weak CSP | `script-src` has a nonce and no `unsafe-inline`; nonce differs per request | CSP test |
@@ -321,4 +323,9 @@ grep -rEn "[ '\"]on(click|error|change|submit|load)=|javascript:|eval\(" ../Fina
 | | Tables without RLS: `SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity;` → 0 | | |
 | | `UPDATE audit_log SET detail='x';` and `TRUNCATE audit_log;` are refused ("append-only") | | |
 | | Change password on laptop → the phone session is signed out on its next click; the laptop stays signed in | | |
+| | Admin signs in on a 2nd device → the 1st device is signed out on its next click and the login page says why | | |
+| | Cashier signs in on a 2nd device → the 1st device is signed out | | |
+| | Customer signs in on 4 devices → the 1st (oldest) is signed out, the other 3 keep working | | |
+| | Log out on one customer device, sign in on a new one → nobody else is signed out | | |
+| | `node scripts/apply-migration.js db/026_user_sessions.sql --dry-run`, then without `--dry-run`: no error | | |
 | | `SELECT security_purge_expired();` returns a JSON row count | | |

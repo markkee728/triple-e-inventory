@@ -1294,6 +1294,15 @@
     } finally { btn.disabled = !!lockTimer; btn.textContent = 'SIGN IN'; }
   });
 
+  /* the server leaves a 2-minute "signedout" note when it ends a session because the account signed in elsewhere (or its password changed) */
+  (function signedOutNotice(){
+    const m = document.cookie.match(/(?:^|; )signedout=([^;]*)/); if (!m) return;
+    document.cookie = 'signedout=; Max-Age=0; path=/; SameSite=Lax';
+    if (decodeURIComponent(m[1]) !== 'replaced') return;
+    loginNotice.textContent = 'You were signed out because this account signed in on another device, or its password was changed. Sign in again to continue.';
+    loginNotice.classList.add('show');
+  })();
+
   /* =====================================================
      REGISTRATION (3 steps)
        Customers : "Create an account" -> POST /api/signup/customer, then verify the email

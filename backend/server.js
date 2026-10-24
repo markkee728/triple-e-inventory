@@ -709,14 +709,16 @@ const tx = async (fn) => {
 
 /* ---------- auth ---------- */
 // Session + role check lives in auth-middleware.js (401 not signed in, 403 wrong role BEFORE any database work, 401 disabled account).
-const { auth, forgetAccountCheck, revocation } = require('./auth-middleware')(pool);
+const { auth, forgetAccountCheck, revocation, sessions } = require('./auth-middleware')(pool);
 app.locals.forgetAccountCheck = forgetAccountCheck;
+app.locals.userSessions = sessions;                  // one row per signed-in device (db/026): device limits, logout, password change
 app.locals.sessionRevocation = revocation;           // password change / reset: sign the person out everywhere else (users.token_version)
 
 /* The ONLY place a session cookie is written. tv = users.token_version the session is issued for (see auth-middleware.js). */
-function startSession(res, user, tv) {
-  res.cookie('session', jwt.sign({ id: user.id, name: user.name, role: user.role, roleLabel: user.roleLabel, tv: Number(tv) || 0 }, process.env.JWT_SECRET, { expiresIn: '8h' }), {
-    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: 8 * 3600 * 1000 });
+const SESSION_MS = 8 * 3600 * 1000;
+function startSession(res, user, tv, sid) {
+  res.cookie('session', jwt.sign({ id: user.id, name: user.name, role: user.role, roleLabel: user.roleLabel, tv: Number(tv) || 0, ...(sid ? { sid } : {}) }, process.env.JWT_SECRET, { expiresIn: '8h' }), {
+    httpOnly: true, sameSite: 'lax', secure: security.cookieSecure(), maxAge: SESSION_MS });
 }
 
 // Audit entries also record the client address and browser (db/025). The columns are added at start-up too; until that finishes, the old insert is used.
@@ -739,11 +741,24 @@ app.locals.alerts = require('./security-alerts')({ mailer: require('./mailer') }
 require('./login-lockout')({ app, pool, wrap, audit, str, EMAIL_RE });
 /* The ONLY place a sign-in session is started. Called after the password AND the one-time code (login-otp.js) were right,
    or straight after the password when LOGIN_OTP=off. u needs user_id, full_name, role_key, label. */
+// DEVICE LIMIT per role (SESSION_LIMITS, default "finance=1,cashier=1,customer=3"): how many devices can be signed in to one account at the same time.
+// Signing in over the limit ends the OLDEST session, which is refused on its next request ("signed in on another device"). Logging out frees a place.
+// A role that is not listed has no limit; "SESSION_LIMITS=" (empty) turns limits off. (OWASP ASVS V3.3 concurrent session control, A07.)
+const parseLimits = (v) => { const out = {}; String(v).split(',').forEach((pair) => { const [role, n] = pair.split('=').map((x) => x.trim()); const k = Math.floor(Number(n)); if (role && Number.isFinite(k) && k > 0 && k <= 50) out[role] = k; }); return out; };
+const SESSION_LIMITS = parseLimits(process.env.SESSION_LIMITS === undefined ? 'finance=1,cashier=1,customer=3' : process.env.SESSION_LIMITS);
+app.locals.sessionLimits = SESSION_LIMITS;
 app.locals.completeLogin = async (res, u, how) => {
   const user = { id: u.user_id, name: u.full_name, role: u.role_key, roleLabel: u.label };
+  const limit = SESSION_LIMITS[u.role_key] || 0, ctx = requestContext.getStore() || {};
+  let tv = u.token_version, ended = 0;
+  const sid = await sessions.create({ userId: u.user_id, ttlMs: SESSION_MS, ip: ctx.ip, ua: ctx.ua });   // this device
+  if (limit && sid) ended = await sessions.enforceLimit(u.user_id, limit);                                // older devices over the limit end
+  else if (limit === 1) { const next = await revocation.bump(pool, u.user_id); if (next) { tv = next; ended = -1; } }   // no device table: still keep ONE device by ending every older session
+  forgetAccountCheck(u.user_id);
   await pool.query('UPDATE users SET last_login = now() WHERE user_id = $1', [u.user_id]);
-  await audit(pool, user, 'Login', 'Successful login' + (how ? ' (one-time code by ' + how + ')' : ''));
-  startSession(res, user, u.token_version);
+  await audit(pool, user, 'Login', 'Successful login' + (how ? ' (one-time code by ' + how + ')' : '')
+    + (ended ? '; ' + (ended > 0 ? ended + ' older device(s) signed out' : 'older sessions ended') + ' (limit of ' + limit + ' device' + (limit === 1 ? '' : 's') + ' for ' + user.roleLabel + ' accounts)' : ''));
+  startSession(res, user, tv, sid);
   return user;
 };
 require('./login-otp')({ app, pool, wrap, tx, audit, str });
@@ -801,6 +816,7 @@ app.post('/api/auth/logout', wrap(async (req, res) => {
   try {
     const u = jwt.verify(req.cookies.session, process.env.JWT_SECRET);
     await audit(pool, u, 'Logout', 'Logged out');
+    await sessions.revoke(u.sid, 'logout');                              // frees this device's place under the device limit
   } catch { /* no valid session - nothing to record */ }
   res.clearCookie('session'); res.json({ ok: true });
 }));
@@ -925,7 +941,7 @@ app.put('/api/auth/profile', auth(), wrap(async (req, res) => {
   const message = notes.join(' ');
   // the session cookie carries the display name, so refresh it
   const user = { id: req.user.id, name: result.full_name, role: req.user.role, roleLabel: req.user.roleLabel };
-  startSession(res, user, req.user.tv);                 // same session number: a profile edit must not log other devices out
+  startSession(res, user, req.user.tv, req.user.sid);   // same session: a profile edit must not log any device out
   res.json({ ...profileJson(result), message });
 }));
 // change password: any signed-in user.
@@ -961,8 +977,9 @@ app.put('/api/auth/password', auth(), wrap(async (req, res) => {
     await audit(client, req.user, 'Profile updated', needCode ? 'Changed password (confirmed with a one-time code sent to the email or the mobile number)' : 'Changed password');
     return tv;
   });
+  await sessions.revokeOthers(pool, req.user.id, req.user.sid, 'password');   // the other devices' places are freed too
   forgetAccountCheck(req.user.id);
-  startSession(res, req.user, newTv);                    // this device stays signed in with the new session number
+  startSession(res, req.user, newTv, req.user.sid);      // this device stays signed in with the new session number
   res.json({ ok: true });
 }));
 // profile photo: JPG / PNG up to 2 MB, kept in the users table (avatar BYTEA)

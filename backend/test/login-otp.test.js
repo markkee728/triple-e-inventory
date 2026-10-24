@@ -225,7 +225,7 @@ test('wiring: the login route cannot start a session without the OTP gate, and t
   const callers = [...src.matchAll(/(?<!function )startSession\(res, ([^)]*)\)/g)].length;
   assert.equal(callers, 3, 'startSession is used by completeLogin, the signed-in profile refresh and the password change only');
   const complete = src.slice(src.indexOf('app.locals.completeLogin'), src.indexOf("require('./login-otp')"));
-  assert.match(complete, /startSession\(res, user, u\.token_version\)/);
+  assert.match(complete, /let tv = u\.token_version/); assert.match(complete, /startSession\(res, user, tv, sid\)/);
   for (const f of fs.readdirSync(path.join(__dirname, '..')).filter((x) => x.endsWith('.js') && x !== 'server.js'))
     assert.ok(!/cookie\('session'/.test(fs.readFileSync(path.join(__dirname, '..', f), 'utf8')), f + ' must not start sessions');
 });

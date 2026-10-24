@@ -237,6 +237,89 @@ test('apply-migration.js (no psql needed): the dry run rolls everything back, th
 
   assert.throws(() => prepare(read('optional/readonly-auditor-role.sql')), /--ro-password/, 'the role file refuses to run without a password');
   const role = prepare(read('optional/readonly-auditor-role.sql'), { roPassword: 'x' });
-  assert.ok(!/\gexec|^\set|:'ro_password'/m.test(role), 'no psql-only syntax is left');
+  assert.ok(!/\\gexec|^\\set|:'ro_password'/m.test(role), 'no psql-only syntax is left');
   assert.throws(() => prepare('SELECT 1;', { dryRun: true }), /COMMIT/, 'a file that cannot be rolled back is refused for a dry run');
+});
+
+/* ---------- db/026_user_sessions.sql + device limits, on the real engine ---------- */
+const SESSIONS_SQL = read('026_user_sessions.sql');
+async function sessionDb() { const db = await oldDatabase(); await db.exec(MIGRATION); await db.exec(SESSIONS_SQL); return db; }
+
+test('026: the migration runs twice, matches the table the server creates by itself, and puts it under RLS', engine, async () => {
+  const cols = (src) => { const m = src.match(/CREATE TABLE IF NOT EXISTS user_sessions\s*\(([\s\S]*?)\)(?:`|;)/); assert.ok(m); return [...m[1].matchAll(/^\s*([a-z_]+)\s+[A-Z]/gm)].map((x) => x[1]).sort(); };
+  assert.deepEqual(cols(SESSIONS_SQL), cols(fs.readFileSync(path.join(__dirname, '..', 'auth-middleware.js'), 'utf8')), 'migration and server start-up agree');
+  const db = await sessionDb(); await db.exec(SESSIONS_SQL);
+  assert.equal((await db.query(`SELECT relrowsecurity FROM pg_class WHERE relname = 'user_sessions'`)).rows[0].relrowsecurity, true);
+  await db.exec(`SET ROLE anon`);
+  assert.ok(await fails(db.query(`SELECT * FROM user_sessions`), /permission denied/));
+  await db.exec(`RESET ROLE`);
+  // the server's own start-up path on a database that never saw the migration
+  const bare = await oldDatabase(); await bare.exec(MIGRATION);
+  const mw = require('../auth-middleware')({ query: (s, p) => bare.query(s, p) });
+  assert.equal(await mw.sessions.ready, true);
+  assert.equal((await bare.query(`SELECT count(*)::int n FROM pg_tables WHERE tablename = 'user_sessions'`)).rows[0].n, 1);
+});
+
+test('device limits: customer 3 (the 4th sign-in ends the OLDEST), finance 1 (a new sign-in ends the old one), checked through the real middleware', engine, async () => {
+  const express = require('express'), cookieParser = require('cookie-parser'), jwt = require('jsonwebtoken');
+  process.env.JWT_SECRET = 'test-secret-test-secret-test-secret-123456';
+  const db = await sessionDb();
+  const pool = { query: (s, p) => db.query(s, p) };
+  const { auth, sessions } = require('../auth-middleware')(pool);
+  const ids = Object.fromEntries((await db.query(`SELECT username, user_id FROM users`)).rows.map((r) => [r.username, r.user_id]));
+  const app = express(); app.use(cookieParser());
+  app.get('/me', auth(), (req, res) => res.json({ ok: true }));
+  const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const cookie = (userId, role, sid) => 'session=' + jwt.sign({ id: userId, name: 'T', role, roleLabel: role, tv: 0, sid }, process.env.JWT_SECRET);
+  const code = async (userId, role, sid) => { const r = await fetch(base + '/me', { headers: { cookie: cookie(userId, role, sid) } }); return r.status === 200 ? 200 : (await r.json()).code; };
+  const signIn = async (userId, limit) => { const sid = await sessions.create({ userId, ttlMs: 8 * 3600000, ip: '203.0.113.5', ua: 'test' }); await sessions.enforceLimit(userId, limit); await new Promise((r) => setTimeout(r, 5)); return sid; };
+
+  const ana = ids.ana, devices = [];
+  for (let i = 0; i < 3; i++) devices.push(await signIn(ana, 3));                 // phone, laptop, tablet
+  for (const d of devices) assert.equal(await code(ana, 'customer', d), 200, 'three devices are allowed');
+  const fourth = await signIn(ana, 3);
+  assert.equal(await code(ana, 'customer', devices[0]), 'SESSION_REPLACED', 'the oldest device is signed out');
+  assert.equal(await code(ana, 'customer', devices[1]), 200); assert.equal(await code(ana, 'customer', devices[2]), 200); assert.equal(await code(ana, 'customer', fourth), 200);
+  assert.equal((await db.query(`SELECT revoked_reason FROM user_sessions WHERE session_id = $1`, [devices[0]])).rows[0].revoked_reason, 'limit');
+
+  // logging out frees a place: nobody else is signed out by the next sign-in
+  assert.equal(await sessions.revoke(devices[1], 'logout'), 1);
+  const fifth = await signIn(ana, 3);
+  assert.equal(await code(ana, 'customer', devices[2]), 200); assert.equal(await code(ana, 'customer', fourth), 200); assert.equal(await code(ana, 'customer', fifth), 200);
+  assert.equal(await code(ana, 'customer', devices[1]), 'SESSION_REPLACED', 'a logged-out device cannot be reused');
+
+  // finance: limit 1
+  const admin = ids.oldadmin, a1 = await signIn(admin, 1);
+  assert.equal(await code(admin, 'finance', a1), 200);
+  const a2 = await signIn(admin, 1);
+  assert.equal(await code(admin, 'finance', a1), 'SESSION_REPLACED', 'the first device is signed out at once'); assert.equal(await code(admin, 'finance', a2), 200);
+
+  // a session id belongs to one account: another account's sid is not valid here
+  assert.equal(await code(admin, 'finance', fifth), 'SESSION_REPLACED', "another account's sid is not valid for this account");
+  server.close();
+});
+
+test('sessions: expired ones do not count toward the limit; a password change keeps only the current device; the purge removes old ended sessions', engine, async () => {
+  const db = await sessionDb();
+  const client = { query: (s, p) => db.query(s, p) };
+  const { sessions } = require('../auth-middleware')(client);
+  const ana = (await db.query(`SELECT user_id FROM users WHERE username = 'ana'`)).rows[0].user_id;
+  const live = async () => (await db.query(`SELECT count(*)::int n FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()`, [ana])).rows[0].n;
+
+  await db.query(`INSERT INTO user_sessions (session_id, user_id, created_at, expires_at) VALUES ('33333333-3333-4333-8333-333333333333', $1, now() - interval '2 days', now() - interval '1 day')`, [ana]);
+  for (let i = 0; i < 3; i++) { await sessions.create({ userId: ana, ttlMs: 3600000 }); await sessions.enforceLimit(ana, 3); await new Promise((r) => setTimeout(r, 5)); }
+  assert.equal(await live(), 3, 'the expired session did not use up a place, so nobody live was signed out');
+
+  const keep = (await db.query(`SELECT session_id FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now() ORDER BY created_at LIMIT 1`, [ana])).rows[0].session_id;
+  assert.equal(await sessions.revokeOthers(client, ana, keep, 'password'), 3 - 1 + 1, 'two live devices plus the long-expired record end; the current one stays');
+  assert.equal(await live(), 1);
+  assert.equal((await db.query(`SELECT session_id FROM user_sessions WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > now()`, [ana])).rows[0].session_id, keep, 'this device stays signed in');
+  assert.equal(await sessions.revokeOthers(client, ana, null, 'password'), 1, 'a reset (no current device) ends them all');
+
+  await db.query(`INSERT INTO user_sessions (session_id, user_id, created_at, expires_at, revoked_at, revoked_reason) VALUES ('44444444-4444-4444-8444-444444444444', $1, now() - interval '10 days', now() - interval '9 days', now() - interval '9 days', 'logout')`, [ana]);
+  const purged = (await db.query(`SELECT security_purge_expired() AS r`)).rows[0].r;
+  assert.ok(purged.user_sessions >= 1, 'old ended sessions are deleted');
+  assert.equal((await db.query(`SELECT count(*)::int n FROM user_sessions WHERE session_id = '44444444-4444-4444-8444-444444444444'`)).rows[0].n, 0);
+  await assert.rejects(() => db.query(`INSERT INTO user_sessions (session_id, user_id, expires_at, revoked_at) VALUES ('55555555-5555-4555-8555-555555555555', $1, now(), now())`, [ana]), /chk_user_sessions_revoked/, 'a revoked session must say why');
 });
