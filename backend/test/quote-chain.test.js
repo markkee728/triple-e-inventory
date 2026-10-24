@@ -19,7 +19,7 @@ function ok(label, cond, detail) {
 async function start(p, env) {
   port = p;
   const child = spawn(process.execPath, [path.join(__dirname, 'desk-browser-harness.js'), String(p)],
-    { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, env) });
+    { cwd: path.join(__dirname, '..'), stdio: ['ignore', 'pipe', 'pipe'], env: Object.assign({}, process.env, { XENDIT_SECRET_KEY: '' }, env) });
   const err = [];
   child.stderr.on('data', (b) => err.push(String(b)));
   const deadline = Date.now() + 15000;
@@ -94,11 +94,13 @@ async function main() {
     ok('the estimated ready date is after today and never a weekend', quoted.estimatedReady > new Date().toISOString().slice(0, 10) && dow(quoted.estimatedReady) !== 0 && dow(quoted.estimatedReady) !== 6, quoted.estimatedReady);
     const noMethod = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept' });
     ok('accepting without choosing how to pay is refused', noMethod.status === 400 && noMethod.body.fields.payMethod, noMethod);
-    const yes = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept', payMethod: 'cod' });
+    const cod = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept', payMethod: 'cod' });
+    ok('a required initial payment cannot be deferred to COD', cod.status === 400 && cod.body.fields.payMethod, cod);
+    const yes = await call('customer', 'POST', '/api/shop/quotes/' + quoted.id + '/respond', { action: 'accept', payMethod: 'online' });
     ok('the owner accepted it', yes.status === 200 && yes.body.status === 'accepted', yes.body);
     const back = await call('customer', 'GET', '/api/shop/quotes');
     const card = back.body.find((q) => q.id === quoted.id);
-    ok('the payment label is resolved, not raw SQL text', /^Pay on /.test(card.payMethod || ''), card);
+    ok('the chosen online payment method is recorded', card.payMethod === 'Xendit', card);
     ok('acceptance never marks the quote paid', +card.paidAmount === 0, card);
     ok('after acceptance the date is counted from the acceptance day', isoOk(card.estimatedReady) && card.readyFromAcceptance === true, card);
     ok('acceptance never creates an order', card.orderNo == null && (await state()).orders.length === 0, card);

@@ -207,7 +207,10 @@ A release is acceptable only when all are true:
 
 | # | Criterion | Measure | How verified |
 |---|---|---|---|
-| A1 | Security test suite passes | 63/63 tests (security 10, rbac 15, alerts 7, sign-in code 13, database 18) | `cd backend && npm run test:security` |
+| A1 | Security test suite passes | 75/75 tests (security 13, rbac 15, alerts 7, sign-in code 13, database 18, numeric 3, recovery 4, production configuration 2) | `cd backend && npm run test:security` |
+| A13 | Strict numeric inputs | Reject booleans, arrays, objects and non-decimal text before coercion; preserve valid decimal inputs | `numeric-validation.test.js`, `payment-terms.test.js` |
+| A14 | Transaction integrity and recovery | Concurrent stock/payment/production requests, failed audit writes and a real dump/restore preserve balances and required row counts | `npm run test:data-integrity` (requires local PostgreSQL tools) |
+| A15 | Production configuration | No unsafe configuration findings; deployment/network/provider evidence still required | `npm run check:production`, then manual deployment checks in DATA_PROCESS.md |
 | A12 | Database hardening applied | Migration `025` run with no error; 0 public tables without Row Level Security; `anon`/`authenticated` cannot read `users`; `security_purge_expired()` runs | Appendix B queries; `db-hardening.test.js` proves the script on a real engine |
 | A11 | No session without the second factor | The login route never sets the session cookie; only `completeLogin` does, after a right one-time code; a used, expired, forged or over-tried code is refused | `login-otp.test.js` (incl. wiring check) |
 | A2 | No weak CSP | `script-src` has a nonce and no `unsafe-inline`; nonce differs per request | CSP test |
@@ -267,7 +270,7 @@ Related characteristics: **Reliability** (pool error handling, backups, restore 
 
 ## 12. Backup, recovery, incident response and continuity (Rubric V-2)
 
-**Backup/recovery:** `backend/scripts/backup.sh` — checksummed `pg_dump` with retention pruning. `restore-test.sh` — restores into a scratch database, verifies row counts, records timing (RTO evidence). Schedule `backup.sh` daily (cron / Task Scheduler) and run the restore drill monthly.
+**Backup/recovery:** `backend/scripts/backup.sh` creates private, uniquely named dumps and checksums (directory owned by the running user with no group/other access; new directory mode 700, files 600). It refuses shared or symlink destinations and publishes a dump only after success. `restore-test.sh` requires the matching checksum, restores transactionally into a separate scratch database, and fails on restore errors, missing required tables or failed/invalid row-count queries. RTO timing includes verification. The disposable PostgreSQL test compares six restored table counts with the source fixture; operational drills must also compare expected data and application integrity. Schedule `backup.sh` daily (cron / Task Scheduler) and run the restore drill monthly.
 
 **Incident response runbook**
 
@@ -299,7 +302,7 @@ Risk → control → test → acceptance criterion: R1 → lockout/limiter → s
 ### Appendix A — CSP verification commands
 
 ```
-cd backend && npm run test:security      # 26 tests: headers/CSP/CSRF/rate limit, RBAC + route audit, alerting
+cd backend && npm run test:security      # 75 tests: security, RBAC, alerts, OTP, database, numeric inputs, recovery and production configuration
 grep -rEn "[ '\"]on(click|error|change|submit|load)=|javascript:|eval\(" ../Finance_Inventory   # expect no output
 ```
 
@@ -329,3 +332,7 @@ grep -rEn "[ '\"]on(click|error|change|submit|load)=|javascript:|eval\(" ../Fina
 | | Log out on one customer device, sign in on a new one → nobody else is signed out | | |
 | | `node scripts/apply-migration.js db/026_user_sessions.sql --dry-run`, then without `--dry-run`: no error | | |
 | | `SELECT security_purge_expired();` returns a JSON row count | | |
+
+### Data validation and release workflow
+
+See [DATA_PROCESS.md](DATA_PROCESS.md) for the data gates, preserved payment policy, automated checks and deployment evidence. The origin guard honors forwarded hosts only when the immediate peer is trusted by Express; the ingress must overwrite forwarded headers and prevent direct backend access. Numeric fields accept finite numbers and plain decimal strings; booleans, arrays, objects, hexadecimal and exponent strings are refused. Formatted peso fields retain their documented separators. Payment replay checks run again after the parent lock, preventing simultaneous retries from inserting a second ledger event. Request IDs cannot be replayed against a different parent.

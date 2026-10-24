@@ -88,6 +88,29 @@ test('ALLOWED_ORIGINS lets a listed host through', async () => {
   server.close();
 });
 
+test('forwarded hosts are ignored without a trusted proxy and keep ports when trusted', async () => {
+  const previous = process.env.TRUST_PROXY;
+  let current;
+  try {
+    for (const hops of ['0', '1']) {
+      process.env.TRUST_PROXY = hops;
+      current = await start({ general: 1000, auth: 1000 });
+      const r = await fetch(current.base + '/api/data', { method: 'POST', headers: {
+        Origin: 'https://shop.example:8443', 'X-Forwarded-Host': 'shop.example:8443',
+      } });
+      assert.equal(r.status, hops === '0' ? 403 : 200);
+      const wrongPort = await fetch(current.base + '/api/data', { method: 'POST', headers: {
+        Origin: 'https://shop.example:9443', 'X-Forwarded-Host': 'shop.example:8443',
+      } });
+      assert.equal(wrongPort.status, 403);
+      await new Promise((resolve) => current.server.close(resolve)); current = null;
+    }
+  } finally {
+    if (current) current.server.close();
+    if (previous === undefined) delete process.env.TRUST_PROXY; else process.env.TRUST_PROXY = previous;
+  }
+});
+
 test('the general rate limit answers 429 with Retry-After', async () => {
   const { server, base } = await start({ general: 3, auth: 1000 });
   const codes = [];

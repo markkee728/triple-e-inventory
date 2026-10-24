@@ -10,6 +10,7 @@
    if these tables could not be created, the shop and the POS keep working without the extras. */
 const mailer = require('./mailer');
 const makeOrderMail = require('./order-mail');
+const decimalNumber = require('./numeric-input');
 const { escapeHtml: esc } = mailer;
 
 const FINAL_STATUS = ['Delivered', 'Picked Up'];
@@ -1234,9 +1235,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
   // the payments JSONB array below stays only as the display copy the quotation screens already read.
   app.post('/api/finance/quotes/:no/payment', auth('finance'), wrap(async (req, res) => {
     const b = req.body || {};
-    const raw = String(b.amount == null ? '' : b.amount).replace(/[,\u20B1\s]/g, ''), method = str(b.method), note = str(b.note);
-    if (!raw) throw bad('amount', 'Enter the amount received');
-    let amount = Number(raw);
+    const method = str(b.method), note = str(b.note);
+    let amount = decimalNumber(b.amount, { money: true });
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
     amount = round2(amount);
     if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');
@@ -1507,9 +1507,8 @@ module.exports = function mountShopExtras({ app, pool, auth, wrap, tx, audit, Va
 
   app.post('/api/pos/quotes/:no/payment', auth('cashier'), wrap(async (req, res) => {
     const b = req.body || {};
-    const raw = String(b.amount == null ? '' : b.amount).replace(/[,₱\s]/g, ''), method = str(b.method), note = str(b.note);
-    if (!raw) throw bad('amount', 'Enter the amount received');
-    let amount = Number(raw);
+    const method = str(b.method), note = str(b.note);
+    let amount = decimalNumber(b.amount, { money: true });
     if (!Number.isFinite(amount) || amount <= 0 || amount > 1e9) throw bad('amount', 'Enter a valid amount greater than 0');
     amount = round2(amount);
     if (!QUOTE_OPTIONS.payMethods.includes(method)) throw bad('method', 'Choose how it was paid');

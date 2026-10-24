@@ -549,9 +549,14 @@ function text(errors, key, v, label, { min = 1, max = 120, required = true } = {
   return s;
 }
 function number(errors, key, v, label, { min = 0, max = 1e8, dp = 2, required = true, gt = false } = {}) {
-  if (v === undefined || v === null || v === '') {
+  if (v === undefined || v === null || (typeof v === 'string' && v.trim() === '')) {
     if (required) errors[key] = `${label} is required`;
     return null;
+  }
+  // JSON booleans/arrays and JavaScript-only formats must never become business quantities.
+  if ((typeof v !== 'number' && typeof v !== 'string') ||
+      (typeof v === 'string' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(v.trim()))) {
+    errors[key] = `${label} must be a number`; return null;
   }
   const n = Number(v);
   if (!Number.isFinite(n)) { errors[key] = `${label} must be a number`; return null; }
@@ -678,7 +683,9 @@ function validateMovement(b) {
     invoiceNo = text(e, 'invoiceNo', b.invoiceNo, 'Invoice / delivery no.', { max: 40, required: false }) || null;
     // optional: what the supplier charged per unit on this delivery; it updates the product's average cost
     const raw = String(b.unitCost == null ? '' : b.unitCost).replace(/[,₱\s]/g, '');
-    if (raw !== '') {
+    if (b.unitCost != null && typeof b.unitCost !== 'number' && typeof b.unitCost !== 'string')
+      e.unitCost = 'Enter the cost per unit in pesos, e.g. 145.50';
+    else if (raw !== '') {
       if (!/^\d{1,8}(\.\d{1,2})?$/.test(raw)) e.unitCost = 'Enter the cost per unit in pesos, e.g. 145.50';
       else if (!(Number(raw) > 0)) e.unitCost = 'The cost per unit must be more than 0';
       else unitCost = Number(raw);
