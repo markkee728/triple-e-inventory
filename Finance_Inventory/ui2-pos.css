@@ -430,3 +430,20 @@ html[data-theme="light"] #heldList .line { background: #f6f9fb; }
     #page-quotes .qd-drawer-foot { padding: 12px 16px; border-radius: 0; }
 }
 @media (prefers-reduced-motion: reduce) { #page-quotes .qd-drawer { transition: none; } }
+/* Cashier connection, payment recovery and method totals. */
+.pos-connection { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; background: var(--card); border: 2px solid var(--amber, #b7791f); border-radius: 12px; margin-bottom: 16px; }
+.pos-stock-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin: 12px 0; font-size: 13px; }
+.pos-payments { border: 2px solid var(--blue-bright, #3878d4); border-radius: 14px; background: var(--card); padding: 16px; margin: 14px 0; }
+.pos-payments h2 { margin: 0 0 8px; font-size: 18px; }
+.pos-payments p { margin: 8px 0; }
+.pos-payment { padding: 12px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.pos-payment button, .pos-payment a { margin: 6px 8px 6px 0; }
+.pos-payment [data-payment-qr] { margin: 10px 0; width: 144px; }
+.pos-method-totals { margin: 10px 0 0; font-size: 12px; }
+.pos-method-totals div { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 10px; padding: 4px 0; }
+.pos-method-totals dd { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.pos-connection[hidden], .pos-payments[hidden] { display: none; }
+.pos-stock-tools { position: sticky; top: 84px; z-index: 8; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+.pos-connection { top: 84px; }
+#refreshStock, #posRetry, #recoverPayments, [data-check-payment] { scroll-margin-top: 100px; }

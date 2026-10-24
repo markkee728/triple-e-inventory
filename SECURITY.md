@@ -211,6 +211,7 @@ A release is acceptable only when all are true:
 | A13 | Strict numeric inputs | Reject booleans, arrays, objects and non-decimal text before coercion; preserve valid decimal inputs | `numeric-validation.test.js`, `payment-terms.test.js` |
 | A14 | Transaction integrity and recovery | Concurrent stock/payment/production requests, failed audit writes and a real dump/restore preserve balances and required row counts | `npm run test:data-integrity` (requires local PostgreSQL tools) |
 | A15 | Production configuration | No unsafe configuration findings; deployment/network/provider evidence still required | `npm run check:production`, then manual deployment checks in DATA_PROCESS.md |
+| A16 | Fresh database startup | Empty install, all roles with OTP, customer order, POS sale/approved void, schema reapplication and post-start RLS pass | `npm run test:startup` (requires local PostgreSQL tools) |
 | A12 | Database hardening applied | Migration `025` run with no error; 0 public tables without Row Level Security; `anon`/`authenticated` cannot read `users`; `security_purge_expired()` runs | Appendix B queries; `db-hardening.test.js` proves the script on a real engine |
 | A11 | No session without the second factor | The login route never sets the session cookie; only `completeLogin` does, after a right one-time code; a used, expired, forged or over-tried code is refused | `login-otp.test.js` (incl. wiring check) |
 | A2 | No weak CSP | `script-src` has a nonce and no `unsafe-inline`; nonce differs per request | CSP test |

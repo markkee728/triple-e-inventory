@@ -46,6 +46,24 @@
  }
  const fieldErr = (id, msg) => { const i = $(id), e = $(id + 'Err'); if (i) i.classList.toggle('is-bad', !!msg); if (e) e.textContent = msg || ''; };
 
+ // Empty boxes mean zero; typed counts must match the server's integer-count contract.
+ function readCashCount(inputs) {
+  const counts = {}; let touched = false, total = 0, valid = true;
+  for (const input of inputs) {
+   const raw = input.value.trim(), n = Number(raw);
+   const denomination = DENOMS.find(([key]) => key === input.dataset.den);
+   const ok = !input.validity?.badInput && (!raw || (/^\d+$/.test(raw) && Number.isInteger(n) && n <= 100000)) && !!denomination;
+   input.classList.toggle('is-bad', !ok); input.setAttribute('aria-invalid', String(!ok));
+   if (raw || input.validity?.badInput) touched = true;
+   if (!ok) { valid = false; continue; }
+   if (n > 0) counts[input.dataset.den] = n;
+   total += n * denomination[1];
+  }
+  if (!valid) return { ok: false, counts, error: 'Use whole counts from 0 to 100,000 for each note or coin.' };
+  if (total > MAX * 100) return { ok: false, counts, error: 'The counted cash cannot exceed ' + fmt(MAX) + '.' };
+  return { ok: touched, value: total / 100, counts, error: touched ? '' : 'Enter the notes and coins you counted, including 0 for an empty drawer.' };
+ }
+
  /* ---------- dialog helper ---------- */
  function dialog(html, { locked = false } = {}) {          // locked = no Escape, no click-outside, no Cancel: the only way out is finishing it
   const m = document.createElement('div');
@@ -204,21 +222,20 @@
   const forced = !!(opts && opts.forced);
   const exp = current.expectedCash;
     const banner = forced ? '<div class="cs-warn" style="margin-bottom:14px"><b>Time to close your shift.</b> The store closes at ' + esc(HOURS ? HOURS.close : '') + '. Count the notes and coins in your drawer and close this shift now. Selling is paused until it is closed; this window cannot be dismissed.</div>' : '';
-    const d = dialog(banner + `<h3>Count &amp; close shift
+    const d = dialog(banner + `<h3>Count &amp; close shift</h3>
    <div class="cs-tabs"><button type="button" class="on" data-mode="count">Count notes &amp; coins</button><button type="button" data-mode="total">I know the total</button></div>
-   <div id="csModeCount" class="cs-count">${DENOMS.map(([k, c]) => `<div class="cs-den"><span class="d">₱${k}</span><input type="number" inputmode="numeric" min="0" step="1" data-den="${k}" placeholder="0" aria-label="How many ₱${k}"><span class="s" data-sub="${k}">₱0.00</span></div>`).join('')}</div>
+   <div id="csModeCount" class="cs-count">${DENOMS.map(([k, c]) => `<div class="cs-den"><span class="d">₱${k}</span><input type="number" inputmode="numeric" min="0" max="100000" step="1" aria-describedby="csFormErr" data-den="${k}" placeholder="0" aria-label="How many ₱${k}"><span class="s" data-sub="${k}">₱0.00</span></div>`).join('')}</div>
    <div id="csModeTotal" hidden><div class="cs-field"><label for="csTotal">Total cash counted</label><div class="cs-money"><span>₱</span><input id="csTotal" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csTotalErr"></div></div></div>
    <div class="cs-recon" id="csRecon"><div><small>Expected</small><b>${fmt(exp)}</b></div><div><small>Counted</small><b id="csCounted">—</b></div><div><small>Difference</small><b class="df" id="csDiff">—</b></div></div>
    <div class="cs-limit" id="csLimit"></div>
    <div class="cs-field"><label for="csNote" id="csNoteLabel">Closing note (optional)</label><textarea id="csNote" maxlength="500" placeholder="Anything Finance should know about this shift"></textarea><div class="cs-err" id="csNoteErr"></div></div>
    <div class="cs-field"><label for="csDeposit">Cash you are taking out for the bank or safe (optional)</label><div class="cs-money"><span>₱</span><input id="csDeposit" data-money inputmode="decimal" autocomplete="off" placeholder="0.00"></div><div class="cs-err" id="csDepositErr"></div><div class="cs-hint" id="csNext"></div></div>
    <label class="cs-check"><input type="checkbox" id="csSure"><span>I counted the cash in my drawer and the amount above is correct.</span></label>
-   <div class="cs-err" id="csFormErr" style="margin-bottom:10px"></div>
+   <div class="cs-err" role="alert" id="csFormErr" style="margin-bottom:10px"></div>
    <div class="cs-actions">${forced ? '' : '<button class="btn-secondary" data-cancel>Cancel</button>'}<button class="btn-primary" id="csConfirmClose" disabled>Close shift</button></div>`, { locked: forced });
   let mode = 'count';
-  const counts = () => { const o = {}; d.el.querySelectorAll('[data-den]').forEach(i => { const n = Math.floor(Number(i.value)); if (n > 0) o[i.dataset.den] = n; }); return o; };
   const counted = () => {
-   if (mode === 'count') { const c = counts(); const touched = Object.keys(c).length > 0 || [...d.el.querySelectorAll('[data-den]')].some(i => i.value !== ''); let cents = 0; DENOMS.forEach(([k, v]) => cents += (c[k] || 0) * v); return { ok: touched, value: cents / 100, counts: c }; }
+   if (mode === 'count') return readCashCount(d.el.querySelectorAll('[data-den]'));
    const p = parseAmount($('csTotal').value); return p.ok ? { ok: true, value: p.value } : { ok: false, error: p.error };
   };
   const depositNow = c => {
@@ -229,8 +246,9 @@
    return p;
   };
   const update = () => {
-   d.el.querySelectorAll('[data-den]').forEach(i => { const n = Math.max(0, Math.floor(Number(i.value)) || 0); const sub = d.q('[data-sub="' + i.dataset.den + '"]'); sub.textContent = fmt(n * (DENOMS.find(x => x[0] === i.dataset.den)[1]) / 100); });
+   d.el.querySelectorAll('[data-den]').forEach(i => { const n = (i.validity.badInput || (i.value !== '' && !/^\d+$/.test(i.value)) || Number(i.value) > 100000 ? null : Number(i.value)); const sub = d.q('[data-sub="' + i.dataset.den + '"]'); sub.textContent = n === null ? '—' : fmt(n * (DENOMS.find(x => x[0] === i.dataset.den)[1]) / 100); });
    const c = counted(), box = $('csRecon'), diff = c.ok ? Math.round((c.value - exp) * 100) / 100 : null;
+   $('csFormErr').textContent = c.ok ? '' : c.error;
    $('csCounted').textContent = c.ok ? fmt(c.value) : '—';
    $('csDiff').textContent = diff == null ? '—' : Math.abs(diff) < 0.005 ? 'Balanced' : (diff < 0 ? 'Short ' : 'Over ') + fmt(Math.abs(diff));
    box.className = 'cs-recon' + (diff == null ? '' : Math.abs(diff) < 0.005 ? ' good' : diff < 0 ? ' bad' : ' warn');

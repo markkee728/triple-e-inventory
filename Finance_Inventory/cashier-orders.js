@@ -63,7 +63,7 @@ let orders = [], tab = 'open', chosen = null, target = '', busy = false, shiftOp
 
 async function request(path, options = {}) {
   let r;
-  try { r = await fetch('/api' + path, { credentials: 'same-origin', ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); }
+  try { r = await fetch('/api' + path, { credentials: 'same-origin', signal: AbortSignal.timeout(15000), ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); }
   catch { throw Object.assign(new Error('Cannot reach the server. Check the connection and try again.'), { fields: {} }); }
   const j = await r.json().catch(() => ({}));
   if (r.status === 401) throw Object.assign(new Error('Your session has ended. Please sign in again.'), { fields: {} });
@@ -127,6 +127,7 @@ const FAIL_REASONS = {
 };
 let failFor = null, failReq = false;
 function openFail(o) {
+  if (busy || failReq) return;
   failFor = o; const del = o.fulfillment === 'Delivery';
   $('coAction').innerHTML = `<form class="co-sheet" id="coFailForm" novalidate>
     <h2>${del ? 'Delivery did not go through' : 'Order not picked up'}</h2><div class="co-sub">${esc(o.id)} · ${esc(o.customer)} · ${peso(o.total)}</div>
@@ -141,7 +142,7 @@ function openFail(o) {
   openModal($('coAction'));
 }
 async function submitFail() {
-  const o = failFor; if (!o || failReq) return; clearErrs();
+  const o = failFor; if (!o || busy || failReq) return; clearErrs();
   const reason = $('co_failReason').value, note = $('co_failNote').value.trim(), pick = document.querySelector('input[name="co_failAction"]:checked');
   const action = o.fulfillment === 'Delivery' ? (pick ? pick.value : '') : 'cancel';
   let ok = true;
@@ -151,7 +152,7 @@ async function submitFail() {
   const btn = $('coFailGo'); failReq = true; btn.disabled = true;
   try {
     const r = await request('/orders/' + encodeURIComponent(o.id) + '/not-completed', { method: 'POST', body: JSON.stringify({ reason, note, action }) });
-    closeAction(); await load(true);
+    closeAction(true); await load(true);
     say(r.status === 'Packed' ? o.id + ' is back in Packed for another delivery.' : o.id + ' was cancelled and its stock returned' + (r.refundQueued ? '; the refund is queued for Finance.' : '.'));
   } catch (e) {
     Object.entries(e.fields || {}).forEach(([k, m]) => setErr(k === 'reason' ? 'failReason' : k === 'note' ? 'failNote' : k === 'action' ? 'failAction' : k, m));
@@ -203,7 +204,7 @@ const byId = (id) => orders.find((x) => String(x.id) === String(id));
 /* ---------- modal plumbing ---------- */
 function openModal(el) { opener = document.activeElement; el.hidden = false; document.body.style.overflow = 'hidden'; const f = el.querySelector('input:not([type=checkbox]),select,textarea,button.btn-primary,button'); if (f) setTimeout(() => f.focus(), 30); }
 function closeModal(el) { el.hidden = true; el.innerHTML = ''; if ($('coDetail').hidden && $('coAction').hidden) document.body.style.overflow = ''; if (opener && document.contains(opener)) opener.focus(); }
-function closeAction() { chosen = null; target = ''; payFor = null; payDraft = null; closeModal($('coAction')); }
+function closeAction(force = false) { if (!force && (busy || failReq)) return; chosen = null; target = ''; payFor = null; payDraft = null; closeModal($('coAction')); }
 document.addEventListener('keydown', (e) => { if (e.key !== 'Escape') return; if (!$('coAction').hidden) closeAction(); else if (!$('coDetail').hidden) closeModal($('coDetail')); });
 ['coDetail', 'coAction'].forEach((id) => $(id).addEventListener('mousedown', (e) => { if (e.target === $(id)) (id === 'coAction' ? closeAction() : closeModal($(id))); }));
 
@@ -240,11 +241,13 @@ function detailHtml(o) {
     <div class="co-actions"><button type="button" class="btn-secondary" data-slip="${esc(o.id)}">Print slip</button><button type="button" class="btn-secondary" data-close-detail>Close</button>${failButton(o)}${payButton(o)}${actionButton(o)}</div></div>`;
 }
 function openDetail(o) {
+  if (busy || failReq) return;
   $('coDetail').innerHTML = detailHtml(o); openModal($('coDetail'));
   /* §4: the counter reads total / received / outstanding from one place — the ledger, not this page's arithmetic. */
+  const box = $('coLedger');
   request('/pos/payment-ledger/order/' + encodeURIComponent(o.id))
-    .then((l) => { const box = $('coLedger'); if (box) box.innerHTML = ledgerHtml(l); })
-    .catch(() => { const box = $('coLedger'); if (box) box.innerHTML = '<p class="faint">The payment ledger could not be read.</p>'; });
+    .then((l) => { if (box && box.isConnected) box.innerHTML = ledgerHtml(l); })
+    .catch(() => { if (box && box.isConnected) box.innerHTML = '<p class="faint">The payment ledger could not be read.</p>'; });
 }
 function ledgerHtml(l) {
   const rows = (l.payments || []).map((p) => `<tr><td>${esc(when(p.at))}</td><td>${esc(p.receivedBy || 'System')}</td><td>${esc(p.method)}</td>
@@ -322,7 +325,8 @@ const termsLine = (o) => (o.terms && o.terms.key !== 'full'
   ? `${esc(o.terms.key === 'custom' ? 'Custom partial payment' : o.terms.key === 'half' ? 'Half Payment' : 'Down Payment')} \u2014 ${peso(o.terms.amount)} (${o.terms.percent}%) now, ${esc(o.terms.condition || 'balance due before release')}`
   : 'Full Payment \u2014 the whole amount before the goods are released');
 
-async function openPay(o) {
+async function openPay(o, force = false) {
+  if (!force && (busy || failReq)) return;
   payFor = o; payDraft = null; payReceipt = null; shiftOpen = null;
   payReq = 'pos-' + String(o.id).replace(/[^A-Za-z0-9]/g, '') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
   const due = Number(o.dueNow != null ? o.dueNow : dueOf(o));
@@ -343,8 +347,11 @@ async function openPay(o) {
     <div class="co-actions"><button type="button" class="btn-secondary" id="coCancel">Cancel</button><button type="submit" class="btn-primary" id="coSubmit">Review payment</button></div></form>`;
   openModal($('coAction'));
   syncPayMethod();
-  try { shiftOpen = !!(await request('/pos/cash-shifts/current')); } catch { shiftOpen = null; }
-  syncShiftWarn();
+  const sheet = $('coPayForm');
+  let open = null;
+  try { open = !!(await request('/pos/cash-shifts/current')); } catch { /* unknown until retried */ }
+  if (!sheet.isConnected) return;
+  shiftOpen = open; syncShiftWarn();
 }
 function syncPayMethod() {
   const m = $('co_method') ? $('co_method').value : 'Cash';
@@ -420,7 +427,7 @@ function receiptSheet(r, o) {
       <button type="button" class="btn-secondary" id="coPayAgain">Another payment</button><button type="button" class="btn-primary" id="coDone">Done</button></div></div>`;
 }
 async function submitPay() {
-  if (busy || !payFor) return;
+  if (busy || failReq || !payFor) return;
   const o = payFor;
   if (!payDraft) { payDraft = collectPay(); if (!payDraft) { const f = document.querySelector('#coAction .co-fld.bad input,#coAction .co-fld.bad select'); if (f) f.focus(); return; } reviewPay(payDraft); return; }
   const btn = $('coSubmit'); busy = true; btn.disabled = true; btn.textContent = 'Saving\u2026';
@@ -439,7 +446,7 @@ async function submitPay() {
     if (btn.isConnected) { btn.disabled = false; btn.textContent = 'Confirm payment'; if ($('coPayBack')) $('coPayBack').disabled = false; }
     await load(true);                                          // the balance may have moved somewhere else: show the truth
     const fresh = byId(o.id);
-    if (fresh && (dueOf(fresh) !== dueOf(o) || fresh.paymentState !== o.paymentState)) { payDraft = null; openPay(fresh); message(o.id + ': the balance changed to ' + peso(dueOf(fresh)) + ' while you were working.', true); }
+    if (fresh && (dueOf(fresh) !== dueOf(o) || fresh.paymentState !== o.paymentState)) { payDraft = null; openPay(fresh, true); message(o.id + ': the balance changed to ' + peso(dueOf(fresh)) + ' while you were working.', true); }
   } finally { busy = false; }
 }
 
@@ -506,6 +513,7 @@ function actionBody(o, t) {
 }
 let actReq = '';
 async function openAction(o) {
+  if (busy || failReq) return;
   chosen = o; target = o.next; shiftOpen = null; actReq = '';
   const t = target;
   $('coAction').innerHTML = `<form class="co-sheet" id="coForm" novalidate>
@@ -514,7 +522,11 @@ async function openAction(o) {
     <div class="co-actions"><button type="button" class="btn-secondary" id="coCancel">Cancel</button><button type="submit" class="btn-primary" id="coSubmit">${esc(ACTION[t] || 'Confirm')}</button></div></form>`;
   openModal($('coAction'));
   if (FINAL.includes(t) && o.cashOnHandover) {          // cash must land in an open Cash Shift
-    try { shiftOpen = !!(await request('/pos/cash-shifts/current')); } catch { shiftOpen = null; }
+    const sheet = $('coForm');
+    let open = null;
+    try { open = !!(await request('/pos/cash-shifts/current')); } catch { /* unknown until retried */ }
+    if (!sheet.isConnected) return;
+    shiftOpen = open;
     if (shiftOpen === false && $('coShiftWarn')) {
       $('coShiftWarn').innerHTML = '<div class="co-flag bad" style="margin-top:10px">You have no open Cash Shift. Open one first so this cash is counted in your drawer. <button type="button" class="btn-secondary" id="coGoShift" style="margin-top:6px">Open Cash Shift</button></div>';
       $('coSubmit').disabled = true;
@@ -560,7 +572,7 @@ function collect() {                    // reads + validates the form; returns t
   return ok ? body : null;
 }
 async function submit(e) {
-  e.preventDefault(); if (busy || !chosen) return;
+  e.preventDefault(); if (busy || failReq || !chosen) return;
   const body = collect(); if (!body) { const first = document.querySelector('#coAction .co-fld.bad input,#coAction .co-fld.bad select'); if (first) first.focus(); return; }
   const o = chosen, t = target, btn = $('coSubmit'); busy = true; btn.disabled = true; btn.textContent = 'Saving\u2026';
   if (body.cashReceived != null) body.requestId = actReq || (actReq = 'pos-' + String(o.id).replace(/[^A-Za-z0-9]/g, '') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8));
@@ -576,19 +588,19 @@ async function submit(e) {
       payReceipt = Object.assign({ order: o }, res);
       render(); return;
     }
-    closeAction(); message('', false); say(o.id + ': ' + (t === 'Paid' ? 'order confirmed' : t === 'Picked Up' ? 'released to the customer' : t === 'Delivered' ? 'marked delivered' : 'marked ' + t.toLowerCase()) + '.');
+    closeAction(true); message('', false); say(o.id + ': ' + (t === 'Paid' ? 'order confirmed' : t === 'Picked Up' ? 'released to the customer' : t === 'Delivered' ? 'marked delivered' : 'marked ' + t.toLowerCase()) + '.');
   } catch (err) {
     const names = Object.keys(err.fields || {});
     if (names.length) names.forEach((n) => setErr(n, err.fields[n])); else $('coActErr').textContent = err.message;
     if (err.fields && err.fields.status === undefined && !names.length) { /* plain error already shown */ }
     await load(true);                                                      // someone else may have changed the order: show the truth
     const fresh = byId(o.id);
-    if (fresh && fresh.status !== o.status) { closeAction(); message(o.id + ' changed in the meantime: ' + err.message, true); }
+    if (fresh && fresh.status !== o.status) { closeAction(true); message(o.id + ' changed in the meantime: ' + err.message, true); }
     else if (btn.isConnected) { btn.disabled = shiftOpen === false; btn.textContent = ACTION[t] || 'Confirm'; }
   } finally { busy = false; if ($('coSubmit') && !$('coSubmit').disabled) $('coSubmit').textContent = ACTION[target] || 'Confirm'; }
 }
 async function checkPayment(id, btn) {
-  if (busy) return; busy = true; const old = btn.textContent; btn.disabled = true; btn.textContent = 'Checking\u2026';
+  if (busy || failReq) return; busy = true; const old = btn.textContent; btn.disabled = true; btn.textContent = 'Checking\u2026';
   try {
     const r = await request('/orders/' + encodeURIComponent(id) + '/check-payment', { method: 'POST', body: '{}' });
     await load(true);
@@ -600,7 +612,7 @@ async function checkPayment(id, btn) {
 /* ---------- events ---------- */
 $('coTabs').addEventListener('click', (e) => { const b = e.target.closest('[data-tab]'); if (b) { tab = b.dataset.tab; render(); } });
 document.addEventListener('click', (e) => {
-  const t = e.target; if (!t.closest) return;
+  const t = e.target; if (!t.closest || ((busy || failReq) && t.closest('#coAction'))) return;
   const detail = t.closest('[data-detail]'), act = t.closest('[data-act]'), chk = t.closest('[data-check]'), slip = t.closest('[data-slip]'), cash = t.closest('[data-cash]'), pay = t.closest('[data-pay]'), amt = t.closest('[data-amt]');
   if (detail && $('coList').contains(detail)) { const o = byId(detail.dataset.detail); if (o) openDetail(o); }
   else if (act && (act.closest('#coList') || act.closest('#coDetail'))) { const o = byId(act.dataset.act); if (o) { closeModal($('coDetail')); openAction(o); } }
@@ -635,5 +647,5 @@ $('coSearch').addEventListener('input', render); $('coFilter').addEventListener(
 
 window.cashierOrdersLoad = () => load(false);
 load(true);                                                                // fills the "To confirm" badge in the menu right away
-setInterval(() => { if (!document.hidden && $('coDetail').hidden && $('coAction').hidden && !busy) load(true); }, 45000);
+setInterval(() => { if (!document.hidden && $('coDetail').hidden && $('coAction').hidden && !busy && !failReq) load(true); }, 45000);
 })();
